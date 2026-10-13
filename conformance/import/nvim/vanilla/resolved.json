@@ -43,7 +43,7 @@
   "log_into_drawer": true,
   "log_repeat": "note",
   "lowest_priority": "D",
-  "org_version": "0.7.5",
+  "org_version": "999.0.0",
   "persistent_tags": [
     "important"
   ],

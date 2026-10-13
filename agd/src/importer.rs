@@ -304,13 +304,10 @@ fn verify_snapshot(
                 })
                 .map(|entries| normalize_csv(&agenda_csv(&entries))),
             "todo" | "tags-todo" => {
-                let expression = command.match_expression.as_deref().and_then(|value| {
-                    if command.kind == "todo" && !value.contains('/') {
-                        None
-                    } else {
-                        Some(value)
-                    }
-                });
+                let expression = command
+                    .match_expression
+                    .as_deref()
+                    .filter(|value| command.kind != "todo" || value.contains('/'));
                 engine.todo(expression).map(|items| {
                     let csv = items
                         .iter()

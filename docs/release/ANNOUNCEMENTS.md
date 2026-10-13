@@ -81,11 +81,12 @@ TUI, deterministic JSON/CSV commands, and guarded local writes. It watches for
 external edits and opens selected headings with direct Neovim argv rather than
 embedding an editor.
 
-The explicit `agd import nvim --profile ... --verify` probe targets
-nvim-orgmode 0.7.5 on Neovim 0.12. It imports agenda files, TODO keywords, tags,
-priorities, and declarative captures into a versioned cold snapshot. Lua
-callbacks stay disabled and visible in the report. The setup-not-called case is
-a hard error instead of guessed defaults.
+The explicit `agd import nvim --profile ... --verify` probe runs against the
+installed nvim-orgmode version on Neovim 0.12. It imports agenda files, TODO
+keywords, tags, priorities, and declarative captures into a versioned cold
+snapshot. Missing or incompatible runtime capabilities fail the import loudly.
+Lua callbacks stay disabled and visible in the report. The setup-not-called
+case is a hard error instead of guessed defaults.
 
 I would especially welcome small fixtures for nvim-orgmode configuration shapes
 that the probe should classify more accurately.

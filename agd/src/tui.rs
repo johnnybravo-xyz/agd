@@ -453,10 +453,7 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
             app.overlay = Overlay::None;
         }
         Overlay::Capture {
-            template,
-            input,
-            preview: _,
-            ..
+            template, input, ..
         } => match key.code {
             KeyCode::Esc => app.overlay = Overlay::None,
             KeyCode::Backspace => {

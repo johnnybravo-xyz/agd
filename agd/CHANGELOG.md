@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Keep the selected task in view when cycling its TODO state, including when
   the updated state reorders agenda rows.
+- Probe the installed nvim-orgmode version by capability instead of rejecting
+  every release except 0.7.5.
 
 ### Changed
 

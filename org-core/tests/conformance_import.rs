@@ -57,11 +57,11 @@ fn emacs_fixtures_preserve_resolved_ordering_and_disabled_entries() {
 }
 
 #[test]
-fn neovim_fixture_maps_to_the_shared_snapshot_schema() {
+fn neovim_fixture_accepts_installed_plugin_version() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../conformance/import/nvim/vanilla");
     let snapshot = normalize_fixture(&root, "nvim");
     assert_eq!(snapshot.schema, NVIM_IMPORT_SCHEMA);
-    assert_eq!(snapshot.metadata.org_version, "0.7.5");
+    assert_eq!(snapshot.metadata.org_version, "999.0.0");
     assert_eq!(snapshot.settings.agenda.deadline_warning_days, 6);
     assert_eq!(snapshot.settings.agenda.week_start, "sunday");
     assert!(!snapshot.settings.capture["x"].enabled);

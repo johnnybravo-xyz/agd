@@ -61,7 +61,7 @@ ranges. Symlink writes remain intentionally unsupported.
 | Emacs/Org | Agenda files inside approved roots; TODO sequences; tags; priority bounds; warning and skip settings; sorting; logging; literal capture templates | Editor display-only settings are normalized to native fields | Hooks, advice, function targets, arbitrary Lisp, `%(sexp)`, diary sexps, faces, themes |
 | org-super-agenda | Declarative tag, priority, TODO, scheduled, deadline, time-grid, category, `and`, and `not` entries are retained in the snapshot | Retained as portable group records; the native agenda does not execute the package | Arbitrary predicates and executable forms |
 | Custom Emacs agenda commands | Agenda/TODO/tags/tags-todo/search and block metadata are retained when declarative | Retained as portable command records for inspection | Arbitrary skip lambdas and executable command forms |
-| nvim-orgmode 0.7.5 | Agenda files, TODO keywords, tags, priorities, and declarative capture templates exposed by the probe | Org/Emacs-only settings use native defaults and are reported as differences | Lua callbacks, functions, or a profile where orgmode setup was not called |
+| Installed nvim-orgmode | Agenda files, TODO keywords, tags, priorities, and declarative capture templates exposed by the running plugin | Org/Emacs-only settings use native defaults and are reported as differences | Lua callbacks, functions, a profile where setup was not called, or a plugin version missing the required runtime capabilities |
 
 Every imported entry receives `exact`, `difference`, or `unsupported` status in
 `--verify` output. Unsupported entries remain visible in the snapshot and
@@ -73,7 +73,9 @@ report; they are not silently dropped or executed.
 - A selected Emacs daemon through `emacsclient`; no daemon is chosen
   implicitly.
 - Explicit Doom/alternate Emacs argv profile.
-- Neovim 0.12 with nvim-orgmode 0.7.5 through a fixed headless Lua probe.
+- Neovim 0.12 with nvim-orgmode 0.7.5 as the reproducible conformance oracle;
+  installed plugin versions are accepted when their required runtime
+  capabilities load and return supported values.
 - Explicit alternate Neovim command/argv profiles.
 - Setup-not-called and out-of-root failure fixtures.
 

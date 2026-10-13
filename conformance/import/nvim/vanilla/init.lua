@@ -32,7 +32,7 @@ local files = {}
 function files:load_sync() return self end
 function files:filenames() return opts.org_agenda_files end
 local module = {
-  version = '0.7.5',
+  version = '999.0.0',
   is_setup_called = function() return true end,
   instance = function() return { files = files } end,
 }

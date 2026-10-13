@@ -27,29 +27,35 @@ end
 if type(instance.files.load_sync) ~= "function" then
   fail("nvim-orgmode files:load_sync capability is unavailable")
 end
-local loaded = instance.files:load_sync(true, 5000)
+local ok_loaded, loaded = pcall(instance.files.load_sync, instance.files, true, 5000)
+if not ok_loaded then
+  fail("nvim-orgmode file loading failed: " .. tostring(loaded))
+end
 if type(loaded) ~= "table" or type(loaded.filenames) ~= "function" then
   fail("nvim-orgmode resolved filenames capability is unavailable")
 end
+local ok_filenames, filenames = pcall(loaded.filenames, loaded)
+if not ok_filenames then
+  fail("nvim-orgmode filename resolution failed: " .. tostring(filenames))
+end
+if type(filenames) ~= "table" then
+  fail("nvim-orgmode filename resolution returned an unsupported value")
+end
 
 local org_version = orgmode.version or opts.version
-if org_version ~= nil and tostring(org_version) ~= "0.7.5" then
-  fail("nvim-orgmode version " .. tostring(org_version) .. " is unsupported; expected 0.7.5")
-end
 if org_version == nil then
   local module_path = package.searchpath("orgmode", package.path)
     or vim.api.nvim_get_runtime_file("lua/orgmode/init.lua", false)[1]
   local root = module_path and module_path:gsub("/lua/orgmode/init%.lua$", "") or nil
-  if root == nil or root == module_path or type(vim.system) ~= "function" then
-    fail("cannot determine the nvim-orgmode 0.7.5 root and commit")
+  if root ~= nil and root ~= module_path and type(vim.system) == "function" then
+    local result = vim.system({ "git", "-C", root, "rev-parse", "HEAD" }, { text = true }):wait()
+    local commit = result.code == 0 and vim.trim(result.stdout or "") or ""
+    if commit ~= "" then
+      org_version = "git@" .. commit
+    end
   end
-  local result = vim.system({ "git", "-C", root, "rev-parse", "HEAD" }, { text = true }):wait()
-  local commit = result.code == 0 and vim.trim(result.stdout or "") or ""
-  if commit ~= "359538284a21c1edac20cb8a0b6b772ca098098e" then
-    fail("nvim-orgmode commit " .. commit .. " is unsupported; expected release 0.7.5")
-  end
-  org_version = "0.7.5@" .. commit
 end
+org_version = org_version or "unknown"
 
 local function strings(values)
   local result = {}
@@ -124,7 +130,7 @@ local output = {
   editor_version = string.format("%d.%d.%d", version.major, version.minor, version.patch),
   org_version = tostring(org_version),
   source = vim.env.AGENDUM_IMPORT_SOURCE or "profile",
-  agenda_files = strings(loaded:filenames()),
+  agenda_files = strings(filenames),
   todo_sequences = todo_sequences(opts.org_todo_keywords),
   tag_alist = strings(opts.org_tag_alist),
   persistent_tags = strings(opts.org_tag_persistent_alist),
