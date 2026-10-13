@@ -1,16 +1,16 @@
-pub mod check;
 pub mod agenda_engine;
+pub mod check;
 pub mod config;
 pub mod date;
 pub mod document;
 pub mod error;
-pub mod model;
 pub mod imports;
+pub mod model;
 pub mod org_mode;
 pub mod paths;
 pub mod settings;
-pub mod write;
 pub mod utils;
+pub mod write;
 
 #[cfg(test)]
 mod error_tests;
@@ -47,8 +47,7 @@ pub use settings::{
     AgendaSettings, AgentProfile, AgentSettings, CaptureTemplate, CommandProfile,
     EMACS_IMPORT_SCHEMA, EditorImportSettings, EditorSettings, FilesSettings, IdPolicy,
     ImportSettings, LoadedSettings, NVIM_IMPORT_SCHEMA, Settings, TagsSettings, TodoSettings,
-    TriageSettings, load_settings,
-    resolve_config_path,
+    TriageSettings, load_settings, resolve_config_path,
 };
 pub use write::{
     Change, EditIntent, JournalRecord, JournalStatus, Patch, RefileResult, StoredPatch, UndoResult,

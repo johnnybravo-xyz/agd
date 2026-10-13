@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 use chrono::{Datelike, Duration, Months, NaiveDate};
 
 use crate::{
-    AGENDA_ENTRY_SCHEMA, AgendaEntry, AgendumError, HeadlineSpan, Item, Occurrence,
-    OccurrenceType, PlanningTimestamp, WorkspaceIndex,
+    AGENDA_ENTRY_SCHEMA, AgendaEntry, AgendumError, HeadlineSpan, Item, Occurrence, OccurrenceType,
+    PlanningTimestamp, WorkspaceIndex,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -299,7 +299,10 @@ impl TagTodoMatcher {
                 cursor += 1;
             }
             if start == cursor {
-                return Err(AgendumError::new("invalid_match", format!("empty tag in '{input}'")));
+                return Err(AgendumError::new(
+                    "invalid_match",
+                    format!("empty tag in '{input}'"),
+                ));
             }
             let tag = &tags[start..cursor];
             if sign == '+' {
@@ -327,8 +330,13 @@ impl TagTodoMatcher {
             .chain(&item.inherited_tags)
             .map(String::as_str)
             .collect();
-        self.include_tags.iter().all(|tag| tags.contains(tag.as_str()))
-            && self.exclude_tags.iter().all(|tag| !tags.contains(tag.as_str()))
+        self.include_tags
+            .iter()
+            .all(|tag| tags.contains(tag.as_str()))
+            && self
+                .exclude_tags
+                .iter()
+                .all(|tag| !tags.contains(tag.as_str()))
             && (self.todo.is_empty()
                 || item
                     .todo
@@ -358,18 +366,29 @@ impl QlExpr {
         let mut cursor = 0;
         let expression = parse_ql_expression(&tokens, &mut cursor)?;
         if cursor != tokens.len() {
-            return Err(AgendumError::new("invalid_query", "unexpected tokens after query"));
+            return Err(AgendumError::new(
+                "invalid_query",
+                "unexpected tokens after query",
+            ));
         }
         Ok(expression)
     }
 
     fn matches(&self, item: &Item, today: NaiveDate) -> bool {
         match self {
-            Self::And(expressions) => expressions.iter().all(|expression| expression.matches(item, today)),
-            Self::Or(expressions) => expressions.iter().any(|expression| expression.matches(item, today)),
+            Self::And(expressions) => expressions
+                .iter()
+                .all(|expression| expression.matches(item, today)),
+            Self::Or(expressions) => expressions
+                .iter()
+                .any(|expression| expression.matches(item, today)),
             Self::Not(expression) => !expression.matches(item, today),
             Self::Todo(todo) => item.todo.as_ref() == Some(todo),
-            Self::Tags(tag) => item.tags.iter().chain(&item.inherited_tags).any(|value| value == tag),
+            Self::Tags(tag) => item
+                .tags
+                .iter()
+                .chain(&item.inherited_tags)
+                .any(|value| value == tag),
             Self::Priority(priority) => item.priority.as_ref() == Some(priority),
             Self::Category(category) => item.category == *category,
             Self::Text(text) => item.title.to_lowercase().contains(&text.to_lowercase()),
@@ -454,9 +473,16 @@ fn parse_ql_expression(tokens: &[Token], cursor: &mut usize) -> Result<QlExpr, A
                 children.push(parse_ql_expression(tokens, cursor)?);
             }
             if children.is_empty() {
-                return Err(AgendumError::new("invalid_query", format!("{operator} needs operands")));
+                return Err(AgendumError::new(
+                    "invalid_query",
+                    format!("{operator} needs operands"),
+                ));
             }
-            if operator == "and" { QlExpr::And(children) } else { QlExpr::Or(children) }
+            if operator == "and" {
+                QlExpr::And(children)
+            } else {
+                QlExpr::Or(children)
+            }
         }
         "not" => QlExpr::Not(Box::new(parse_ql_expression(tokens, cursor)?)),
         "todo" => QlExpr::Todo(string_value(tokens, cursor)?),
@@ -468,14 +494,26 @@ fn parse_ql_expression(tokens: &[Token], cursor: &mut usize) -> Result<QlExpr, A
         "deadline" | "scheduled" => {
             let keyword = word(tokens, cursor)?;
             if keyword != ":to" {
-                return Err(AgendumError::new("invalid_query", format!("{operator} supports only :to")));
+                return Err(AgendumError::new(
+                    "invalid_query",
+                    format!("{operator} supports only :to"),
+                ));
             }
             let days = word(tokens, cursor)?.parse::<i64>().map_err(|_| {
                 AgendumError::new("invalid_query", format!("{operator} :to needs an integer"))
             })?;
-            if operator == "deadline" { QlExpr::Deadline(days) } else { QlExpr::Scheduled(days) }
+            if operator == "deadline" {
+                QlExpr::Deadline(days)
+            } else {
+                QlExpr::Scheduled(days)
+            }
         }
-        _ => return Err(AgendumError::new("invalid_query", format!("unsupported selector: {operator}"))),
+        _ => {
+            return Err(AgendumError::new(
+                "invalid_query",
+                format!("unsupported selector: {operator}"),
+            ));
+        }
     };
     expect(tokens, cursor, Token::Close)?;
     Ok(expression)
@@ -486,7 +524,10 @@ fn expect(tokens: &[Token], cursor: &mut usize, expected: Token) -> Result<(), A
         *cursor += 1;
         Ok(())
     } else {
-        Err(AgendumError::new("invalid_query", format!("expected {expected:?}")))
+        Err(AgendumError::new(
+            "invalid_query",
+            format!("expected {expected:?}"),
+        ))
     }
 }
 
@@ -506,7 +547,10 @@ fn string_value(tokens: &[Token], cursor: &mut usize) -> Result<String, AgendumE
             *cursor += 1;
             Ok(value.clone())
         }
-        _ => Err(AgendumError::new("invalid_query", "expected a quoted string")),
+        _ => Err(AgendumError::new(
+            "invalid_query",
+            "expected a quoted string",
+        )),
     }
 }
 
@@ -567,10 +611,16 @@ fn repeated_dates(
 ) -> Result<Vec<NaiveDate>, AgendumError> {
     let mut date = parse_date(&timestamp.date)?;
     if done {
-        return Ok((date >= from && date <= to).then_some(date).into_iter().collect());
+        return Ok((date >= from && date <= to)
+            .then_some(date)
+            .into_iter()
+            .collect());
     }
     let Some(repeater) = timestamp.repeater.as_deref() else {
-        return Ok((date >= from && date <= to).then_some(date).into_iter().collect());
+        return Ok((date >= from && date <= to)
+            .then_some(date)
+            .into_iter()
+            .collect());
     };
     let (_, amount, unit) = parse_repeater(repeater)?;
     while date < from {
@@ -611,7 +661,10 @@ fn parse_repeater(input: &str) -> Result<(&str, u64, char), AgendumError> {
     } else if let Some(value) = input.strip_prefix('+') {
         ("+", value)
     } else {
-        return Err(AgendumError::new("invalid_repeater", format!("invalid repeater: {input}")));
+        return Err(AgendumError::new(
+            "invalid_repeater",
+            format!("invalid repeater: {input}"),
+        ));
     };
     let unit = value.chars().next_back().ok_or_else(|| {
         AgendumError::new("invalid_repeater", format!("invalid repeater: {input}"))
@@ -620,7 +673,10 @@ fn parse_repeater(input: &str) -> Result<(&str, u64, char), AgendumError> {
         .parse::<u64>()
         .map_err(|_| AgendumError::new("invalid_repeater", format!("invalid repeater: {input}")))?;
     if amount == 0 {
-        return Err(AgendumError::new("invalid_repeater", "repeater interval must be positive"));
+        return Err(AgendumError::new(
+            "invalid_repeater",
+            "repeater interval must be positive",
+        ));
     }
     Ok((kind, amount, unit))
 }
@@ -657,7 +713,9 @@ fn compare_entries(left: &AgendaEntry, right: &AgendaEntry) -> Ordering {
         .cmp(&right.occurrence.date)
         .then_with(|| compare_optional_time(&left.occurrence.time, &right.occurrence.time))
         .then_with(|| compare_priority(&left.item.priority, &right.item.priority))
-        .then_with(|| occurrence_rank(left.occurrence.kind).cmp(&occurrence_rank(right.occurrence.kind)))
+        .then_with(|| {
+            occurrence_rank(left.occurrence.kind).cmp(&occurrence_rank(right.occurrence.kind))
+        })
         .then_with(|| left.item.category.cmp(&right.item.category))
         .then_with(|| left.item.title.cmp(&right.item.title))
         .then_with(|| left.item.file.cmp(&right.item.file))
@@ -747,9 +805,11 @@ mod tests {
                 match_expression: Some("+work/TODO".to_string()),
             })
             .unwrap();
-        assert!(entries.iter().any(|entry| {
-            entry.occurrence.kind == OccurrenceType::PastScheduled
-        }));
+        assert!(
+            entries
+                .iter()
+                .any(|entry| { entry.occurrence.kind == OccurrenceType::PastScheduled })
+        );
         assert_eq!(
             entries
                 .iter()
@@ -790,8 +850,7 @@ mod tests {
 
     #[test]
     fn csv_uses_emacs_occurrence_vocabulary() {
-        let (_temp, index) =
-            fixture("* TODO Call, bank\nSCHEDULED: <2026-10-13 Tue 10:00>\n");
+        let (_temp, index) = fixture("* TODO Call, bank\nSCHEDULED: <2026-10-13 Tue 10:00>\n");
         let entries = AgendaEngine::new(&index)
             .agenda(&AgendaQuery {
                 from: NaiveDate::from_ymd_opt(2026, 10, 13).unwrap(),

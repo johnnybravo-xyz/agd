@@ -37,7 +37,10 @@ fn case_directories(root: &Path) -> Vec<PathBuf> {
 fn native_agenda_matches_pinned_emacs_rows() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../conformance/agenda");
     let cases = case_directories(&root);
-    assert!(!cases.is_empty(), "agenda conformance cases must not be empty");
+    assert!(
+        !cases.is_empty(),
+        "agenda conformance cases must not be empty"
+    );
 
     for directory in cases {
         let case: Case = toml::from_str(

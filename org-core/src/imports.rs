@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AgendumError, CaptureTemplate, RootSet, Settings, EMACS_IMPORT_SCHEMA, NVIM_IMPORT_SCHEMA,
+    AgendumError, CaptureTemplate, EMACS_IMPORT_SCHEMA, NVIM_IMPORT_SCHEMA, RootSet, Settings,
 };
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -150,8 +150,7 @@ impl ImportSnapshot {
         settings.agenda.highest_priority = resolved.highest_priority.clone();
         settings.agenda.lowest_priority = resolved.lowest_priority.clone();
         settings.agenda.default_priority = resolved.default_priority.clone();
-        settings.agenda.tag_inheritance_exclusions =
-            resolved.tag_inheritance_exclusions.clone();
+        settings.agenda.tag_inheritance_exclusions = resolved.tag_inheritance_exclusions.clone();
         settings.agenda.log_done = resolved.log_done.clone();
         settings.agenda.log_repeat = resolved.log_repeat.clone();
         settings.agenda.log_into_drawer = resolved.log_into_drawer;
@@ -289,7 +288,11 @@ mod tests {
                 inside.to_string_lossy().into_owned(),
                 "/unapproved/private.org".to_string(),
             ],
-            todo_sequences: vec![vec!["TODO".to_string(), "|".to_string(), "DONE".to_string()]],
+            todo_sequences: vec![vec![
+                "TODO".to_string(),
+                "|".to_string(),
+                "DONE".to_string(),
+            ]],
             tag_alist: vec!["work".to_string()],
             persistent_tags: Vec::new(),
             tag_inheritance_exclusions: Vec::new(),
@@ -312,6 +315,7 @@ mod tests {
             groups: Vec::new(),
             commands: Vec::new(),
             diagnostics: Vec::new(),
+            verification: BTreeMap::new(),
         };
         let snapshot = ImportSnapshot::from_resolved(resolved, &approved, "test").unwrap();
         assert_eq!(snapshot.settings.files.agenda.len(), 1);

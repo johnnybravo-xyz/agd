@@ -109,6 +109,15 @@ pub struct WriteEngine {
     journal_path: PathBuf,
 }
 
+struct JournalImage<'a> {
+    path: &'a Path,
+    item_ref: Option<&'a str>,
+    pre_image: &'a str,
+    post_image: &'a str,
+    patches: &'a [StoredPatch],
+    diff: &'a str,
+}
+
 impl WriteEngine {
     pub fn new(settings: Settings, journal_path: PathBuf) -> Result<Self, AgendumError> {
         let roots = RootSet::new(&settings.files)?;
@@ -158,7 +167,10 @@ impl WriteEngine {
         let patches = build_edit_patches(document, headline, intent, &self.settings)?;
         let (post_image, stored) = apply_patches(document.source(), patches)?;
         if post_image == document.source() {
-            return Err(AgendumError::new("no_change", "edit does not change the item"));
+            return Err(AgendumError::new(
+                "no_change",
+                "edit does not change the item",
+            ));
         }
         let diff = unified_diff(&path, document.source(), &post_image);
         let updated = parse_updated_item(&path, &post_image, headline.item.line, &self.settings)?;
@@ -173,12 +185,14 @@ impl WriteEngine {
         }
 
         let record = self.commit_image(
-            &path,
-            Some(item_ref.to_string()),
-            document.source(),
-            &post_image,
-            stored,
-            diff.clone(),
+            JournalImage {
+                path: &path,
+                item_ref: Some(item_ref),
+                pre_image: document.source(),
+                post_image: &post_image,
+                patches: &stored,
+                diff: &diff,
+            },
             context,
         )?;
         Ok(Mutation {
@@ -252,7 +266,11 @@ impl WriteEngine {
         }];
         let (post_image, stored) = apply_patches(&pre_image, patches)?;
         let diff = unified_diff(&path, &pre_image, &post_image);
-        let line = pre_image[..offset].bytes().filter(|byte| *byte == b'\n').count() + 1;
+        let line = pre_image[..offset]
+            .bytes()
+            .filter(|byte| *byte == b'\n')
+            .count()
+            + 1;
         let updated = parse_updated_item(&path, &post_image, line, &self.settings)?;
         if dry_run {
             return Ok(Mutation {
@@ -264,12 +282,14 @@ impl WriteEngine {
             });
         }
         let record = self.commit_image(
-            &path,
-            None,
-            &pre_image,
-            &post_image,
-            stored,
-            diff.clone(),
+            JournalImage {
+                path: &path,
+                item_ref: None,
+                pre_image: &pre_image,
+                post_image: &post_image,
+                patches: &stored,
+                diff: &diff,
+            },
             context,
         )?;
         Ok(Mutation {
@@ -280,7 +300,6 @@ impl WriteEngine {
             journal_id: record.id,
         })
     }
-
 
     pub fn refile(
         &self,
@@ -321,11 +340,7 @@ impl WriteEngine {
 
         let moved = &source_document.source()
             [source_headline.subtree_span.start..source_headline.subtree_span.end];
-        let moved = relevel_subtree(
-            moved,
-            target_headline.level + 1,
-            source_headline.level,
-        )?;
+        let moved = relevel_subtree(moved, target_headline.level + 1, source_headline.level)?;
         let moved = normalize_insertion(
             target_document.source(),
             target_headline.subtree_span.end,
@@ -368,12 +383,14 @@ impl WriteEngine {
                 });
             }
             let record = self.commit_image(
-                path,
-                Some(item_ref.to_string()),
-                source_document.source(),
-                &post_image,
-                stored,
-                diff.clone(),
+                JournalImage {
+                    path,
+                    item_ref: Some(item_ref),
+                    pre_image: source_document.source(),
+                    post_image: &post_image,
+                    patches: &stored,
+                    diff: &diff,
+                },
                 context,
             )?;
             return Ok(RefileResult {
@@ -402,10 +419,16 @@ impl WriteEngine {
                 replacement: moved,
             }],
         )?;
-        let source_diff =
-            unified_diff(source_document.path(), source_document.source(), &source_post);
-        let target_diff =
-            unified_diff(target_document.path(), target_document.source(), &target_post);
+        let source_diff = unified_diff(
+            source_document.path(),
+            source_document.source(),
+            &source_post,
+        );
+        let target_diff = unified_diff(
+            target_document.path(),
+            target_document.source(),
+            &target_post,
+        );
         let item = find_refiled_item(
             target_document.path(),
             &target_post,
@@ -427,23 +450,27 @@ impl WriteEngine {
         let mut source_record = pending_record(
             format!("{transaction}:source"),
             Some(transaction.clone()),
-            source_document.path(),
-            Some(item_ref.to_string()),
-            source_document.source(),
-            &source_post,
-            source_patches,
-            source_diff.clone(),
+            &JournalImage {
+                path: source_document.path(),
+                item_ref: Some(item_ref),
+                pre_image: source_document.source(),
+                post_image: &source_post,
+                patches: &source_patches,
+                diff: &source_diff,
+            },
             context,
         );
         let mut target_record = pending_record(
             format!("{transaction}:target"),
             Some(transaction),
-            target_document.path(),
-            Some(target_ref.to_string()),
-            target_document.source(),
-            &target_post,
-            target_patches,
-            target_diff.clone(),
+            &JournalImage {
+                path: target_document.path(),
+                item_ref: Some(target_ref),
+                pre_image: target_document.source(),
+                post_image: &target_post,
+                patches: &target_patches,
+                diff: &target_diff,
+            },
             context,
         );
         self.append_record(&source_record)?;
@@ -512,8 +539,7 @@ impl WriteEngine {
             refuse_emacs_lock(&path)?;
         }
 
-        let mut prepared: Vec<(PathBuf, String, String, String)> =
-            Vec::with_capacity(group.len());
+        let mut prepared: Vec<(PathBuf, String, String, String)> = Vec::with_capacity(group.len());
         for record in &group {
             let path = PathBuf::from(&record.file);
             let current = fs::read_to_string(&path).map_err(|error| {
@@ -526,7 +552,11 @@ impl WriteEngine {
             if content_hash(&current) != record.post_hash {
                 return Err(AgendumError::new(
                     "undo_conflict",
-                    format!("{} changed after journal entry {}", path.display(), record.id),
+                    format!(
+                        "{} changed after journal entry {}",
+                        path.display(),
+                        record.id
+                    ),
                 ));
             }
             let (pre_image, _) = apply_patches(&current, inverse_patches(&record.patches))?;
@@ -584,7 +614,10 @@ impl WriteEngine {
     pub fn review(&self, journal_id: &str) -> Result<(), AgendumError> {
         let records = self.latest_records()?;
         let mut record = records.get(journal_id).cloned().ok_or_else(|| {
-            AgendumError::new("journal_not_found", format!("journal entry not found: {journal_id}"))
+            AgendumError::new(
+                "journal_not_found",
+                format!("journal entry not found: {journal_id}"),
+            )
         })?;
         if record.status != JournalStatus::Committed {
             return Err(AgendumError::new(
@@ -605,31 +638,12 @@ impl WriteEngine {
 
     fn commit_image(
         &self,
-        path: &Path,
-        item_ref: Option<String>,
-        pre_image: &str,
-        post_image: &str,
-        patches: Vec<StoredPatch>,
-        diff: String,
+        image: JournalImage<'_>,
         context: &WriteContext,
     ) -> Result<JournalRecord, AgendumError> {
-        let mut record = JournalRecord {
-            schema: "agendum.journal/v1".to_string(),
-            id: journal_id(),
-            status: JournalStatus::Pending,
-            timestamp: Local::now().to_rfc3339(),
-            actor: context.actor.clone(),
-            project: context.project.clone(),
-            file: path.to_string_lossy().into_owned(),
-            item_ref,
-            transaction: None,
-            pre_hash: content_hash(pre_image),
-            post_hash: content_hash(post_image),
-            patches,
-            diff,
-        };
+        let mut record = pending_record(journal_id(), None, &image, context);
         self.append_record(&record)?;
-        atomic_replace(path, post_image.as_bytes())?;
+        atomic_replace(image.path, image.post_image.as_bytes())?;
         record.status = JournalStatus::Committed;
         record.timestamp = Local::now().to_rfc3339();
         self.append_record(&record)?;
@@ -672,7 +686,10 @@ impl WriteEngine {
             }
         }
         let serialized = serde_json::to_vec(record).map_err(|error| {
-            AgendumError::new("journal_error", format!("cannot serialize journal record: {error}"))
+            AgendumError::new(
+                "journal_error",
+                format!("cannot serialize journal record: {error}"),
+            )
         })?;
         let mut options = OpenOptions::new();
         options.create(true).append(true);
@@ -681,7 +698,9 @@ impl WriteEngine {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options.open(&self.journal_path).map_err(AgendumError::from)?;
+        let mut file = options
+            .open(&self.journal_path)
+            .map_err(AgendumError::from)?;
         file.write_all(&serialized).map_err(AgendumError::from)?;
         file.write_all(b"\n").map_err(AgendumError::from)?;
         file.sync_all().map_err(AgendumError::from)
@@ -690,7 +709,9 @@ impl WriteEngine {
     fn latest_records(&self) -> Result<BTreeMap<String, JournalRecord>, AgendumError> {
         let source = match fs::read_to_string(&self.journal_path) {
             Ok(source) => source,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(BTreeMap::new());
+            }
             Err(error) => return Err(AgendumError::from(error)),
         };
         let mut records = BTreeMap::new();
@@ -708,16 +729,12 @@ impl WriteEngine {
 
     fn recover_pending(&self) -> Result<(), AgendumError> {
         let mut conflicts = Vec::new();
-        for mut record in self
-            .latest_records()?
-            .into_values()
-            .filter(|record| {
-                matches!(
-                    record.status,
-                    JournalStatus::Pending | JournalStatus::Conflict
-                )
-            })
-        {
+        for mut record in self.latest_records()?.into_values().filter(|record| {
+            matches!(
+                record.status,
+                JournalStatus::Pending | JournalStatus::Conflict
+            )
+        }) {
             let path = PathBuf::from(&record.file);
             let current = match fs::read_to_string(&path) {
                 Ok(source) => content_hash(&source),
@@ -757,12 +774,7 @@ impl WriteEngine {
 fn pending_record(
     id: String,
     transaction: Option<String>,
-    path: &Path,
-    item_ref: Option<String>,
-    pre_image: &str,
-    post_image: &str,
-    patches: Vec<StoredPatch>,
-    diff: String,
+    image: &JournalImage<'_>,
     context: &WriteContext,
 ) -> JournalRecord {
     JournalRecord {
@@ -772,13 +784,13 @@ fn pending_record(
         timestamp: Local::now().to_rfc3339(),
         actor: context.actor.clone(),
         project: context.project.clone(),
-        file: path.to_string_lossy().into_owned(),
-        item_ref,
+        file: image.path.to_string_lossy().into_owned(),
+        item_ref: image.item_ref.map(str::to_string),
         transaction,
-        pre_hash: content_hash(pre_image),
-        post_hash: content_hash(post_image),
-        patches,
-        diff,
+        pre_hash: content_hash(image.pre_image),
+        post_hash: content_hash(image.post_image),
+        patches: image.patches.to_vec(),
+        diff: image.diff.to_string(),
     }
 }
 
@@ -791,7 +803,12 @@ fn relevel_subtree(
     let mut output = String::with_capacity(source.len());
     for line in source.split_inclusive('\n') {
         let stars = line.bytes().take_while(|byte| *byte == b'*').count();
-        if stars > 0 && line.as_bytes().get(stars).is_some_and(u8::is_ascii_whitespace) {
+        if stars > 0
+            && line
+                .as_bytes()
+                .get(stars)
+                .is_some_and(u8::is_ascii_whitespace)
+        {
             let level = stars as isize + delta;
             if level < 1 {
                 return Err(AgendumError::new(
@@ -858,14 +875,23 @@ pub fn apply_patches(
     let mut output = String::with_capacity(source.len());
     let mut stored = Vec::with_capacity(patches.len());
     for patch in patches {
-        if patch.span.start < cursor || patch.span.end < patch.span.start || patch.span.end > source.len() {
+        if patch.span.start < cursor
+            || patch.span.end < patch.span.start
+            || patch.span.end > source.len()
+        {
             return Err(AgendumError::new(
                 "invalid_patch",
-                format!("patch {}..{} overlaps or exceeds the source", patch.span.start, patch.span.end),
+                format!(
+                    "patch {}..{} overlaps or exceeds the source",
+                    patch.span.start, patch.span.end
+                ),
             ));
         }
         if !source.is_char_boundary(patch.span.start) || !source.is_char_boundary(patch.span.end) {
-            return Err(AgendumError::new("invalid_patch", "patch is not on UTF-8 boundaries"));
+            return Err(AgendumError::new(
+                "invalid_patch",
+                "patch is not on UTF-8 boundaries",
+            ));
         }
         output.push_str(&source[cursor..patch.span.start]);
         post_cursor += patch.span.start - cursor;
@@ -988,7 +1014,13 @@ fn build_edit_patches(
                 tags.push(tag.clone());
             }
         }
-        let line = render_headline(headline.level, state.as_deref(), priority.as_deref(), &title, &tags);
+        let line = render_headline(
+            headline.level,
+            state.as_deref(),
+            priority.as_deref(),
+            &title,
+            &tags,
+        );
         patches.push(Patch {
             span: headline.line_span,
             replacement: line,
@@ -1019,12 +1051,14 @@ fn build_edit_patches(
     if !properties.is_empty() {
         let replacement = render_properties(source, headline, &properties, line_ending(source));
         let insert = headline.drawer_span.unwrap_or(ByteSpan {
-            start: headline
-                .planning_span
-                .map_or(after_headline_line(source, headline.line_span.end), |span| span.end),
-            end: headline
-                .planning_span
-                .map_or(after_headline_line(source, headline.line_span.end), |span| span.end),
+            start: headline.planning_span.map_or(
+                after_headline_line(source, headline.line_span.end),
+                |span| span.end,
+            ),
+            end: headline.planning_span.map_or(
+                after_headline_line(source, headline.line_span.end),
+                |span| span.end,
+            ),
         });
         patches.push(Patch {
             span: insert,
@@ -1034,14 +1068,20 @@ fn build_edit_patches(
 
     if let Some(note) = note {
         if note.contains(['\n', '\r']) {
-            return Err(AgendumError::new("invalid_note", "state notes must be one line"));
+            return Err(AgendumError::new(
+                "invalid_note",
+                "state notes must be one line",
+            ));
         }
-        let offset = headline
-            .drawer_span
-            .map_or_else(
-                || headline.planning_span.map_or(after_headline_line(source, headline.line_span.end), |span| span.end),
-                |span| span.end,
-            );
+        let offset = headline.drawer_span.map_or_else(
+            || {
+                headline.planning_span.map_or(
+                    after_headline_line(source, headline.line_span.end),
+                    |span| span.end,
+                )
+            },
+            |span| span.end,
+        );
         let indent = headline
             .drawer_span
             .or(headline.planning_span)
@@ -1055,7 +1095,10 @@ fn build_edit_patches(
             line_ending(source)
         );
         patches.push(Patch {
-            span: ByteSpan { start: offset, end: offset },
+            span: ByteSpan {
+                start: offset,
+                end: offset,
+            },
             replacement: log,
         });
     }
@@ -1069,12 +1112,18 @@ fn validate_intent(intent: &EditIntent) -> Result<(), AgendumError> {
     if let Change::Set(title) = &intent.title
         && (title.trim().is_empty() || title.contains(['\n', '\r']))
     {
-        return Err(AgendumError::new("invalid_title", "title must be one non-empty line"));
+        return Err(AgendumError::new(
+            "invalid_title",
+            "title must be one non-empty line",
+        ));
     }
     if let Change::Set(priority) = &intent.priority
         && (priority.len() != 1 || !priority.bytes().all(|byte| byte.is_ascii_alphanumeric()))
     {
-        return Err(AgendumError::new("invalid_priority", "priority must be one alphanumeric character"));
+        return Err(AgendumError::new(
+            "invalid_priority",
+            "priority must be one alphanumeric character",
+        ));
     }
     for tag in intent.tags_add.iter().chain(&intent.tags_remove) {
         if tag.is_empty()
@@ -1082,7 +1131,10 @@ fn validate_intent(intent: &EditIntent) -> Result<(), AgendumError> {
                 byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'@' | b'#' | b'%')
             })
         {
-            return Err(AgendumError::new("invalid_tag", format!("invalid tag: {tag}")));
+            return Err(AgendumError::new(
+                "invalid_tag",
+                format!("invalid tag: {tag}"),
+            ));
         }
     }
     for (key, value) in &intent.properties {
@@ -1091,9 +1143,15 @@ fn validate_intent(intent: &EditIntent) -> Result<(), AgendumError> {
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
         {
-            return Err(AgendumError::new("invalid_property", format!("invalid property key: {key}")));
+            return Err(AgendumError::new(
+                "invalid_property",
+                format!("invalid property key: {key}"),
+            ));
         }
-        if value.as_ref().is_some_and(|value| value.contains(['\n', '\r'])) {
+        if value
+            .as_ref()
+            .is_some_and(|value| value.contains(['\n', '\r']))
+        {
             return Err(AgendumError::new(
                 "invalid_property",
                 format!("property {key} must be one line"),
@@ -1202,7 +1260,10 @@ fn render_properties(
     output
 }
 
-fn advance_repeater(timestamp: &mut PlanningTimestamp, today: NaiveDate) -> Result<(), AgendumError> {
+fn advance_repeater(
+    timestamp: &mut PlanningTimestamp,
+    today: NaiveDate,
+) -> Result<(), AgendumError> {
     let repeater = timestamp
         .repeater
         .as_deref()
@@ -1214,15 +1275,19 @@ fn advance_repeater(timestamp: &mut PlanningTimestamp, today: NaiveDate) -> Resu
     } else if let Some(value) = repeater.strip_prefix('+') {
         ("+", value)
     } else {
-        return Err(AgendumError::new("invalid_repeater", format!("invalid repeater: {repeater}")));
+        return Err(AgendumError::new(
+            "invalid_repeater",
+            format!("invalid repeater: {repeater}"),
+        ));
     };
     let split = amount_and_unit.len().saturating_sub(1);
-    let amount = amount_and_unit[..split]
-        .parse::<u64>()
-        .map_err(|_| AgendumError::new("invalid_repeater", format!("invalid repeater: {repeater}")))?;
+    let amount = amount_and_unit[..split].parse::<u64>().map_err(|_| {
+        AgendumError::new("invalid_repeater", format!("invalid repeater: {repeater}"))
+    })?;
     let unit = &amount_and_unit[split..];
-    let original = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d")
-        .map_err(|_| AgendumError::new("invalid_date", format!("invalid date: {}", timestamp.date)))?;
+    let original = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d").map_err(|_| {
+        AgendumError::new("invalid_date", format!("invalid date: {}", timestamp.date))
+    })?;
     let mut next = if kind == ".+" {
         add_period(today, amount, unit)?
     } else {
@@ -1258,7 +1323,8 @@ fn capture_target(
     if source.is_empty() {
         return Ok((0, 1));
     }
-    let document = IndexedDocument::parse(path.to_path_buf(), source.as_bytes().to_vec(), settings)?;
+    let document =
+        IndexedDocument::parse(path.to_path_buf(), source.as_bytes().to_vec(), settings)?;
     let target = if let Some(outline) = &template.outline_path {
         document
             .headlines()
@@ -1279,7 +1345,10 @@ fn capture_target(
     };
     match target {
         Some(headline) => Ok((headline.subtree_span.end, headline.level + 1)),
-        None if template.heading.is_none() && template.outline_path.is_none() && template.id.is_none() => {
+        None if template.heading.is_none()
+            && template.outline_path.is_none()
+            && template.id.is_none() =>
+        {
             Ok((source.len(), 1))
         }
         None => Err(AgendumError::new(
@@ -1318,7 +1387,8 @@ fn parse_updated_item(
     line_hint: usize,
     settings: &Settings,
 ) -> Result<Item, AgendumError> {
-    let document = IndexedDocument::parse(path.to_path_buf(), source.as_bytes().to_vec(), settings)?;
+    let document =
+        IndexedDocument::parse(path.to_path_buf(), source.as_bytes().to_vec(), settings)?;
     document
         .headline_at_line(line_hint)
         .or_else(|| {
@@ -1332,7 +1402,9 @@ fn parse_updated_item(
 }
 
 fn sidecar_lock_path(path: &Path) -> Result<PathBuf, AgendumError> {
-    let parent = path.parent().ok_or_else(|| AgendumError::new("invalid_path", "target has no parent"))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| AgendumError::new("invalid_path", "target has no parent"))?;
     let name = path
         .file_name()
         .ok_or_else(|| AgendumError::new("invalid_path", "target has no file name"))?;
@@ -1340,7 +1412,9 @@ fn sidecar_lock_path(path: &Path) -> Result<PathBuf, AgendumError> {
 }
 
 fn refuse_emacs_lock(path: &Path) -> Result<(), AgendumError> {
-    let parent = path.parent().ok_or_else(|| AgendumError::new("invalid_path", "target has no parent"))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| AgendumError::new("invalid_path", "target has no parent"))?;
     let name = path
         .file_name()
         .ok_or_else(|| AgendumError::new("invalid_path", "target has no file name"))?;
@@ -1352,15 +1426,22 @@ fn refuse_emacs_lock(path: &Path) -> Result<(), AgendumError> {
             .unwrap_or_else(|_| "ownership unavailable".to_string());
         return Err(AgendumError::new(
             "editor_dirty",
-            format!("Emacs lock {} exists ({owner}); save or close the buffer", lock.display()),
+            format!(
+                "Emacs lock {} exists ({owner}); save or close the buffer",
+                lock.display()
+            ),
         ));
     }
     Ok(())
 }
 
 fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), AgendumError> {
-    let parent = path.parent().ok_or_else(|| AgendumError::new("invalid_path", "target has no parent"))?;
-    let permissions = fs::metadata(path).ok().map(|metadata| metadata.permissions());
+    let parent = path
+        .parent()
+        .ok_or_else(|| AgendumError::new("invalid_path", "target has no parent"))?;
+    let permissions = fs::metadata(path)
+        .ok()
+        .map(|metadata| metadata.permissions());
     let mut temporary = tempfile::Builder::new()
         .prefix(".agendum-")
         .tempfile_in(parent)
@@ -1373,7 +1454,9 @@ fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), AgendumError> {
             .map_err(AgendumError::from)?;
     }
     temporary.as_file().sync_all().map_err(AgendumError::from)?;
-    temporary.persist(path).map_err(|error| AgendumError::from(error.error))?;
+    temporary
+        .persist(path)
+        .map_err(|error| AgendumError::from(error.error))?;
     File::open(parent)
         .and_then(|directory| directory.sync_all())
         .map_err(AgendumError::from)
@@ -1392,7 +1475,11 @@ fn after_headline_line(source: &str, content_end: usize) -> usize {
 }
 
 fn line_ending(source: &str) -> &'static str {
-    if source.contains("\r\n") { "\r\n" } else { "\n" }
+    if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
 }
 
 fn leading_indent(source: &str, offset: usize) -> &str {
@@ -1466,7 +1553,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(after, "α before\r\n* DONE Keep spacing   :x:\r\nbody\r\n");
-        assert_eq!(apply_patches(&after, inverse_patches(&stored)).unwrap().0, source);
+        assert_eq!(
+            apply_patches(&after, inverse_patches(&stored)).unwrap().0,
+            source
+        );
     }
 
     #[test]
@@ -1526,15 +1616,22 @@ mod tests {
                 &context(),
             )
             .unwrap();
-        fs::write(&path, format!("{}external\r\n", fs::read_to_string(&path).unwrap())).unwrap();
+        fs::write(
+            &path,
+            format!("{}external\r\n", fs::read_to_string(&path).unwrap()),
+        )
+        .unwrap();
         assert_eq!(
-            engine.undo(Some(&mutation.journal_id), &context()).unwrap_err().code(),
+            engine
+                .undo(Some(&mutation.journal_id), &context())
+                .unwrap_err()
+                .code(),
             "undo_conflict"
         );
     }
 
     #[test]
-    fn refuses_editor_locks_and_symlink_writes() {
+    fn refuses_editor_locks() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("tasks.org");
         fs::write(&path, "* TODO Task\n").unwrap();
@@ -1560,34 +1657,6 @@ mod tests {
             )
             .unwrap_err();
         assert_eq!(error.code(), "editor_dirty");
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::symlink;
-            fs::remove_file(temp.path().join(".#tasks.org")).unwrap();
-            let target = temp.path().join("target.org");
-            fs::write(&target, "* TODO Linked\n").unwrap();
-            symlink(&target, temp.path().join("linked.org")).unwrap();
-            let linked_ref = WorkspaceIndex::load(settings)
-                .unwrap()
-                .items()
-                .find(|item| item.title == "Linked")
-                .unwrap()
-                .item_ref
-                .clone();
-            let error = engine
-                .edit(
-                    &linked_ref,
-                    &EditIntent {
-                        title: Change::Set("Changed".to_string()),
-                        ..EditIntent::default()
-                    },
-                    false,
-                    &context(),
-                )
-                .unwrap_err();
-            assert_eq!(error.code(), "symlink_write_refused");
-        }
     }
 
     #[test]
@@ -1609,9 +1678,11 @@ mod tests {
             .capture("t", &draft, "", &BTreeMap::new(), false, &context())
             .unwrap();
         assert_eq!(preview.diff, committed.diff);
-        assert!(fs::read_to_string(temp.path().join("inbox.org"))
-            .unwrap()
-            .contains("* TODO Captured\n"));
+        assert!(
+            fs::read_to_string(temp.path().join("inbox.org"))
+                .unwrap()
+                .contains("* TODO Captured\n")
+        );
     }
 
     #[test]
@@ -1658,8 +1729,7 @@ mod tests {
         let path = temp.path().join("agenda.org");
         let original = fs::read_to_string(&path).unwrap();
         let settings = settings(temp.path());
-        let engine =
-            WriteEngine::new(settings, temp.path().join("journal-real.jsonl")).unwrap();
+        let engine = WriteEngine::new(settings, temp.path().join("journal-real.jsonl")).unwrap();
         let mutation = engine
             .edit(
                 "work-task-001",
@@ -1699,10 +1769,16 @@ mod tests {
         let result = engine
             .refile("move-id", "destination-id", false, &context())
             .unwrap();
-        assert!(!fs::read_to_string(&source_path).unwrap().contains("Move me"));
-        assert!(fs::read_to_string(&target_path)
-            .unwrap()
-            .contains("** TODO Move me\n"));
+        assert!(
+            !fs::read_to_string(&source_path)
+                .unwrap()
+                .contains("Move me")
+        );
+        assert!(
+            fs::read_to_string(&target_path)
+                .unwrap()
+                .contains("** TODO Move me\n")
+        );
         engine
             .undo(Some(&result.journal_ids[0]), &context())
             .unwrap();

@@ -192,7 +192,10 @@ impl RootSet {
                     ));
                 }
                 let resolved = self.validate_existing_read(path)?;
-                if resolved.extension().is_none_or(|extension| extension != "org") {
+                if resolved
+                    .extension()
+                    .is_none_or(|extension| extension != "org")
+                {
                     return Err(AgendumError::new(
                         "invalid_agenda_file",
                         format!("agenda file does not have an .org extension: {pattern}"),

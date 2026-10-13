@@ -345,7 +345,10 @@ impl WorkspaceIndex {
             .ok_or_else(|| {
                 AgendumError::new(
                     "stale_ref",
-                    format!("referenced file is not an agenda file: {}", requested.display()),
+                    format!(
+                        "referenced file is not an agenda file: {}",
+                        requested.display()
+                    ),
                 )
             })?;
         if let Some(headline) = document.headline_at_line(line)
@@ -398,6 +401,14 @@ struct RawHeadline {
     digest: String,
 }
 
+struct ParsedMetadata {
+    planning: Planning,
+    planning_span: Option<ByteSpan>,
+    drawer_span: Option<ByteSpan>,
+    properties: Vec<PropertySpan>,
+    body_start: usize,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn scan_headlines(
     path: &Path,
@@ -419,8 +430,13 @@ fn scan_headlines(
         let content = captures.get(2).expect("headline content");
         let (keyword, done, priority, title, tags) =
             parse_headline_content(content.as_str(), todo_active, todo_done);
-        let (planning, planning_span, drawer_span, properties, body_start) =
-            parse_metadata(source, lines, line_index, raw.len())?;
+        let ParsedMetadata {
+            planning,
+            planning_span,
+            drawer_span,
+            properties,
+            body_start,
+        } = parse_metadata(source, lines, line_index, raw.len())?;
         let digest = headline_digest(text.as_bytes());
         raw.push(RawHeadline {
             level: stars.as_str().len(),
@@ -615,16 +631,7 @@ fn parse_metadata(
     lines: &[SourceLine],
     headline_line: usize,
     _headline_count: usize,
-) -> Result<
-    (
-        Planning,
-        Option<ByteSpan>,
-        Option<ByteSpan>,
-        Vec<PropertySpan>,
-        usize,
-    ),
-    AgendumError,
-> {
+) -> Result<ParsedMetadata, AgendumError> {
     let mut planning = Planning::default();
     let mut planning_span: Option<ByteSpan> = None;
     let mut cursor = headline_line + 1;
@@ -697,12 +704,10 @@ fn parse_metadata(
                                 end: property_line.content.end,
                             },
                             |matched| ByteSpan {
-                                start: property_line.content.start
-                                    + property_text.len()
+                                start: property_line.content.start + property_text.len()
                                     - property_trimmed.len()
                                     + matched.start(),
-                                end: property_line.content.start
-                                    + property_text.len()
+                                end: property_line.content.start + property_text.len()
                                     - property_trimmed.len()
                                     + matched.end(),
                             },
@@ -725,7 +730,13 @@ fn parse_metadata(
     let body_start = lines
         .get(cursor)
         .map_or(source.len(), |line| line.full.start);
-    Ok((planning, planning_span, drawer_span, properties, body_start))
+    Ok(ParsedMetadata {
+        planning,
+        planning_span,
+        drawer_span,
+        properties,
+        body_start,
+    })
 }
 
 fn source_lines(source: &str) -> Vec<SourceLine> {

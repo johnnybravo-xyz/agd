@@ -93,19 +93,19 @@ pub struct ErrorResponse {
 
 #[derive(Debug)]
 pub struct AgendumError {
-    response: ErrorResponse,
+    response: Box<ErrorResponse>,
     source: Option<Box<dyn std::error::Error + Send + Sync>>,
 }
 
 impl AgendumError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
-            response: ErrorResponse {
+            response: Box::new(ErrorResponse {
                 schema: ERROR_SCHEMA.to_string(),
                 code: code.into(),
                 message: message.into(),
                 current: None,
-            },
+            }),
             source: None,
         }
     }
@@ -121,12 +121,12 @@ impl AgendumError {
         source: impl std::error::Error + Send + Sync + 'static,
     ) -> Self {
         Self {
-            response: ErrorResponse {
+            response: Box::new(ErrorResponse {
                 schema: ERROR_SCHEMA.to_string(),
                 code: code.into(),
                 message: message.into(),
                 current: None,
-            },
+            }),
             source: Some(Box::new(source)),
         }
     }
@@ -140,7 +140,7 @@ impl AgendumError {
     }
 
     pub fn into_response(self) -> ErrorResponse {
-        self.response
+        *self.response
     }
 }
 

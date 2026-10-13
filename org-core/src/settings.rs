@@ -37,7 +37,7 @@ pub struct ImportSettings {
     pub nvim: EditorImportSettings,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EditorImportSettings {
     pub snapshot: String,
@@ -176,21 +176,6 @@ impl Default for FilesSettings {
         Self {
             roots: vec!["~/org".to_string()],
             agenda: Vec::new(),
-        }
-    }
-}
-
-impl Default for EditorImportSettings {
-    fn default() -> Self {
-        Self {
-            snapshot: String::new(),
-            prefer_daemon: false,
-            server: None,
-            batch_profile: None,
-            command: None,
-            args: Vec::new(),
-            batch_profiles: BTreeMap::new(),
-            profiles: BTreeMap::new(),
         }
     }
 }

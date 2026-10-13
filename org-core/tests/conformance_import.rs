@@ -16,7 +16,8 @@ fn normalize_fixture(path: &Path, editor: &str) -> ImportSnapshot {
     }
     let raw = fs::read_to_string(path.join("resolved.json")).expect("read resolved fixture");
     let raw = raw.replace("/fixture", &temp.path().to_string_lossy());
-    let resolved: ResolvedEditorConfig = serde_json::from_str(&raw).expect("parse resolved fixture");
+    let resolved: ResolvedEditorConfig =
+        serde_json::from_str(&raw).expect("parse resolved fixture");
     let mut approved = Settings::default();
     approved.files.roots = vec![temp.path().to_string_lossy().into_owned()];
     let snapshot = ImportSnapshot::from_resolved(resolved, &approved, "fixture-host")
@@ -39,8 +40,18 @@ fn emacs_fixtures_preserve_resolved_ordering_and_disabled_entries() {
     }
     let vanilla = normalize_fixture(&root.join("vanilla"), "emacs");
     assert!(!vanilla.settings.capture["x"].enabled);
-    assert!(vanilla.commands.iter().any(|command| command.key == "w" && command.enabled));
-    assert!(vanilla.commands.iter().any(|command| command.key == "r" && !command.enabled));
+    assert!(
+        vanilla
+            .commands
+            .iter()
+            .any(|command| command.key == "w" && command.enabled)
+    );
+    assert!(
+        vanilla
+            .commands
+            .iter()
+            .any(|command| command.key == "r" && !command.enabled)
+    );
 }
 
 #[test]
