@@ -1457,9 +1457,20 @@ fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), AgendumError> {
     temporary
         .persist(path)
         .map_err(|error| AgendumError::from(error.error))?;
+    sync_parent_directory(parent)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn sync_parent_directory(parent: &Path) -> Result<(), AgendumError> {
     File::open(parent)
         .and_then(|directory| directory.sync_all())
         .map_err(AgendumError::from)
+}
+
+#[cfg(target_os = "windows")]
+fn sync_parent_directory(_: &Path) -> Result<(), AgendumError> {
+    // std::fs cannot open directory handles on Windows without platform-specific flags.
+    Ok(())
 }
 
 fn after_headline_line(source: &str, content_end: usize) -> usize {
