@@ -1,0 +1,14 @@
+pkgbase = agd
+	pkgdesc = Local-first org-mode tools for terminals and coding agents
+	pkgver = 0.0.1
+	pkgrel = 1
+	url = https://github.com/johnnybravo-xyz/agd
+	arch = x86_64
+	arch = aarch64
+	license = GPL-3.0-or-later
+	makedepends = cargo
+	depends = gcc-libs
+	source = agd-0.0.1.tar.gz::https://github.com/johnnybravo-xyz/agd/archive/refs/tags/agd-v0.0.1.tar.gz
+	sha256sums = cd6c40363c2912bd2af10c4777eaf049e800dbda48d69b2e75ca8aea02ef0623
+
+pkgname = agd

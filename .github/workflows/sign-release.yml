@@ -1,0 +1,41 @@
+name: Sign release checksums
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  sign-checksums:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.0.0
+      - name: Download release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir artifacts
+      - name: Create and sign aggregate checksums
+        working-directory: artifacts
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          checksums="$RUNNER_TEMP/SHA256SUMS.unsorted"
+          : > "$checksums"
+          for artifact in *; do
+            case "$artifact" in
+              *.sha256|*.sigstore.json|SHA256SUMS) continue ;;
+            esac
+            sha256sum "$artifact" >> "$checksums"
+          done
+          sort --key=2 "$checksums" > SHA256SUMS
+          cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
+      - name: Upload signed checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" artifacts/SHA256SUMS artifacts/SHA256SUMS.sigstore.json --repo "$GITHUB_REPOSITORY" --clobber
