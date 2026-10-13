@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep the selected task in view when cycling its TODO state, including when
+  the updated state reorders agenda rows.
+
+### Changed
+
+- Replace the oversized keyboard-help overlay with a compact, structured panel
+  and higher-contrast selection styling.
+
 ## [0.0.2](https://github.com/johnnybravo-xyz/agd/compare/agd-v0.0.1...agd-v0.0.2)
 
 ### ✨ Features

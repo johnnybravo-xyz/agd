@@ -78,6 +78,11 @@ command = "nvim"
 args = ["--headless", "-u", "/home/me/.config/nvim/init.lua"]
 ```
 
+`-u` must point to the Neovim entrypoint that loads the plugin manager, normally
+`~/.config/nvim/init.lua`. A Lazy.nvim plugin specification such as
+`lua/plugins/orgmode.lua` returns configuration data to Lazy.nvim and is not a
+standalone Neovim init file.
+
 ```bash
 agd import nvim --profile orgmode --dry-run --verify
 agd import nvim --profile orgmode --verify
