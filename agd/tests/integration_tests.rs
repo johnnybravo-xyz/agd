@@ -104,6 +104,23 @@ fn agenda_prints_org_agenda_layout_and_shared_schemas() {
 }
 
 #[test]
+fn status_line_counts_today_for_a_status_bar() {
+    let fixture = Fixture::new();
+    let today = chrono::Local::now().format("%Y-%m-%d %a").to_string();
+    fs::write(
+        &fixture.tasks,
+        format!("* TODO Late\nSCHEDULED: <2020-01-01 Wed>\n* TODO Now\nSCHEDULED: <{today}>\n* Inbox\n** TODO New idea\n"),
+    )
+    .unwrap();
+    fixture
+        .command()
+        .args(["agenda", "--status"])
+        .assert()
+        .success()
+        .stdout("1 slipped · 1 today · 1 inbox\n");
+}
+
+#[test]
 fn capture_parses_tokens_and_keeps_body_literal() {
     let fixture = Fixture::new();
     let before = fs::read(&fixture.tasks).expect("pre-image");

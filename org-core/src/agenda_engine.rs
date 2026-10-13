@@ -191,6 +191,35 @@ impl<'a> AgendaEngine<'a> {
         Ok(items)
     }
 
+    /// Unfinished headings in an inbox: under a heading named Inbox, or in a
+    /// file or category named inbox. Containers without a TODO keyword that have
+    /// children are left out.
+    pub fn inbox(&self) -> Vec<Item> {
+        let mut items = Vec::new();
+        for document in self.index.documents() {
+            let in_inbox_file = document
+                .path()
+                .file_stem()
+                .is_some_and(|stem| stem.eq_ignore_ascii_case("inbox"));
+            for headline in document.headlines() {
+                let item = &headline.item;
+                let ancestors = &item.olpath[..item.olpath.len().saturating_sub(1)];
+                let under_inbox = ancestors
+                    .iter()
+                    .any(|heading| heading.eq_ignore_ascii_case("inbox"));
+                let leaf = headline.subtree_span.end == headline.section_span.end;
+                if !item.done
+                    && (under_inbox || in_inbox_file || item.category.eq_ignore_ascii_case("inbox"))
+                    && (item.todo.is_some() || leaf)
+                    && !item.title.eq_ignore_ascii_case("inbox")
+                {
+                    items.push(item.clone());
+                }
+            }
+        }
+        items
+    }
+
     /// Every heading matching an Emacs tags match, done or not, like an
     /// org-agenda `tags` block.
     pub fn tags(&self, match_expression: &str) -> Result<Vec<Item>, AgdError> {

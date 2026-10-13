@@ -32,6 +32,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `CaptureDraft::properties` adds entries to the template's property drawer
+  or opens one after the headline.
+- `AgendaEngine::inbox` lists unfinished inbox headings for every surface.
 - `[tui] theme` (auto, dark, light), `triage.someday_clears_scheduled` and
   `capture_prompts` for the TUI's capture popup.
 - `WriteContext::now` pins the clock for timestamps written into Org text.

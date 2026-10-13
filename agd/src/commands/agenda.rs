@@ -4,8 +4,9 @@ use anyhow::{Context, Result, anyhow};
 use chrono::{Datelike, Duration, Local, NaiveDate};
 use clap::{Args, ValueEnum};
 use org_core::{
-    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Settings, ViewSection, WorkspaceIndex,
-    agenda_csv, agenda_title, items_csv, load_settings, parse_date_input,
+    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, JournalStatus, Settings, ViewSection,
+    WorkspaceIndex, WriteEngine, agenda_csv, agenda_title, items_csv, load_settings,
+    parse_date_input,
 };
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -35,9 +36,12 @@ pub struct AgendaCommand {
     /// Also list CLOSED entries, like org-agenda log mode (l)
     #[arg(long)]
     log: bool,
-    /// One `date title` line per entry, for hooks and status bars
+    /// One `date title` line per entry, for hooks
     #[arg(long)]
     brief: bool,
+    /// One line of counts for a tmux or herdr status bar
+    #[arg(long, conflicts_with_all = ["json", "csv", "brief", "view"])]
+    status: bool,
     /// agd.agenda-entry/v1 objects
     #[arg(long, conflicts_with_all = ["csv", "brief"])]
     json: bool,
@@ -68,6 +72,10 @@ impl AgendaCommand {
         }
         let index = load_index(settings.clone())?;
         let today = Local::now().date_naive();
+        if self.status {
+            println!("{}", status_line(&index, &settings, today)?);
+            return Ok(());
+        }
         let start = match self.from {
             Some(value) => parse_day(&value, today)?,
             None => default_start(&settings, today)?,
@@ -232,6 +240,50 @@ fn span_for_bounds(from: NaiveDate, to: NaiveDate, settings: &Settings) -> Agend
     } else {
         AgendaSpan::Month
     }
+}
+
+/// `3 slipped · 7 today · 4 inbox · 2 agents`, zero counts left out.
+fn status_line(index: &WorkspaceIndex, settings: &Settings, today: NaiveDate) -> Result<String> {
+    let engine = AgendaEngine::new(index);
+    let entries = engine.agenda(&AgendaQuery {
+        from: today,
+        to: today,
+        today,
+        match_expression: None,
+        log_mode: false,
+    })?;
+    let slipped_kind = |entry: &AgendaEntry| {
+        entry.occurrence.kind == org_core::OccurrenceType::PastScheduled
+            || entry.occurrence.extra.ends_with("ago:")
+    };
+    let mut slipped = std::collections::BTreeSet::new();
+    let mut open = std::collections::BTreeSet::new();
+    for entry in entries.iter().filter(|entry| !entry.item.done) {
+        if slipped_kind(entry) {
+            slipped.insert(&entry.item.item_ref);
+        } else {
+            open.insert(&entry.item.item_ref);
+        }
+    }
+    let agents = WriteEngine::with_default_journal(settings.clone())?
+        .journal()?
+        .iter()
+        .filter(|record| {
+            record.actor.starts_with("mcp:") && record.status == JournalStatus::Committed
+        })
+        .count();
+    let counts = [
+        (slipped.len(), "slipped"),
+        (open.len(), "today"),
+        (engine.inbox().len(), "inbox"),
+        (agents, "agents"),
+    ];
+    Ok(counts
+        .iter()
+        .filter(|(count, _)| *count > 0)
+        .map(|(count, label)| format!("{count} {label}"))
+        .collect::<Vec<_>>()
+        .join(" · "))
 }
 
 // Reads keep working when one agenda file cannot be indexed; say which file

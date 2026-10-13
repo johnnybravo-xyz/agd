@@ -8,6 +8,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- MCP `capture` takes `properties` (e.g. `REPO`, `BRANCH`, `SOURCE` as an org
+  link) recorded in the heading's `:PROPERTIES:` drawer; peek shows them and
+  the installed skill asks agents to use them.
+- `agd agenda --status` prints `3 slipped · 7 today · 4 inbox · 2 agents` for
+  a tmux or herdr status bar.
 - `agd agenda --view KEY` runs a saved view, like an org-agenda dispatcher
   key; block views print `=` rules between blocks.
 - `agd agenda --log` lists CLOSED entries, like org-agenda log mode.

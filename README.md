@@ -78,6 +78,8 @@ same guarded write path and journal.
 agd agenda --span week
 agd agenda --match 'work-someday/NEXT|TODO' --json
 agd agenda --span day --csv            # same columns as org-batch-agenda-csv
+agd agenda --view n                    # a saved view, like C-c a n
+agd agenda --status                    # 3 slipped · 7 today · 4 inbox · 2 agents
 agd capture t "Renew passport due:fri +personal #A" --dry-run
 ```
 
@@ -176,7 +178,9 @@ MCP write records the client identity and project directory in the local
 journal for Agent review in the TUI. With `agents.capture_to = "inbox"`, every
 agent capture uses the `agents.inbox_template` template and drops its
 `SCHEDULED`/`DEADLINE`, so agent work reaches your day only through triage.
-CLI and TUI captures are never redirected.
+CLI and TUI captures are never redirected. Agents can pass `properties` with a
+capture, such as `REPO`, `BRANCH` and `SOURCE` (an org link back to the file
+and line), so a task always says where it came from; peek shows them.
 
 Install project-local client configuration and the `agd` skill with:
 
