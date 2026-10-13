@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agd"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "agd-core",
  "anyhow",
@@ -33,7 +33,7 @@ dependencies = [
 
 [[package]]
 name = "agd-core"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "chrono",
  "config",
