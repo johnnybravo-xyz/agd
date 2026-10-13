@@ -1,0 +1,10 @@
+#+TITLE: Home
+#+CATEGORY: home
+
+* Garden
+** TODO Water plants
+SCHEDULED: <@D+0 ++3d@>
+* Repairs
+** TODO Fix the bathroom tap                                          :someday:
+** TODO Replace smoke alarm batteries
+SCHEDULED: <@D+6@>

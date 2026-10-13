@@ -1,0 +1,48 @@
+#+TITLE: Work
+#+CATEGORY: work
+#+FILETAGS: :work:
+#+TODO: TODO(t) NEXT(n) WAIT(w@/!) | DONE(d!) CANCELLED(c@)
+#+STARTUP: logdrawer logreschedule
+
+* Projects
+** Ingestion pipeline
+*** NEXT [#A] Review ingestion PR                                   :review:
+SCHEDULED: <@D+0 15:00@>
+:PROPERTIES:
+:Effort:   0:45
+:END:
+Check the dedupe change and the backfill plan before merging.
+See [[https://example.com/pr/218][pr/218]] for the discussion.
+*** TODO Migrate cron jobs to systemd timers                          :infra:
+SCHEDULED: <@D-12@>
+:LOGBOOK:
+- Rescheduled from "[@D-15@]" on [@D-12 09:00@]
+- Rescheduled from "[@D-19@]" on [@D-15 10:30@]
+- Rescheduled from "[@D-22@]" on [@D-19 11:00@]
+:END:
+Move the backup and cert-renewal jobs first.
+*** WAIT Vendor reply on rate limits
+:LOGBOOK:
+- State "WAIT"       from "TODO"       [@D-3 16:20@] \\
+  Asked for higher burst limits.
+:END:
+** Reporting
+*** TODO [#A] Quarterly report                                       :report:
+DEADLINE: <@D+3 -5d@>
+:PROPERTIES:
+:Effort:   2:00
+:END:
+*** TODO Submit expense claims
+DEADLINE: <@D+9@>
+* Meetings
+** Standup
+<@D+0 10:00-10:15 +1d@>
+** 1:1 with Sam                                                      :people:
+<@D+0 16:30@>
+** Architecture review
+<@D+2 11:00@>
+* Admin
+** TODO Rotate staging certs
+SCHEDULED: <@D-4@>
+** TODO Book conference travel
+DEADLINE: <@D-2@>

@@ -1,0 +1,22 @@
+#+TITLE: Personal
+#+CATEGORY: personal
+#+TODO: TODO NEXT | DONE CANCELLED
+
+* Calls
+** DONE Call with bank
+CLOSED: [@D+0 10:20@] SCHEDULED: <@D+0 10:00@>
+* Bills
+** TODO Pay credit card bill
+DEADLINE: <@D+5 +1m -7d@>
+** TODO Pay rent
+DEADLINE: <@D+1 +1m@>
+* Health
+** TODO Stretch
+SCHEDULED: <@D+0 .+2d/3d@>
+:PROPERTIES:
+:STYLE:    habit
+:END:
+** NEXT Book dentist
+SCHEDULED: <@D-4@>
+* Birthdays
+** [#A] Alex's birthday <@BIRTHDAY@ +1y>
