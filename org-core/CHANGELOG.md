@@ -50,6 +50,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Skip Emacs `.#name` lock symlinks while discovering agenda files; an
+  unsaved Emacs buffer no longer makes every read fail with `walk_error`.
 - Order agenda rows as org-agenda does by default (time-up, urgency-down,
   category-keep): urgency from priority, days overdue and days late, ties in
   file order with deadlines before scheduled before timestamps. TODO lists

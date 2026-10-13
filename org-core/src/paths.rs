@@ -213,12 +213,16 @@ impl RootSet {
         let matcher = build_globset(&relative_patterns)?;
         for root in &self.roots {
             for entry in WalkBuilder::new(root).follow_links(true).build() {
-                let entry = entry.map_err(|error| {
-                    AgdError::new(
-                        "walk_error",
-                        format!("cannot walk {}: {error}", root.display()),
-                    )
-                })?;
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(error) if is_emacs_lock(&error) => continue,
+                    Err(error) => {
+                        return Err(AgdError::new(
+                            "walk_error",
+                            format!("cannot walk {}: {error}", root.display()),
+                        ));
+                    }
+                };
                 if !entry.file_type().is_some_and(|kind| kind.is_file()) {
                     continue;
                 }
@@ -311,6 +315,22 @@ fn build_globset(patterns: &[String]) -> Result<GlobSet, AgdError> {
     })
 }
 
+/// Emacs marks a buffer with unsaved changes by a dangling `.#name`
+/// symlink; following it fails, but it is never an agenda file.
+fn is_emacs_lock(error: &ignore::Error) -> bool {
+    match error {
+        ignore::Error::WithPath { path, err } => {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(".#"))
+                || is_emacs_lock(err)
+        }
+        ignore::Error::WithDepth { err, .. } | ignore::Error::WithLineNumber { err, .. } => {
+            is_emacs_lock(err)
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,6 +364,21 @@ mod tests {
         .unwrap();
         assert_eq!(
             roots.agenda_files().unwrap(),
+            vec![std::fs::canonicalize(file).unwrap()]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn emacs_lock_symlinks_do_not_break_discovery() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("tasks.org");
+        std::fs::write(&file, "* TODO Edited in Emacs\n").unwrap();
+        symlink("user@host.1234:1700000000", temp.path().join(".#tasks.org")).unwrap();
+        assert_eq!(
+            roots(&temp).agenda_files().unwrap(),
             vec![std::fs::canonicalize(file).unwrap()]
         );
     }
