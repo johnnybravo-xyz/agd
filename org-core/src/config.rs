@@ -201,7 +201,7 @@ pub fn build_config_with_file_and_env(
     }
 
     builder = builder.add_source(
-        Environment::with_prefix("ORG")
+        Environment::with_prefix("AGD")
             .prefix_separator("_")
             .separator("__"),
     );
@@ -269,7 +269,7 @@ fn default_config_dir() -> Result<PathBuf, OrgModeError> {
         OrgModeError::ConfigError("Could not determine config directory".to_string())
     })?;
 
-    Ok(config_dir.join("org-mcp"))
+    Ok(config_dir.join("agendum"))
 }
 
 pub fn default_org_directory() -> String {
@@ -293,7 +293,7 @@ pub fn default_log_level() -> String {
 }
 
 pub fn default_log_file() -> String {
-    "~/.local/share/org-mcp-server/logs/server.log".to_string()
+    "~/.local/share/agendum/logs/agd.log".to_string()
 }
 
 pub fn default_org_auto_created_property() -> bool {
@@ -330,7 +330,7 @@ mod tests {
     fn test_default_logging_config() {
         let config = LoggingConfig::default();
         assert_eq!(config.level, "info");
-        assert_eq!(config.file, "~/.local/share/org-mcp-server/logs/server.log");
+        assert_eq!(config.file, "~/.local/share/agendum/logs/agd.log");
     }
 
     #[test]
@@ -359,8 +359,8 @@ mod tests {
 
         with_vars(
             [
-                ("ORG_ORG__ORG_DIRECTORY", Some(temp_path)),
-                ("ORG_ORG__ORG_DEFAULT_NOTES_FILE", Some("test-notes.org")),
+                ("AGD_ORG__ORG_DIRECTORY", Some(temp_path)),
+                ("AGD_ORG__ORG_DEFAULT_NOTES_FILE", Some("test-notes.org")),
             ],
             || {
                 let config = load_org_config(None, None).unwrap();

@@ -20,7 +20,7 @@ defaults:
 jobs:
   upload-assets:
     name: ${{ matrix.target }}
-    if: github.repository_owner == 'szaffarano' && (startsWith(github.event.release.name, 'org-mcp-server-v') || startsWith(github.event.release.name, 'org-cli-v'))
+    if: github.repository_owner == 'johnnybravo-xyz' && (startsWith(github.event.release.name, 'org-mcp-server-v') || startsWith(github.event.release.name, 'agd-v'))
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -56,8 +56,8 @@ jobs:
         run: |
           if [[ "${{ github.event.release.name }}" == org-mcp-server-v* ]]; then
             echo "name=org-mcp-server" >> "$GITHUB_OUTPUT"
-          elif [[ "${{ github.event.release.name }}" == org-cli-v* ]]; then
-            echo "name=org-cli" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event.release.name }}" == agd-v* ]]; then
+            echo "name=agd" >> "$GITHUB_OUTPUT"
           fi
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

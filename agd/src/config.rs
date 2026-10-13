@@ -177,8 +177,8 @@ default_format = "json"
 
         with_vars(
             [
-                ("ORG_ORG__ORG_DIRECTORY", Some(temp_dir_path)),
-                ("ORG_CLI__DEFAULT_FORMAT", Some("json")),
+                ("AGD_ORG__ORG_DIRECTORY", Some(temp_dir_path)),
+                ("AGD_CLI__DEFAULT_FORMAT", Some("json")),
             ],
             || {
                 let config = CliAppConfig::load(None, None, None).unwrap();

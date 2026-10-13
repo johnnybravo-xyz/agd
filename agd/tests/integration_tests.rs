@@ -8,7 +8,7 @@ use test_utils::fixtures::setup_test_org_files_with_dates;
 fn test_list_command_basic() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("list")
@@ -26,7 +26,7 @@ fn test_list_command_basic() {
 fn test_list_command_json_format() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("list")
@@ -44,7 +44,7 @@ fn test_list_command_json_format() {
 fn test_list_command_empty_directory() {
     let temp_dir = TempDir::new().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("list")
@@ -55,7 +55,7 @@ fn test_list_command_empty_directory() {
 
 #[test]
 fn test_list_command_invalid_directory() {
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg("/nonexistent/directory")
         .arg("list")
@@ -68,7 +68,7 @@ fn test_list_command_invalid_directory() {
 fn test_read_command_basic() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("read")
@@ -85,7 +85,7 @@ fn test_read_command_basic() {
 fn test_read_command_nonexistent_file() {
     let temp_dir = TempDir::new().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("read")
@@ -98,7 +98,7 @@ fn test_read_command_nonexistent_file() {
 fn test_outline_command_basic() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("outline")
@@ -114,7 +114,7 @@ fn test_outline_command_basic() {
 fn test_outline_command_json_format() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("outline")
@@ -132,7 +132,7 @@ fn test_outline_command_json_format() {
 fn test_heading_command_basic() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("heading")
@@ -150,7 +150,7 @@ fn test_heading_command_basic() {
 fn test_heading_command_nested() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("heading")
@@ -166,7 +166,7 @@ fn test_heading_command_nested() {
 fn test_heading_command_nonexistent() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("heading")
@@ -181,7 +181,7 @@ fn test_heading_command_nonexistent() {
 fn test_element_by_id_command_heading() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("element-by-id")
@@ -198,7 +198,7 @@ fn test_element_by_id_command_heading() {
 fn test_element_by_id_command_document_level() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("element-by-id")
@@ -213,7 +213,7 @@ fn test_element_by_id_command_document_level() {
 fn test_element_by_id_command_nonexistent() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("element-by-id")
@@ -225,13 +225,10 @@ fn test_element_by_id_command_nonexistent() {
 
 #[test]
 fn test_help_command() {
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "A CLI tool for org-mode functionality",
-        ))
         .stdout(predicate::str::contains("list"))
         .stdout(predicate::str::contains("element-by-id"))
         .stdout(predicate::str::contains("heading"))
@@ -240,7 +237,7 @@ fn test_help_command() {
 
 #[test]
 fn test_version_command() {
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--version")
         .assert()
         .success()
@@ -249,7 +246,7 @@ fn test_version_command() {
 
 #[test]
 fn test_invalid_command() {
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("invalid-command")
         .assert()
         .failure()
@@ -260,7 +257,7 @@ fn test_invalid_command() {
 fn test_search_command_basic() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("search")
@@ -276,7 +273,7 @@ fn test_search_command_basic() {
 fn test_search_command_with_limit() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("search")
@@ -292,7 +289,7 @@ fn test_search_command_with_limit() {
 fn test_search_command_json_format() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("search")
@@ -314,7 +311,7 @@ fn test_search_command_json_format() {
 fn test_search_command_custom_snippet_size() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("search")
@@ -332,7 +329,7 @@ fn test_search_command_custom_snippet_size() {
 fn test_search_command_no_results() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("search")
@@ -346,7 +343,7 @@ fn test_search_command_no_results() {
 fn test_search_command_empty_query() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("search")
@@ -358,7 +355,7 @@ fn test_search_command_empty_query() {
 
 #[test]
 fn test_search_command_invalid_directory() {
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg("/nonexistent/directory")
         .arg("search")
@@ -372,7 +369,7 @@ fn test_search_command_invalid_directory() {
 fn test_search_command_all_parameters() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("search")
@@ -392,7 +389,7 @@ fn test_search_command_all_parameters() {
 
 #[test]
 fn test_search_command_help() {
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("search")
         .arg("--help")
         .assert()
@@ -407,9 +404,9 @@ fn test_search_command_help() {
 #[cfg(target_os = "linux")]
 fn test_config_init_creates_file() {
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("org-mcp/config.toml");
+    let config_path = temp_dir.path().join("agendum/config.toml");
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .env("XDG_CONFIG_HOME", temp_dir.path().to_str().unwrap())
         .arg("config")
         .arg("init")
@@ -424,28 +421,28 @@ fn test_config_init_creates_file() {
 #[cfg(target_os = "linux")]
 fn test_config_init_file_already_exists() {
     let temp_dir = TempDir::new().unwrap();
-    let config_dir = temp_dir.path().join("org-mcp");
+    let config_dir = temp_dir.path().join("agendum");
     fs::create_dir_all(&config_dir).unwrap();
     let config_path = config_dir.join("config.toml");
 
     fs::write(&config_path, "[org]\norg_directory = \"/test\"").unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .env("XDG_CONFIG_HOME", temp_dir.path().to_str().unwrap())
         .arg("config")
         .arg("init")
         .assert()
         .success()
         .stdout(predicate::str::contains("already exists"))
-        .stdout(predicate::str::contains("Use 'org config show'"));
+        .stdout(predicate::str::contains("Use 'agd config show'"));
 }
 
 #[test]
 fn test_config_show_displays_config() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
-        .env("ORG_ORG__ORG_DIRECTORY", temp_dir.path().to_str().unwrap())
+    cargo::cargo_bin_cmd!("agd")
+        .env("AGD_ORG__ORG_DIRECTORY", temp_dir.path().to_str().unwrap())
         .arg("config")
         .arg("show")
         .assert()
@@ -459,7 +456,7 @@ fn test_config_show_displays_config() {
 #[test]
 #[cfg(target_os = "linux")]
 fn test_config_show_fallback_to_default() {
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .env("XDG_CONFIG_HOME", "/nonexistent/path")
         .env("HOME", "/nonexistent/home")
         .arg("config")
@@ -475,13 +472,13 @@ fn test_config_show_fallback_to_default() {
 fn test_config_path_shows_location() {
     let temp_dir = TempDir::new().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .env("XDG_CONFIG_HOME", temp_dir.path().to_str().unwrap())
         .arg("config")
         .arg("path")
         .assert()
         .success()
-        .stdout(predicate::str::contains("org-mcp/config.toml"));
+        .stdout(predicate::str::contains("agendum/config.toml"));
 }
 
 // Cross-platform tests using explicit --config paths
@@ -491,7 +488,7 @@ fn test_config_init_creates_file_with_explicit_path() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("custom-config.toml");
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("config")
@@ -510,7 +507,7 @@ fn test_config_init_file_already_exists_with_explicit_path() {
 
     fs::write(&config_path, "[org]\norg_directory = \"/test\"").unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("config")
@@ -518,7 +515,7 @@ fn test_config_init_file_already_exists_with_explicit_path() {
         .assert()
         .success()
         .stdout(predicate::str::contains("already exists"))
-        .stdout(predicate::str::contains("Use 'org config show'"));
+        .stdout(predicate::str::contains("Use 'agd config show'"));
 }
 
 #[test]
@@ -543,7 +540,7 @@ default_format = "plain"
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("config")
@@ -560,7 +557,7 @@ fn test_config_path_with_explicit_flag() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("my-config.toml");
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("config")
@@ -589,7 +586,7 @@ default_format = "json"
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("list")
@@ -624,9 +621,9 @@ default_format = "plain"
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
-        .env("ORG_LOGGING__LEVEL", "debug")
-        .env("ORG_ORG__ORG_DIRECTORY", temp_dir.path().to_str().unwrap())
+    cargo::cargo_bin_cmd!("agd")
+        .env("AGD_LOGGING__LEVEL", "debug")
+        .env("AGD_ORG__ORG_DIRECTORY", temp_dir.path().to_str().unwrap())
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("config")
@@ -652,7 +649,7 @@ fn test_config_respects_home_env() {
     fs::create_dir_all(&config_dir).unwrap();
 
     // Test that config path changes when HOME changes
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .env("HOME", temp_home.path().to_str().unwrap())
         .env_remove("XDG_CONFIG_HOME") // Remove to test HOME fallback
         .arg("config")
@@ -660,7 +657,7 @@ fn test_config_respects_home_env() {
         .assert()
         .success()
         .stdout(predicate::str::contains(temp_home.path().to_string_lossy()))
-        .stdout(predicate::str::contains("org-mcp/config.toml"));
+        .stdout(predicate::str::contains("agendum/config.toml"));
 }
 
 #[test]
@@ -676,9 +673,9 @@ fn test_config_init_with_home_env() {
 
     fs::create_dir_all(&config_dir).unwrap();
 
-    let expected_config_path = config_dir.join("org-mcp/config.toml");
+    let expected_config_path = config_dir.join("agendum/config.toml");
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .env("HOME", temp_home.path().to_str().unwrap())
         .env_remove("XDG_CONFIG_HOME")
         .arg("config")
@@ -706,7 +703,7 @@ fn test_config_show_with_home_env() {
 
     fs::create_dir_all(&config_dir).unwrap();
 
-    let org_mcp_dir = config_dir.join("org-mcp");
+    let org_mcp_dir = config_dir.join("agendum");
     fs::create_dir_all(&org_mcp_dir).unwrap();
     let config_path = org_mcp_dir.join("config.toml");
     // Convert path to forward slashes for TOML compatibility on Windows
@@ -723,7 +720,7 @@ level = "trace"
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .env("HOME", temp_home.path().to_str().unwrap())
         .env_remove("XDG_CONFIG_HOME")
         .arg("config")
@@ -740,7 +737,7 @@ level = "trace"
 fn test_list_command_with_single_tag() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("list")
@@ -758,7 +755,7 @@ fn test_list_command_with_single_tag() {
 fn test_list_command_with_multiple_tags() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("list")
@@ -773,7 +770,7 @@ fn test_list_command_with_multiple_tags() {
 fn test_list_command_with_tags_json_format() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("list")
@@ -792,7 +789,7 @@ fn test_list_command_with_tags_json_format() {
 fn test_list_command_with_nonexistent_tag() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("list")
@@ -810,7 +807,7 @@ fn test_list_command_with_nonexistent_tag() {
 fn test_search_command_with_single_tag() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("search")
@@ -826,7 +823,7 @@ fn test_search_command_with_single_tag() {
 fn test_search_command_with_multiple_tags() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("search")
@@ -841,7 +838,7 @@ fn test_search_command_with_multiple_tags() {
 fn test_search_command_with_tags_and_limit() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("search")
@@ -858,7 +855,7 @@ fn test_search_command_with_tags_and_limit() {
 fn test_search_command_with_tags_json_format() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("search")
@@ -878,7 +875,7 @@ fn test_search_command_with_tags_json_format() {
 fn test_search_command_with_tags_no_match() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("search")
@@ -894,7 +891,7 @@ fn test_search_command_with_tags_no_match() {
 fn test_search_command_with_tags_all_parameters() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("search")
@@ -929,7 +926,7 @@ org_agenda_files = ["agenda.org", "project.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -956,7 +953,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -988,7 +985,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1016,7 +1013,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1042,7 +1039,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1074,7 +1071,7 @@ org_agenda_files = ["agenda.org"]
     let start_date = today.format("%Y-%m-%d").to_string();
     let end_date = week_later.format("%Y-%m-%d").to_string();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1104,7 +1101,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1134,7 +1131,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1164,7 +1161,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1192,7 +1189,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1220,7 +1217,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1247,7 +1244,7 @@ org_agenda_files = ["empty.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1276,7 +1273,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1291,7 +1288,7 @@ org_agenda_files = ["agenda.org"]
 
 #[test]
 fn test_agenda_help() {
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("agenda")
         .arg("--help")
         .assert()
@@ -1319,7 +1316,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1348,7 +1345,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1382,7 +1379,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1412,7 +1409,7 @@ org_agenda_files = ["agenda.org"]
 
     // "Team meeting" has an active body timestamp for today but no SCHEDULED or DEADLINE,
     // so it exercises the (None, None) arm in print_agenda_view.
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1438,7 +1435,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1468,7 +1465,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1497,7 +1494,7 @@ org_agenda_files = ["agenda.org"]
     fs::write(&config_path, config_content).unwrap();
 
     // Test with limit of 1
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1532,7 +1529,7 @@ default_format = "plain"
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1560,7 +1557,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1588,7 +1585,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1617,7 +1614,7 @@ org_agenda_files = ["agenda.org"]
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -1635,7 +1632,7 @@ org_agenda_files = ["agenda.org"]
 fn test_capture_command_basic() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1655,7 +1652,7 @@ fn test_capture_command_basic() {
 fn test_capture_command_json_format() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1674,7 +1671,7 @@ fn test_capture_command_json_format() {
 fn test_capture_command_with_todo_state() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1692,7 +1689,7 @@ fn test_capture_command_with_todo_state() {
 fn test_capture_command_with_priority() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1710,7 +1707,7 @@ fn test_capture_command_with_priority() {
 fn test_capture_command_with_tags() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1728,7 +1725,7 @@ fn test_capture_command_with_tags() {
 fn test_capture_command_with_body() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1749,7 +1746,7 @@ fn test_capture_command_with_body() {
 fn test_capture_command_with_scheduled() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1769,7 +1766,7 @@ fn test_capture_command_with_scheduled() {
 fn test_capture_command_with_deadline() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1789,7 +1786,7 @@ fn test_capture_command_with_deadline() {
 fn test_capture_command_with_properties() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1815,7 +1812,7 @@ fn test_capture_command_with_target_heading() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
     fs::write(temp_dir.path().join("target.org"), "* Projects\nIntro.\n").unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1833,7 +1830,7 @@ fn test_capture_command_with_target_heading() {
 fn test_capture_command_with_datetree() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1857,7 +1854,7 @@ fn test_capture_command_with_datetree() {
 fn test_capture_command_invalid_todo() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1875,7 +1872,7 @@ fn test_capture_command_invalid_todo() {
 fn test_capture_command_invalid_property() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1893,7 +1890,7 @@ fn test_capture_command_invalid_property() {
 fn test_capture_command_with_level() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1911,7 +1908,7 @@ fn test_capture_command_with_level() {
 fn test_capture_command_with_closed() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("capture")
@@ -1945,7 +1942,7 @@ default_format = "json"
     );
     fs::write(&config_path, config_content).unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("capture")
@@ -1960,7 +1957,7 @@ default_format = "json"
 
 #[test]
 fn test_capture_help() {
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("capture")
         .arg("--help")
         .assert()
@@ -1988,7 +1985,7 @@ org_agenda_files = ["agenda.org"]
 
     // The agenda.org fixture has a task scheduled @TODAY-21@ — it must appear
     // in today's output with a "Sched. Xd ago" annotation.
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -2018,7 +2015,7 @@ org_agenda_files = ["agenda.org"]
     // SCHEDULED.  It must appear in today's output with a plain "Xd ago"
     // annotation (no "Sched." prefix), exercising the deadline-only overdue
     // branch of the CLI formatter.
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--config")
         .arg(config_path.to_str().unwrap())
         .arg("agenda")
@@ -2033,7 +2030,7 @@ org_agenda_files = ["agenda.org"]
 fn test_update_todo_by_id_plain_output() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("update-todo")
@@ -2055,7 +2052,7 @@ fn test_update_todo_by_id_plain_output() {
 fn test_update_todo_json_output() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("update-todo")
@@ -2078,7 +2075,7 @@ fn test_update_todo_json_output() {
 fn test_update_todo_not_found_fails() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("update-todo")
@@ -2094,7 +2091,7 @@ fn test_update_todo_not_found_fails() {
 fn test_update_todo_missing_target_is_usage_error() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("update-todo")
@@ -2111,7 +2108,7 @@ fn test_update_todo_missing_target_is_usage_error() {
 fn test_update_todo_missing_mutation_is_usage_error() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("update-todo")
@@ -2130,7 +2127,7 @@ fn test_update_todo_missing_mutation_is_usage_error() {
 fn test_update_todo_domain_error_has_no_backtrace() {
     let temp_dir = setup_test_org_files_with_dates().unwrap();
 
-    cargo::cargo_bin_cmd!("org-cli")
+    cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("update-todo")

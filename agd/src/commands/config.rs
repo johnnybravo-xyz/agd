@@ -44,7 +44,7 @@ impl ConfigCommand {
                 "Configuration file already exists at: {}",
                 config_path.display()
             );
-            println!("Use 'org config show' to view current configuration");
+            println!("Use 'agd config show' to view current configuration");
             return Ok(());
         }
 

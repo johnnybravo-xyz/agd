@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-10-13
+
+### Changed
+
+- Published the upstream-derived core as `agd-core` for the `agd` CLI.
+- Relicensed the combined distribution under GPL-3.0-or-later while retaining
+  the upstream MIT notice.
+
+### Upstream `org-core` history
+
+
 ## [0.2.0](https://github.com/szaffarano/org-mcp-server/compare/org-core-v0.1.0...org-core-v0.2.0)
 
 ### ✨ Features

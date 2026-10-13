@@ -80,8 +80,8 @@
             buildInputs = [];
             meta = with pkgs.lib; {
               description = "OrgMode MCP Server Full";
-              homepage = "https://github.com/szaffarano/org-mcp-server";
-              license = licenses.mit;
+              homepage = "https://github.com/johnnybravo-xyz/agd";
+              license = licenses.gpl3Plus;
               maintainers = [];
             };
           };

@@ -248,8 +248,8 @@ max_connections = 5
 
         with_vars(
             [
-                ("ORG_ORG__ORG_DIRECTORY", Some(temp_dir_path)),
-                ("ORG_SERVER__MAX_CONNECTIONS", Some("50")),
+                ("AGD_ORG__ORG_DIRECTORY", Some(temp_dir_path)),
+                ("AGD_SERVER__MAX_CONNECTIONS", Some("50")),
             ],
             || {
                 let config = ServerAppConfig::load(None, None, None).unwrap();

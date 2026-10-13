@@ -1,5 +1,5 @@
 [dependencies]
-org-core = { version = "0.2.0", path = "../org-core" }
+org-core = { package = "agd-core", version = "0.0.1", path = "../org-core" }
 clap = { workspace = true, features = ["derive"] }
 anyhow = { workspace = true }
 chrono = { workspace = true }
@@ -17,12 +17,20 @@ serial_test = { workspace = true }
 temp-env = "0.3.6"
 
 [package]
-name = "org-cli"
-description = "Command-line tool for searching, reading, and managing org-mode knowledge bases with fuzzy text search and structured content access"
+name = "agd"
+description = "Local-first CLI for searching, reading, and managing org-mode files"
 edition = "2024"
+rust-version = "1.89"
 authors.workspace = true
 license.workspace = true
-version = "0.1.1"
+version = "0.0.1"
 readme.workspace = true
+homepage.workspace = true
 documentation.workspace = true
 repository.workspace = true
+keywords = ["org-mode", "agenda", "productivity", "cli", "knowledge-management"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "agd"
+path = "src/main.rs"

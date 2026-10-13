@@ -11,8 +11,8 @@ use commands::{
 use config::CliAppConfig;
 
 #[derive(Parser)]
-#[command(name = "org")]
-#[command(about = "A CLI tool for org-mode functionality")]
+#[command(name = "agd")]
+#[command(about = "Local-first command-line tools for org-mode files")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 struct Cli {
     /// Path to configuration file

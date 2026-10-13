@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-10-13
+
+### Changed
+
+- Forked the functional upstream `org-cli` as the `agd` package and executable.
+- Published the matching shared library as `agd-core` so crates.io installs use
+  the same implementation tested in this workspace.
+- Rebranded default configuration and environment-variable paths for agendum.
+- Relicensed the combined distribution under GPL-3.0-or-later while retaining
+  the upstream MIT notice.
+
+### Upstream `org-cli` history
+
 ## [0.1.1](https://github.com/szaffarano/org-mcp-server/compare/org-cli-v0.1.0...org-cli-v0.1.1)
 
 ### ✨ Features

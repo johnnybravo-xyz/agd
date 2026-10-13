@@ -1,16 +1,20 @@
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-authors = ["Sebastián Zaffarano <sebas@zaffarano.com.ar>"]
-license = "MIT"
-repository = "https://github.com/szaffarano/org-mcp-server"
-documentation = "https://github.com/szaffarano/org-mcp-server"
+authors = [
+  "johnnybravo-xyz",
+  "Sebastián Zaffarano <sebas@zaffarano.com.ar>",
+]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/johnnybravo-xyz/agd"
+homepage = "https://github.com/johnnybravo-xyz/agd"
+documentation = "https://github.com/johnnybravo-xyz/agd"
 readme = "README.md"
 
 
 [workspace]
 resolver = "3"
-members = ["org-mcp-server", "org-cli", "org-core", "test-utils"]
+members = ["org-mcp-server", "agd", "org-core", "test-utils"]
 
 [workspace.dependencies]
 anyhow = "1.0"

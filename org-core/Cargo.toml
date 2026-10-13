@@ -21,13 +21,21 @@ temp-env.workspace = true
 test-utils = { path = "../test-utils" }
 regex.workspace = true
 
+[lib]
+name = "org_core"
+path = "src/lib.rs"
+
 [package]
-name = "org-core"
-description = "Rust library for org-mode file operations with fuzzy search, outline extraction, ID-based lookups, and heading content retrieval"
+name = "agd-core"
+description = "Org-mode parsing and task operations for agd"
 edition = "2024"
+rust-version = "1.89"
 authors.workspace = true
 license.workspace = true
-version = "0.2.0"
+version = "0.0.1"
 readme.workspace = true
+homepage.workspace = true
 documentation.workspace = true
 repository.workspace = true
+keywords = ["org-mode", "agenda", "productivity"]
+categories = ["parser-implementations"]
