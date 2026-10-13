@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added path-based checks that work without loading the normal application
   configuration; with no path, the command checks the configured org root.
 
+### Changed
+
+- Consolidated the stdio MCP server into the single `agd` executable as
+  `agd mcp`; existing tools, resources, and configuration now ship with the
+  primary package.
+- Updated the MCP SDK to 3.5.1 for current tool-schema compatibility while
+  keeping production transport support limited to stdio.
+
 ## [0.0.1] - 2026-10-13
 
 ### Changed

@@ -112,4 +112,4 @@ jobs:
       - name: Check flake outputs
         run: nix flake check --print-build-logs
       - name: Build Nix packages
-        run: nix build .#agd .#org-mcp-server --print-build-logs
+        run: nix build .#agd --print-build-logs

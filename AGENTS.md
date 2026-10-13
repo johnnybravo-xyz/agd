@@ -7,11 +7,8 @@ files from terminals and coding agents.
 
 - `org-core/` publishes `agd-core` and owns parsing, discovery, agenda, search,
   capture, update, and source-preserving behavior.
-- `agd/` publishes the `agd` CLI and owns command-line input, output, and exit
-  status.
-- `org-mcp-server/` is the current stdio MCP adapter. Keep its production
-  feature set server-only and network-free while functionality moves behind
-  `agd`.
+- `agd/` publishes the single `agd` executable and owns command-line input,
+  output, exit status, and the stdio MCP adapter.
 - `test-utils/` contains deterministic shared fixtures.
 
 Put behavior in `agd-core`, then expose it through the thinnest required CLI or
@@ -86,8 +83,7 @@ failure without partial mutation.
   or personal data.
 - Keep `orgize` exactly pinned until source-preserving conformance proves an
   upgrade safe.
-- Keep the Nix default package aligned with the `agd` executable and expose the
-  transitional MCP binary separately.
+- Keep the Nix default package aligned with the single `agd` executable.
 
 ## Git
 

@@ -3,7 +3,7 @@ use rmcp::{ErrorData as McpError, model::ErrorCode};
 
 use serde_json::json;
 
-use crate::core::OrgModeRouter;
+use crate::mcp::OrgModeRouter;
 
 impl OrgModeRouter {
     pub(crate) async fn list_files(&self, uri: String) -> Result<ReadResourceResult, McpError> {

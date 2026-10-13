@@ -6,15 +6,17 @@ use org_core::OrgMode;
 
 mod commands;
 mod config;
+mod mcp;
 use commands::{
     AgendaCommand, CaptureCommand, CheckCommand, ConfigCommand, ElementByIdCommand, HeadingCommand,
     ListCommand, OutlineCommand, ReadCommand, SearchCommand, UpdateTodoCommand,
 };
 use config::CliAppConfig;
+use mcp::McpCommand;
 
 #[derive(Parser)]
 #[command(name = "agd")]
-#[command(about = "Local-first command-line tools for org-mode files")]
+#[command(about = "Local-first org-mode tools for terminals and coding agents")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 struct Cli {
     /// Path to configuration file
@@ -41,6 +43,8 @@ enum Commands {
     Config(ConfigCommand),
     /// List all .org files in a directory
     List(ListCommand),
+    /// Run the stdio Model Context Protocol server
+    Mcp(McpCommand),
     /// Read the contents of an org file
     Read(ReadCommand),
     /// Get the outline (headings) of an org file
@@ -87,6 +91,11 @@ fn run() -> Result<bool> {
             };
             command.execute(default_root)
         }
+        Commands::Mcp(command) => {
+            let config = CliAppConfig::load(config, root_directory, command.log_level.clone())?;
+            command.execute(config.org, config.logging)?;
+            Ok(false)
+        }
         command => {
             let config = CliAppConfig::load(
                 config,
@@ -105,7 +114,7 @@ fn run() -> Result<bool> {
                 Commands::ElementById(command) => command.execute(org_mode, config.cli),
                 Commands::Search(command) => command.execute(org_mode, config.cli),
                 Commands::UpdateTodo(command) => command.execute(org_mode, config.cli),
-                Commands::Check(_) | Commands::Config(_) => unreachable!(),
+                Commands::Check(_) | Commands::Config(_) | Commands::Mcp(_) => unreachable!(),
             }?;
             Ok(false)
         }

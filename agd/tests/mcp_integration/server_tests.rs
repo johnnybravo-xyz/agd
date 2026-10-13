@@ -23,9 +23,9 @@ async fn test_graceful_close_mcp_server() -> Result<(), Box<dyn std::error::Erro
     info!("Starting MCP server using pre-compiled binary");
 
     let org_dir = setup_test_org_files()?;
-    let binary = get_binary_path("org-mcp-server");
+    let binary = get_binary_path("agd");
     let mut command = Command::new(binary).configure(|cmd| {
-        cmd.args(["--root-directory", org_dir.path().to_str().unwrap()]);
+        cmd.args(["--root-directory", org_dir.path().to_str().unwrap(), "mcp"]);
     });
 
     let mut child = command.stdin(std::process::Stdio::piped()).spawn()?;
@@ -76,6 +76,9 @@ async fn test_mcp_server_connection() -> Result<(), Box<dyn std::error::Error>> 
     info!("Connected to server: {:#?}", server_info);
 
     if let Some(info) = server_info {
+        let implementation = info.server_info.as_ref().expect("server identity");
+        assert_eq!(implementation.name, "agd");
+
         // Verify that server provides instructions for usage
         assert!(
             info.instructions.is_some(),
@@ -136,10 +139,9 @@ level = "debug"
         transport::{ConfigureCommandExt, TokioChildProcess},
     };
 
-    let command =
-        tokio::process::Command::new(crate::get_binary_path("org-mcp-server")).configure(|cmd| {
-            cmd.args(["--config", config_path.to_str().unwrap()]);
-        });
+    let command = tokio::process::Command::new(crate::get_binary_path("agd")).configure(|cmd| {
+        cmd.args(["--config", config_path.to_str().unwrap(), "mcp"]);
+    });
 
     let service = ().serve(TokioChildProcess::new(command)?).await?;
 

@@ -61,42 +61,28 @@
           cargo = rustToolchain;
           rustc = rustToolchain;
         };
-        crateVersion = manifest:
-          (builtins.fromTOML (builtins.readFile manifest)).package.version;
-        mkRustPackage = {
-          pname,
-          manifest,
-          description,
-        }:
-          rustPlatform.buildRustPackage {
-            inherit pname;
-            version = crateVersion manifest;
-            src = pkgs.lib.cleanSource ./.;
-            cargoLock.lockFile = ./Cargo.lock;
-            cargoBuildFlags = ["--package=${pname}"];
-            cargoTestFlags = ["--package=${pname}"];
-            cargoInstallFlags = ["--package=${pname}"];
+        crateVersion =
+          (builtins.fromTOML (builtins.readFile ./agd/Cargo.toml)).package.version;
+        agd = rustPlatform.buildRustPackage {
+          pname = "agd";
+          version = crateVersion;
+          src = pkgs.lib.cleanSource ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+          cargoBuildFlags = ["--package=agd"];
+          cargoTestFlags = ["--package=agd"];
+          cargoInstallFlags = ["--package=agd"];
 
-            meta = {
-              inherit description;
-              homepage = "https://github.com/johnnybravo-xyz/agd";
-              license = pkgs.lib.licenses.gpl3Plus;
-              mainProgram = pname;
-              platforms = pkgs.lib.platforms.unix;
-            };
+          meta = {
+            description = "Local-first org-mode tools for terminals and coding agents";
+            homepage = "https://github.com/johnnybravo-xyz/agd";
+            license = pkgs.lib.licenses.gpl3Plus;
+            mainProgram = "agd";
+            platforms = pkgs.lib.platforms.unix;
           };
+        };
       in {
-        packages = rec {
-          agd = mkRustPackage {
-            pname = "agd";
-            manifest = ./agd/Cargo.toml;
-            description = "Local-first command-line tools for org-mode files";
-          };
-          org-mcp-server = mkRustPackage {
-            pname = "org-mcp-server";
-            manifest = ./org-mcp-server/Cargo.toml;
-            description = "Stdio MCP adapter for org-mode files";
-          };
+        packages = {
+          inherit agd;
           default = agd;
         };
 

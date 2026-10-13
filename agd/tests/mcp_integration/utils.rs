@@ -1,7 +1,4 @@
-//! Utility functions and macros for MCP server integration tests.
-//!
-//! This module provides reusable components for testing the org-mcp-server,
-//! including test data setup, server connection helpers, and path utilities.
+//! Utilities for exercising the `agd mcp` subprocess.
 
 use std::{
     env::{self, consts},
@@ -24,7 +21,7 @@ use tempfile::TempDir;
 ///
 /// # Example
 /// ```rust
-/// let server_path = get_binary_path("org-mcp-server");
+/// let server_path = get_binary_path("agd");
 /// ```
 pub fn get_binary_path(name: &str) -> PathBuf {
     env::var_os(format!("CARGO_BIN_EXE_{name}"))
@@ -90,7 +87,6 @@ pub fn target_dir() -> path::PathBuf {
 /// ```rust
 /// let temp_dir = setup_test_org_files()?;
 /// let service = create_mcp_service!(&temp_dir);
-/// // Use service to test org file operations
 /// ```
 ///
 /// # Test IDs Reference

@@ -25,7 +25,7 @@ use rmcp::{
 use rmcp::{RoleServer, ServerHandler};
 use serde_json::json;
 
-use crate::core::OrgModeRouter;
+use crate::mcp::OrgModeRouter;
 
 pub enum OrgResource {
     OrgFiles,
@@ -46,6 +46,7 @@ impl ServerHandler for OrgModeRouter {
             "- org-search\n",
             "- org-agenda\n",
             "- org-capture\n",
+            "- org-update-todo\n",
             "Resources:\n",
             "- org:// (List all org-mode files in the configured directory tree)\n",
             "- org://{file} (Access the raw content of an allowed Org file)\n",
@@ -65,7 +66,7 @@ impl ServerHandler for OrgModeRouter {
                 .build(),
         )
         .with_instructions(INSTRUCTIONS)
-        .with_server_info(Implementation::from_build_env())
+        .with_server_info(Implementation::new("agd", env!("CARGO_PKG_VERSION")))
     }
 
     async fn list_resources(
@@ -209,7 +210,7 @@ impl OrgModeRouter {
 
 #[cfg(test)]
 mod tests {
-    use crate::{core::OrgModeRouter, resources::OrgResource};
+    use crate::mcp::{OrgModeRouter, resources::OrgResource};
 
     #[test]
     fn test_org_files_list_resource() {

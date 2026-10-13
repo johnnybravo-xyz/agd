@@ -12,12 +12,9 @@ updates TODO state and planning metadata without requiring Emacs at runtime.
 Version [`0.0.1`](https://github.com/johnnybravo-xyz/agd/releases/tag/agd-v0.0.1)
 is a functional fork baseline derived from
 [`szaffarano/org-mcp-server`](https://github.com/szaffarano/org-mcp-server).
-It exposes the inherited CLI as the
-[`agd`](https://crates.io/crates/agd/0.0.1) package and executable. The shared
-library is published as
-[`agd-core`](https://crates.io/crates/agd-core/0.0.1); the workspace retains
-the upstream-derived `org-core/` directory and `org-mcp-server` binary while
-the product is consolidated.
+The published [`agd`](https://crates.io/crates/agd/0.0.1) package ships one
+executable for the command-line and stdio MCP surfaces. The shared library is
+published as [`agd-core`](https://crates.io/crates/agd-core/0.0.1).
 
 ## Install
 
@@ -43,6 +40,7 @@ agd capture        Capture a new heading
 agd check          Check parsing, byte stability, and duplicate IDs
 agd config         Initialize, inspect, or locate configuration
 agd list           List org files
+agd mcp            Run the stdio MCP server
 agd read           Read an org file
 agd outline        Print an org file's heading outline
 agd heading        Read one heading by outline path
@@ -66,6 +64,9 @@ agd --root-directory ~/org search "project planning"
 agd check
 agd check --json ~/org
 
+# Start the stdio MCP server for an agent client.
+agd --root-directory ~/org mcp
+
 # Agenda views.
 agd --root-directory ~/org agenda today
 agd --root-directory ~/org agenda week --format json
@@ -84,6 +85,13 @@ agd --root-directory ~/org update-todo \
   --file projects.org --heading "Personal/Passport" \
   --deadline "2026-10-30 -7d"
 ```
+
+## MCP
+
+Configure an MCP client to launch `agd` with the `mcp` argument. `agd mcp`
+uses the normal configuration; global overrides precede the subcommand, as in
+`agd --root-directory ~/org mcp`. The server uses stdio only, writes logs to
+stderr, and does not open a network listener.
 
 ## Configuration
 
@@ -139,10 +147,10 @@ cargo run -p agd -- --help
 
 The workspace layout is:
 
-- `agd/` — the published CLI package and `agd` executable.
+- `agd/` — the published `agd` package and executable, including the CLI and
+  stdio MCP surface.
 - `org-core/` — the published `agd-core` library: parsing, discovery, agenda,
   search, capture, and update logic.
-- `org-mcp-server/` — the upstream-derived stdio MCP server.
 - `test-utils/` — shared fixtures and test helpers.
 
 ## Origin and license

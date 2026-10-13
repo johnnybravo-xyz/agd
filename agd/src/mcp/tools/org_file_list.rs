@@ -6,7 +6,7 @@ use rmcp::{
     schemars, tool, tool_router,
 };
 
-use crate::core::OrgModeRouter;
+use crate::mcp::OrgModeRouter;
 
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
 pub struct ListFilesRequest {
@@ -15,7 +15,7 @@ pub struct ListFilesRequest {
     #[schemars(description = "Maximum number of files to return (optional)")]
     #[serde(
         default,
-        deserialize_with = "crate::utils::deserialize_string_or_number"
+        deserialize_with = "crate::mcp::utils::deserialize_string_or_number"
     )]
     pub limit: Option<usize>,
 }

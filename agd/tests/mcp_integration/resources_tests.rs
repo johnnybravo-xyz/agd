@@ -1,8 +1,7 @@
 //! Integration tests for MCP server resources.
 //!
-//! This module contains tests that verify the functionality of resources exposed
-//! by the org-mcp-server, including directory listing, file content access,
-//! outline structures, heading access, and ID-based lookups.
+//! This module verifies the resources exposed by `agd mcp`, including directory
+//! listing, file content, outlines, headings, and ID-based lookups.
 
 use rmcp::model::ReadResourceRequestParams;
 use tracing::info;

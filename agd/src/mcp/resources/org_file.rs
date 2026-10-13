@@ -1,31 +1,25 @@
-use org_core::org_mode::AgendaViewType;
 use rmcp::model::{ReadResourceResult, ResourceContents};
 use rmcp::{ErrorData as McpError, model::ErrorCode};
 
 use serde_json::json;
 
-use crate::core::OrgModeRouter;
+use crate::mcp::OrgModeRouter;
 
 impl OrgModeRouter {
-    pub(crate) async fn read_agenda(
+    pub(crate) async fn read_file(
         &self,
         uri: String,
-        agenda_view_type: AgendaViewType,
+        path: String,
     ) -> Result<ReadResourceResult, McpError> {
         let org_mode = self.org_mode.lock().await;
-
-        let result = org_mode
-            .get_agenda_view(agenda_view_type, None, None, None)
-            .map(|tasks| json!(tasks).to_string());
-
-        match result {
+        match org_mode.read_file(&path) {
             Ok(content) => Ok(ReadResourceResult::new(vec![ResourceContents::text(
                 content, uri,
             )])),
             Err(e) => Err(McpError {
                 code: ErrorCode::INTERNAL_ERROR,
-                message: format!("Failed to read agenda: {e}").into(),
-                data: Some(json!({ "uri": uri })),
+                message: format!("Failed to read org file '{}': {}", path, e).into(),
+                data: Some(json!({"path": path, "uri": uri})),
             }),
         }
     }

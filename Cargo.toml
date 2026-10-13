@@ -14,7 +14,7 @@ readme = "README.md"
 
 [workspace]
 resolver = "3"
-members = ["org-mcp-server", "agd", "org-core", "test-utils"]
+members = ["agd", "org-core", "test-utils"]
 
 [workspace.dependencies]
 anyhow = "1.0"
@@ -39,15 +39,7 @@ serial_test = "4.0.0"
 shellexpand = "3.1.2"
 tempfile = "3.26"
 temp-env = "0.3.6"
-tokio-test = "0.4"
-tokio = { version = "1", features = [
-  "io-std",
-  "macros",
-  "process",
-  "rt",
-  "rt-multi-thread",
-  "signal",
-] }
+tokio = "1"
 toml = "1.0"
 tracing = "0.1.44"
 tracing-appender = "0.2.4"

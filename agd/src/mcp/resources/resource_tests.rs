@@ -1,4 +1,4 @@
-use crate::core::OrgModeRouter;
+use crate::mcp::OrgModeRouter;
 use std::fs;
 use tempfile::TempDir;
 

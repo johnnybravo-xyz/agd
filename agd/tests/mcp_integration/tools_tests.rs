@@ -1,7 +1,6 @@
 //! Integration tests for MCP server tools.
 //!
-//! This module contains tests that verify the functionality of tools exposed
-//! by the org-mcp-server, including org-file-list and org-search tools.
+//! This module verifies the tools exposed by `agd mcp`.
 
 use rmcp::{
     ClientLifecycleMode, ClientServiceExt,
@@ -50,11 +49,10 @@ async fn test_list_tools() -> Result<(), Box<dyn std::error::Error>> {
 async fn test_modern_tool_list_has_required_cache_hints() -> Result<(), Box<dyn std::error::Error>>
 {
     let temp_dir = setup_test_org_files()?;
-    let command = tokio::process::Command::new(crate::get_binary_path("org-mcp-server")).configure(
-        |command| {
-            command.args(["--root-directory", temp_dir.path().to_str().unwrap()]);
-        },
-    );
+    let command =
+        tokio::process::Command::new(crate::get_binary_path("agd")).configure(|command| {
+            command.args(["--root-directory", temp_dir.path().to_str().unwrap(), "mcp"]);
+        });
     let service = ()
         .serve_with_lifecycle(
             TokioChildProcess::new(command)?,

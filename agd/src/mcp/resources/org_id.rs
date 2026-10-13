@@ -2,7 +2,7 @@ use rmcp::ErrorData as McpError;
 use rmcp::model::{ErrorCode, ReadResourceResult, ResourceContents};
 use serde_json::json;
 
-use crate::core::OrgModeRouter;
+use crate::mcp::OrgModeRouter;
 
 impl OrgModeRouter {
     #[allow(unused)]

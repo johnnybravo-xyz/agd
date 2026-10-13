@@ -6,7 +6,7 @@ use rmcp::{
     schemars, tool, tool_router,
 };
 
-use crate::core::OrgModeRouter;
+use crate::mcp::OrgModeRouter;
 
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
 pub struct PropertyPairRequest {

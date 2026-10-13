@@ -1,6 +1,6 @@
 use urlencoding::decode;
 
-use crate::core::OrgModeRouter;
+use crate::mcp::OrgModeRouter;
 
 impl OrgModeRouter {
     pub fn decode_uri_path(path: &str) -> String {

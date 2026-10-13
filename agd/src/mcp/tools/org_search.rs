@@ -6,7 +6,7 @@ use rmcp::{
     schemars, tool, tool_router,
 };
 
-use crate::core::OrgModeRouter;
+use crate::mcp::OrgModeRouter;
 
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
 pub struct SearchRequest {
@@ -15,13 +15,13 @@ pub struct SearchRequest {
     #[schemars(description = "Maximum number of search results to return (optional)")]
     #[serde(
         default,
-        deserialize_with = "crate::utils::deserialize_string_or_number"
+        deserialize_with = "crate::mcp::utils::deserialize_string_or_number"
     )]
     pub limit: Option<usize>,
     #[schemars(description = "Maximum snippet size in characters (optional, default: 100)")]
     #[serde(
         default,
-        deserialize_with = "crate::utils::deserialize_string_or_number"
+        deserialize_with = "crate::mcp::utils::deserialize_string_or_number"
     )]
     pub snippet_max_size: Option<usize>,
     #[schemars(
