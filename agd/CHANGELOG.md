@@ -22,6 +22,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Rewrite the README around the TUI, tmux and herdr use, agents and
+  compatibility, with a demo GIF recorded from `docs/demo`.
 - Rebuild the TUI to the design: a theme with light, dark, 16-colour and
   `NO_COLOR` variants; tabs for Today, Week, Inbox and Agents; a footer with
   the most-used keys and Emacs-style write confirmations.

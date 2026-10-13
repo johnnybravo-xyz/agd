@@ -1,50 +1,50 @@
-Output docs/release/agd.mp4
+# Records docs/release/agd.gif from the sample tree in docs/demo.
+#   cargo build --release && vhs docs/release/agd.tape
+Output docs/release/agd.gif
 
+Require python3
 Set Shell "bash"
-Set FontSize 18
-Set Width 1280
-Set Height 720
-Set TypingSpeed 35ms
-Set PlaybackSpeed 1.0
-Set Padding 24
-Set Theme { "name": "Agenda", "background": "#111318", "foreground": "#d8dee9", "black": "#111318", "red": "#ef6f6c", "green": "#7bd88f", "yellow": "#e5c07b", "blue": "#61afef", "magenta": "#c678dd", "cyan": "#56b6c2", "white": "#d8dee9", "brightBlack": "#5c6370", "brightRed": "#ef6f6c", "brightGreen": "#7bd88f", "brightYellow": "#e5c07b", "brightBlue": "#61afef", "brightMagenta": "#c678dd", "brightCyan": "#56b6c2", "brightWhite": "#ffffff" }
+Set FontSize 15
+Set Width 1360
+Set Height 780
+Set Padding 18
+Set TypingSpeed 45ms
+Set Theme { "name": "agd", "background": "#14171c", "foreground": "#dee2e8", "black": "#14171c", "red": "#f07178", "green": "#7ec68f", "yellow": "#e5b567", "blue": "#6ea8fe", "magenta": "#e879b0", "cyan": "#5ec4a0", "white": "#dee2e8", "brightBlack": "#808896", "brightRed": "#f07178", "brightGreen": "#7ec68f", "brightYellow": "#e5b567", "brightBlue": "#6ea8fe", "brightMagenta": "#e879b0", "brightCyan": "#5ec4a0", "brightWhite": "#ffffff", "cursor": "#6ea8fe", "selection": "#25344a" }
 
 Hide
-Type "demo=$(mktemp -d)"
-Enter
-Type "printf '[files]\\nroots = [\"%s\"]\\n' \"$demo\" > \"$demo/agd.toml\""
-Enter
-Type "printf '* TODO [#A] Ship release :work:\\nSCHEDULED: <2026-10-13 Tue>\\n* NEXT Verify Emacs oracle :work:\\nDEADLINE: <2026-10-15 Thu -3d>\\n* TODO Process inbox\\n' > \"$demo/tasks.org\""
-Enter
-Type "export AGD='target/release/agd --config '$demo'/agd.toml'"
-Enter
+Env COLORTERM "truecolor"
+Env AGD "target/release/agd"
+Type "docs/demo/demo.sh" Enter
+Sleep 3s
 Show
 
-Type "$AGD agenda --span day --from 2026-10-13"
-Enter
-Sleep 7s
-
-Type "$AGD agenda --span day --from 2026-10-13 --csv"
-Enter
-Sleep 6s
-
-Type "$AGD agenda --match work --json"
-Enter
-Sleep 7s
-
-Type "$AGD capture t 'Renew passport due:fri +personal' --dry-run"
-Enter
-Sleep 8s
-
-Type "$AGD"
-Enter
-Sleep 5s
-Type "T"
-Sleep 5s
-Type "q"
-Sleep 2s
-Type "q"
+# Today: sections you act on, slipped collapsed, inbox with provenance.
 Sleep 3s
+Down Down Down Down Down Down Down Sleep 700ms
+Type "p" Sleep 3s
+Type "p" Sleep 500ms
 
-Type "# untouched bytes preserved; every real write is journaled and undoable"
-Sleep 5s
+# Week: every day, classic org-agenda prefixes.
+Tab Sleep 2.5s
+
+# Agent review: what changed while you weren't looking.
+Tab Tab Sleep 3s
+Type "a" Sleep 1.5s
+
+# Triage: one card, one key per decision.
+Type "1" Sleep 500ms
+Type "T" Sleep 3s
+Type "s" Sleep 1.5s
+Type "m" Sleep 1.5s
+Escape Sleep 800ms
+
+# Capture: tokens become chips, the preview is the exact org text.
+Type "c" Sleep 400ms
+Type "t" Sleep 300ms
+Type "Renew passport due:fri on:+1d +personal #A" Sleep 3s
+Enter Sleep 2s
+
+# Saved views, like C-c a.
+Type "a" Sleep 1.5s
+Type "w" Sleep 3s
+Type "q"

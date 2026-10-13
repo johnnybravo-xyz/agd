@@ -17,17 +17,22 @@ without executing editor code.
 | --- | --- | --- |
 | Scheduled, deadline, and active timestamp rows | Exact | `conformance/agenda/plain` |
 | Past scheduled carry-over | Exact | Plain and generated oracle cases |
+| Overdue repeating deadlines, repeats only on base date and after today | Exact | `conformance/agenda/overdue-repeats` |
+| Habit repeaters, Unicode tags and weekdays, ignored block/link timestamps | Exact | `conformance/agenda/syntax-edges` |
+| Planning only on the line after the headline | Exact | `conformance/agenda/planning-lines` |
 | Deadline warning window and per-timestamp warning | Exact | `conformance/agenda/warnings` |
 | `+`, `++`, and `.+` day/week/month/year repeaters | Exact | `conformance/agenda/repeaters` and generated cases |
 | Active timestamp ranges and range progress | Exact | `conformance/agenda/ranges` |
 | Inherited file and ancestor tags | Exact | `conformance/agenda/inheritance` |
 | Done-item skip settings for planning/timestamps | Exact | `conformance/agenda/done-skipping` |
 | In-file `#+TODO` and `#+SEQ_TODO` workflows | Exact for parsing and writes | Round-trip and edit oracle fixtures |
-| Priority, time, and category agenda ordering | Exact for supported strategies | Generated agenda oracle cases |
+| Row order: urgency, priority, time, category, alpha, todo-state keys | Exact | All cases compare Emacs's own row order; `conformance/agenda/sorting` sets a custom strategy |
+| Custom agenda commands as views (agenda, todo, alltodo, tags, tags-todo blocks) | Exact rows | `agd setup import emacs --verify` runs each view in Emacs and agd |
 | Tags/TODO match expressions | Native | `work`, `+a-b`, `a&b`, `a\|b`, `/TODO\|NEXT`, `/-WAIT`, `/!`; property and regexp matches are rejected |
 | org-ql `and`, `or`, `not`, `todo`, `tags`, `priority`, `category`, `text`, `deadline`, `scheduled`, `done` | Native subset | Unknown predicates fail explicitly |
 | Plain day/week/month lists and CSV | Native | CSV fields follow the Emacs oracle schema |
-| Clock table, clocking UI, and effort calculations | Unsupported | Org source is preserved; no clock evaluator |
+| Effort totals | Native | Today sums `:Effort:`; no column view |
+| Clock table and clocking UI | Unsupported | Org source is preserved; no clock evaluator |
 | Habit graph and habit consistency calculations | Unsupported | Preserved as source, not interpreted |
 | Diary sexps and `%%(...)` | Unsupported | Never evaluated |
 | Arbitrary custom agenda skip functions | Unsupported | Never evaluated |
@@ -48,7 +53,8 @@ priority.
 | Title/tags/priority/properties | Patches the smallest source span and preserves surrounding bytes |
 | Capture | Literal templates and supported placeholders render exact Org text before insertion |
 | Refile | Moves the original subtree bytes; destination identity is revalidated under locks |
-| Undo | Replays inverse byte patches only against the recorded post-image |
+| Undo | Replays inverse byte patches where their bytes and surrounding lines are unchanged; anything else is a conflict |
+| Tags | Realigned to `org-tags-column` whenever a headline is rewritten, as Emacs does |
 
 The edit oracle covers no-op round trips, state changes, planning changes,
 repeater completion, logbook behavior, and preservation of unrelated byte
