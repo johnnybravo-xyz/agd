@@ -61,8 +61,11 @@ pub struct QueryCommand {
 
 #[derive(Args, Debug)]
 pub struct CaptureCommand {
-    template: String,
-    title: String,
+    template: Option<String>,
+    title: Option<String>,
+    /// Open the focused terminal capture popup.
+    #[arg(short = 'i', long)]
+    interactive: bool,
     #[arg(long)]
     deadline: Option<String>,
     #[arg(long)]
@@ -232,10 +235,23 @@ impl QueryCommand {
 
 impl CaptureCommand {
     pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<()> {
+        if self.interactive {
+            if self.template.is_some() || self.title.is_some() {
+                bail!("interactive capture does not accept template or title arguments");
+            }
+            return crate::tui::run_capture(config, root);
+        }
+        let template = self
+            .template
+            .as_deref()
+            .ok_or_else(|| anyhow!("capture template is required unless --interactive is used"))?;
+        let title = self
+            .title
+            .ok_or_else(|| anyhow!("capture title is required unless --interactive is used"))?;
         let settings = settings(config, root)?;
         let today = Local::now().date_naive();
         let draft = CaptureDraft {
-            title: self.title,
+            title,
             scheduled: parse_optional_date(self.scheduled.as_deref(), today)?,
             deadline: parse_optional_date(self.deadline.as_deref(), today)?,
             tags: self.tag,
@@ -243,7 +259,7 @@ impl CaptureCommand {
         };
         let prompts = key_values(self.prompts, "prompt")?.into_iter().collect();
         let mutation = WriteEngine::with_default_journal(settings)?.capture(
-            &self.template,
+            template,
             &draft,
             &self.body,
             &prompts,

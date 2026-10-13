@@ -29,7 +29,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, BorderType, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Scrollbar,
-    ScrollbarOrientation, ScrollbarState, Tabs, Wrap,
+    ScrollbarOrientation, ScrollbarState, Wrap,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -104,6 +104,7 @@ struct App {
     classic: bool,
     peek: bool,
     pane: bool,
+    capture_only: bool,
     pending_view_key: bool,
     overlay: Overlay,
     status: String,
@@ -113,13 +114,29 @@ struct App {
     agent_count: usize,
     slipped_count: usize,
     recent_targets: Vec<String>,
+    reschedule_counts: BTreeMap<String, usize>,
+    provenance: BTreeMap<String, String>,
     triage_started: Option<Instant>,
     triage_outcomes: [usize; 6],
+    review_diff: bool,
     triage_undo: Vec<(Vec<String>, usize)>,
     quit: bool,
 }
 
 pub fn run(config: Option<String>, root: Option<String>, pane: bool) -> Result<()> {
+    run_mode(config, root, pane, false)
+}
+
+pub fn run_capture(config: Option<String>, root: Option<String>) -> Result<()> {
+    run_mode(config, root, false, true)
+}
+
+fn run_mode(
+    config: Option<String>,
+    root: Option<String>,
+    pane: bool,
+    capture_only: bool,
+) -> Result<()> {
     let loaded = load_settings(
         config.as_deref().map(Path::new),
         root.as_deref().map(Path::new),
@@ -142,8 +159,18 @@ pub fn run(config: Option<String>, root: Option<String>, pane: bool) -> Result<(
         classic: false,
         peek: false,
         pane,
+        capture_only,
         pending_view_key: false,
-        overlay: Overlay::None,
+        overlay: if capture_only {
+            Overlay::Capture {
+                template: None,
+                input: String::new(),
+                preview: "type a capture template key".to_string(),
+                body: String::new(),
+            }
+        } else {
+            Overlay::None
+        },
         status: String::new(),
         status_at: Instant::now(),
         list_area: Rect::default(),
@@ -152,7 +179,10 @@ pub fn run(config: Option<String>, root: Option<String>, pane: bool) -> Result<(
         slipped_count: 0,
         recent_targets: Vec::new(),
         triage_started: None,
+        provenance: BTreeMap::new(),
+        reschedule_counts: BTreeMap::new(),
         triage_outcomes: [0; 6],
+        review_diff: false,
         triage_undo: Vec::new(),
         quit: false,
     };
@@ -261,6 +291,20 @@ fn handle_key(
                 app.peek = false;
             }
         }
+        KeyCode::Char('k') if app.screen == Screen::Triage => app.cancel_selected()?,
+        KeyCode::Char('p') if app.screen == Screen::Triage => {
+            app.overlay = Overlay::Prompt {
+                kind: PromptKind::Schedule,
+                input: String::new(),
+            }
+        }
+        KeyCode::Char('n') if app.screen == Screen::Triage => app.apply_state("NEXT")?,
+        KeyCode::Char('A') if app.screen == Screen::Review => app.review_all()?,
+        KeyCode::Char('A') => {
+            app.screen = Screen::Review;
+            app.review_diff = false;
+            app.reload_rows()?;
+        }
         KeyCode::Char('j') | KeyCode::Down => app.move_selection(1),
         KeyCode::Char('k') | KeyCode::Up => app.move_selection(-1),
         KeyCode::Char('?') => app.overlay = Overlay::Help,
@@ -280,11 +324,11 @@ fn handle_key(
                 body: String::new(),
             }
         }
-        KeyCode::Char('v') => app.pending_view_key = true,
-        KeyCode::Char('V') => {
+        KeyCode::Char('v') => {
             app.classic = !app.classic;
             app.reload_rows()?;
         }
+        KeyCode::Char('V') => app.pending_view_key = true,
         KeyCode::Char('f') => {
             app.day += period_duration(app.view);
             app.reload_rows()?;
@@ -315,6 +359,9 @@ fn handle_key(
             kind: PromptKind::Schedule,
             input: String::new(),
         },
+        KeyCode::Char('d') if app.screen == Screen::Review => {
+            app.review_diff = !app.review_diff;
+        }
         KeyCode::Char('d') => app.overlay = Overlay::Prompt {
             kind: PromptKind::Deadline,
             input: String::new(),
@@ -444,9 +491,18 @@ impl App {
         self.inbox_count = self
             .index
             .items()
-            .filter(|item| !item.done && is_inbox(item))
+            .filter(|item| item.todo.is_some() && !item.done && is_inbox(item))
             .count();
         let journals = WriteEngine::with_default_journal(self.settings.clone())?.journal()?;
+        self.provenance.clear();
+        for record in &journals {
+            if matches!(record.status, JournalStatus::Committed) {
+                if let Some(item_ref) = &record.item_ref {
+                    self.provenance
+                        .insert(item_ref.clone(), record.actor.clone());
+                }
+            }
+        }
         self.agent_count = journals
             .iter()
             .filter(|record| {
@@ -454,6 +510,16 @@ impl App {
                     && record.actor.starts_with("mcp:")
             })
             .count();
+        self.reschedule_counts.clear();
+        for record in &journals {
+            if matches!(record.status, JournalStatus::Committed)
+                && record.diff.contains("SCHEDULED:")
+            {
+                if let Some(item_ref) = &record.item_ref {
+                    *self.reschedule_counts.entry(item_ref.clone()).or_default() += 1;
+                }
+            }
+        }
         if self.screen == Screen::Review {
             self.journals = journals
                 .into_iter()
@@ -556,7 +622,9 @@ impl App {
                         .iter()
                         .any(|tag| tag.eq_ignore_ascii_case(&self.filter)))
         });
-        self.slipped_count = rows.iter().filter(|row| row.section == "SLIPPED").count();
+        if self.screen == Screen::Today {
+            self.slipped_count = rows.iter().filter(|row| row.section == "SLIPPED").count();
+        }
         if !self.classic && self.screen == Screen::Today {
             let mut slipped = 0;
             rows.retain(|row| {
@@ -621,6 +689,15 @@ impl App {
     fn apply_state(&mut self, state: &str) -> Result<()> {
         let targets = self.targets();
         let mut journals = Vec::new();
+        let is_done = self.settings.todo.sequences.iter().any(|sequence| {
+            sequence
+                .iter()
+                .skip_while(|keyword| keyword.as_str() != "|")
+                .skip(1)
+                .any(|keyword| {
+                    keyword.split(['(', '!', '@']).next().unwrap_or(keyword) == state
+                })
+        });
         for item_ref in &targets {
             journals.push(self.edit_ref(
                 item_ref,
@@ -630,14 +707,13 @@ impl App {
                 },
             )?);
         }
-        if state == "DONE" {
+        if is_done {
             self.record_triage(journals, 4);
         }
         self.marks.clear();
         self.set_status(format!("{} item(s) → {state} · u undo", targets.len()));
         self.reload_rows()
     }
-
     fn cycle_state(&mut self) -> Result<()> {
         let Some(row) = self.selected_row() else {
             return Ok(());
@@ -658,6 +734,29 @@ impl App {
         let index = active.iter().position(|keyword| Some(*keyword) == current).unwrap_or(0);
         let next = active[(index + 1) % active.len()].to_string();
         self.apply_state(&next)
+    }
+
+    fn cancel_selected(&mut self) -> Result<()> {
+        let state = self
+            .settings
+            .todo
+            .sequences
+            .iter()
+            .flat_map(|sequence| {
+                sequence
+                    .iter()
+                    .skip_while(|keyword| keyword.as_str() != "|")
+                    .skip(1)
+            })
+            .map(|keyword| keyword.split(['(', '!', '@']).next().unwrap_or(keyword))
+            .find(|keyword| keyword.contains("CANCEL"))
+            .map(str::to_string);
+        if let Some(state) = state {
+            self.apply_state(&state)
+        } else {
+            self.set_status("no cancellation state is configured".to_string());
+            Ok(())
+        }
     }
 
     fn apply_date_to_targets(&mut self, value: &str) -> Result<()> {
@@ -764,6 +863,16 @@ impl App {
         self.reload_rows()
     }
 
+
+    fn review_all(&mut self) -> Result<()> {
+        let ids: Vec<String> = self.journals.iter().map(|record| record.id.clone()).collect();
+        let engine = WriteEngine::with_default_journal(self.settings.clone())?;
+        for id in &ids {
+            engine.review(id)?;
+        }
+        self.set_status(format!("reviewed {} agent changes", ids.len()));
+        self.reload_rows()
+    }
     fn undo_review_selected(&mut self) -> Result<()> {
         let Some(record) = self.journals.get(self.selected) else {
             return Ok(());
@@ -879,7 +988,9 @@ impl App {
                 &write_context(),
             )
         });
-        *preview = result.map(|mutation| mutation.diff).unwrap_or_else(|error| error.to_string());
+        *preview = result
+            .map(|mutation| added_text(&mutation.diff))
+            .unwrap_or_else(|error| error.to_string());
     }
 
     fn commit_capture(&mut self) -> Result<()> {
@@ -905,6 +1016,10 @@ impl App {
         self.index.refresh_path(Path::new(&mutation.item.file))?;
         self.overlay = Overlay::None;
         self.set_status(format!("captured {} · u undo", mutation.item.item_ref));
+        if self.capture_only {
+            self.quit = true;
+            return Ok(());
+        }
         self.reload_rows()
     }
 
@@ -980,15 +1095,7 @@ fn draw_full(frame: &mut ratatui::Frame<'_>, app: &mut App, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(2), Constraint::Min(3), Constraint::Length(1)])
         .split(area);
-    let tabs = Tabs::new(vec![
-        format!(" Today · {} inbox ", app.inbox_count),
-        format!(" Triage · {} slipped ", app.slipped_count),
-        format!(" Agent review · {} ", app.agent_count),
-    ])
-        .select(match app.screen { Screen::Today => 0, Screen::Triage => 1, Screen::Review => 2 })
-        .highlight_style(Style::default().fg(accent).add_modifier(Modifier::BOLD))
-        .divider(" ");
-    frame.render_widget(tabs, chunks[0]);
+    draw_header(frame, app, chunks[0]);
 
     let body = if app.peek && area.width >= 100 && app.screen != Screen::Review {
         Layout::default()
@@ -1001,6 +1108,8 @@ fn draw_full(frame: &mut ratatui::Frame<'_>, app: &mut App, area: Rect) {
     app.list_area = body[0];
     if app.screen == Screen::Review {
         draw_review(frame, app, body[0]);
+    } else if app.screen == Screen::Triage {
+        draw_triage(frame, app, body[0]);
     } else {
         draw_rows(frame, app, body[0]);
     }
@@ -1010,70 +1119,105 @@ fn draw_full(frame: &mut ratatui::Frame<'_>, app: &mut App, area: Rect) {
     let selected = app.selected_row().map(|row| format!("{}:{}", row.item.file, row.item.line)).unwrap_or_default();
     let context = ["all", "work", "personal"][app.context];
     let status = if app.status.is_empty() {
-        format!(
-            "ctx:{context}  {selected}  {} inbox · {} agent   j/k move  t state  s sched  c capture  ? keys",
-            app.inbox_count, app.agent_count
-        )
+        if app.screen == Screen::Review {
+            "AGENTS   a accept   u undo   d diff   A accept all".to_string()
+        } else {
+            format!(
+                "ctx:{context}  {selected}  {} inbox · {} agent   j/k move  t state  s sched  c capture  ? keys",
+                app.inbox_count, app.agent_count
+            )
+        }
     } else {
         app.status.clone()
     };
-    frame.render_widget(Paragraph::new(status).style(Style::default().fg(accent)), chunks[2]);
+    frame.render_widget(
+        Paragraph::new(status).style(Style::default().fg(accent)),
+        chunks[2],
+    );
+}
+
+fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(30), Constraint::Length(26)])
+        .split(area);
+    let left = if app.screen == Screen::Triage {
+        Line::from(vec![
+            Span::styled(" TRIAGE ", tab_style(true, Color::Yellow)),
+            Span::styled(" overdue, then inbox", Style::default().add_modifier(Modifier::DIM)),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled(" agendum ", tab_style(true, accent())),
+            Span::raw("  "),
+            Span::styled(
+                " Today ",
+                tab_style(app.screen == Screen::Today && app.view == AgendaView::Day, accent()),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                " Week ",
+                tab_style(app.screen == Screen::Today && app.view == AgendaView::Week, accent()),
+            ),
+            Span::raw(" "),
+            Span::styled(format!(" Inbox {} ", app.inbox_count), tab_style(false, accent())),
+            Span::raw(" "),
+            Span::styled(
+                format!(" Agents {} ", app.agent_count),
+                tab_style(app.screen == Screen::Review, accent()),
+            ),
+        ])
+    };
+    frame.render_widget(Paragraph::new(left), columns[0]);
+    let right = if app.screen == Screen::Triage {
+        let completed: usize = app.triage_outcomes.iter().sum();
+        let total = completed + app.rows.len();
+        format!("{} / {total}", (completed + 1).min(total))
+    } else {
+        format!(
+            "ctx {}   {}",
+            ["all", "work", "personal"][app.context],
+            app.day.format("%a %d %b")
+        )
+    };
+    frame.render_widget(
+        Paragraph::new(right).alignment(ratatui::layout::Alignment::Right),
+        columns[1],
+    );
+}
+
+fn tab_style(selected: bool, color: Color) -> Style {
+    if selected {
+        if no_color() {
+            Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+        } else {
+            Style::default()
+                .fg(color)
+                .bg(Color::Rgb(220, 235, 245))
+                .add_modifier(Modifier::BOLD)
+        }
+    } else {
+        Style::default()
+    }
 }
 
 fn draw_rows(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
-    let list_area = if app.screen == Screen::Triage {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(2), Constraint::Min(3)])
-            .split(area);
-        let ratio = if app.rows.is_empty() {
-            1.0
-        } else {
-            (app.selected + 1) as f64 / app.rows.len() as f64
-        };
-        frame.render_widget(
-            Gauge::default()
-                .block(rounded("Triage progress"))
-                .gauge_style(Style::default().fg(accent()))
-                .ratio(ratio),
-            chunks[0],
-        );
-        chunks[1]
-    } else {
-        area
-    };
-    if app.screen == Screen::Triage && app.rows.is_empty() {
-        let elapsed = app
-            .triage_started
-            .map(|started| started.elapsed().as_secs())
-            .unwrap_or_default();
-        let total: usize = app.triage_outcomes.iter().sum();
-        let summary = format!(
-            "Triage done, {total} items in {}m {}s\n{} today · {} tomorrow · {} next week · {} someday · {} done · {} refiled\n\nu undo all · ⏎ Today",
-            elapsed / 60,
-            elapsed % 60,
-            app.triage_outcomes[0],
-            app.triage_outcomes[1],
-            app.triage_outcomes[2],
-            app.triage_outcomes[3],
-            app.triage_outcomes[4],
-            app.triage_outcomes[5],
-        );
-        frame.render_widget(
-            Paragraph::new(summary)
-                .block(rounded("Triage complete"))
-                .wrap(Wrap { trim: false }),
-            list_area,
-        );
-        return;
-    }
+    let list_area = area;
     let mut previous = "";
     let mut items = Vec::new();
     for row in &app.rows {
         let mut lines = Vec::new();
         if !app.classic && row.section != previous {
+            let count = if row.section == "SLIPPED" {
+                app.slipped_count
+            } else {
+                app.rows
+                    .iter()
+                    .filter(|candidate| candidate.section == row.section)
+                    .count()
+            };
             lines.push(Line::from(Span::styled(
-                format!(" {} ", row.section),
+                format!(" {}  {count} ", row.section),
                 Style::default()
                     .fg(section_color(&row.section))
                     .add_modifier(Modifier::BOLD),
@@ -1092,38 +1236,44 @@ fn draw_rows(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             .and_then(|occurrence| occurrence.time.as_deref())
             .unwrap_or("");
         let todo = row.item.todo.as_deref().unwrap_or("");
-        let tags = if area.width >= 100 && !row.item.tags.is_empty() {
-            format!("  :{}:", row.item.tags.join(":"))
-        } else {
-            String::new()
-        };
-        lines.push(Line::from(format!(
-            "{mark} {prefix:<12} {time:<5} {todo:<9} {}{tags}",
-            row.item.title
-        )));
-        if app.screen == Screen::Triage {
-            if let Some(occurrence) = &row.occurrence {
-                let days = occurrence
-                    .date
-                    .parse::<NaiveDate>()
-                    .ok()
-                    .map(|date| {
+        let waiting = if todo == "WAIT" {
+            row.occurrence
+                .as_ref()
+                .and_then(|occurrence| occurrence.date.parse::<NaiveDate>().ok())
+                .map(|date| {
+                    format!(
+                        "  waiting {}d",
                         Local::now()
                             .date_naive()
                             .signed_duration_since(date)
                             .num_days()
                             .max(0)
-                    })
-                    .unwrap_or_default();
-                lines.push(Line::from(format!("  {days} days ago · r refile")));
-            } else {
-                lines.push(Line::from("  inbox · r refile"));
-            }
-        }
+                    )
+                })
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let detail = if row.section == "INBOX" {
+            app.provenance
+                .get(&row.item.item_ref)
+                .map(|actor| format!("  {}", actor.strip_prefix("mcp:").unwrap_or(actor)))
+                .unwrap_or_else(|| "  you".to_string())
+        } else if area.width >= 100 && !row.item.tags.is_empty() {
+            format!("  #{}", row.item.tags.join(" #"))
+        } else {
+            String::new()
+        };
+        lines.push(Line::from(format!(
+            "{mark} {prefix:<12} {time:<5} {todo:<9} {}{waiting}{detail}",
+            row.item.title
+        )));
         let style = if row.item.done {
             Style::default().add_modifier(Modifier::DIM)
-        } else if row.item.priority.as_deref() == Some("A") {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else if !no_color() && row.item.priority.as_deref() == Some("A") {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
@@ -1150,37 +1300,293 @@ fn draw_rows(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     }
 }
 
+fn draw_triage(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    let parts = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Min(8),
+            Constraint::Length(2),
+            Constraint::Length(2),
+        ])
+        .split(area);
+    let completed: usize = app.triage_outcomes.iter().sum();
+    let total = completed + app.rows.len();
+    frame.render_widget(
+        Gauge::default()
+            .gauge_style(Style::default().fg(accent()))
+            .ratio(if total == 0 {
+                1.0
+            } else {
+                completed as f64 / total as f64
+            }),
+        parts[0],
+    );
+    let Some(row) = app.selected_row() else {
+        let elapsed = app
+            .triage_started
+            .map(|started| started.elapsed().as_secs())
+            .unwrap_or_default();
+        let summary = format!(
+            "Triage done, {completed} items in {}m {}s: {} today, {} tomorrow, {} next week, {} someday, {} done, {} refiled.\n\nu undo all   ⏎ Today",
+            elapsed / 60,
+            elapsed % 60,
+            app.triage_outcomes[0],
+            app.triage_outcomes[1],
+            app.triage_outcomes[2],
+            app.triage_outcomes[3],
+            app.triage_outcomes[4],
+            app.triage_outcomes[5],
+        );
+        frame.render_widget(
+            Paragraph::new(summary)
+                .block(rounded("Triage complete"))
+                .wrap(Wrap { trim: false }),
+            Rect {
+                height: parts[1].height + parts[2].height + parts[3].height,
+                ..parts[1]
+            },
+        );
+        return;
+    };
+    let today = Local::now().date_naive();
+    let days = row
+        .occurrence
+        .as_ref()
+        .and_then(|occurrence| occurrence.date.parse::<NaiveDate>().ok())
+        .map(|date| today.signed_duration_since(date).num_days().max(0))
+        .unwrap_or_default();
+    let reschedules = app
+        .reschedule_counts
+        .get(&row.item.item_ref)
+        .copied()
+        .unwrap_or_default();
+    let age = if row.section == "INBOX" {
+        "Inbox".to_string()
+    } else {
+        format!("Slipped · {days} days")
+    };
+    let scheduled = row
+        .item
+        .planning
+        .scheduled
+        .as_ref()
+        .map(|timestamp| timestamp.date.as_str())
+        .unwrap_or("none");
+    let deadline = row
+        .item
+        .planning
+        .deadline
+        .as_ref()
+        .map(|timestamp| timestamp.date.as_str())
+        .unwrap_or("no deadline");
+    let tags = if row.item.tags.is_empty() {
+        String::new()
+    } else {
+        format!("  #{}", row.item.tags.join(" #"))
+    };
+    let mut card = vec![
+        Line::from(vec![
+            Span::styled(
+                format!("{:<9}", row.item.todo.as_deref().unwrap_or("")),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(row.item.title.clone(), Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(tags, Style::default().fg(accent())),
+        ]),
+        Line::from(Span::styled(
+            format!("{} · {}", row.item.file, row.item.olpath.join(" › ")),
+            Style::default().add_modifier(Modifier::DIM),
+        )),
+        Line::from(format!(
+            "scheduled {scheduled}   rescheduled {reschedules}x   {deadline}"
+        )),
+    ];
+    if reschedules >= app.settings.triage.reschedule_nudge {
+        card.push(Line::from(Span::styled(
+            format!("↳ Rescheduled {reschedules} times. Someday?  [s]"),
+            Style::default().fg(accent()),
+        )));
+    }
+    let mut block = rounded(&age);
+    if !no_color() && row.section != "INBOX" {
+        block = block.border_style(Style::default().fg(Color::Red));
+    }
+    frame.render_widget(
+        Paragraph::new(card).block(block).wrap(Wrap { trim: false }),
+        parts[1],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            key_chip("."),
+            Span::raw(" today   "),
+            key_chip("m"),
+            Span::raw(" tomorrow   "),
+            key_chip("w"),
+            Span::raw(" next week   "),
+            key_chip("p"),
+            Span::raw(" pick date   "),
+            key_chip("x"),
+            Span::raw(" done"),
+        ])),
+        parts[2],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            key_chip("n"),
+            Span::raw(" NEXT   "),
+            key_chip("s"),
+            Span::raw(" someday   "),
+            key_chip("k"),
+            Span::raw(" cancel   "),
+            key_chip("r"),
+            Span::raw(" refile   "),
+            key_chip("u"),
+            Span::raw(" undo"),
+        ])),
+        parts[3],
+    );
+}
+
+fn key_chip(key: &str) -> Span<'_> {
+    Span::styled(
+        format!(" {key} "),
+        if no_color() {
+            Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+        } else {
+            Style::default()
+                .fg(accent())
+                .bg(Color::Rgb(220, 235, 245))
+                .add_modifier(Modifier::BOLD)
+        },
+    )
+}
+
 fn draw_review(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let items: Vec<ListItem<'_>> = app
         .journals
         .iter()
-        .map(|record| ListItem::new(format!("{}  {}  {}", record.actor, record.timestamp, record.file)))
+        .map(|record| {
+            let agent = record.actor.strip_prefix("mcp:").unwrap_or(&record.actor);
+            let time = record.timestamp.get(11..16).unwrap_or(&record.timestamp);
+            let kind = if record.diff.lines().any(|line| line.starts_with("+* ")) {
+                "captured"
+            } else if record.diff.contains("TODO") || record.diff.contains("DONE") {
+                "state"
+            } else {
+                "edited"
+            };
+            let mut lines = vec![Line::from(vec![
+                Span::styled("● ", Style::default().fg(agent_color(agent))),
+                Span::styled(
+                    agent.to_string(),
+                    Style::default()
+                        .fg(agent_color(agent))
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(format!("   {}   {time}   ", record.project)),
+                Span::styled(kind, Style::default().fg(section_color("IN PROGRESS"))),
+            ])];
+            lines.extend(
+                record
+                    .diff
+                    .lines()
+                    .filter(|line| {
+                        (line.starts_with('+') && !line.starts_with("+++"))
+                            || (line.starts_with('-') && !line.starts_with("---"))
+                    })
+                    .take(2)
+                    .map(|line| {
+                        Line::from(Span::styled(
+                            format!("  {line}"),
+                            Style::default().fg(if line.starts_with('+') {
+                                Color::Green
+                            } else {
+                                Color::Red
+                            }),
+                        ))
+                    }),
+            );
+            ListItem::new(lines)
+        })
         .collect();
     let mut state = ListState::default().with_selected(Some(app.selected));
+    let title = format!("{} unreviewed", app.journals.len());
     let list = List::new(items)
-        .block(rounded("Agent review"))
+        .block(rounded(&title))
         .highlight_symbol("▌")
         .highlight_style(selection_style());
     frame.render_stateful_widget(list, area, &mut state);
-    if let Some(record) = app.journals.get(app.selected) {
-        let popup = centered(area, 80, 45);
+    if app.review_diff
+        && let Some(record) = app.journals.get(app.selected)
+    {
+        let popup = centered(area, 86, 70);
         frame.render_widget(Clear, popup);
         frame.render_widget(
             Paragraph::new(record.diff.clone())
-                .block(rounded("Change · a accept · u undo"))
+                .block(rounded("Raw diff · d close · a accept · u undo"))
                 .wrap(Wrap { trim: false }),
             popup,
         );
     }
 }
 
+fn agent_color(agent: &str) -> Color {
+    if no_color() {
+        return Color::Reset;
+    }
+    const COLORS: [Color; 4] = [
+        Color::Magenta,
+        Color::Green,
+        Color::Cyan,
+        Color::Yellow,
+    ];
+    let index = agent
+        .bytes()
+        .fold(0usize, |value, byte| value.wrapping_add(byte as usize))
+        % COLORS.len();
+    COLORS[index]
+}
+
 fn draw_peek(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let text = app
         .selected_row()
-        .and_then(|row| app.index.resolve(&row.item.item_ref).ok())
-        .map(|(document, headline)| document.source()[headline.subtree_span.start..headline.subtree_span.end].to_string())
+        .and_then(|row| {
+            let (document, headline) = app.index.resolve(&row.item.item_ref).ok()?;
+            let item = &headline.item;
+            let body = document.source()[headline.line_span.end..headline.subtree_span.end]
+                .trim();
+            Some(format!(
+                "{}\n{} › {}\n\nScheduled      {}\nDeadline       {}\nPriority       {}\nTags           {}\n\n────────────────\n{}",
+                item.title,
+                item.file,
+                item.olpath.join(" › "),
+                item.planning
+                    .scheduled
+                    .as_ref()
+                    .map(|timestamp| timestamp.date.as_str())
+                    .unwrap_or("—"),
+                item.planning
+                    .deadline
+                    .as_ref()
+                    .map(|timestamp| timestamp.date.as_str())
+                    .unwrap_or("—"),
+                item.priority.as_deref().unwrap_or("—"),
+                if item.tags.is_empty() {
+                    "—".to_string()
+                } else {
+                    item.tags.join(", ")
+                },
+                body,
+            ))
+        })
         .unwrap_or_else(|| "No item selected".to_string());
-    frame.render_widget(Paragraph::new(text).block(rounded("Peek")).wrap(Wrap { trim: false }), area);
+    frame.render_widget(
+        Paragraph::new(text)
+            .block(rounded("Peek · e edit"))
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 fn draw_pane(frame: &mut ratatui::Frame<'_>, app: &mut App, area: Rect) {
@@ -1262,7 +1668,7 @@ fn draw_overlay(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             let popup = centered(area, 76, 70);
             frame.render_widget(Clear, popup);
             frame.render_widget(
-                Paragraph::new("j/k move   ⏎/e editor   t cycle   x done\ns/d schedule/deadline   , priority   : tags\nc capture   T triage   A agent review   p peek\n< context   / filter   f/b period   . today\nspace mark   u undo   v then d/w/t view   V classic\nesc back   q quit")
+                Paragraph::new("j/k move   ⏎/e editor   t cycle   x done\ns/d schedule/deadline   , priority   : tags\nc capture   T triage   A agent review   p peek\n< context   / filter   f/b period   . today\nspace mark   u undo   v classic   V then d/w/t view\ntriage: ./m/w/p dates   n NEXT   s someday   k cancel   r refile\nreview: a accept   u undo   d diff   A accept all\nesc back   q quit")
                     .block(rounded("Keys · any key closes"))
                     .wrap(Wrap { trim: false }),
                 popup,
@@ -1276,16 +1682,55 @@ fn draw_overlay(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         } => {
             let popup = centered(area, 86, 72);
             frame.render_widget(Clear, popup);
+            let draft = parse_capture_line(input, Local::now().date_naive()).ok();
+            let mut chips = Vec::new();
+            if let Some(draft) = &draft {
+                if let Some(deadline) = &draft.deadline {
+                    chips.push(format!("deadline {}", deadline.date));
+                }
+                if let Some(scheduled) = &draft.scheduled {
+                    chips.push(format!("scheduled {}", scheduled.date));
+                }
+                chips.extend(draft.tags.iter().map(|tag| format!("+{tag}")));
+                if let Some(priority) = &draft.priority {
+                    chips.push(format!("#{priority}"));
+                }
+            }
+            let capture = template
+                .as_ref()
+                .and_then(|key| app.settings.capture.get(key));
+            let destination = capture
+                .map(|capture| {
+                    format!(
+                        "{} › {}",
+                        capture.file.as_deref().unwrap_or("unsupported target"),
+                        capture
+                            .heading
+                            .as_deref()
+                            .or_else(|| {
+                                capture
+                                    .outline_path
+                                    .as_ref()
+                                    .and_then(|path| path.last().map(String::as_str))
+                            })
+                            .unwrap_or("top level")
+                    )
+                })
+                .unwrap_or_else(|| "choose a template".to_string());
+            let title = capture
+                .map(|capture| format!("Capture · {}", capture.desc))
+                .unwrap_or_else(|| "Capture".to_string());
             let text = format!(
-                "template: {}\n> {}\nbody: {} bytes · ctrl-e edit\n\nExact write preview\n{}",
-                template.as_deref().unwrap_or("_"),
+                "> {}\n{}\n→ {}\nbody: {} bytes · ctrl-e editor\n\nExact write preview\n{}\n\n⏎ save   ctrl-e editor   esc cancel",
                 input,
+                chips.join("   "),
+                destination,
                 body.len(),
                 preview
             );
             frame.render_widget(
                 Paragraph::new(text)
-                    .block(rounded("Capture · Enter save · esc cancel"))
+                    .block(rounded(&title))
                     .wrap(Wrap { trim: false }),
                 popup,
             );
@@ -1442,9 +1887,9 @@ fn section_for(entry: &AgendaEntry) -> String {
     if matches!(entry.occurrence.kind, OccurrenceType::PastScheduled) {
         "SLIPPED"
     } else if entry.occurrence.time.is_some() {
-        "TIMED"
+        "SCHEDULE"
     } else if matches!(entry.occurrence.kind, OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline) {
-        "DUE"
+        "DUE SOON"
     } else if matches!(entry.item.todo.as_deref(), Some("NEXT" | "WAIT")) {
         "IN PROGRESS"
     } else if is_inbox(&entry.item) {
@@ -1458,8 +1903,8 @@ fn section_for(entry: &AgendaEntry) -> String {
 fn section_order(section: &str) -> u8 {
     match section {
         "SLIPPED" => 0,
-        "TIMED" => 1,
-        "DUE" => 2,
+        "SCHEDULE" => 1,
+        "DUE SOON" => 2,
         "IN PROGRESS" => 3,
         "INBOX" => 4,
         _ => 5,
@@ -1471,17 +1916,43 @@ fn is_inbox(item: &Item) -> bool {
         || item.category.eq_ignore_ascii_case("inbox")
 }
 
-fn occurrence_prefix(occurrence: Option<&Occurrence>) -> &'static str {
-    match occurrence.map(|occurrence| occurrence.kind) {
-        Some(OccurrenceType::PastScheduled) => "Sched.:",
-        Some(OccurrenceType::Scheduled) => "Scheduled:",
-        Some(OccurrenceType::Deadline) => "Deadline:",
-        Some(OccurrenceType::UpcomingDeadline) => "In:",
-        Some(OccurrenceType::Timestamp) => "",
-        Some(OccurrenceType::Block) => "Block:",
-        Some(OccurrenceType::Closed) => "Closed:",
-        Some(OccurrenceType::Todo) | None => "",
+fn added_text(diff: &str) -> String {
+    let mut text = diff
+        .lines()
+        .filter_map(|line| {
+            if line.starts_with("+++") {
+                None
+            } else {
+                line.strip_prefix('+')
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !text.is_empty() {
+        text.push('\n');
     }
+    text
+}
+
+
+fn occurrence_prefix(occurrence: Option<&Occurrence>) -> String {
+    let Some(occurrence) = occurrence else {
+        return String::new();
+    };
+    if !occurrence.extra.is_empty() {
+        return occurrence.extra.clone();
+    }
+    match occurrence.kind {
+        OccurrenceType::PastScheduled => "Sched.:",
+        OccurrenceType::Scheduled => "Scheduled:",
+        OccurrenceType::Deadline => "Deadline:",
+        OccurrenceType::UpcomingDeadline => "In:",
+        OccurrenceType::Timestamp => "",
+        OccurrenceType::Block => "Block:",
+        OccurrenceType::Closed => "Closed:",
+        OccurrenceType::Todo => "",
+    }
+    .to_string()
 }
 fn fuzzy_match(value: &str, query: &str) -> bool {
     if query.is_empty() {
@@ -1519,7 +1990,7 @@ fn section_color(section: &str) -> Color {
     }
     match section {
         "SLIPPED" => Color::Red,
-        "DUE" => Color::Yellow,
+        "DUE SOON" => Color::Yellow,
         "IN PROGRESS" => Color::Green,
         _ => accent(),
     }
@@ -1593,5 +2064,66 @@ fn write_context() -> WriteContext {
         project: std::env::current_dir()
             .map(|path| path.to_string_lossy().into_owned())
             .unwrap_or_else(|_| "unknown".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod render_benchmark {
+    use super::*;
+
+    #[test]
+    fn renders_five_thousand_headings_under_budget() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("tasks.org");
+        let source = (0..5_000)
+            .map(|index| format!("* TODO Task {index}\nSCHEDULED: <2026-10-13 Tue>\n"))
+            .collect::<String>();
+        fs::write(&path, source).unwrap();
+        let mut settings = Settings::default();
+        settings.files.roots = vec![directory.path().to_string_lossy().into_owned()];
+        settings.files.agenda = vec![path.to_string_lossy().into_owned()];
+        let index = WorkspaceIndex::load(settings.clone()).unwrap();
+        let mut app = App {
+            settings,
+            index,
+            rows: Vec::new(),
+            journals: Vec::new(),
+            screen: Screen::Today,
+            view: AgendaView::Day,
+            day: NaiveDate::from_ymd_opt(2026, 10, 13).unwrap(),
+            selected: 0,
+            marks: BTreeSet::new(),
+            context: 0,
+            filter: String::new(),
+            classic: false,
+            peek: false,
+            pane: false,
+            capture_only: false,
+            pending_view_key: false,
+            overlay: Overlay::None,
+            status: String::new(),
+            status_at: Instant::now(),
+            list_area: Rect::default(),
+            inbox_count: 0,
+            agent_count: 0,
+            slipped_count: 0,
+            recent_targets: Vec::new(),
+            reschedule_counts: BTreeMap::new(),
+            provenance: BTreeMap::new(),
+            triage_started: None,
+            triage_outcomes: [0; 6],
+            review_diff: false,
+            triage_undo: Vec::new(),
+            quit: false,
+        };
+        app.reload_rows().unwrap();
+        assert_eq!(app.rows.len(), 5_000);
+        let backend = ratatui::backend::TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let started = Instant::now();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+        let elapsed = started.elapsed();
+        eprintln!("5,000-heading render: {elapsed:?}");
+        assert!(elapsed < StdDuration::from_millis(100), "{elapsed:?}");
     }
 }
