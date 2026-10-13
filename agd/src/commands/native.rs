@@ -175,7 +175,7 @@ impl AgendaCommand {
         } else {
             None
         };
-        let index = WorkspaceIndex::load(settings.clone())?;
+        let index = load_index(settings.clone())?;
         let today = Local::now().date_naive();
         let start = match self.from {
             Some(value) => parse_day(&value, today)?,
@@ -217,7 +217,7 @@ impl AgendaCommand {
 impl TodoCommand {
     pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<()> {
         let settings = settings(config, root)?;
-        let index = WorkspaceIndex::load(settings)?;
+        let index = load_index(settings)?;
         let items = AgendaEngine::new(&index).todo(self.match_expression.as_deref())?;
         print_items(&items, self.json)
     }
@@ -226,7 +226,7 @@ impl TodoCommand {
 impl QueryCommand {
     pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<()> {
         let settings = settings(config, root)?;
-        let index = WorkspaceIndex::load(settings)?;
+        let index = load_index(settings)?;
         let items = AgendaEngine::new(&index).query(&self.expression, Local::now().date_naive())?;
         print_items(&items, self.json)
     }
@@ -351,7 +351,7 @@ impl EditCommand {
 impl OpenCommand {
     pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<()> {
         let settings = settings(config, root)?;
-        let index = WorkspaceIndex::load(settings.clone())?;
+        let index = load_index(settings.clone())?;
         let (document, headline) = index.resolve(&self.item_ref)?;
         let file = document.path().to_string_lossy();
         let line = headline.item.line.to_string();
@@ -528,4 +528,14 @@ fn write_context() -> WriteContext {
             .map(|path| path.to_string_lossy().into_owned())
             .unwrap_or_else(|_| "unknown".to_string()),
     }
+}
+
+// Reads keep working when one agenda file cannot be indexed; say which file
+// was left out on stderr so stdout stays machine-readable.
+fn load_index(settings: Settings) -> Result<WorkspaceIndex> {
+    let index = WorkspaceIndex::load(settings)?;
+    for (_, reason) in index.skipped_files() {
+        eprintln!("warning: skipped {reason}");
+    }
+    Ok(index)
 }

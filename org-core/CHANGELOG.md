@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Skip non-UTF-8 agenda files for reads (`WorkspaceIndex::skipped_files`) and
+  refuse writes to them with `non_utf8`, instead of failing every command.
+- Treat an `:ID:` that also appears in a non-agenda org file under the roots as
+  `duplicate_id`, for ID refs and for hash refs to that heading.
 - Apply `agents.capture_to = "inbox"` only to MCP captures, route them to the
   configured `agents.inbox_template`, and drop their planning; validate both
   settings at load time.

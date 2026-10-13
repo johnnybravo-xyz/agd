@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep CLI reads working when an agenda file is not UTF-8 and warn about the
+  skipped file on stderr.
 - Keep the selected task in view when cycling its TODO state, including when
   the updated state reorders agenda rows.
 - Probe the installed nvim-orgmode version by capability instead of rejecting

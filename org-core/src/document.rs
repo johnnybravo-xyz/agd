@@ -84,6 +84,49 @@ pub struct WorkspaceIndex {
     settings: Settings,
     documents: BTreeMap<PathBuf, OrgDocument>,
     ids: BTreeMap<String, Vec<(PathBuf, usize)>>,
+    // `:ID:` values found in org files under the roots that are not agenda
+    // files, so an ID shared with an archive or notes file is still ambiguous.
+    outside_ids: BTreeMap<String, Vec<PathBuf>>,
+    skipped: BTreeMap<PathBuf, String>,
+}
+
+/// Reads and parses one agenda file. A non-UTF-8 file is returned as a
+/// skip reason instead of an error so that one unreadable file never hides
+/// the rest of the agenda.
+fn load_document(
+    path: &Path,
+    settings: &Settings,
+) -> Result<Result<OrgDocument, AgendumError>, AgendumError> {
+    let bytes = std::fs::read(path).map_err(|error| {
+        AgendumError::with_source(
+            "io",
+            format!("cannot read {}: {error}", path.display()),
+            error,
+        )
+    })?;
+    match OrgDocument::parse(path.to_path_buf(), bytes, settings) {
+        Ok(document) => Ok(Ok(document)),
+        Err(error) if error.code() == "non_utf8" => Ok(Err(error)),
+        Err(error) => Err(error),
+    }
+}
+
+fn scan_property_ids(path: &Path) -> Vec<String> {
+    let Ok(bytes) = std::fs::read(path) else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&bytes)
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let key = line.get(..4)?;
+            if !key.eq_ignore_ascii_case(":ID:") {
+                return None;
+            }
+            let value = line[4..].trim();
+            (!value.is_empty()).then(|| value.to_string())
+        })
+        .collect()
 }
 
 impl OrgDocument {
@@ -191,31 +234,44 @@ impl WorkspaceIndex {
     pub fn load(settings: Settings) -> Result<Self, AgendumError> {
         let roots = RootSet::new(&settings.files)?;
         let mut documents = BTreeMap::new();
-        let mut ids: BTreeMap<String, Vec<(PathBuf, usize)>> = BTreeMap::new();
+        let mut skipped = BTreeMap::new();
         for path in roots.agenda_files()? {
-            let bytes = std::fs::read(&path).map_err(|error| {
-                AgendumError::with_source(
-                    "io",
-                    format!("cannot read {}: {error}", path.display()),
-                    error,
-                )
-            })?;
-            let document = OrgDocument::parse(path.clone(), bytes, &settings)?;
-            for (index, headline) in document.headlines().iter().enumerate() {
-                if let Some(id) = &headline.item.id {
-                    ids.entry(id.clone())
-                        .or_default()
-                        .push((path.clone(), index));
+            match load_document(&path, &settings)? {
+                Ok(document) => {
+                    documents.insert(path, document);
+                }
+                Err(reason) => {
+                    skipped.insert(path, reason.to_string());
                 }
             }
-            documents.insert(path, document);
         }
-        Ok(Self {
+        let mut outside_ids: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+        for path in roots.all_org_files()? {
+            if documents.contains_key(&path) || skipped.contains_key(&path) {
+                continue;
+            }
+            for id in scan_property_ids(&path) {
+                outside_ids.entry(id).or_default().push(path.clone());
+            }
+        }
+        let mut index = Self {
             roots,
             settings,
             documents,
-            ids,
-        })
+            ids: BTreeMap::new(),
+            outside_ids,
+            skipped,
+        };
+        index.rebuild_ids();
+        Ok(index)
+    }
+
+    /// Agenda files left out of the index, with the reason (currently only
+    /// non-UTF-8 content).
+    pub fn skipped_files(&self) -> impl Iterator<Item = (&Path, &str)> {
+        self.skipped
+            .iter()
+            .map(|(path, reason)| (path.as_path(), reason.as_str()))
     }
 
     pub fn roots(&self) -> &RootSet {
@@ -232,17 +288,30 @@ impl WorkspaceIndex {
                 return Ok(());
             }
             let path = self.roots.resolve_read(path)?;
-            let bytes = std::fs::read(&path).map_err(|error| {
-                AgendumError::with_source(
-                    "io",
-                    format!("cannot read {}: {error}", path.display()),
-                    error,
-                )
-            })?;
-            let document = OrgDocument::parse(path.clone(), bytes, &self.settings)?;
-            self.documents.insert(path, document);
+            if !self.documents.contains_key(&path) && !self.skipped.contains_key(&path) {
+                for locations in self.outside_ids.values_mut() {
+                    locations.retain(|location| location != &path);
+                }
+                for id in scan_property_ids(&path) {
+                    self.outside_ids.entry(id).or_default().push(path.clone());
+                }
+                self.outside_ids
+                    .retain(|_, locations| !locations.is_empty());
+                return Ok(());
+            }
+            match load_document(&path, &self.settings)? {
+                Ok(document) => {
+                    self.skipped.remove(&path);
+                    self.documents.insert(path, document);
+                }
+                Err(reason) => {
+                    self.documents.remove(&path);
+                    self.skipped.insert(path, reason.to_string());
+                }
+            }
         } else {
             self.documents.remove(path);
+            self.skipped.remove(path);
         }
         self.rebuild_ids();
         Ok(())
@@ -275,8 +344,26 @@ impl WorkspaceIndex {
     pub fn duplicate_ids(&self) -> impl Iterator<Item = (&str, &[(PathBuf, usize)])> {
         self.ids
             .iter()
-            .filter(|(_, locations)| locations.len() > 1)
+            .filter(|(id, locations)| locations.len() + self.outside_id_count(id) > 1)
             .map(|(id, locations)| (id.as_str(), locations.as_slice()))
+    }
+
+    fn outside_id_count(&self, id: &str) -> usize {
+        self.outside_ids.get(id).map_or(0, Vec::len)
+    }
+
+    fn refuse_duplicate_id(&self, headline: &HeadlineSpan) -> Result<(), AgendumError> {
+        let Some(id) = &headline.item.id else {
+            return Ok(());
+        };
+        let count = self.ids.get(id).map_or(0, Vec::len) + self.outside_id_count(id);
+        if count > 1 {
+            return Err(AgendumError::new(
+                "duplicate_id",
+                format!("ID '{id}' occurs {count} times under the configured roots"),
+            ));
+        }
+        Ok(())
     }
 
     pub fn document(&self, path: &Path) -> Option<&OrgDocument> {
@@ -290,7 +377,21 @@ impl WorkspaceIndex {
                 .get(item_ref)
                 .map(Vec::as_slice)
                 .unwrap_or_default();
+            let outside = self.outside_id_count(item_ref);
+            if matches.len() + outside > 1 {
+                return Err(AgendumError::new(
+                    "duplicate_id",
+                    format!(
+                        "ID '{item_ref}' occurs {} times under the configured roots",
+                        matches.len() + outside
+                    ),
+                ));
+            }
             return match matches {
+                [] if outside == 1 => Err(AgendumError::new(
+                    "stale_ref",
+                    format!("ID '{item_ref}' is in a file outside the agenda files"),
+                )),
                 [] => Err(AgendumError::new(
                     "stale_ref",
                     format!("no item has ID '{item_ref}'"),
@@ -303,10 +404,7 @@ impl WorkspaceIndex {
                         .expect("indexed document")
                         .headlines()[*index],
                 )),
-                _ => Err(AgendumError::new(
-                    "duplicate_id",
-                    format!("ID '{item_ref}' occurs {} times", matches.len()),
-                )),
+                _ => unreachable!("duplicate IDs are rejected above"),
             };
         }
 
@@ -333,6 +431,9 @@ impl WorkspaceIndex {
         })?;
         let requested = Path::new(file);
         self.roots.resolve_read(requested)?;
+        if let Some(reason) = self.skipped.get(requested) {
+            return Err(AgendumError::new("non_utf8", reason.clone()));
+        }
         let document = self
             .documents
             .get(requested)
@@ -354,6 +455,7 @@ impl WorkspaceIndex {
         if let Some(headline) = document.headline_at_line(line)
             && headline.digest == digest
         {
+            self.refuse_duplicate_id(headline)?;
             return Ok((document, headline));
         }
         let matches: Vec<&HeadlineSpan> = document
@@ -362,7 +464,10 @@ impl WorkspaceIndex {
             .filter(|headline| headline.digest == digest)
             .collect();
         match matches.as_slice() {
-            [headline] => Ok((document, headline)),
+            [headline] => {
+                self.refuse_duplicate_id(headline)?;
+                Ok((document, headline))
+            }
             [] => {
                 let mut error = AgendumError::new(
                     "stale_ref",
@@ -949,6 +1054,48 @@ mod tests {
         let stale = WorkspaceIndex::load(settings(temp.path())).unwrap();
         let error = stale.resolve(&item_ref).unwrap_err();
         assert_eq!(error.code(), "stale_ref");
+    }
+
+    #[test]
+    fn non_utf8_agenda_file_is_skipped_for_reads_and_refused_for_writes() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("good.org"), "* TODO Readable\n").unwrap();
+        let bad = temp.path().join("bad.org");
+        std::fs::write(&bad, b"* TODO Latin-1 \xe9\n").unwrap();
+        let index = WorkspaceIndex::load(settings(temp.path())).unwrap();
+        assert_eq!(index.items().count(), 1);
+        let skipped: Vec<_> = index.skipped_files().collect();
+        assert_eq!(skipped.len(), 1);
+        assert!(skipped[0].0.ends_with("bad.org"));
+        let canonical = bad.canonicalize().unwrap();
+        let bad_ref = format!(
+            "{}:1#sha256:00000000000000000000000000000000",
+            canonical.display()
+        );
+        assert_eq!(index.resolve(&bad_ref).unwrap_err().code(), "non_utf8");
+    }
+
+    #[test]
+    fn ids_in_non_agenda_files_make_targets_ambiguous() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("tasks.org"),
+            "* TODO One\n:PROPERTIES:\n:ID: shared\n:END:\n",
+        )
+        .unwrap();
+        std::fs::create_dir(temp.path().join("archive")).unwrap();
+        std::fs::write(
+            temp.path().join("archive/notes.org"),
+            "* Notes\n:PROPERTIES:\n:id:   shared\n:END:\n",
+        )
+        .unwrap();
+        let mut settings = settings(temp.path());
+        settings.files.agenda = vec!["tasks.org".to_string()];
+        let index = WorkspaceIndex::load(settings).unwrap();
+        assert_eq!(index.resolve("shared").unwrap_err().code(), "duplicate_id");
+        let item_ref = index.items().next().unwrap().item_ref.clone();
+        assert_eq!(index.resolve(&item_ref).unwrap_err().code(), "duplicate_id");
+        assert_eq!(index.duplicate_ids().count(), 1);
     }
 
     #[test]
