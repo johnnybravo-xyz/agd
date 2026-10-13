@@ -22,7 +22,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly-2025-08-01
-      - name: Install cargo-fuzz
-        run: cargo +nightly-2025-08-01 install cargo-fuzz --version 0.13.2 --locked
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz@0.13.2
       - name: Run bounded round-trip fuzzing
-        run: cargo +nightly-2025-08-01 fuzz run roundtrip -- -max_total_time=${{ github.event_name == 'schedule' && '900' || '30' }}
+        run: cargo +nightly-2025-08-01 fuzz run --target x86_64-unknown-linux-gnu roundtrip -- -max_total_time=${{ github.event_name == 'schedule' && '900' || '30' }}
