@@ -111,7 +111,9 @@ to make a verification pass.
 
 Supported capture destinations are file, file plus heading, outline path,
 datetree, and ID. Supported template forms are literal text and `%?`, `%U`,
-`%t`, `%i`, `%^{prompt}`, and `%^g`, including file-based template bodies.
+`%u`, `%T`, `%t`, `%i`, `%%`, `%^{prompt}`, and `%^g`, including file-based
+template bodies. Titles, bodies and prompt answers are inserted literally;
+escapes inside them are never expanded.
 Dynamic function targets and `%(sexp)` are never evaluated. Such templates are
 retained disabled with the original key and a diagnostic so they can be
 replaced manually.

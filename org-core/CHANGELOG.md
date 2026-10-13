@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Insert capture titles, bodies and prompt answers literally instead of
+  expanding `%U`, `%i` or `%t` typed inside them.
+
+### Added
+
+- Support the `%u`, `%T` and `%%` capture template escapes.
+
 ## [0.0.2](https://github.com/johnnybravo-xyz/agd/compare/agd-core-v0.0.1...agd-core-v0.0.2)
 
 ### ✨ Features

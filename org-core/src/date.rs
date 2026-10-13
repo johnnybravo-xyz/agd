@@ -12,8 +12,9 @@ static ABSOLUTE_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static RELATIVE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\+(\d+)([dwmy])$").expect("relative date regex"));
-static PROMPT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"%\^\{([^}]+)\}").expect("capture prompt regex"));
+static ESCAPE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"%(\?|i|U|u|T|t|%|\^g|\^\{([^}]+)\})").expect("capture escape regex")
+});
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CaptureDraft {
@@ -150,29 +151,7 @@ pub fn render_capture_template(
             "capture templates may not execute %(sexp) forms",
         ));
     }
-    let mut rendered = template.template.clone();
-    for captures in PROMPT_RE.captures_iter(&template.template) {
-        let full = captures.get(0).expect("prompt form").as_str();
-        let prompt = captures.get(1).expect("prompt name").as_str();
-        let value = prompts.get(prompt).ok_or_else(|| {
-            AgendumError::new(
-                "missing_prompt",
-                format!("capture prompt '{prompt}' has no value"),
-            )
-        })?;
-        rendered = rendered.replace(full, value);
-    }
-    if rendered.contains("%^g") {
-        let tags = prompts.get("tags").ok_or_else(|| {
-            AgendumError::new("missing_prompt", "capture tag prompt has no 'tags' value")
-        })?;
-        rendered = rendered.replace("%^g", tags);
-    }
-    rendered = rendered
-        .replace("%?", &draft.title)
-        .replace("%i", body)
-        .replace("%U", &format!("[{}]", now.format("%Y-%m-%d %a %H:%M")))
-        .replace("%t", &format!("<{}>", now.format("%Y-%m-%d %a")));
+    let rendered = expand_capture_escapes(&template.template, draft, body, prompts, now)?;
 
     let newline = if rendered.contains("\r\n") {
         "\r\n"
@@ -202,6 +181,48 @@ pub fn render_capture_template(
         lines.splice(1..1, planning);
     }
     Ok(lines.join(newline))
+}
+
+// Expands every escape in one pass over the template so that user-supplied
+// title, body and prompt text is inserted literally and never re-expanded.
+fn expand_capture_escapes(
+    template: &str,
+    draft: &CaptureDraft,
+    body: &str,
+    prompts: &BTreeMap<String, String>,
+    now: NaiveDateTime,
+) -> Result<String, AgendumError> {
+    let mut rendered = String::with_capacity(template.len() + draft.title.len() + body.len());
+    let mut copied_to = 0;
+    for captures in ESCAPE_RE.captures_iter(template) {
+        let escape = captures.get(0).expect("escape match");
+        rendered.push_str(&template[copied_to..escape.start()]);
+        copied_to = escape.end();
+        match &captures[1] {
+            "?" => rendered.push_str(&draft.title),
+            "i" => rendered.push_str(body),
+            "U" => rendered.push_str(&format!("[{}]", now.format("%Y-%m-%d %a %H:%M"))),
+            "u" => rendered.push_str(&format!("[{}]", now.format("%Y-%m-%d %a"))),
+            "T" => rendered.push_str(&format!("<{}>", now.format("%Y-%m-%d %a %H:%M"))),
+            "t" => rendered.push_str(&format!("<{}>", now.format("%Y-%m-%d %a"))),
+            "%" => rendered.push('%'),
+            "^g" => rendered.push_str(prompts.get("tags").ok_or_else(|| {
+                AgendumError::new("missing_prompt", "capture tag prompt has no 'tags' value")
+            })?),
+            _ => {
+                let prompt = captures.get(2).expect("prompt name").as_str();
+                let value = prompts.get(prompt).ok_or_else(|| {
+                    AgendumError::new(
+                        "missing_prompt",
+                        format!("capture prompt '{prompt}' has no value"),
+                    )
+                })?;
+                rendered.push_str(value);
+            }
+        }
+    }
+    rendered.push_str(&template[copied_to..]);
+    Ok(rendered)
 }
 
 pub fn format_active_timestamp(timestamp: &PlanningTimestamp) -> Result<String, AgendumError> {
@@ -311,6 +332,32 @@ mod tests {
         assert_eq!(draft.deadline.unwrap().date, "2026-10-16");
         assert_eq!(draft.tags, vec!["admin"]);
         assert_eq!(draft.priority.as_deref(), Some("A"));
+    }
+
+    #[test]
+    fn user_text_is_inserted_literally() {
+        let template = CaptureTemplate {
+            template: "* TODO %?\n%i\n:CREATED: %U\n100%%".to_string(),
+            ..CaptureTemplate::default()
+        };
+        let draft = CaptureDraft {
+            title: "Literal %U and %i".to_string(),
+            scheduled: None,
+            deadline: None,
+            tags: Vec::new(),
+            priority: None,
+        };
+        let now = NaiveDate::from_ymd_opt(2026, 10, 13)
+            .unwrap()
+            .and_hms_opt(14, 22, 0)
+            .unwrap();
+        let rendered =
+            render_capture_template(&template, &draft, "body %? %t", &BTreeMap::new(), now)
+                .unwrap();
+        assert_eq!(
+            rendered,
+            "* TODO Literal %U and %i\nbody %? %t\n:CREATED: [2026-10-13 Tue 14:22]\n100%"
+        );
     }
 
     #[test]
