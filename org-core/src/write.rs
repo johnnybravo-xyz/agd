@@ -55,6 +55,14 @@ pub struct WriteContext {
     pub project: String,
 }
 
+impl WriteContext {
+    // MCP clients are journaled as "mcp:<client name>"; every other actor is a
+    // person using the CLI or TUI.
+    pub fn is_agent(&self) -> bool {
+        self.actor.starts_with("mcp:")
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JournalStatus {
@@ -219,7 +227,8 @@ impl WriteEngine {
                 format!("capture template '{template_key}' is not configured"),
             )
         })?;
-        let template = apply_agent_capture_gate(template, &self.settings, context);
+        let (template, draft) = apply_agent_capture_gate(template, draft, &self.settings, context);
+        let draft = &draft;
         let file = template.file.as_deref().ok_or_else(|| {
             AgendumError::new(
                 "unsupported_target",
@@ -1366,19 +1375,26 @@ fn set_capture_level(rendered: &str, level: usize) -> String {
     format!("{}{}", "*".repeat(level), &rendered[stars..])
 }
 
+// With agents.capture_to = "inbox", an agent capture always lands in the
+// inbox template without planning, so it reaches the day only through triage.
 fn apply_agent_capture_gate(
     template: &CaptureTemplate,
+    draft: &CaptureDraft,
     settings: &Settings,
     context: &WriteContext,
-) -> CaptureTemplate {
-    if context.actor == "human" || settings.agents.capture_to != "inbox" {
-        return template.clone();
+) -> (CaptureTemplate, CaptureDraft) {
+    if !context.is_agent() || settings.agents.capture_to != "inbox" {
+        return (template.clone(), draft.clone());
     }
-    settings
+    let inbox = settings
         .capture
-        .get("t")
+        .get(&settings.agents.inbox_template)
         .cloned()
-        .unwrap_or_else(|| template.clone())
+        .unwrap_or_else(|| template.clone());
+    let mut draft = draft.clone();
+    draft.scheduled = None;
+    draft.deadline = None;
+    (inbox, draft)
 }
 
 fn parse_updated_item(
@@ -1546,6 +1562,52 @@ mod tests {
             actor: "test".to_string(),
             project: "fixture".to_string(),
         }
+    }
+
+    #[test]
+    fn inbox_gate_redirects_only_agent_captures_and_drops_their_planning() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut settings = settings(temp.path());
+        settings.agents.capture_to = "inbox".to_string();
+        settings.capture.insert(
+            "w".to_string(),
+            CaptureTemplate {
+                file: Some("work.org".to_string()),
+                heading: None,
+                template: "* TODO %?".to_string(),
+                ..CaptureTemplate::default()
+            },
+        );
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "Planned".to_string(),
+            scheduled: Some(PlanningTimestamp {
+                date: "2026-10-15".to_string(),
+                time: None,
+                end_time: None,
+                repeater: None,
+                warning: None,
+                raw: None,
+            }),
+            deadline: None,
+            tags: Vec::new(),
+            priority: None,
+        };
+        let agent = WriteContext {
+            actor: "mcp:claude-code".to_string(),
+            project: "fixture".to_string(),
+        };
+        let agent_capture = engine
+            .capture("w", &draft, "", &BTreeMap::new(), true, &agent)
+            .unwrap();
+        assert!(agent_capture.item.file.ends_with("inbox.org"));
+        assert!(!agent_capture.diff.contains("SCHEDULED"));
+
+        let human_capture = engine
+            .capture("w", &draft, "", &BTreeMap::new(), true, &context())
+            .unwrap();
+        assert!(human_capture.item.file.ends_with("work.org"));
+        assert!(human_capture.diff.contains("SCHEDULED: <2026-10-15 Thu>"));
     }
 
     #[test]

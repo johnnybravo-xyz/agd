@@ -149,6 +149,10 @@ template = "* TODO %?\n:PROPERTIES:\n:CREATED: %U\n:END:"
 command = "nvim"
 args = ["+{line}", "{file}"]
 
+[agents]
+capture_to = "template" # or "inbox": agent captures land unplanned in inbox_template
+inbox_template = "t"
+
 [agents.profiles.work]
 files = ["work/**/*.org"]
 match = "work"
@@ -191,7 +195,10 @@ Neovim callbacks remain disabled with diagnostics. See
 `set_state`, `plan`, and `edit`—and the `agenda://today` resource. There is no
 HTTP transport, remote service, telemetry, or implicit network access. Every
 MCP write records the client identity and project directory in the local
-journal for Agent review in the TUI.
+journal for Agent review in the TUI. With `agents.capture_to = "inbox"`, every
+agent capture uses the `agents.inbox_template` template and drops its
+`SCHEDULED`/`DEADLINE`, so agent work reaches your day only through triage.
+CLI and TUI captures are never redirected.
 
 Install project-local client configuration and the `agendum` skill with:
 

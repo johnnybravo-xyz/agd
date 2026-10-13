@@ -130,6 +130,7 @@ pub struct EditorSettings {
 #[serde(default, deny_unknown_fields)]
 pub struct AgentSettings {
     pub capture_to: String,
+    pub inbox_template: String,
     pub profiles: BTreeMap<String, AgentProfile>,
 }
 
@@ -253,6 +254,7 @@ impl Default for AgentSettings {
     fn default() -> Self {
         Self {
             capture_to: "template".to_string(),
+            inbox_template: "t".to_string(),
             profiles: BTreeMap::new(),
         }
     }
@@ -440,6 +442,25 @@ fn validate_settings(settings: &Settings) -> Result<(), OrgModeError> {
             return Err(OrgModeError::ConfigError(
                 "every todo.sequences entry must contain exactly one '|' separator".into(),
             ));
+        }
+    }
+    match settings.agents.capture_to.as_str() {
+        "template" => {}
+        "inbox" => {
+            if !settings
+                .capture
+                .contains_key(&settings.agents.inbox_template)
+            {
+                return Err(OrgModeError::ConfigError(format!(
+                    "agents.capture_to = \"inbox\" needs capture template '{}' (agents.inbox_template)",
+                    settings.agents.inbox_template
+                )));
+            }
+        }
+        other => {
+            return Err(OrgModeError::ConfigError(format!(
+                "agents.capture_to must be \"template\" or \"inbox\", not \"{other}\""
+            )));
         }
     }
     for (key, template) in &settings.capture {

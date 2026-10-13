@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Apply `agents.capture_to = "inbox"` only to MCP captures, route them to the
+  configured `agents.inbox_template`, and drop their planning; validate both
+  settings at load time.
 - Insert capture titles, bodies and prompt answers literally instead of
   expanding `%U`, `%i` or `%t` typed inside them.
 
