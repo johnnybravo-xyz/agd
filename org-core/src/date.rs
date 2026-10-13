@@ -273,8 +273,8 @@ fn parse_weekday(input: &str) -> Option<Weekday> {
 }
 
 fn valid_tag(tag: &str) -> bool {
-    tag.bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'@' | b'#' | b'%'))
+    tag.chars()
+        .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
 }
 
 fn insert_before_title(line: &mut String, value: &str) {

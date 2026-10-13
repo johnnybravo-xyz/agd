@@ -11,14 +11,16 @@ use crate::{AgdError, ITEM_SCHEMA, Item, Planning, PlanningTimestamp, RootSet, S
 static HEADLINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\*+)[ \t]+(.*)$").expect("headline regex"));
 static TAGS_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?:^|[ \t]+)(:[[:alnum:]_@#%:]+:)[ \t]*$").expect("tags regex"));
+    LazyLock::new(|| Regex::new(r"(?:^|[ \t]+)(:[\w@#%:]+:)[ \t]*$").expect("tags regex"));
 static PRIORITY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\[#([[:alnum:]])\](?:[ \t]+|$)").expect("priority regex"));
 static PROPERTY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^:([[:alnum:]_-]+):(?:[ \t]*(.*))?$").expect("property regex"));
+static LINK_TARGET_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\[\[[^\]\n]*\]").expect("link target regex"));
 static TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"[<\[](\d{4}-\d{2}-\d{2})(?:[ \t]+[[:alpha:]]{3})?(?:[ \t]+(\d{1,2}:\d{2})(?:-(\d{1,2}:\d{2}))?)?([^>\]]*)[>\]]",
+        r"[<\[](\d{4}-\d{2}-\d{2})(?:[ \t]+[^\s\d+\->\]]+)?(?:[ \t]+(\d{1,2}:\d{2})(?:-(\d{1,2}:\d{2}))?)?([^>\]]*)[>\]]",
     )
     .expect("timestamp regex")
 });
@@ -935,10 +937,13 @@ fn parse_colon_tags(value: &str) -> Vec<String> {
         .collect()
 }
 
+// A planning line starts with one of the keywords; `: SCHEDULED: <…>` is
+// fixed-width text, not planning.
 fn is_planning_line(line: &str) -> bool {
+    let line = line.trim_start();
     ["SCHEDULED:", "DEADLINE:", "CLOSED:"]
         .iter()
-        .any(|label| line.contains(label))
+        .any(|label| line.starts_with(label))
 }
 
 fn labeled_timestamp(line: &str, label: &str) -> Option<PlanningTimestamp> {
@@ -967,25 +972,60 @@ pub fn parse_timestamp(input: &str) -> Option<PlanningTimestamp> {
     })
 }
 
+// Org ignores timestamps in src/example/export/comment blocks, in
+// fixed-width lines (`: text`) and inside link targets.
 fn scan_timestamps(source: &str, start: usize, end: usize) -> Vec<TimestampSpan> {
     if start >= end || end > source.len() {
         return Vec::new();
     }
-    TIMESTAMP_RE
-        .captures_iter(&source[start..end])
-        .filter_map(|captures| {
-            let matched = captures.get(0)?;
-            let timestamp = parse_timestamp(matched.as_str())?;
-            Some(TimestampSpan {
+    let mut found = Vec::new();
+    let mut in_verbatim_block = false;
+    let mut line_start = start;
+    for line in source[start..end].split_inclusive('\n') {
+        let offset = line_start;
+        line_start += line.len();
+        let trimmed = line.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if in_verbatim_block {
+            in_verbatim_block = !lower.starts_with("#+end_");
+            continue;
+        }
+        if [
+            "#+begin_src",
+            "#+begin_example",
+            "#+begin_export",
+            "#+begin_comment",
+        ]
+        .iter()
+        .any(|opening| lower.starts_with(opening))
+        {
+            in_verbatim_block = true;
+            continue;
+        }
+        if trimmed == ":" || trimmed.starts_with(": ") {
+            continue;
+        }
+        let masked = LINK_TARGET_RE.replace_all(line, |captures: &regex::Captures| {
+            " ".repeat(captures[0].len())
+        });
+        for captures in TIMESTAMP_RE.captures_iter(&masked) {
+            let Some(matched) = captures.get(0) else {
+                continue;
+            };
+            let Some(timestamp) = parse_timestamp(matched.as_str()) else {
+                continue;
+            };
+            found.push(TimestampSpan {
                 timestamp,
                 span: ByteSpan {
-                    start: start + matched.start(),
-                    end: start + matched.end(),
+                    start: offset + matched.start(),
+                    end: offset + matched.end(),
                 },
                 active: matched.as_str().starts_with('<'),
-            })
-        })
-        .collect()
+            });
+        }
+    }
+    found
 }
 
 fn headline_digest(bytes: &[u8]) -> String {

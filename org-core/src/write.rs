@@ -1138,9 +1138,9 @@ fn validate_intent(intent: &EditIntent) -> Result<(), AgdError> {
     }
     for tag in intent.tags_add.iter().chain(&intent.tags_remove) {
         if tag.is_empty()
-            || !tag.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'@' | b'#' | b'%')
-            })
+            || !tag
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
         {
             return Err(AgdError::new("invalid_tag", format!("invalid tag: {tag}")));
         }

@@ -1,0 +1,27 @@
+#+TODO: TODO 进行中 | DONE
+#+CATEGORY: edges
+* TODO Habit with max interval
+SCHEDULED: <2026-10-12 Mon .+2d/3d>
+:PROPERTIES:
+:STYLE:    habit
+:END:
+* TODO 写论文 :紧急重要:work:
+SCHEDULED: <2026-10-14 周三 10:30>
+* 进行中 Unicode keyword
+DEADLINE: <2026-10-15 Thu>
+* Meeting across two days
+<2026-10-13 Tue 19:00>--<2026-10-14 Wed 18:00>
+* Code sample
+#+begin_src emacs-lisp
+(org-schedule nil "<2026-10-15 Thu>")
+#+end_src
+#+begin_example
+<2026-10-16 Fri>
+#+end_example
+: <2026-10-17 Sat>
+* Link target
+See [[https://example.com/a%20<2026-10-17%20Sat>][link]] here.
+* Tagged :@home:urgent:
+<2026-10-18 Sun 09:00>
+* Fixed-width planning
+: SCHEDULED: <2026-10-15 Thu>

@@ -23,6 +23,12 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Parse Org syntax seen in real setups: habit repeaters (`.+2d/3d`), Unicode
+  tags and TODO keywords, non-English weekday names (`<2026-10-14 周三 10:30>`),
+  and multi-day ranges that use the end time on their last day.
+- Ignore timestamps in src/example/export/comment blocks, fixed-width lines and
+  link targets, and do not treat `: SCHEDULED: …` as a planning line.
+- Agenda errors name the `file:line` of the heading that caused them.
 - Match org-agenda for planning: overdue repeating deadlines show on today
   counted from the base date, scheduled repeats show only on the base date and
   after today, deadline warnings use the base date, and leaders use Org's

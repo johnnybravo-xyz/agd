@@ -85,7 +85,13 @@ impl<'a> AgendaEngine<'a> {
                 {
                     continue;
                 }
-                entries.extend(self.occurrences(headline, query)?);
+                let occurrences = self.occurrences(headline, query).map_err(|error| {
+                    AgdError::new(
+                        error.code().to_string(),
+                        format!("{}:{}: {error}", headline.item.file, headline.item.line),
+                    )
+                })?;
+                entries.extend(occurrences);
             }
         }
         entries.sort_by(compare_entries);
@@ -232,11 +238,18 @@ impl<'a> AgendaEngine<'a> {
                         let total = (end_date - start_date).num_days() + 1;
                         for day in date_range(start_date.max(from), end_date.min(to)) {
                             let ordinal = (day - start_date).num_days() + 1;
+                            let time = if day == start_date {
+                                timestamp.timestamp.time.clone()
+                            } else if day == end_date {
+                                end.timestamp.time.clone()
+                            } else {
+                                None
+                            };
                             entries.push(entry(
                                 item,
                                 OccurrenceType::Block,
                                 day,
-                                timestamp.timestamp.time.clone(),
+                                time,
                                 format!("({ordinal}/{total}):"),
                             ));
                         }
@@ -611,7 +624,17 @@ pub fn agenda_csv(entries: &[AgendaEntry]) -> String {
             entry.item.todo.clone().unwrap_or_default(),
             tags,
             entry.occurrence.date.clone(),
-            entry.occurrence.time.clone().unwrap_or_default(),
+            // Emacs CSV writes hours without a leading zero (9:00, 0:30).
+            entry
+                .occurrence
+                .time
+                .as_deref()
+                .map(|time| match time.strip_prefix('0') {
+                    Some(rest) if rest.starts_with(|c: char| c.is_ascii_digit()) => rest,
+                    _ => time,
+                })
+                .unwrap_or_default()
+                .to_string(),
             entry.occurrence.extra.clone(),
             entry.item.priority.clone().unwrap_or_default(),
         ];
@@ -697,6 +720,9 @@ fn planning_dates(
 }
 
 fn parse_repeater(input: &str) -> Result<(&str, u64, char), AgdError> {
+    // Habit repeaters carry a maximum interval, e.g. `.+2d/3d`; only the
+    // repeat interval matters for agenda dates.
+    let input = input.split('/').next().unwrap_or(input);
     let (kind, value) = if let Some(value) = input.strip_prefix("++") {
         ("++", value)
     } else if let Some(value) = input.strip_prefix(".+") {
