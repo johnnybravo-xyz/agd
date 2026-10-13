@@ -63,7 +63,9 @@ fn native_agenda_matches_pinned_emacs_rows() {
             })
             .expect("run native agenda");
         let actual = agenda_csv(&entries);
-        let expected = fs::read_to_string(directory.join("emacs.csv")).expect("read Emacs rows");
+        let expected = fs::read_to_string(directory.join("emacs.csv"))
+            .expect("read Emacs rows")
+            .replace("\r\n", "\n");
         assert!(
             actual == expected,
             "agenda drift in {}\n{}",
