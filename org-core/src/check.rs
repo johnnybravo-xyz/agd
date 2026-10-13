@@ -5,12 +5,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::string::FromUtf8Error;
 
-use crate::{AgendumError, RootSet, Settings};
+use crate::{AgdError, RootSet, Settings};
 use ignore::WalkBuilder;
 use orgize::{Org, ParseConfig, ast::Headline as OrgHeadline, rowan::ast::AstNode};
 use serde::Serialize;
 
-pub const CHECK_SCHEMA: &str = "agendum.check/v1";
+pub const CHECK_SCHEMA: &str = "agd.check/v1";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SourceSpan {
@@ -206,7 +206,7 @@ pub fn check_paths(roots: &[PathBuf]) -> CheckReport {
     }
 }
 
-pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgendumError> {
+pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgdError> {
     let roots = RootSet::new(&settings.files)?;
     let paths = roots.all_org_files()?;
     let configured_keywords: std::collections::HashSet<&str> = settings

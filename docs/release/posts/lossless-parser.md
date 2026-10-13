@@ -6,7 +6,7 @@ its odd spacing three years ago. That changes the parser's job. Producing the
 right abstract syntax tree is necessary, but not sufficient: after changing one
 TODO keyword, every unrelated byte must still belong to the user.
 
-Agendum starts with a retained-source tree from `orgize`, pinned to an exact
+Agenda starts with a retained-source tree from `orgize`, pinned to an exact
 release. The first experiment was deliberately boring. Copies of real Org files
 were parsed and rendered without edits, then compared byte-for-byte. The corpus
 includes comments, drawers, custom TODO declarations, Unicode, planning lines,
@@ -24,13 +24,13 @@ known gap.
 
 That distinction catches bugs that snapshot tests miss. A test that parses the
 result and sees `DONE` will pass even if a serializer changed indentation,
-reordered properties, normalized blank lines, or converted CRLF. Agendum's
+reordered properties, normalized blank lines, or converted CRLF. Agenda's
 write fixtures instead assert the observable post-image and every untouched
 range. The parser can understand more syntax over time without gaining
 permission to reformat it.
 
 Identity needs the same restraint. A unique Org `:ID:` is stable and readable,
-so Agendum uses it. A heading without one gets a ref containing its file, a
+so Agenda uses it. A heading without one gets a ref containing its file, a
 line hint, and a digest of the original heading bytes. The line accelerates the
 lookup but is not identity: an unchanged heading may move. A changed heading
 makes the ref stale. Duplicate IDs are an error listing all candidates, never a

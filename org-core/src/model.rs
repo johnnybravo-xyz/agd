@@ -2,10 +2,10 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-pub const ITEM_SCHEMA: &str = "agendum.item/v1";
-pub const AGENDA_ENTRY_SCHEMA: &str = "agendum.agenda-entry/v1";
-pub const MUTATION_SCHEMA: &str = "agendum.mutation/v1";
-pub const ERROR_SCHEMA: &str = "agendum.error/v1";
+pub const ITEM_SCHEMA: &str = "agd.item/v1";
+pub const AGENDA_ENTRY_SCHEMA: &str = "agd.agenda-entry/v1";
+pub const MUTATION_SCHEMA: &str = "agd.mutation/v1";
+pub const ERROR_SCHEMA: &str = "agd.error/v1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Item {
@@ -92,12 +92,12 @@ pub struct ErrorResponse {
 }
 
 #[derive(Debug)]
-pub struct AgendumError {
+pub struct AgdError {
     response: Box<ErrorResponse>,
     source: Option<Box<dyn std::error::Error + Send + Sync>>,
 }
 
-impl AgendumError {
+impl AgdError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             response: Box::new(ErrorResponse {
@@ -144,13 +144,13 @@ impl AgendumError {
     }
 }
 
-impl fmt::Display for AgendumError {
+impl fmt::Display for AgdError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.response.message)
     }
 }
 
-impl std::error::Error for AgendumError {
+impl std::error::Error for AgdError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         self.source
             .as_deref()
@@ -158,7 +158,7 @@ impl std::error::Error for AgendumError {
     }
 }
 
-impl From<std::io::Error> for AgendumError {
+impl From<std::io::Error> for AgdError {
     fn from(error: std::io::Error) -> Self {
         Self::with_source("io", error.to_string(), error)
     }

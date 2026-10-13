@@ -269,7 +269,7 @@ fn default_config_dir() -> Result<PathBuf, OrgModeError> {
         OrgModeError::ConfigError("Could not determine config directory".to_string())
     })?;
 
-    Ok(config_dir.join("agendum"))
+    Ok(config_dir.join("agd"))
 }
 
 pub fn default_org_directory() -> String {
@@ -293,7 +293,7 @@ pub fn default_log_level() -> String {
 }
 
 pub fn default_log_file() -> String {
-    "~/.local/share/agendum/logs/agd.log".to_string()
+    "~/.local/share/agd/logs/agd.log".to_string()
 }
 
 pub fn default_org_auto_created_property() -> bool {
@@ -330,7 +330,7 @@ mod tests {
     fn test_default_logging_config() {
         let config = LoggingConfig::default();
         assert_eq!(config.level, "info");
-        assert_eq!(config.file, "~/.local/share/agendum/logs/agd.log");
+        assert_eq!(config.file, "~/.local/share/agd/logs/agd.log");
     }
 
     #[test]

@@ -10,8 +10,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 def run(case: pathlib.Path) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
-    environment["AGENDUM_FIXTURE_DIR"] = "/fixture"
-    environment["AGENDUM_IMPORT_SOURCE"] = "profile"
+    environment["AGD_FIXTURE_DIR"] = "/fixture"
+    environment["AGD_IMPORT_SOURCE"] = "profile"
     return subprocess.run(
         [
             environment.get("NVIM", "nvim"),
@@ -38,7 +38,7 @@ def main() -> int:
     failed = False
     for case in sorted(path.parent for path in root.glob("*/init.lua")):
         result = run(case)
-        marker = "AGENDUM_JSON:"
+        marker = "AGD_JSON:"
         payload = next(
             (line[len(marker):] for line in result.stdout.splitlines() if line.startswith(marker)),
             None,

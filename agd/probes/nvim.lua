@@ -1,5 +1,5 @@
 local function fail(message)
-  error("agendum nvim import: " .. message, 0)
+  error("agd nvim import: " .. message, 0)
 end
 
 local ok_orgmode, orgmode = pcall(require, "orgmode")
@@ -129,7 +129,7 @@ local output = {
   editor = "nvim",
   editor_version = string.format("%d.%d.%d", version.major, version.minor, version.patch),
   org_version = tostring(org_version),
-  source = vim.env.AGENDUM_IMPORT_SOURCE or "profile",
+  source = vim.env.AGD_IMPORT_SOURCE or "profile",
   agenda_files = strings(filenames),
   todo_sequences = todo_sequences(opts.org_todo_keywords),
   tag_alist = strings(opts.org_tag_alist),
@@ -155,4 +155,4 @@ local output = {
   commands = custom_commands(opts.org_agenda_custom_commands),
   diagnostics = {},
 }
-vim.api.nvim_out_write("AGENDUM_JSON:" .. vim.json.encode(output) .. "\n")
+vim.api.nvim_out_write("AGD_JSON:" .. vim.json.encode(output) .. "\n")

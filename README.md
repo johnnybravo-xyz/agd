@@ -119,8 +119,8 @@ as `stale_ref`, `duplicate_id`, `symlink_write_refused`, and
 
 ## Configuration
 
-The default file is `~/.config/agendum/config.toml` on Linux and the platform
-configuration directory plus `agendum/config.toml` elsewhere. `--config`
+The default file is `~/.config/agd/config.toml` on Linux and the platform
+configuration directory plus `agd/config.toml` elsewhere. `--config`
 selects another file; `--root-directory` replaces `files.roots` for one run.
 Unknown fields are errors.
 
@@ -200,7 +200,7 @@ agent capture uses the `agents.inbox_template` template and drops its
 `SCHEDULED`/`DEADLINE`, so agent work reaches your day only through triage.
 CLI and TUI captures are never redirected.
 
-Install project-local client configuration and the `agendum` skill with:
+Install project-local client configuration and the `agd` skill with:
 
 ```bash
 agd install --directory . claude

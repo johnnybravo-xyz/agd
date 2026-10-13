@@ -23,7 +23,7 @@ fn check_uses_configured_root_and_emits_json() {
     let report: Value =
         serde_json::from_slice(&assertion.get_output().stdout).expect("JSON check report");
 
-    assert_eq!(report["schema"], "agendum.check/v1");
+    assert_eq!(report["schema"], "agd.check/v1");
     assert_eq!(report["summary"]["files"], 1);
     assert_eq!(report["summary"]["headlines"], 1);
     assert_eq!(report["summary"]["errors"], 0);

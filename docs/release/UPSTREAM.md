@@ -1,6 +1,6 @@
 # Upstream conformance patch offering
 
-Agendum is a product fork of `szaffarano/org-mcp-server`. Product-specific
+Agenda is a product fork of `szaffarano/org-mcp-server`. Product-specific
 configuration, TUI, transactional journal format, imports, and branding stay in
 this fork. The following generic fixes should be offered upstream as small MIT
 pull requests, preserving upstream style and public APIs where possible.
@@ -15,10 +15,10 @@ Scope:
   non-ASCII headings, and custom TODO declarations.
 - Assert parse/no-op/serialize identity and unchanged byte ranges around a
   targeted field.
-- Keep the fixture runner independent of Agendum configuration and journal code.
+- Keep the fixture runner independent of Agenda configuration and journal code.
 
 Why upstream: byte stability protects every consumer of the existing parser and
-update functions. The tests can be MIT without moving Agendum's product code.
+update functions. The tests can be MIT without moving Agenda's product code.
 
 Acceptance: each fixture round-trips byte-for-byte, and a deliberately broad
 line-reassembly mutation fails the untouched-range assertion.
@@ -32,7 +32,7 @@ Scope:
 - Add one exact-ID success fixture and one duplicate-ID refusal fixture.
 
 Why upstream: choosing the first duplicate can edit the wrong user document and
-is independent of Agendum's item-ref format.
+is independent of Agenda's item-ref format.
 
 Acceptance: no file changes when an ID is duplicated.
 
@@ -45,7 +45,7 @@ Scope:
 - Normalize paths and line endings only; retain semantic fields.
 - Seed past-scheduled and done-skip cases relevant to the upstream agenda.
 
-Why upstream: the oracle is editor-owned behavior, not Agendum product logic.
+Why upstream: the oracle is editor-owned behavior, not Agenda product logic.
 It can expose compatibility regressions in the upstream CLI directly.
 
 Acceptance: fixture output is deterministic in CI and documents the tested
@@ -67,7 +67,7 @@ line as separate arguments.
 
 ## Excluded from the offer
 
-Do not upstream the Agendum name, native config schema, MCP tool reduction,
+Do not upstream the Agenda name, native config schema, MCP tool reduction,
 Ratatui workflow, import snapshot formats, journal format, agent provenance,
 release packaging, or roadmap. Those choices deliberately diverge from the
 upstream server.
@@ -76,6 +76,6 @@ upstream server.
 
 Offer the fixture harness first, then the smallest behavior fixes that make it
 pass. Each pull request should state that the patch is offered under upstream's
-MIT license, contain no GPL-only Agendum code, and avoid combining refactors
-with behavior changes. Link back to the full Agendum compatibility table only
+MIT license, contain no GPL-only Agenda code, and avoid combining refactors
+with behavior changes. Link back to the full Agenda compatibility table only
 as evidence, not as a requirement that upstream adopt the fork.

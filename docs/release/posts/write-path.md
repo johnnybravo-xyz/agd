@@ -3,7 +3,7 @@
 A correct patch can still lose data. Between showing an agenda and pressing
 "done," Emacs may have saved the file, a sync tool may have replaced it, or an
 agent may have moved the heading. Applying offsets calculated from the old
-image is the dangerous shortcut. Agendum's write path is designed around that
+image is the dangerous shortcut. Agenda's write path is designed around that
 race rather than treating it as an edge case.
 
 The client supplies an item ref and an intent such as "set TODO to DONE." The
@@ -27,7 +27,7 @@ therefore distinguish a prepared operation from a committed one after a crash.
 
 Undo is not "write the old file." It checks that the current content still has
 the recorded post-image hash and applies the inverse byte patches only then. If
-an editor changed the file after Agendum's write, undo reports a conflict. A
+an editor changed the file after Agenda's write, undo reports a conflict. A
 refile touching two files shares a transaction identifier and reverses both
 sides together.
 
@@ -46,5 +46,5 @@ marks the review record.
 The protocol intentionally refuses cases that need more design. Symlink writes
 remain disabled. Non-UTF-8 files are not transcoded. Duplicate IDs never select
 a winner. An uncooperative program can ignore advisory locks, but it cannot
-make Agendum apply a stale digest as if it still matched. The invariant is
+make Agenda apply a stale digest as if it still matched. The invariant is
 narrow and testable: preserve unrelated bytes, or do nothing.

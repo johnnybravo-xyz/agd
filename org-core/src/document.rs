@@ -6,7 +6,7 @@ use orgize::ParseConfig;
 use regex::Regex;
 use sha2::{Digest, Sha256};
 
-use crate::{AgendumError, ITEM_SCHEMA, Item, Planning, PlanningTimestamp, RootSet, Settings};
+use crate::{AgdError, ITEM_SCHEMA, Item, Planning, PlanningTimestamp, RootSet, Settings};
 
 static HEADLINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\*+)[ \t]+(.*)$").expect("headline regex"));
@@ -96,9 +96,9 @@ pub struct WorkspaceIndex {
 fn load_document(
     path: &Path,
     settings: &Settings,
-) -> Result<Result<OrgDocument, AgendumError>, AgendumError> {
+) -> Result<Result<OrgDocument, AgdError>, AgdError> {
     let bytes = std::fs::read(path).map_err(|error| {
-        AgendumError::with_source(
+        AgdError::with_source(
             "io",
             format!("cannot read {}: {error}", path.display()),
             error,
@@ -130,9 +130,9 @@ fn scan_property_ids(path: &Path) -> Vec<String> {
 }
 
 impl OrgDocument {
-    pub fn parse(path: PathBuf, bytes: Vec<u8>, settings: &Settings) -> Result<Self, AgendumError> {
+    pub fn parse(path: PathBuf, bytes: Vec<u8>, settings: &Settings) -> Result<Self, AgdError> {
         let source = String::from_utf8(bytes).map_err(|error| {
-            AgendumError::with_source(
+            AgdError::with_source(
                 "non_utf8",
                 format!("org file is not UTF-8: {}", path.display()),
                 error,
@@ -160,7 +160,7 @@ impl OrgDocument {
         };
         let parsed = parse_config.parse(&source);
         if parsed.to_org() != source {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "parse_drift",
                 format!(
                     "orgize changed bytes during a no-op round trip: {}",
@@ -231,7 +231,7 @@ impl OrgDocument {
 }
 
 impl WorkspaceIndex {
-    pub fn load(settings: Settings) -> Result<Self, AgendumError> {
+    pub fn load(settings: Settings) -> Result<Self, AgdError> {
         let roots = RootSet::new(&settings.files)?;
         let mut documents = BTreeMap::new();
         let mut skipped = BTreeMap::new();
@@ -282,7 +282,7 @@ impl WorkspaceIndex {
         &self.settings
     }
 
-    pub fn refresh_path(&mut self, path: &Path) -> Result<(), AgendumError> {
+    pub fn refresh_path(&mut self, path: &Path) -> Result<(), AgdError> {
         if path.exists() {
             if path.extension().is_none_or(|extension| extension != "org") {
                 return Ok(());
@@ -352,13 +352,13 @@ impl WorkspaceIndex {
         self.outside_ids.get(id).map_or(0, Vec::len)
     }
 
-    fn refuse_duplicate_id(&self, headline: &HeadlineSpan) -> Result<(), AgendumError> {
+    fn refuse_duplicate_id(&self, headline: &HeadlineSpan) -> Result<(), AgdError> {
         let Some(id) = &headline.item.id else {
             return Ok(());
         };
         let count = self.ids.get(id).map_or(0, Vec::len) + self.outside_id_count(id);
         if count > 1 {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "duplicate_id",
                 format!("ID '{id}' occurs {count} times under the configured roots"),
             ));
@@ -370,7 +370,7 @@ impl WorkspaceIndex {
         self.documents.get(path)
     }
 
-    pub fn resolve(&self, item_ref: &str) -> Result<(&OrgDocument, &HeadlineSpan), AgendumError> {
+    pub fn resolve(&self, item_ref: &str) -> Result<(&OrgDocument, &HeadlineSpan), AgdError> {
         if !item_ref.contains("#sha256:") {
             let matches = self
                 .ids
@@ -379,7 +379,7 @@ impl WorkspaceIndex {
                 .unwrap_or_default();
             let outside = self.outside_id_count(item_ref);
             if matches.len() + outside > 1 {
-                return Err(AgendumError::new(
+                return Err(AgdError::new(
                     "duplicate_id",
                     format!(
                         "ID '{item_ref}' occurs {} times under the configured roots",
@@ -388,11 +388,11 @@ impl WorkspaceIndex {
                 ));
             }
             return match matches {
-                [] if outside == 1 => Err(AgendumError::new(
+                [] if outside == 1 => Err(AgdError::new(
                     "stale_ref",
                     format!("ID '{item_ref}' is in a file outside the agenda files"),
                 )),
-                [] => Err(AgendumError::new(
+                [] => Err(AgdError::new(
                     "stale_ref",
                     format!("no item has ID '{item_ref}'"),
                 )),
@@ -408,23 +408,23 @@ impl WorkspaceIndex {
             };
         }
 
-        let (location, digest) = item_ref.rsplit_once("#sha256:").ok_or_else(|| {
-            AgendumError::new("invalid_ref", format!("invalid item ref: {item_ref}"))
-        })?;
+        let (location, digest) = item_ref
+            .rsplit_once("#sha256:")
+            .ok_or_else(|| AgdError::new("invalid_ref", format!("invalid item ref: {item_ref}")))?;
         if digest.len() != 32 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_ref",
                 format!("invalid SHA-256 digest in item ref: {item_ref}"),
             ));
         }
         let (file, line) = location.rsplit_once(':').ok_or_else(|| {
-            AgendumError::new(
+            AgdError::new(
                 "invalid_ref",
                 format!("item ref has no line hint: {item_ref}"),
             )
         })?;
         let line = line.parse::<usize>().map_err(|_| {
-            AgendumError::new(
+            AgdError::new(
                 "invalid_ref",
                 format!("invalid line hint in item ref: {item_ref}"),
             )
@@ -432,7 +432,7 @@ impl WorkspaceIndex {
         let requested = Path::new(file);
         self.roots.resolve_read(requested)?;
         if let Some(reason) = self.skipped.get(requested) {
-            return Err(AgendumError::new("non_utf8", reason.clone()));
+            return Err(AgdError::new("non_utf8", reason.clone()));
         }
         let document = self
             .documents
@@ -444,7 +444,7 @@ impl WorkspaceIndex {
                     .and_then(|canonical| self.documents.get(&canonical))
             })
             .ok_or_else(|| {
-                AgendumError::new(
+                AgdError::new(
                     "stale_ref",
                     format!(
                         "referenced file is not an agenda file: {}",
@@ -469,7 +469,7 @@ impl WorkspaceIndex {
                 Ok((document, headline))
             }
             [] => {
-                let mut error = AgendumError::new(
+                let mut error = AgdError::new(
                     "stale_ref",
                     format!("headline bytes no longer match ref: {item_ref}"),
                 );
@@ -478,7 +478,7 @@ impl WorkspaceIndex {
                 }
                 Err(error)
             }
-            _ => Err(AgendumError::new(
+            _ => Err(AgdError::new(
                 "stale_ref",
                 format!("headline digest is ambiguous in {}", requested.display()),
             )),
@@ -524,7 +524,7 @@ fn scan_headlines(
     file_tags: &[String],
     file_category: &str,
     settings: &Settings,
-) -> Result<Vec<HeadlineSpan>, AgendumError> {
+) -> Result<Vec<HeadlineSpan>, AgdError> {
     let mut raw = Vec::new();
     for (line_index, line) in lines.iter().enumerate() {
         let text = &source[line.content.start..line.content.end];
@@ -736,7 +736,7 @@ fn parse_metadata(
     lines: &[SourceLine],
     headline_line: usize,
     _headline_count: usize,
-) -> Result<ParsedMetadata, AgendumError> {
+) -> Result<ParsedMetadata, AgdError> {
     let mut planning = Planning::default();
     let mut planning_span: Option<ByteSpan> = None;
     let mut cursor = headline_line + 1;
@@ -822,7 +822,7 @@ fn parse_metadata(
                 cursor += 1;
             }
             if !found_end {
-                return Err(AgendumError::new(
+                return Err(AgdError::new(
                     "parse_error",
                     format!(
                         "unterminated property drawer after line {}",

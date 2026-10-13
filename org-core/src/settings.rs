@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::OrgModeError;
 
-pub const EMACS_IMPORT_SCHEMA: &str = "agendum.import/emacs/v1";
-pub const NVIM_IMPORT_SCHEMA: &str = "agendum.import/nvim/v1";
+pub const EMACS_IMPORT_SCHEMA: &str = "agd.import/emacs/v1";
+pub const NVIM_IMPORT_SCHEMA: &str = "agd.import/nvim/v1";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -273,7 +273,7 @@ pub fn default_config_path() -> Result<PathBuf, OrgModeError> {
     let base = dirs::config_dir().ok_or_else(|| {
         OrgModeError::ConfigError("cannot determine the platform configuration directory".into())
     })?;
-    Ok(base.join("agendum").join("config.toml"))
+    Ok(base.join("agd").join("config.toml"))
 }
 
 pub fn load_settings(

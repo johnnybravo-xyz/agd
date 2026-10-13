@@ -1,6 +1,6 @@
 (require 'org)
 (setq org-agenda-files
-      (list (expand-file-name "tasks.org" (getenv "AGENDUM_FIXTURE_DIR"))))
+      (list (expand-file-name "tasks.org" (getenv "AGD_FIXTURE_DIR"))))
 (setq org-todo-keywords
       '((sequence "TODO(t)" "NEXT(n!)" "WAIT(w@)" "|" "DONE(d!)" "CANCELLED(c@)")))
 (setq org-tag-alist '(("work" . ?w) ("home" . ?h)))
@@ -21,7 +21,7 @@
       org-log-repeat 'note
       org-log-into-drawer t)
 (setq org-capture-templates
-      `(("t" "Todo" entry (file+headline ,(expand-file-name "tasks.org" (getenv "AGENDUM_FIXTURE_DIR")) "Inbox") "* TODO %?\n:CREATED: %U")
+      `(("t" "Todo" entry (file+headline ,(expand-file-name "tasks.org" (getenv "AGD_FIXTURE_DIR")) "Inbox") "* TODO %?\n:CREATED: %U")
         ("x" "Dynamic" entry (function ignore) "* TODO %(danger)")))
 (setq org-agenda-custom-commands
       '(("w" "Work" tags-todo "+work/TODO|NEXT")

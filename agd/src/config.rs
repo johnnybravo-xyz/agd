@@ -74,7 +74,7 @@ mod tests {
     #[test]
     fn legacy_read_commands_use_native_file_roots() {
         let temp = tempfile::tempdir().unwrap();
-        let config_path = temp.path().join("agendum.toml");
+        let config_path = temp.path().join("agd.toml");
         let config = format!(
             "[files]\nroots = [{}]\n",
             toml::Value::String(temp.path().to_string_lossy().into_owned())

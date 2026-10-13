@@ -20,7 +20,7 @@ Manual configuration always owns those execution and privacy boundaries.
 Agenda files emitted by a probe are canonicalized; an out-of-root file is
 removed and reported as unsupported.
 
-Snapshots use `agendum.import/emacs/v1` or `agendum.import/nvim/v1`, include the
+Snapshots use `agd.import/emacs/v1` or `agd.import/nvim/v1`, include the
 editor and Org versions, source profile, host, extraction time, and a digest,
 and are written atomically with mode `0600` on Unix.
 

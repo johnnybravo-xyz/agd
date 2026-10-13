@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AgendumError, CaptureTemplate, EMACS_IMPORT_SCHEMA, NVIM_IMPORT_SCHEMA, RootSet, Settings,
+    AgdError, CaptureTemplate, EMACS_IMPORT_SCHEMA, NVIM_IMPORT_SCHEMA, RootSet, Settings,
 };
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -103,12 +103,12 @@ impl ImportSnapshot {
         resolved: ResolvedEditorConfig,
         approved: &Settings,
         host: impl Into<String>,
-    ) -> Result<Self, AgendumError> {
+    ) -> Result<Self, AgdError> {
         let schema = match resolved.editor.as_str() {
             "emacs" => EMACS_IMPORT_SCHEMA,
             "nvim" => NVIM_IMPORT_SCHEMA,
             value => {
-                return Err(AgendumError::new(
+                return Err(AgdError::new(
                     "unsupported_editor",
                     format!("unsupported editor snapshot: {value}"),
                 ));
@@ -162,7 +162,7 @@ impl ImportSnapshot {
             &resolved.commands,
             &diagnostics,
         ))
-        .map_err(|error| AgendumError::with_source("snapshot", "cannot encode snapshot", error))?;
+        .map_err(|error| AgdError::with_source("snapshot", "cannot encode snapshot", error))?;
         let digest = format!("{:x}", Sha256::digest(digest_input));
         Ok(Self {
             schema: schema.to_string(),
@@ -182,17 +182,17 @@ impl ImportSnapshot {
         })
     }
 
-    pub fn to_toml(&self) -> Result<String, AgendumError> {
+    pub fn to_toml(&self) -> Result<String, AgdError> {
         toml::to_string_pretty(self).map_err(|error| {
-            AgendumError::with_source("snapshot", "cannot encode import snapshot", error)
+            AgdError::with_source("snapshot", "cannot encode import snapshot", error)
         })
     }
 
-    pub fn write(&self, path: &Path) -> Result<(), AgendumError> {
+    pub fn write(&self, path: &Path) -> Result<(), AgdError> {
         let contents = self.to_toml()?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|error| {
-                AgendumError::with_source(
+                AgdError::with_source(
                     "io",
                     format!("cannot create {}: {error}", parent.display()),
                     error,
@@ -208,7 +208,7 @@ impl ImportSnapshot {
             options.mode(0o600);
         }
         let mut file = options.open(&temporary).map_err(|error| {
-            AgendumError::with_source(
+            AgdError::with_source(
                 "io",
                 format!("cannot write {}: {error}", temporary.display()),
                 error,
@@ -216,9 +216,9 @@ impl ImportSnapshot {
         })?;
         file.write_all(contents.as_bytes())
             .and_then(|()| file.sync_all())
-            .map_err(|error| AgendumError::with_source("io", "cannot persist snapshot", error))?;
+            .map_err(|error| AgdError::with_source("io", "cannot persist snapshot", error))?;
         fs::rename(&temporary, path).map_err(|error| {
-            AgendumError::with_source(
+            AgdError::with_source(
                 "io",
                 format!("cannot replace {}: {error}", path.display()),
                 error,
@@ -228,21 +228,21 @@ impl ImportSnapshot {
         {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|error| {
-                AgendumError::with_source("io", "cannot secure snapshot permissions", error)
+                AgdError::with_source("io", "cannot secure snapshot permissions", error)
             })?;
         }
         Ok(())
     }
 }
 
-fn validate_resolved(resolved: &ResolvedEditorConfig) -> Result<(), AgendumError> {
+fn validate_resolved(resolved: &ResolvedEditorConfig) -> Result<(), AgdError> {
     if resolved.todo_sequences.is_empty()
         || resolved
             .todo_sequences
             .iter()
             .any(|sequence| sequence.is_empty())
     {
-        return Err(AgendumError::new(
+        return Err(AgdError::new(
             "unsupported_import_shape",
             "editor returned no usable TODO sequence",
         ));
@@ -253,14 +253,14 @@ fn validate_resolved(resolved: &ResolvedEditorConfig) -> Result<(), AgendumError
         ("default priority", &resolved.default_priority),
     ] {
         if value.chars().count() != 1 {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "unsupported_import_shape",
                 format!("{name} must be one character"),
             ));
         }
     }
     if resolved.week_start != "monday" && resolved.week_start != "sunday" {
-        return Err(AgendumError::new(
+        return Err(AgdError::new(
             "unsupported_import_shape",
             format!("unsupported week start: {}", resolved.week_start),
         ));

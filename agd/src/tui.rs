@@ -1229,7 +1229,7 @@ fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         ])
     } else {
         Line::from(vec![
-            Span::styled(" agendum ", tab_style(true, accent())),
+            Span::styled(" Agenda ", tab_style(true, accent())),
             Span::raw("  "),
             Span::styled(
                 " Today ",
@@ -1738,7 +1738,7 @@ fn draw_pane(frame: &mut ratatui::Frame<'_>, app: &mut App, area: Rect) {
         app.inbox_count, app.agent_count
     )));
     lines.push(Line::from("j/k  x done  c capture  T triage  ⏎ full"));
-    frame.render_widget(Paragraph::new(lines).block(rounded("agendum")), area);
+    frame.render_widget(Paragraph::new(lines).block(rounded("Agenda")), area);
 }
 
 fn help_heading(title: &'static str) -> Line<'static> {

@@ -10,7 +10,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def run(operation: str, destination: pathlib.Path) -> None:
-    name = f"agendum-edit-{uuid.uuid4().hex}"
+    name = f"agd-edit-{uuid.uuid4().hex}"
     command = [
         "docker",
         "create",
@@ -19,7 +19,7 @@ def run(operation: str, destination: pathlib.Path) -> None:
         "--name",
         name,
         "--env",
-        f"AGENDUM_EDIT_OPERATION={operation}",
+        f"AGD_EDIT_OPERATION={operation}",
         IMAGE,
         "sh",
         "-c",

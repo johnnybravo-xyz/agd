@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use similar::TextDiff;
 
 use crate::{
-    AgendumError, ByteSpan, CaptureDraft, CaptureTemplate, HeadlineSpan, IndexedDocument, Item,
+    AgdError, ByteSpan, CaptureDraft, CaptureTemplate, HeadlineSpan, IndexedDocument, Item,
     MUTATION_SCHEMA, Mutation, PlanningTimestamp, RootSet, Settings, WorkspaceIndex,
     format_active_timestamp, render_capture_template,
 };
@@ -127,7 +127,7 @@ struct JournalImage<'a> {
 }
 
 impl WriteEngine {
-    pub fn new(settings: Settings, journal_path: PathBuf) -> Result<Self, AgendumError> {
+    pub fn new(settings: Settings, journal_path: PathBuf) -> Result<Self, AgdError> {
         let roots = RootSet::new(&settings.files)?;
         let engine = Self {
             settings,
@@ -138,11 +138,11 @@ impl WriteEngine {
         Ok(engine)
     }
 
-    pub fn with_default_journal(settings: Settings) -> Result<Self, AgendumError> {
+    pub fn with_default_journal(settings: Settings) -> Result<Self, AgdError> {
         let data = dirs::data_local_dir().ok_or_else(|| {
-            AgendumError::new("config", "cannot determine the platform data directory")
+            AgdError::new("config", "cannot determine the platform data directory")
         })?;
-        Self::new(settings, data.join("agendum").join("journal.jsonl"))
+        Self::new(settings, data.join("agd").join("journal.jsonl"))
     }
 
     pub fn settings(&self) -> &Settings {
@@ -155,7 +155,7 @@ impl WriteEngine {
         intent: &EditIntent,
         dry_run: bool,
         context: &WriteContext,
-    ) -> Result<Mutation, AgendumError> {
+    ) -> Result<Mutation, AgdError> {
         validate_intent(intent)?;
         let initial = WorkspaceIndex::load(self.settings.clone())?;
         let (initial_document, _) = initial.resolve(item_ref)?;
@@ -167,7 +167,7 @@ impl WriteEngine {
         let fresh = WorkspaceIndex::load(self.settings.clone())?;
         let (document, headline) = fresh.resolve(item_ref)?;
         if document.path() != path {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "stale_ref",
                 "item resolved to a different file while acquiring the write lock",
             ));
@@ -175,10 +175,7 @@ impl WriteEngine {
         let patches = build_edit_patches(document, headline, intent, &self.settings)?;
         let (post_image, stored) = apply_patches(document.source(), patches)?;
         if post_image == document.source() {
-            return Err(AgendumError::new(
-                "no_change",
-                "edit does not change the item",
-            ));
+            return Err(AgdError::new("no_change", "edit does not change the item"));
         }
         let diff = unified_diff(&path, document.source(), &post_image);
         let updated = parse_updated_item(&path, &post_image, headline.item.line, &self.settings)?;
@@ -220,9 +217,9 @@ impl WriteEngine {
         prompts: &BTreeMap<String, String>,
         dry_run: bool,
         context: &WriteContext,
-    ) -> Result<Mutation, AgendumError> {
+    ) -> Result<Mutation, AgdError> {
         let template = self.settings.capture.get(template_key).ok_or_else(|| {
-            AgendumError::new(
+            AgdError::new(
                 "unknown_template",
                 format!("capture template '{template_key}' is not configured"),
             )
@@ -230,28 +227,28 @@ impl WriteEngine {
         let (template, draft) = apply_agent_capture_gate(template, draft, &self.settings, context);
         let draft = &draft;
         let file = template.file.as_deref().ok_or_else(|| {
-            AgendumError::new(
+            AgdError::new(
                 "unsupported_target",
                 "capture by ID requires an existing target and is not valid for a new file",
             )
         })?;
         let path = self.roots.resolve_write(Path::new(file), true)?;
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(AgendumError::from)?;
+            fs::create_dir_all(parent).map_err(AgdError::from)?;
         }
         self.roots.resolve_write(&path, true)?;
         let _lock = self.lock_target(&path)?;
         refuse_emacs_lock(&path)?;
         let pre_image = match fs::read(&path) {
             Ok(bytes) => String::from_utf8(bytes).map_err(|error| {
-                AgendumError::with_source(
+                AgdError::with_source(
                     "non_utf8",
                     format!("org file is not UTF-8: {}", path.display()),
                     error,
                 )
             })?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(error) => return Err(AgendumError::from(error)),
+            Err(error) => return Err(AgdError::from(error)),
         };
         let now = Local::now().naive_local();
         let rendered = render_capture_template(&template, draft, body, prompts, now)?;
@@ -316,7 +313,7 @@ impl WriteEngine {
         target_ref: &str,
         dry_run: bool,
         context: &WriteContext,
-    ) -> Result<RefileResult, AgendumError> {
+    ) -> Result<RefileResult, AgdError> {
         let initial = WorkspaceIndex::load(self.settings.clone())?;
         let (source_document, _) = initial.resolve(item_ref)?;
         let (target_document, _) = initial.resolve(target_ref)?;
@@ -341,7 +338,7 @@ impl WriteEngine {
             && target_headline.line_span.start >= source_headline.subtree_span.start
             && target_headline.line_span.start < source_headline.subtree_span.end
         {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_refile",
                 "an item cannot be refiled into itself or one of its descendants",
             ));
@@ -384,7 +381,7 @@ impl WriteEngine {
             )?;
             if dry_run {
                 return Ok(RefileResult {
-                    schema: "agendum.refile/v1".to_string(),
+                    schema: "agd.refile/v1".to_string(),
                     ok: true,
                     item,
                     diffs: vec![diff],
@@ -403,7 +400,7 @@ impl WriteEngine {
                 context,
             )?;
             return Ok(RefileResult {
-                schema: "agendum.refile/v1".to_string(),
+                schema: "agd.refile/v1".to_string(),
                 ok: true,
                 item,
                 diffs: vec![diff],
@@ -447,7 +444,7 @@ impl WriteEngine {
         )?;
         if dry_run {
             return Ok(RefileResult {
-                schema: "agendum.refile/v1".to_string(),
+                schema: "agd.refile/v1".to_string(),
                 ok: true,
                 item,
                 diffs: vec![source_diff, target_diff],
@@ -496,7 +493,7 @@ impl WriteEngine {
         self.append_record(&source_record)?;
         self.append_record(&target_record)?;
         Ok(RefileResult {
-            schema: "agendum.refile/v1".to_string(),
+            schema: "agd.refile/v1".to_string(),
             ok: true,
             item,
             diffs: vec![source_diff, target_diff],
@@ -507,7 +504,7 @@ impl WriteEngine {
         &self,
         journal_id: Option<&str>,
         context: &WriteContext,
-    ) -> Result<UndoResult, AgendumError> {
+    ) -> Result<UndoResult, AgdError> {
         self.recover_pending()?;
         let records = self.latest_records()?;
         let selected = match journal_id {
@@ -522,7 +519,7 @@ impl WriteEngine {
                 })
                 .max_by_key(|record| record.timestamp.as_str()),
         }
-        .ok_or_else(|| AgendumError::new("nothing_to_undo", "no committed journal entry found"))?;
+        .ok_or_else(|| AgdError::new("nothing_to_undo", "no committed journal entry found"))?;
         let mut group: Vec<JournalRecord> = if let Some(transaction) = &selected.transaction {
             records
                 .values()
@@ -552,14 +549,14 @@ impl WriteEngine {
         for record in &group {
             let path = PathBuf::from(&record.file);
             let current = fs::read_to_string(&path).map_err(|error| {
-                AgendumError::with_source(
+                AgdError::with_source(
                     "io",
                     format!("cannot read {}: {error}", path.display()),
                     error,
                 )
             })?;
             if content_hash(&current) != record.post_hash {
-                return Err(AgendumError::new(
+                return Err(AgdError::new(
                     "undo_conflict",
                     format!(
                         "{} changed after journal entry {}",
@@ -570,7 +567,7 @@ impl WriteEngine {
             }
             let (pre_image, _) = apply_patches(&current, inverse_patches(&record.patches))?;
             if content_hash(&pre_image) != record.pre_hash {
-                return Err(AgendumError::new(
+                return Err(AgdError::new(
                     "journal_corrupt",
                     format!(
                         "inverse patch for {} does not reproduce its pre-image",
@@ -601,7 +598,7 @@ impl WriteEngine {
             self.append_record(&record)?;
         }
         Ok(UndoResult {
-            schema: "agendum.undo/v1".to_string(),
+            schema: "agd.undo/v1".to_string(),
             ok: true,
             journal_id: selected
                 .transaction
@@ -620,16 +617,16 @@ impl WriteEngine {
         })
     }
 
-    pub fn review(&self, journal_id: &str) -> Result<(), AgendumError> {
+    pub fn review(&self, journal_id: &str) -> Result<(), AgdError> {
         let records = self.latest_records()?;
         let mut record = records.get(journal_id).cloned().ok_or_else(|| {
-            AgendumError::new(
+            AgdError::new(
                 "journal_not_found",
                 format!("journal entry not found: {journal_id}"),
             )
         })?;
         if record.status != JournalStatus::Committed {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_journal_state",
                 format!("journal entry {journal_id} is not awaiting review"),
             ));
@@ -639,7 +636,7 @@ impl WriteEngine {
         self.append_record(&record)
     }
 
-    pub fn journal(&self) -> Result<Vec<JournalRecord>, AgendumError> {
+    pub fn journal(&self) -> Result<Vec<JournalRecord>, AgdError> {
         let mut records: Vec<JournalRecord> = self.latest_records()?.into_values().collect();
         records.sort_by(|left, right| right.timestamp.cmp(&left.timestamp));
         Ok(records)
@@ -649,7 +646,7 @@ impl WriteEngine {
         &self,
         image: JournalImage<'_>,
         context: &WriteContext,
-    ) -> Result<JournalRecord, AgendumError> {
+    ) -> Result<JournalRecord, AgdError> {
         let mut record = pending_record(journal_id(), None, &image, context);
         self.append_record(&record)?;
         atomic_replace(image.path, image.post_image.as_bytes())?;
@@ -659,7 +656,7 @@ impl WriteEngine {
         Ok(record)
     }
 
-    fn lock_target(&self, path: &Path) -> Result<File, AgendumError> {
+    fn lock_target(&self, path: &Path) -> Result<File, AgdError> {
         let lock_path = sidecar_lock_path(path)?;
         let lock = OpenOptions::new()
             .create(true)
@@ -668,14 +665,14 @@ impl WriteEngine {
             .truncate(false)
             .open(&lock_path)
             .map_err(|error| {
-                AgendumError::with_source(
+                AgdError::with_source(
                     "lock_failed",
                     format!("cannot open write lock {}: {error}", lock_path.display()),
                     error,
                 )
             })?;
         lock.lock().map_err(|error| {
-            AgendumError::with_source(
+            AgdError::with_source(
                 "lock_failed",
                 format!("cannot lock {}: {error}", lock_path.display()),
                 error,
@@ -684,18 +681,18 @@ impl WriteEngine {
         Ok(lock)
     }
 
-    fn append_record(&self, record: &JournalRecord) -> Result<(), AgendumError> {
+    fn append_record(&self, record: &JournalRecord) -> Result<(), AgdError> {
         if let Some(parent) = self.journal_path.parent() {
-            fs::create_dir_all(parent).map_err(AgendumError::from)?;
+            fs::create_dir_all(parent).map_err(AgdError::from)?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
-                    .map_err(AgendumError::from)?;
+                    .map_err(AgdError::from)?;
             }
         }
         let serialized = serde_json::to_vec(record).map_err(|error| {
-            AgendumError::new(
+            AgdError::new(
                 "journal_error",
                 format!("cannot serialize journal record: {error}"),
             )
@@ -707,26 +704,24 @@ impl WriteEngine {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options
-            .open(&self.journal_path)
-            .map_err(AgendumError::from)?;
-        file.write_all(&serialized).map_err(AgendumError::from)?;
-        file.write_all(b"\n").map_err(AgendumError::from)?;
-        file.sync_all().map_err(AgendumError::from)
+        let mut file = options.open(&self.journal_path).map_err(AgdError::from)?;
+        file.write_all(&serialized).map_err(AgdError::from)?;
+        file.write_all(b"\n").map_err(AgdError::from)?;
+        file.sync_all().map_err(AgdError::from)
     }
 
-    fn latest_records(&self) -> Result<BTreeMap<String, JournalRecord>, AgendumError> {
+    fn latest_records(&self) -> Result<BTreeMap<String, JournalRecord>, AgdError> {
         let source = match fs::read_to_string(&self.journal_path) {
             Ok(source) => source,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(BTreeMap::new());
             }
-            Err(error) => return Err(AgendumError::from(error)),
+            Err(error) => return Err(AgdError::from(error)),
         };
         let mut records = BTreeMap::new();
         for (line, raw) in source.lines().enumerate() {
             let record: JournalRecord = serde_json::from_str(raw).map_err(|error| {
-                AgendumError::new(
+                AgdError::new(
                     "journal_corrupt",
                     format!("invalid journal JSON at line {}: {error}", line + 1),
                 )
@@ -736,7 +731,7 @@ impl WriteEngine {
         Ok(records)
     }
 
-    fn recover_pending(&self) -> Result<(), AgendumError> {
+    fn recover_pending(&self) -> Result<(), AgdError> {
         let mut conflicts = Vec::new();
         for mut record in self.latest_records()?.into_values().filter(|record| {
             matches!(
@@ -748,7 +743,7 @@ impl WriteEngine {
             let current = match fs::read_to_string(&path) {
                 Ok(source) => content_hash(&source),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => content_hash(""),
-                Err(error) => return Err(AgendumError::from(error)),
+                Err(error) => return Err(AgdError::from(error)),
             };
             let previous = record.status;
             record.status = if current == record.post_hash {
@@ -769,7 +764,7 @@ impl WriteEngine {
         if conflicts.is_empty() {
             Ok(())
         } else {
-            Err(AgendumError::new(
+            Err(AgdError::new(
                 "journal_recovery_conflict",
                 format!(
                     "journal entries require explicit file resolution: {}",
@@ -787,7 +782,7 @@ fn pending_record(
     context: &WriteContext,
 ) -> JournalRecord {
     JournalRecord {
-        schema: "agendum.journal/v1".to_string(),
+        schema: "agd.journal/v1".to_string(),
         id,
         status: JournalStatus::Pending,
         timestamp: Local::now().to_rfc3339(),
@@ -807,7 +802,7 @@ fn relevel_subtree(
     source: &str,
     target_level: usize,
     source_level: usize,
-) -> Result<String, AgendumError> {
+) -> Result<String, AgdError> {
     let delta = target_level as isize - source_level as isize;
     let mut output = String::with_capacity(source.len());
     for line in source.split_inclusive('\n') {
@@ -820,7 +815,7 @@ fn relevel_subtree(
         {
             let level = stars as isize + delta;
             if level < 1 {
-                return Err(AgendumError::new(
+                return Err(AgdError::new(
                     "invalid_refile",
                     "refile would produce an invalid headline level",
                 ));
@@ -853,7 +848,7 @@ fn find_refiled_item(
     moved: &Item,
     target: &Item,
     settings: &Settings,
-) -> Result<Item, AgendumError> {
+) -> Result<Item, AgdError> {
     let document =
         IndexedDocument::parse(path.to_path_buf(), source.as_bytes().to_vec(), settings)?;
     if let Some(id) = &moved.id
@@ -871,13 +866,13 @@ fn find_refiled_item(
         .iter()
         .find(|headline| headline.item.olpath == expected)
         .map(|headline| headline.item.clone())
-        .ok_or_else(|| AgendumError::new("parse_error", "refiled item was not found at its target"))
+        .ok_or_else(|| AgdError::new("parse_error", "refiled item was not found at its target"))
 }
 
 pub fn apply_patches(
     source: &str,
     mut patches: Vec<Patch>,
-) -> Result<(String, Vec<StoredPatch>), AgendumError> {
+) -> Result<(String, Vec<StoredPatch>), AgdError> {
     patches.sort_by_key(|patch| (patch.span.start, patch.span.end));
     let mut cursor = 0;
     let mut post_cursor = 0;
@@ -888,7 +883,7 @@ pub fn apply_patches(
             || patch.span.end < patch.span.start
             || patch.span.end > source.len()
         {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_patch",
                 format!(
                     "patch {}..{} overlaps or exceeds the source",
@@ -897,7 +892,7 @@ pub fn apply_patches(
             ));
         }
         if !source.is_char_boundary(patch.span.start) || !source.is_char_boundary(patch.span.end) {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_patch",
                 "patch is not on UTF-8 boundaries",
             ));
@@ -938,7 +933,7 @@ fn build_edit_patches(
     headline: &HeadlineSpan,
     intent: &EditIntent,
     settings: &Settings,
-) -> Result<Vec<Patch>, AgendumError> {
+) -> Result<Vec<Patch>, AgdError> {
     let source = document.source();
     let now = Local::now().naive_local();
     let mut patches = Vec::new();
@@ -947,7 +942,7 @@ fn build_edit_patches(
         && !document.todo_active().contains(requested)
         && !document.todo_done().contains(requested)
     {
-        return Err(AgendumError::new(
+        return Err(AgdError::new(
             "invalid_todo",
             format!("TODO state '{requested}' is not enabled for this file"),
         ));
@@ -1009,7 +1004,7 @@ fn build_edit_patches(
         || !intent.tags_remove.is_empty()
     {
         let title = change_value(&Some(headline.item.title.clone()), &intent.title)
-            .ok_or_else(|| AgendumError::new("invalid_edit", "title cannot be cleared"))?;
+            .ok_or_else(|| AgdError::new("invalid_edit", "title cannot be cleared"))?;
         let priority = change_value(&headline.item.priority, &intent.priority);
         let mut tags: Vec<String> = headline
             .item
@@ -1077,7 +1072,7 @@ fn build_edit_patches(
 
     if let Some(note) = note {
         if note.contains(['\n', '\r']) {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_note",
                 "state notes must be one line",
             ));
@@ -1114,14 +1109,14 @@ fn build_edit_patches(
     Ok(patches)
 }
 
-fn validate_intent(intent: &EditIntent) -> Result<(), AgendumError> {
+fn validate_intent(intent: &EditIntent) -> Result<(), AgdError> {
     if intent == &EditIntent::default() {
-        return Err(AgendumError::new("invalid_edit", "nothing to edit"));
+        return Err(AgdError::new("invalid_edit", "nothing to edit"));
     }
     if let Change::Set(title) = &intent.title
         && (title.trim().is_empty() || title.contains(['\n', '\r']))
     {
-        return Err(AgendumError::new(
+        return Err(AgdError::new(
             "invalid_title",
             "title must be one non-empty line",
         ));
@@ -1129,7 +1124,7 @@ fn validate_intent(intent: &EditIntent) -> Result<(), AgendumError> {
     if let Change::Set(priority) = &intent.priority
         && (priority.len() != 1 || !priority.bytes().all(|byte| byte.is_ascii_alphanumeric()))
     {
-        return Err(AgendumError::new(
+        return Err(AgdError::new(
             "invalid_priority",
             "priority must be one alphanumeric character",
         ));
@@ -1140,10 +1135,7 @@ fn validate_intent(intent: &EditIntent) -> Result<(), AgendumError> {
                 byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'@' | b'#' | b'%')
             })
         {
-            return Err(AgendumError::new(
-                "invalid_tag",
-                format!("invalid tag: {tag}"),
-            ));
+            return Err(AgdError::new("invalid_tag", format!("invalid tag: {tag}")));
         }
     }
     for (key, value) in &intent.properties {
@@ -1152,7 +1144,7 @@ fn validate_intent(intent: &EditIntent) -> Result<(), AgendumError> {
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
         {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_property",
                 format!("invalid property key: {key}"),
             ));
@@ -1161,7 +1153,7 @@ fn validate_intent(intent: &EditIntent) -> Result<(), AgendumError> {
             .as_ref()
             .is_some_and(|value| value.contains(['\n', '\r']))
         {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_property",
                 format!("property {key} must be one line"),
             ));
@@ -1208,7 +1200,7 @@ fn render_planning_line(
     scheduled: Option<&PlanningTimestamp>,
     deadline: Option<&PlanningTimestamp>,
     closed: Option<&PlanningTimestamp>,
-) -> Result<Option<String>, AgendumError> {
+) -> Result<Option<String>, AgdError> {
     let mut fields = Vec::new();
     if let Some(timestamp) = scheduled {
         fields.push(format!("SCHEDULED: {}", render_timestamp(timestamp, true)?));
@@ -1222,7 +1214,7 @@ fn render_planning_line(
     Ok((!fields.is_empty()).then(|| fields.join(" ")))
 }
 
-fn render_timestamp(timestamp: &PlanningTimestamp, active: bool) -> Result<String, AgendumError> {
+fn render_timestamp(timestamp: &PlanningTimestamp, active: bool) -> Result<String, AgdError> {
     if active {
         return format_active_timestamp(timestamp);
     }
@@ -1269,14 +1261,11 @@ fn render_properties(
     output
 }
 
-fn advance_repeater(
-    timestamp: &mut PlanningTimestamp,
-    today: NaiveDate,
-) -> Result<(), AgendumError> {
+fn advance_repeater(timestamp: &mut PlanningTimestamp, today: NaiveDate) -> Result<(), AgdError> {
     let repeater = timestamp
         .repeater
         .as_deref()
-        .ok_or_else(|| AgendumError::new("invalid_repeater", "timestamp has no repeater"))?;
+        .ok_or_else(|| AgdError::new("invalid_repeater", "timestamp has no repeater"))?;
     let (kind, amount_and_unit) = if let Some(value) = repeater.strip_prefix("++") {
         ("++", value)
     } else if let Some(value) = repeater.strip_prefix(".+") {
@@ -1284,19 +1273,18 @@ fn advance_repeater(
     } else if let Some(value) = repeater.strip_prefix('+') {
         ("+", value)
     } else {
-        return Err(AgendumError::new(
+        return Err(AgdError::new(
             "invalid_repeater",
             format!("invalid repeater: {repeater}"),
         ));
     };
     let split = amount_and_unit.len().saturating_sub(1);
-    let amount = amount_and_unit[..split].parse::<u64>().map_err(|_| {
-        AgendumError::new("invalid_repeater", format!("invalid repeater: {repeater}"))
-    })?;
+    let amount = amount_and_unit[..split]
+        .parse::<u64>()
+        .map_err(|_| AgdError::new("invalid_repeater", format!("invalid repeater: {repeater}")))?;
     let unit = &amount_and_unit[split..];
-    let original = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d").map_err(|_| {
-        AgendumError::new("invalid_date", format!("invalid date: {}", timestamp.date))
-    })?;
+    let original = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d")
+        .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {}", timestamp.date)))?;
     let mut next = if kind == ".+" {
         add_period(today, amount, unit)?
     } else {
@@ -1312,7 +1300,7 @@ fn advance_repeater(
     Ok(())
 }
 
-fn add_period(date: NaiveDate, amount: u64, unit: &str) -> Result<NaiveDate, AgendumError> {
+fn add_period(date: NaiveDate, amount: u64, unit: &str) -> Result<NaiveDate, AgdError> {
     let result = match unit {
         "d" => date.checked_add_signed(Duration::days(amount as i64)),
         "w" => date.checked_add_signed(Duration::weeks(amount as i64)),
@@ -1320,7 +1308,7 @@ fn add_period(date: NaiveDate, amount: u64, unit: &str) -> Result<NaiveDate, Age
         "y" => date.checked_add_months(Months::new((amount * 12) as u32)),
         _ => None,
     };
-    result.ok_or_else(|| AgendumError::new("invalid_repeater", "repeater date is out of range"))
+    result.ok_or_else(|| AgdError::new("invalid_repeater", "repeater date is out of range"))
 }
 
 fn capture_target(
@@ -1328,7 +1316,7 @@ fn capture_target(
     source: &str,
     template: &CaptureTemplate,
     settings: &Settings,
-) -> Result<(usize, usize), AgendumError> {
+) -> Result<(usize, usize), AgdError> {
     if source.is_empty() {
         return Ok((0, 1));
     }
@@ -1360,7 +1348,7 @@ fn capture_target(
         {
             Ok((source.len(), 1))
         }
-        None => Err(AgendumError::new(
+        None => Err(AgdError::new(
             "capture_target_not_found",
             "configured capture target heading was not found",
         )),
@@ -1402,7 +1390,7 @@ fn parse_updated_item(
     source: &str,
     line_hint: usize,
     settings: &Settings,
-) -> Result<Item, AgendumError> {
+) -> Result<Item, AgdError> {
     let document =
         IndexedDocument::parse(path.to_path_buf(), source.as_bytes().to_vec(), settings)?;
     document
@@ -1414,33 +1402,33 @@ fn parse_updated_item(
                 .min_by_key(|headline| headline.item.line.abs_diff(line_hint))
         })
         .map(|headline| headline.item.clone())
-        .ok_or_else(|| AgendumError::new("parse_error", "write produced no target headline"))
+        .ok_or_else(|| AgdError::new("parse_error", "write produced no target headline"))
 }
 
-fn sidecar_lock_path(path: &Path) -> Result<PathBuf, AgendumError> {
+fn sidecar_lock_path(path: &Path) -> Result<PathBuf, AgdError> {
     let parent = path
         .parent()
-        .ok_or_else(|| AgendumError::new("invalid_path", "target has no parent"))?;
+        .ok_or_else(|| AgdError::new("invalid_path", "target has no parent"))?;
     let name = path
         .file_name()
-        .ok_or_else(|| AgendumError::new("invalid_path", "target has no file name"))?;
-    Ok(parent.join(format!(".{}.agendum.lock", name.to_string_lossy())))
+        .ok_or_else(|| AgdError::new("invalid_path", "target has no file name"))?;
+    Ok(parent.join(format!(".{}.agd.lock", name.to_string_lossy())))
 }
 
-fn refuse_emacs_lock(path: &Path) -> Result<(), AgendumError> {
+fn refuse_emacs_lock(path: &Path) -> Result<(), AgdError> {
     let parent = path
         .parent()
-        .ok_or_else(|| AgendumError::new("invalid_path", "target has no parent"))?;
+        .ok_or_else(|| AgdError::new("invalid_path", "target has no parent"))?;
     let name = path
         .file_name()
-        .ok_or_else(|| AgendumError::new("invalid_path", "target has no file name"))?;
+        .ok_or_else(|| AgdError::new("invalid_path", "target has no file name"))?;
     let lock = parent.join(format!(".#{}", name.to_string_lossy()));
     if fs::symlink_metadata(&lock).is_ok() {
         let owner = fs::read_link(&lock)
             .map(|target| target.to_string_lossy().into_owned())
             .or_else(|_| fs::read_to_string(&lock))
             .unwrap_or_else(|_| "ownership unavailable".to_string());
-        return Err(AgendumError::new(
+        return Err(AgdError::new(
             "editor_dirty",
             format!(
                 "Emacs lock {} exists ({owner}); save or close the buffer",
@@ -1451,40 +1439,40 @@ fn refuse_emacs_lock(path: &Path) -> Result<(), AgendumError> {
     Ok(())
 }
 
-fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), AgendumError> {
+fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), AgdError> {
     let parent = path
         .parent()
-        .ok_or_else(|| AgendumError::new("invalid_path", "target has no parent"))?;
+        .ok_or_else(|| AgdError::new("invalid_path", "target has no parent"))?;
     let permissions = fs::metadata(path)
         .ok()
         .map(|metadata| metadata.permissions());
     let mut temporary = tempfile::Builder::new()
-        .prefix(".agendum-")
+        .prefix(".agd-")
         .tempfile_in(parent)
-        .map_err(AgendumError::from)?;
-    temporary.write_all(bytes).map_err(AgendumError::from)?;
+        .map_err(AgdError::from)?;
+    temporary.write_all(bytes).map_err(AgdError::from)?;
     if let Some(permissions) = permissions {
         temporary
             .as_file()
             .set_permissions(permissions)
-            .map_err(AgendumError::from)?;
+            .map_err(AgdError::from)?;
     }
-    temporary.as_file().sync_all().map_err(AgendumError::from)?;
+    temporary.as_file().sync_all().map_err(AgdError::from)?;
     temporary
         .persist(path)
-        .map_err(|error| AgendumError::from(error.error))?;
+        .map_err(|error| AgdError::from(error.error))?;
     sync_parent_directory(parent)
 }
 
 #[cfg(not(target_os = "windows"))]
-fn sync_parent_directory(parent: &Path) -> Result<(), AgendumError> {
+fn sync_parent_directory(parent: &Path) -> Result<(), AgdError> {
     File::open(parent)
         .and_then(|directory| directory.sync_all())
-        .map_err(AgendumError::from)
+        .map_err(AgdError::from)
 }
 
 #[cfg(target_os = "windows")]
-fn sync_parent_directory(_: &Path) -> Result<(), AgendumError> {
+fn sync_parent_directory(_: &Path) -> Result<(), AgdError> {
     // std::fs cannot open directory handles on Windows without platform-specific flags.
     Ok(())
 }

@@ -1,7 +1,7 @@
 # Treating Emacs as an executable Org specification
 
 "Supports Org mode" can mean anything from recognizing stars to reproducing a
-decade of agenda semantics. Agendum avoids that claim. It names a supported
+decade of agenda semantics. Agenda avoids that claim. It names a supported
 subset and asks Emacs for the expected result every time the subset grows.
 
 The oracle is `org-batch-agenda-csv`. Unlike the formatted agenda buffer, it
@@ -27,7 +27,7 @@ versions so upstream drift becomes a visible decision.
 
 Emacs is also used as an edit oracle, but byte preservation remains a separate
 contract. The editor confirms workflow semantics—custom TODO sequences,
-repeat completion, and logging—while Agendum additionally proves that unrelated
+repeat completion, and logging—while Agenda additionally proves that unrelated
 bytes did not move. Matching Emacs does not grant permission to reproduce an
 editor's incidental reformatting.
 
@@ -40,7 +40,7 @@ not claims of full package compatibility.
 This approach changes feature work. A bug report should become the smallest Org
 fixture that differs from Emacs, with editor versions recorded. The fix is done
 when both the hand case and generated neighborhood agree. If two Org releases
-disagree, Agendum documents the version boundary rather than choosing whatever
+disagree, Agenda documents the version boundary rather than choosing whatever
 a maintainer remembers.
 
 An executable oracle is slower than intuition and much faster than debugging a

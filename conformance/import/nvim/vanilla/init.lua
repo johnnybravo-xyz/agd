@@ -1,4 +1,4 @@
-local root = vim.env.AGENDUM_FIXTURE_DIR
+local root = vim.env.AGD_FIXTURE_DIR
 local opts = {
   org_agenda_files = { root .. '/tasks.org' },
   org_todo_keywords = { { 'TODO(t)', 'NEXT(n!)', '|', 'DONE(d!)' } },

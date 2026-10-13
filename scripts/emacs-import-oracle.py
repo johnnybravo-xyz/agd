@@ -10,18 +10,18 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def resolved(case: pathlib.Path) -> dict:
-    name = f"agendum-import-{uuid.uuid4().hex}"
+    name = f"agd-import-{uuid.uuid4().hex}"
     command = [
         "docker",
         "create",
         "--name",
         name,
         "--env",
-        "AGENDUM_FIXTURE_DIR=/fixture",
+        "AGD_FIXTURE_DIR=/fixture",
         "--env",
-        "AGENDUM_IMPORT_SOURCE=batch-profile",
+        "AGD_IMPORT_SOURCE=batch-profile",
         "--env",
-        "AGENDUM_PROBE_STDOUT=1",
+        "AGD_PROBE_STDOUT=1",
         IMAGE,
         "emacs",
         "-Q",
@@ -55,7 +55,7 @@ def resolved(case: pathlib.Path) -> dict:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-    marker = "AGENDUM_JSON:"
+    marker = "AGD_JSON:"
     payload = next((line[len(marker):] for line in output.splitlines() if line.startswith(marker)), None)
     if payload is None:
         raise RuntimeError(f"probe marker missing for {case}")

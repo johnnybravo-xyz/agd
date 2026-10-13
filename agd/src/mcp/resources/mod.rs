@@ -21,7 +21,7 @@ impl ServerHandler for OrgModeRouter {
                 .build(),
         )
         .with_instructions(
-            "Local-only org agenda tools. Responses use agendum.item/v1, agendum.agenda-entry/v1, agendum.mutation/v1, or agendum.error/v1 schemas.",
+            "Local-only org agenda tools. Responses use agd.item/v1, agd.agenda-entry/v1, agd.mutation/v1, or agd.error/v1 schemas.",
         )
         .with_server_info(Implementation::new("agd", env!("CARGO_PKG_VERSION")))
     }

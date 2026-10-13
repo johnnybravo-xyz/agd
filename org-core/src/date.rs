@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use chrono::{Datelike, Duration, Local, Months, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 use regex::Regex;
 
-use crate::{AgendumError, CaptureTemplate, PlanningTimestamp};
+use crate::{AgdError, CaptureTemplate, PlanningTimestamp};
 
 static ABSOLUTE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}:\d{2}))?(?:\s+([+.]*\+\d+[hdwmy]))?(?:\s+(-\d+[hdwmy]))?$")
@@ -25,12 +25,11 @@ pub struct CaptureDraft {
     pub priority: Option<String>,
 }
 
-pub fn parse_date_input(input: &str, today: NaiveDate) -> Result<PlanningTimestamp, AgendumError> {
+pub fn parse_date_input(input: &str, today: NaiveDate) -> Result<PlanningTimestamp, AgdError> {
     let input = input.trim();
     if let Some(captures) = ABSOLUTE_RE.captures(input) {
-        let date =
-            NaiveDate::parse_from_str(captures.get(1).expect("date").as_str(), "%Y-%m-%d")
-                .map_err(|_| AgendumError::new("invalid_date", format!("invalid date: {input}")))?;
+        let date = NaiveDate::parse_from_str(captures.get(1).expect("date").as_str(), "%Y-%m-%d")
+            .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {input}")))?;
         let time = captures
             .get(2)
             .map(|matched| parse_time(matched.as_str()))
@@ -50,7 +49,7 @@ pub fn parse_date_input(input: &str, today: NaiveDate) -> Result<PlanningTimesta
             .expect("amount")
             .as_str()
             .parse::<u64>()
-            .map_err(|_| AgendumError::new("invalid_date", format!("invalid date: {input}")))?;
+            .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {input}")))?;
         let unit = captures.get(2).expect("unit").as_str();
         let date = match unit {
             "d" => today.checked_add_signed(Duration::days(amount as i64)),
@@ -59,9 +58,7 @@ pub fn parse_date_input(input: &str, today: NaiveDate) -> Result<PlanningTimesta
             "y" => today.checked_add_months(Months::new((amount * 12) as u32)),
             _ => None,
         }
-        .ok_or_else(|| {
-            AgendumError::new("invalid_date", format!("date is out of range: {input}"))
-        })?;
+        .ok_or_else(|| AgdError::new("invalid_date", format!("date is out of range: {input}")))?;
         return Ok(simple_date(date));
     }
     if input.eq_ignore_ascii_case("today") {
@@ -76,13 +73,13 @@ pub fn parse_date_input(input: &str, today: NaiveDate) -> Result<PlanningTimesta
         let distance = (requested - current).rem_euclid(7);
         return Ok(simple_date(today + Duration::days(distance)));
     }
-    Err(AgendumError::new(
+    Err(AgdError::new(
         "invalid_date",
         format!("unsupported Org date '{input}'; use YYYY-MM-DD, +Nd, +Nw, +Nm, +Ny, or weekday"),
     ))
 }
 
-pub fn parse_capture_line(input: &str, today: NaiveDate) -> Result<CaptureDraft, AgendumError> {
+pub fn parse_capture_line(input: &str, today: NaiveDate) -> Result<CaptureDraft, AgdError> {
     let mut title = Vec::new();
     let mut scheduled = None;
     let mut deadline = None;
@@ -113,10 +110,7 @@ pub fn parse_capture_line(input: &str, today: NaiveDate) -> Result<CaptureDraft,
     }
     let title = title.join(" ");
     if title.trim().is_empty() {
-        return Err(AgendumError::new(
-            "invalid_capture",
-            "capture title is empty",
-        ));
+        return Err(AgdError::new("invalid_capture", "capture title is empty"));
     }
     tags.sort();
     tags.dedup();
@@ -135,9 +129,9 @@ pub fn render_capture_template(
     body: &str,
     prompts: &BTreeMap<String, String>,
     now: NaiveDateTime,
-) -> Result<String, AgendumError> {
+) -> Result<String, AgdError> {
     if !template.enabled {
-        return Err(AgendumError::new(
+        return Err(AgdError::new(
             "disabled_template",
             format!(
                 "capture template is disabled: {}",
@@ -146,7 +140,7 @@ pub fn render_capture_template(
         ));
     }
     if template.template.contains("%(") {
-        return Err(AgendumError::new(
+        return Err(AgdError::new(
             "unsupported_template",
             "capture templates may not execute %(sexp) forms",
         ));
@@ -191,7 +185,7 @@ fn expand_capture_escapes(
     body: &str,
     prompts: &BTreeMap<String, String>,
     now: NaiveDateTime,
-) -> Result<String, AgendumError> {
+) -> Result<String, AgdError> {
     let mut rendered = String::with_capacity(template.len() + draft.title.len() + body.len());
     let mut copied_to = 0;
     for captures in ESCAPE_RE.captures_iter(template) {
@@ -207,12 +201,12 @@ fn expand_capture_escapes(
             "t" => rendered.push_str(&format!("<{}>", now.format("%Y-%m-%d %a"))),
             "%" => rendered.push('%'),
             "^g" => rendered.push_str(prompts.get("tags").ok_or_else(|| {
-                AgendumError::new("missing_prompt", "capture tag prompt has no 'tags' value")
+                AgdError::new("missing_prompt", "capture tag prompt has no 'tags' value")
             })?),
             _ => {
                 let prompt = captures.get(2).expect("prompt name").as_str();
                 let value = prompts.get(prompt).ok_or_else(|| {
-                    AgendumError::new(
+                    AgdError::new(
                         "missing_prompt",
                         format!("capture prompt '{prompt}' has no value"),
                     )
@@ -225,10 +219,9 @@ fn expand_capture_escapes(
     Ok(rendered)
 }
 
-pub fn format_active_timestamp(timestamp: &PlanningTimestamp) -> Result<String, AgendumError> {
-    let date = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d").map_err(|_| {
-        AgendumError::new("invalid_date", format!("invalid date: {}", timestamp.date))
-    })?;
+pub fn format_active_timestamp(timestamp: &PlanningTimestamp) -> Result<String, AgdError> {
+    let date = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d")
+        .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {}", timestamp.date)))?;
     let mut value = format!("<{} {}", timestamp.date, date.format("%a"));
     if let Some(time) = &timestamp.time {
         value.push(' ');
@@ -261,9 +254,9 @@ fn simple_date(date: NaiveDate) -> PlanningTimestamp {
     }
 }
 
-fn parse_time(input: &str) -> Result<NaiveTime, AgendumError> {
+fn parse_time(input: &str) -> Result<NaiveTime, AgdError> {
     NaiveTime::parse_from_str(input, "%H:%M")
-        .map_err(|_| AgendumError::new("invalid_date", format!("invalid time: {input}")))
+        .map_err(|_| AgdError::new("invalid_date", format!("invalid time: {input}")))
 }
 
 fn parse_weekday(input: &str) -> Option<Weekday> {

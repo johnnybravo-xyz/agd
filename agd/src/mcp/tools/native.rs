@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{Local, NaiveDate};
 use org_core::{
-    AgendaEngine, AgendaQuery, AgendaSpan, AgendumError, CaptureDraft, Change, EditIntent,
+    AgdError, AgendaEngine, AgendaQuery, AgendaSpan, CaptureDraft, Change, EditIntent,
     PlanningTimestamp, WorkspaceIndex, WriteContext, WriteEngine, parse_date_input,
 };
 use rmcp::{
@@ -108,7 +108,7 @@ impl OrgModeRouter {
                 "week" => AgendaSpan::Week,
                 "month" => AgendaSpan::Month,
                 value => {
-                    return Err(AgendumError::new(
+                    return Err(AgdError::new(
                         "invalid_span",
                         format!("unsupported agenda span: {value}"),
                     ));
@@ -189,7 +189,7 @@ impl OrgModeRouter {
     ) -> Result<CallToolResult, McpError> {
         let result = (|| {
             if request.scheduled.is_none() && request.deadline.is_none() {
-                return Err(AgendumError::new(
+                return Err(AgdError::new(
                     "invalid_plan",
                     "scheduled or deadline is required",
                 ));
@@ -270,7 +270,7 @@ fn edit(
     intent: EditIntent,
     client: &Peer<RoleServer>,
     project: &str,
-) -> Result<org_core::Mutation, AgendumError> {
+) -> Result<org_core::Mutation, AgdError> {
     WriteEngine::with_default_journal(settings.clone())?.edit(
         item_ref,
         &intent,
@@ -279,9 +279,7 @@ fn edit(
     )
 }
 
-fn schema_result<T: Serialize>(
-    result: Result<T, AgendumError>,
-) -> Result<CallToolResult, McpError> {
+fn schema_result<T: Serialize>(result: Result<T, AgdError>) -> Result<CallToolResult, McpError> {
     let content = match result {
         Ok(value) => ContentBlock::json(value),
         Err(error) => ContentBlock::json(error.response()),
@@ -297,17 +295,17 @@ fn schema_result<T: Serialize>(
 fn parse_optional_date(
     value: Option<&str>,
     today: NaiveDate,
-) -> Result<Option<PlanningTimestamp>, AgendumError> {
+) -> Result<Option<PlanningTimestamp>, AgdError> {
     value
         .map(|value| parse_date_input(value, today))
         .transpose()
 }
 
-fn parse_day(value: &str, today: NaiveDate) -> Result<NaiveDate, AgendumError> {
+fn parse_day(value: &str, today: NaiveDate) -> Result<NaiveDate, AgdError> {
     parse_date_input(value, today)?
         .date
         .parse()
-        .map_err(|_| AgendumError::new("invalid_date", format!("invalid date: {value}")))
+        .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {value}")))
 }
 
 fn write_context(client: &Peer<RoleServer>, project: &str) -> WriteContext {

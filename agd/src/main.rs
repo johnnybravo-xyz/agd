@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use org_core::{AgendumError, OrgMode};
+use org_core::{AgdError, OrgMode};
 
 mod commands;
 mod config;
@@ -93,7 +93,7 @@ fn main() -> ExitCode {
         Ok(false) => ExitCode::SUCCESS,
         Err(error) => {
             let json_requested = std::env::args_os().any(|argument| argument == "--json");
-            if json_requested && let Some(error) = error.downcast_ref::<AgendumError>() {
+            if json_requested && let Some(error) = error.downcast_ref::<AgdError>() {
                 eprintln!(
                     "{}",
                     serde_json::to_string(error.response())

@@ -109,7 +109,7 @@ async fn agenda_tool_and_today_resource_return_versioned_rows()
         .call_tool(CallToolRequestParams::new("agenda").with_arguments(arguments))
         .await?;
     let encoded = content_json(&result).to_string();
-    assert!(encoded.contains("agendum.agenda-entry/v1"));
+    assert!(encoded.contains("agd.agenda-entry/v1"));
     assert!(encoded.contains("Today"));
 
     let resources = service.list_resources(Default::default()).await?;
@@ -119,7 +119,7 @@ async fn agenda_tool_and_today_resource_return_versioned_rows()
         .read_resource(ReadResourceRequestParams::new("agenda://today".to_string()))
         .await?;
     let encoded = content_json(&resource).to_string();
-    assert!(encoded.contains("agendum.agenda-entry/v1"));
+    assert!(encoded.contains("agd.agenda-entry/v1"));
     service.cancel().await?;
     Ok(())
 }
@@ -137,12 +137,12 @@ async fn writes_return_mutations_and_failures_return_error_schemas()
         .call_tool(CallToolRequestParams::new("set_state").with_arguments(arguments))
         .await?;
     let encoded = content_json(&result).to_string();
-    assert!(encoded.contains("agendum.mutation/v1"));
+    assert!(encoded.contains("agd.mutation/v1"));
     assert!(encoded.contains("DONE"));
     #[cfg(not(target_os = "windows"))]
     {
         let journal =
-            fs::read_to_string(journal_data_directory(&directory).join("agendum/journal.jsonl"))?;
+            fs::read_to_string(journal_data_directory(&directory).join("agd/journal.jsonl"))?;
         let record: Value = serde_json::from_str(journal.lines().next().expect("journal record"))?;
         assert!(record["actor"].as_str().expect("actor").starts_with("mcp:"));
         assert_eq!(
@@ -159,7 +159,7 @@ async fn writes_return_mutations_and_failures_return_error_schemas()
         .call_tool(CallToolRequestParams::new("set_state").with_arguments(arguments))
         .await?;
     let encoded = content_json(&result).to_string();
-    assert!(encoded.contains("agendum.error/v1"));
+    assert!(encoded.contains("agd.error/v1"));
     assert!(encoded.contains("stale_ref"));
     service.cancel().await?;
     Ok(())

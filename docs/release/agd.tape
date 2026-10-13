@@ -1,4 +1,4 @@
-Output docs/release/agendum.mp4
+Output docs/release/agd.mp4
 
 Set Shell "bash"
 Set FontSize 18
@@ -7,16 +7,16 @@ Set Height 720
 Set TypingSpeed 35ms
 Set PlaybackSpeed 1.0
 Set Padding 24
-Set Theme { "name": "Agendum", "background": "#111318", "foreground": "#d8dee9", "black": "#111318", "red": "#ef6f6c", "green": "#7bd88f", "yellow": "#e5c07b", "blue": "#61afef", "magenta": "#c678dd", "cyan": "#56b6c2", "white": "#d8dee9", "brightBlack": "#5c6370", "brightRed": "#ef6f6c", "brightGreen": "#7bd88f", "brightYellow": "#e5c07b", "brightBlue": "#61afef", "brightMagenta": "#c678dd", "brightCyan": "#56b6c2", "brightWhite": "#ffffff" }
+Set Theme { "name": "Agenda", "background": "#111318", "foreground": "#d8dee9", "black": "#111318", "red": "#ef6f6c", "green": "#7bd88f", "yellow": "#e5c07b", "blue": "#61afef", "magenta": "#c678dd", "cyan": "#56b6c2", "white": "#d8dee9", "brightBlack": "#5c6370", "brightRed": "#ef6f6c", "brightGreen": "#7bd88f", "brightYellow": "#e5c07b", "brightBlue": "#61afef", "brightMagenta": "#c678dd", "brightCyan": "#56b6c2", "brightWhite": "#ffffff" }
 
 Hide
 Type "demo=$(mktemp -d)"
 Enter
-Type "printf '[files]\\nroots = [\"%s\"]\\n' \"$demo\" > \"$demo/agendum.toml\""
+Type "printf '[files]\\nroots = [\"%s\"]\\n' \"$demo\" > \"$demo/agd.toml\""
 Enter
 Type "printf '* TODO [#A] Ship release :work:\\nSCHEDULED: <2026-10-13 Tue>\\n* NEXT Verify Emacs oracle :work:\\nDEADLINE: <2026-10-15 Thu -3d>\\n* TODO Process inbox\\n' > \"$demo/tasks.org\""
 Enter
-Type "export AGD='target/release/agd --config '$demo'/agendum.toml'"
+Type "export AGD='target/release/agd --config '$demo'/agd.toml'"
 Enter
 Show
 

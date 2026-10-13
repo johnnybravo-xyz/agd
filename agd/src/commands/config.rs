@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn init_writes_the_native_settings_schema() {
         let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("agendum.toml");
+        let path = temp.path().join("agd.toml");
         init(&path).unwrap();
         let parsed: Settings = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert_eq!(parsed.files.roots, vec!["~/org"]);

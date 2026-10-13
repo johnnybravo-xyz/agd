@@ -85,7 +85,7 @@ pub fn import_nvim(
     };
     let mut command = Command::new(&profile.command);
     command.args(&profile.args).arg("-l").arg(probe.path());
-    command.env("AGENDUM_IMPORT_SOURCE", profile_name.unwrap_or("default"));
+    command.env("AGD_IMPORT_SOURCE", profile_name.unwrap_or("default"));
     let output = run(&mut command, "Neovim import probe")?;
     let resolved = parse_process_json(&output, "Neovim")?;
     finish_import(resolved, settings, destination, write, verify)
@@ -109,14 +109,14 @@ fn run_emacs_daemon(
     }
     let quoted_path = serde_json::to_string(&probe.to_string_lossy().as_ref())?;
     let verify_form = if verify {
-        "(setq agendum-import-verify t) "
+        "(setq agd-import-verify t) "
     } else {
         ""
     };
     let expression =
-        format!("(progn (load {quoted_path} nil nil t) {verify_form}(agendum-import-probe))");
+        format!("(progn (load {quoted_path} nil nil t) {verify_form}(agd-import-probe))");
     command.arg("--eval").arg(expression);
-    command.env("AGENDUM_IMPORT_SOURCE", "daemon");
+    command.env("AGD_IMPORT_SOURCE", "daemon");
     let output = run(&mut command, "Emacs daemon probe")?;
     let json: String = serde_json::from_slice(&output.stdout)
         .context("Emacs daemon returned a non-string probe result")?;
@@ -134,10 +134,10 @@ fn run_emacs_batch(
         .arg("--batch")
         .arg("-l")
         .arg(probe);
-    command.env("AGENDUM_IMPORT_SOURCE", "batch-profile");
-    command.env("AGENDUM_PROBE_STDOUT", "1");
+    command.env("AGD_IMPORT_SOURCE", "batch-profile");
+    command.env("AGD_PROBE_STDOUT", "1");
     if verify {
-        command.env("AGENDUM_IMPORT_VERIFY", "1");
+        command.env("AGD_IMPORT_VERIFY", "1");
     }
     let output = run(&mut command, "Emacs batch profile probe")?;
     parse_process_json(&output, "Emacs")
@@ -165,7 +165,7 @@ fn parse_process_json(output: &Output, editor: &str) -> Result<ResolvedEditorCon
 fn parse_marked_json(bytes: &[u8], editor: &str) -> Result<ResolvedEditorConfig> {
     let output = String::from_utf8(bytes.to_vec())
         .with_context(|| format!("{editor} probe output is not UTF-8"))?;
-    let marker = "AGENDUM_JSON:";
+    let marker = "AGD_JSON:";
     let payload = output
         .lines()
         .find_map(|line| line.strip_prefix(marker))
@@ -367,7 +367,7 @@ fn compare_rows(
     editor: Option<&String>,
     native: std::result::Result<
         std::result::Result<Vec<Vec<String>>, csv::Error>,
-        org_core::AgendumError,
+        org_core::AgdError,
     >,
 ) -> VerificationResult {
     let native = match native {
@@ -397,7 +397,7 @@ fn compare_rows(
             detail: "editor endpoint returned no verification rows".to_string(),
         };
     };
-    if let Some(error) = editor.strip_prefix("AGENDUM_VERIFY_ERROR:") {
+    if let Some(error) = editor.strip_prefix("AGD_VERIFY_ERROR:") {
         return VerificationResult {
             status: ImportStatus::Unsupported,
             key: key.to_string(),
@@ -563,7 +563,7 @@ fn probe_file(name: &str, contents: &str) -> Result<tempfile::NamedTempFile> {
         .and_then(|value| value.to_str())
         .unwrap_or("probe");
     let mut probe = tempfile::Builder::new()
-        .prefix("agendum-import-")
+        .prefix("agd-import-")
         .suffix(&format!(".{suffix}"))
         .tempfile()
         .context("cannot create editor probe file")?;

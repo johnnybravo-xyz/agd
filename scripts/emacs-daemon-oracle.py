@@ -9,19 +9,19 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def check(case: pathlib.Path) -> None:
-    name = f"agendum-daemon-{uuid.uuid4().hex}"
+    name = f"agd-daemon-{uuid.uuid4().hex}"
     script = (
-        "emacs --daemon=agendum -Q -l /fixture/init.el >/tmp/emacs.log 2>&1 && "
-        "emacsclient --socket-name=agendum --eval "
-        "'(progn (load \"/probe.el\" nil nil t) (agendum-import-probe))'; "
-        "emacsclient --socket-name=agendum --eval '(kill-emacs)' >/dev/null 2>&1 || true"
+        "emacs --daemon=agd -Q -l /fixture/init.el >/tmp/emacs.log 2>&1 && "
+        "emacsclient --socket-name=agd --eval "
+        "'(progn (load \"/probe.el\" nil nil t) (agd-import-probe))'; "
+        "emacsclient --socket-name=agd --eval '(kill-emacs)' >/dev/null 2>&1 || true"
     )
     try:
         subprocess.run(
             [
                 "docker", "create", "--name", name,
-                "--env", "AGENDUM_FIXTURE_DIR=/fixture",
-                "--env", "AGENDUM_IMPORT_SOURCE=daemon",
+                "--env", "AGD_FIXTURE_DIR=/fixture",
+                "--env", "AGD_IMPORT_SOURCE=daemon",
                 IMAGE, "sh", "-c", script,
             ],
             check=True,

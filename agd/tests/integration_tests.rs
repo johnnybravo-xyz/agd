@@ -85,8 +85,8 @@ fn agenda_todo_and_query_emit_shared_native_schemas() {
         .expect("agenda command");
     assert!(agenda.status.success());
     let rows: Value = serde_json::from_slice(&agenda.stdout).expect("agenda JSON");
-    assert_eq!(rows[0]["schema"], "agendum.agenda-entry/v1");
-    assert_eq!(rows[0]["item"]["schema"], "agendum.item/v1");
+    assert_eq!(rows[0]["schema"], "agd.agenda-entry/v1");
+    assert_eq!(rows[0]["item"]["schema"], "agd.item/v1");
     assert_eq!(rows[0]["occurrence"]["type"], "scheduled");
 
     fixture
@@ -128,7 +128,7 @@ fn stale_write_returns_error_schema() {
         .failure();
     let error: Value =
         serde_json::from_slice(&assertion.get_output().stderr).expect("error schema");
-    assert_eq!(error["schema"], "agendum.error/v1");
+    assert_eq!(error["schema"], "agd.error/v1");
     assert_eq!(error["code"], "stale_ref");
 }
 

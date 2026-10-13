@@ -53,5 +53,5 @@ jobs:
         run: ./scripts/fetch-conformance-corpus.sh
       - name: Run conformance tests
         env:
-          AGENDUM_CONFORMANCE_CORPUS: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && format('{0}/target/conformance-corpus', github.workspace) || '' }}
+          AGD_CONFORMANCE_CORPUS: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && format('{0}/target/conformance-corpus', github.workspace) || '' }}
         run: cargo test -p agd-core --tests

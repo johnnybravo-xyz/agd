@@ -35,7 +35,7 @@ pub use imports::{
     SnapshotMetadata,
 };
 pub use model::{
-    AGENDA_ENTRY_SCHEMA, AgendaEntry, AgendumError, ERROR_SCHEMA, ErrorResponse, ITEM_SCHEMA, Item,
+    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ERROR_SCHEMA, ErrorResponse, ITEM_SCHEMA, Item,
     MUTATION_SCHEMA, Mutation, Occurrence, OccurrenceType, Planning, PlanningTimestamp,
 };
 pub use org_mode::{

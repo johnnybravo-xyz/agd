@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use chrono::{Datelike, Duration, Months, NaiveDate};
 
 use crate::{
-    AGENDA_ENTRY_SCHEMA, AgendaEntry, AgendumError, HeadlineSpan, Item, Occurrence, OccurrenceType,
+    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, HeadlineSpan, Item, Occurrence, OccurrenceType,
     PlanningTimestamp, WorkspaceIndex,
 };
 
@@ -59,9 +59,9 @@ impl<'a> AgendaEngine<'a> {
         Self { index }
     }
 
-    pub fn agenda(&self, query: &AgendaQuery) -> Result<Vec<AgendaEntry>, AgendumError> {
+    pub fn agenda(&self, query: &AgendaQuery) -> Result<Vec<AgendaEntry>, AgdError> {
         if query.to < query.from {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_range",
                 "agenda end date is before its start date",
             ));
@@ -87,7 +87,7 @@ impl<'a> AgendaEngine<'a> {
         Ok(entries)
     }
 
-    pub fn todo(&self, match_expression: Option<&str>) -> Result<Vec<Item>, AgendumError> {
+    pub fn todo(&self, match_expression: Option<&str>) -> Result<Vec<Item>, AgdError> {
         let matcher = match_expression.map(TagTodoMatcher::parse).transpose()?;
         let mut items: Vec<Item> = self
             .index
@@ -100,7 +100,7 @@ impl<'a> AgendaEngine<'a> {
         Ok(items)
     }
 
-    pub fn query(&self, expression: &str, today: NaiveDate) -> Result<Vec<Item>, AgendumError> {
+    pub fn query(&self, expression: &str, today: NaiveDate) -> Result<Vec<Item>, AgdError> {
         let expression = QlExpr::parse(expression)?;
         let mut items: Vec<Item> = self
             .index
@@ -118,7 +118,7 @@ impl<'a> AgendaEngine<'a> {
         from: NaiveDate,
         to: NaiveDate,
         today: NaiveDate,
-    ) -> Result<Vec<AgendaEntry>, AgendumError> {
+    ) -> Result<Vec<AgendaEntry>, AgdError> {
         let item = &headline.item;
         let settings = &self.index.settings().agenda;
         let mut entries = Vec::new();
@@ -279,7 +279,7 @@ struct TagTodoMatcher {
 }
 
 impl TagTodoMatcher {
-    fn parse(input: &str) -> Result<Self, AgendumError> {
+    fn parse(input: &str) -> Result<Self, AgdError> {
         let (tags, todo) = input.split_once('/').unwrap_or((input, ""));
         let mut include_tags = BTreeSet::new();
         let mut exclude_tags = BTreeSet::new();
@@ -288,7 +288,7 @@ impl TagTodoMatcher {
         while cursor < bytes.len() {
             let sign = bytes[cursor] as char;
             if !matches!(sign, '+' | '-') {
-                return Err(AgendumError::new(
+                return Err(AgdError::new(
                     "invalid_match",
                     format!("expected '+' or '-' at byte {cursor} in '{input}'"),
                 ));
@@ -299,7 +299,7 @@ impl TagTodoMatcher {
                 cursor += 1;
             }
             if start == cursor {
-                return Err(AgendumError::new(
+                return Err(AgdError::new(
                     "invalid_match",
                     format!("empty tag in '{input}'"),
                 ));
@@ -361,12 +361,12 @@ enum QlExpr {
 }
 
 impl QlExpr {
-    fn parse(input: &str) -> Result<Self, AgendumError> {
+    fn parse(input: &str) -> Result<Self, AgdError> {
         let tokens = tokenize(input)?;
         let mut cursor = 0;
         let expression = parse_ql_expression(&tokens, &mut cursor)?;
         if cursor != tokens.len() {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_query",
                 "unexpected tokens after query",
             ));
@@ -417,7 +417,7 @@ enum Token {
     String(String),
 }
 
-fn tokenize(input: &str) -> Result<Vec<Token>, AgendumError> {
+fn tokenize(input: &str) -> Result<Vec<Token>, AgdError> {
     let mut tokens = Vec::new();
     let mut chars = input.char_indices().peekable();
     while let Some((_, character)) = chars.next() {
@@ -442,7 +442,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, AgendumError> {
                     }
                 }
                 if !closed {
-                    return Err(AgendumError::new("invalid_query", "unterminated string"));
+                    return Err(AgdError::new("invalid_query", "unterminated string"));
                 }
                 tokens.push(Token::String(value));
             }
@@ -463,7 +463,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, AgendumError> {
     Ok(tokens)
 }
 
-fn parse_ql_expression(tokens: &[Token], cursor: &mut usize) -> Result<QlExpr, AgendumError> {
+fn parse_ql_expression(tokens: &[Token], cursor: &mut usize) -> Result<QlExpr, AgdError> {
     expect(tokens, cursor, Token::Open)?;
     let operator = word(tokens, cursor)?;
     let expression = match operator.as_str() {
@@ -473,7 +473,7 @@ fn parse_ql_expression(tokens: &[Token], cursor: &mut usize) -> Result<QlExpr, A
                 children.push(parse_ql_expression(tokens, cursor)?);
             }
             if children.is_empty() {
-                return Err(AgendumError::new(
+                return Err(AgdError::new(
                     "invalid_query",
                     format!("{operator} needs operands"),
                 ));
@@ -494,13 +494,13 @@ fn parse_ql_expression(tokens: &[Token], cursor: &mut usize) -> Result<QlExpr, A
         "deadline" | "scheduled" => {
             let keyword = word(tokens, cursor)?;
             if keyword != ":to" {
-                return Err(AgendumError::new(
+                return Err(AgdError::new(
                     "invalid_query",
                     format!("{operator} supports only :to"),
                 ));
             }
             let days = word(tokens, cursor)?.parse::<i64>().map_err(|_| {
-                AgendumError::new("invalid_query", format!("{operator} :to needs an integer"))
+                AgdError::new("invalid_query", format!("{operator} :to needs an integer"))
             })?;
             if operator == "deadline" {
                 QlExpr::Deadline(days)
@@ -509,7 +509,7 @@ fn parse_ql_expression(tokens: &[Token], cursor: &mut usize) -> Result<QlExpr, A
             }
         }
         _ => {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_query",
                 format!("unsupported selector: {operator}"),
             ));
@@ -519,38 +519,35 @@ fn parse_ql_expression(tokens: &[Token], cursor: &mut usize) -> Result<QlExpr, A
     Ok(expression)
 }
 
-fn expect(tokens: &[Token], cursor: &mut usize, expected: Token) -> Result<(), AgendumError> {
+fn expect(tokens: &[Token], cursor: &mut usize, expected: Token) -> Result<(), AgdError> {
     if tokens.get(*cursor) == Some(&expected) {
         *cursor += 1;
         Ok(())
     } else {
-        Err(AgendumError::new(
+        Err(AgdError::new(
             "invalid_query",
             format!("expected {expected:?}"),
         ))
     }
 }
 
-fn word(tokens: &[Token], cursor: &mut usize) -> Result<String, AgendumError> {
+fn word(tokens: &[Token], cursor: &mut usize) -> Result<String, AgdError> {
     match tokens.get(*cursor) {
         Some(Token::Word(value)) => {
             *cursor += 1;
             Ok(value.clone())
         }
-        _ => Err(AgendumError::new("invalid_query", "expected a word")),
+        _ => Err(AgdError::new("invalid_query", "expected a word")),
     }
 }
 
-fn string_value(tokens: &[Token], cursor: &mut usize) -> Result<String, AgendumError> {
+fn string_value(tokens: &[Token], cursor: &mut usize) -> Result<String, AgdError> {
     match tokens.get(*cursor) {
         Some(Token::String(value)) => {
             *cursor += 1;
             Ok(value.clone())
         }
-        _ => Err(AgendumError::new(
-            "invalid_query",
-            "expected a quoted string",
-        )),
+        _ => Err(AgdError::new("invalid_query", "expected a quoted string")),
     }
 }
 
@@ -608,7 +605,7 @@ fn repeated_dates(
     from: NaiveDate,
     to: NaiveDate,
     done: bool,
-) -> Result<Vec<NaiveDate>, AgendumError> {
+) -> Result<Vec<NaiveDate>, AgdError> {
     let mut date = parse_date(&timestamp.date)?;
     if done {
         return Ok((date >= from && date <= to)
@@ -637,7 +634,7 @@ fn repeated_dates(
 fn previous_occurrence(
     timestamp: &PlanningTimestamp,
     today: NaiveDate,
-) -> Result<NaiveDate, AgendumError> {
+) -> Result<NaiveDate, AgdError> {
     let mut date = parse_date(&timestamp.date)?;
     let Some(repeater) = timestamp.repeater.as_deref() else {
         return Ok(date);
@@ -653,7 +650,7 @@ fn previous_occurrence(
     Ok(date)
 }
 
-fn parse_repeater(input: &str) -> Result<(&str, u64, char), AgendumError> {
+fn parse_repeater(input: &str) -> Result<(&str, u64, char), AgdError> {
     let (kind, value) = if let Some(value) = input.strip_prefix("++") {
         ("++", value)
     } else if let Some(value) = input.strip_prefix(".+") {
@@ -661,19 +658,20 @@ fn parse_repeater(input: &str) -> Result<(&str, u64, char), AgendumError> {
     } else if let Some(value) = input.strip_prefix('+') {
         ("+", value)
     } else {
-        return Err(AgendumError::new(
+        return Err(AgdError::new(
             "invalid_repeater",
             format!("invalid repeater: {input}"),
         ));
     };
-    let unit = value.chars().next_back().ok_or_else(|| {
-        AgendumError::new("invalid_repeater", format!("invalid repeater: {input}"))
-    })?;
+    let unit = value
+        .chars()
+        .next_back()
+        .ok_or_else(|| AgdError::new("invalid_repeater", format!("invalid repeater: {input}")))?;
     let amount = value[..value.len() - unit.len_utf8()]
         .parse::<u64>()
-        .map_err(|_| AgendumError::new("invalid_repeater", format!("invalid repeater: {input}")))?;
+        .map_err(|_| AgdError::new("invalid_repeater", format!("invalid repeater: {input}")))?;
     if amount == 0 {
-        return Err(AgendumError::new(
+        return Err(AgdError::new(
             "invalid_repeater",
             "repeater interval must be positive",
         ));
@@ -681,7 +679,7 @@ fn parse_repeater(input: &str) -> Result<(&str, u64, char), AgendumError> {
     Ok((kind, amount, unit))
 }
 
-fn add_period(date: NaiveDate, amount: u64, unit: char) -> Result<NaiveDate, AgendumError> {
+fn add_period(date: NaiveDate, amount: u64, unit: char) -> Result<NaiveDate, AgdError> {
     let next = match unit {
         'd' => date.checked_add_signed(Duration::days(amount as i64)),
         'w' => date.checked_add_signed(Duration::weeks(amount as i64)),
@@ -689,7 +687,7 @@ fn add_period(date: NaiveDate, amount: u64, unit: char) -> Result<NaiveDate, Age
         'y' => date.checked_add_months(Months::new((amount * 12) as u32)),
         _ => None,
     };
-    next.ok_or_else(|| AgendumError::new("invalid_repeater", "repeater date is out of range"))
+    next.ok_or_else(|| AgdError::new("invalid_repeater", "repeater date is out of range"))
 }
 
 fn parse_day_interval(input: &str) -> Option<i64> {
@@ -698,9 +696,9 @@ fn parse_day_interval(input: &str) -> Option<i64> {
     days.parse().ok()
 }
 
-fn parse_date(input: &str) -> Result<NaiveDate, AgendumError> {
+fn parse_date(input: &str) -> Result<NaiveDate, AgdError> {
     NaiveDate::parse_from_str(input, "%Y-%m-%d")
-        .map_err(|_| AgendumError::new("invalid_date", format!("invalid Org date: {input}")))
+        .map_err(|_| AgdError::new("invalid_date", format!("invalid Org date: {input}")))
 }
 
 fn date_range(start: NaiveDate, end: NaiveDate) -> impl Iterator<Item = NaiveDate> {

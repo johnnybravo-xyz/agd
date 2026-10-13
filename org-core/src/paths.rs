@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 
-use crate::{AgendumError, FilesSettings};
+use crate::{AgdError, FilesSettings};
 
 #[derive(Clone, Debug)]
 pub struct RootSet {
@@ -13,19 +13,19 @@ pub struct RootSet {
 }
 
 impl RootSet {
-    pub fn new(files: &FilesSettings) -> Result<Self, AgendumError> {
+    pub fn new(files: &FilesSettings) -> Result<Self, AgdError> {
         let mut roots = Vec::with_capacity(files.roots.len());
         for configured in &files.roots {
             let expanded = shellexpand::tilde(configured).into_owned();
             let canonical = PathBuf::from(&expanded).canonicalize().map_err(|error| {
-                AgendumError::with_source(
+                AgdError::with_source(
                     "invalid_root",
                     format!("cannot resolve approved root '{configured}': {error}"),
                     error,
                 )
             })?;
             if !canonical.is_dir() {
-                return Err(AgendumError::new(
+                return Err(AgdError::new(
                     "invalid_root",
                     format!("approved root is not a directory: {configured}"),
                 ));
@@ -35,7 +35,7 @@ impl RootSet {
         roots.sort();
         roots.dedup();
         if roots.is_empty() {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_root",
                 "at least one approved files.root is required",
             ));
@@ -54,7 +54,7 @@ impl RootSet {
         self.roots.iter().any(|root| path.starts_with(root))
     }
 
-    pub fn resolve_read(&self, requested: &Path) -> Result<PathBuf, AgendumError> {
+    pub fn resolve_read(&self, requested: &Path) -> Result<PathBuf, AgdError> {
         reject_parent_segments(requested)?;
         if requested.is_absolute() {
             return self.validate_existing_read(requested);
@@ -68,7 +68,7 @@ impl RootSet {
             }
         }
         match matches.len() {
-            0 => Err(AgendumError::new(
+            0 => Err(AgdError::new(
                 "not_found",
                 format!(
                     "file is not present under an approved root: {}",
@@ -76,7 +76,7 @@ impl RootSet {
                 ),
             )),
             1 => Ok(matches.into_iter().next().expect("one path")),
-            _ => Err(AgendumError::new(
+            _ => Err(AgdError::new(
                 "ambiguous_path",
                 format!(
                     "relative path matches multiple approved roots: {}",
@@ -86,7 +86,7 @@ impl RootSet {
         }
     }
 
-    pub fn resolve_write(&self, requested: &Path, create: bool) -> Result<PathBuf, AgendumError> {
+    pub fn resolve_write(&self, requested: &Path, create: bool) -> Result<PathBuf, AgdError> {
         reject_parent_segments(requested)?;
         let lexical = if requested.is_absolute() {
             requested.to_path_buf()
@@ -102,13 +102,13 @@ impl RootSet {
             match existing.as_slice() {
                 [path] => path.clone(),
                 [] if create => {
-                    return Err(AgendumError::new(
+                    return Err(AgdError::new(
                         "ambiguous_path",
                         "capture into multiple roots requires an absolute target",
                     ));
                 }
                 [] => {
-                    return Err(AgendumError::new(
+                    return Err(AgdError::new(
                         "not_found",
                         format!(
                             "file is not present under an approved root: {}",
@@ -117,7 +117,7 @@ impl RootSet {
                     ));
                 }
                 _ => {
-                    return Err(AgendumError::new(
+                    return Err(AgdError::new(
                         "ambiguous_path",
                         format!(
                             "relative path matches multiple approved roots: {}",
@@ -131,33 +131,33 @@ impl RootSet {
         if let Ok(metadata) = std::fs::symlink_metadata(&lexical)
             && metadata.file_type().is_symlink()
         {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "symlink_write_refused",
                 format!("writes to symlinks are refused: {}", lexical.display()),
             ));
         }
 
         let parent = lexical.parent().ok_or_else(|| {
-            AgendumError::new(
+            AgdError::new(
                 "invalid_path",
                 format!("path has no parent: {}", lexical.display()),
             )
         })?;
         let canonical_parent = nearest_existing(parent)?.canonicalize().map_err(|error| {
-            AgendumError::with_source(
+            AgdError::with_source(
                 "invalid_path",
                 format!("cannot resolve parent of {}: {error}", lexical.display()),
                 error,
             )
         })?;
         if !self.contains(&canonical_parent) {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "outside_roots",
                 format!("path escapes approved roots: {}", lexical.display()),
             ));
         }
         if lexical.exists() && !lexical.is_file() {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_path",
                 format!("write target is not a regular file: {}", lexical.display()),
             ));
@@ -165,7 +165,7 @@ impl RootSet {
         Ok(lexical)
     }
 
-    pub fn agenda_files(&self) -> Result<Vec<PathBuf>, AgendumError> {
+    pub fn agenda_files(&self) -> Result<Vec<PathBuf>, AgdError> {
         let patterns = if self.agenda.is_empty() {
             vec!["**/*.org".to_string()]
         } else {
@@ -174,11 +174,11 @@ impl RootSet {
         self.org_files_matching(&patterns)
     }
 
-    pub fn all_org_files(&self) -> Result<Vec<PathBuf>, AgendumError> {
+    pub fn all_org_files(&self) -> Result<Vec<PathBuf>, AgdError> {
         self.org_files_matching(&[String::from("**/*.org")])
     }
 
-    fn org_files_matching(&self, patterns: &[String]) -> Result<Vec<PathBuf>, AgendumError> {
+    fn org_files_matching(&self, patterns: &[String]) -> Result<Vec<PathBuf>, AgdError> {
         let mut relative_patterns = Vec::new();
         let mut files = BTreeSet::new();
         for pattern in patterns {
@@ -186,7 +186,7 @@ impl RootSet {
             reject_parent_segments(path)?;
             if path.is_absolute() {
                 if pattern.contains(['*', '?', '[', ']']) {
-                    return Err(AgendumError::new(
+                    return Err(AgdError::new(
                         "invalid_agenda_pattern",
                         format!("absolute agenda entries must be exact files: {pattern}"),
                     ));
@@ -196,7 +196,7 @@ impl RootSet {
                     .extension()
                     .is_none_or(|extension| extension != "org")
                 {
-                    return Err(AgendumError::new(
+                    return Err(AgdError::new(
                         "invalid_agenda_file",
                         format!("agenda file does not have an .org extension: {pattern}"),
                     ));
@@ -214,7 +214,7 @@ impl RootSet {
         for root in &self.roots {
             for entry in WalkBuilder::new(root).follow_links(true).build() {
                 let entry = entry.map_err(|error| {
-                    AgendumError::new(
+                    AgdError::new(
                         "walk_error",
                         format!("cannot walk {}: {error}", root.display()),
                     )
@@ -234,22 +234,22 @@ impl RootSet {
         Ok(files.into_iter().collect())
     }
 
-    fn validate_existing_read(&self, path: &Path) -> Result<PathBuf, AgendumError> {
+    fn validate_existing_read(&self, path: &Path) -> Result<PathBuf, AgdError> {
         let canonical = path.canonicalize().map_err(|error| {
-            AgendumError::with_source(
+            AgdError::with_source(
                 "not_found",
                 format!("cannot resolve file {}: {error}", path.display()),
                 error,
             )
         })?;
         if !self.contains(&canonical) {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "outside_roots",
                 format!("resolved path escapes approved roots: {}", path.display()),
             ));
         }
         if !canonical.is_file() {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_path",
                 format!("path is not a regular file: {}", path.display()),
             ));
@@ -258,12 +258,12 @@ impl RootSet {
     }
 }
 
-fn reject_parent_segments(path: &Path) -> Result<(), AgendumError> {
+fn reject_parent_segments(path: &Path) -> Result<(), AgdError> {
     if path
         .components()
         .any(|component| component == Component::ParentDir)
     {
-        return Err(AgendumError::new(
+        return Err(AgdError::new(
             "path_traversal",
             format!("'..' is not allowed in paths: {}", path.display()),
         ));
@@ -271,14 +271,14 @@ fn reject_parent_segments(path: &Path) -> Result<(), AgendumError> {
     Ok(())
 }
 
-fn nearest_existing(path: &Path) -> Result<&Path, AgendumError> {
+fn nearest_existing(path: &Path) -> Result<&Path, AgdError> {
     let mut current = path;
     loop {
         if current.exists() {
             return Ok(current);
         }
         current = current.parent().ok_or_else(|| {
-            AgendumError::new(
+            AgdError::new(
                 "invalid_path",
                 format!("no existing ancestor for {}", path.display()),
             )
@@ -286,25 +286,25 @@ fn nearest_existing(path: &Path) -> Result<&Path, AgendumError> {
     }
 }
 
-fn build_globset(patterns: &[String]) -> Result<GlobSet, AgendumError> {
+fn build_globset(patterns: &[String]) -> Result<GlobSet, AgdError> {
     let mut builder = GlobSetBuilder::new();
     for pattern in patterns {
         reject_parent_segments(Path::new(pattern))?;
         if Path::new(pattern).is_absolute() {
-            return Err(AgendumError::new(
+            return Err(AgdError::new(
                 "invalid_agenda_pattern",
                 format!("agenda pattern must be relative to an approved root: {pattern}"),
             ));
         }
         builder.add(Glob::new(pattern).map_err(|error| {
-            AgendumError::new(
+            AgdError::new(
                 "invalid_agenda_pattern",
                 format!("invalid agenda pattern '{pattern}': {error}"),
             )
         })?);
     }
     builder.build().map_err(|error| {
-        AgendumError::new(
+        AgdError::new(
             "invalid_agenda_pattern",
             format!("cannot build agenda patterns: {error}"),
         )

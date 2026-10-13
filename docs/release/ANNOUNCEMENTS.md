@@ -6,7 +6,7 @@ lead with AI.
 
 ## Shared short version
 
-**Agendum: a terminal Org agenda that proves its results against Emacs**
+**Agenda: a terminal Org agenda that proves its results against Emacs**
 
 I built `agd`, a local-first Rust tool for people who keep Org files but want a
 fast agenda in any terminal. Its agenda fixtures run through both pinned Emacs
@@ -32,7 +32,7 @@ Demo and compatibility table: https://github.com/johnnybravo-xyz/agd/releases
 
 **A terminal-first Org agenda with measured Emacs compatibility**
 
-Agendum is for the part of my Org workflow that happens outside Emacs: checking
+Agenda is for the part of my Org workflow that happens outside Emacs: checking
 Today in a narrow pane, clearing slipped tasks, capturing one line, and letting
 a coding agent make a reviewable task change.
 
@@ -53,14 +53,14 @@ https://github.com/johnnybravo-xyz/agd/releases
 
 ## r/emacs
 
-**Agendum uses Emacs as its agenda oracle, not as a runtime dependency**
+**Agenda uses Emacs as its agenda oracle, not as a runtime dependency**
 
-I have released Agendum, a terminal agenda and safe writer for ordinary Org
+I have released Agenda, a terminal agenda and safe writer for ordinary Org
 files. It does not try to clone the agenda buffer. A pinned Emacs/Org process
 produces `org-batch-agenda-csv`, and the Rust engine must match those structured
 rows for the supported subset.
 
-Emacs remains the editor of record. Agendum detects dirty-buffer lock files,
+Emacs remains the editor of record. Agenda detects dirty-buffer lock files,
 revalidates source under its own sidecar lock, and refuses ambiguous or stale
 writes. `agd open` returns directly to Emacs, while a one-time explicit daemon
 or batch probe can export declarative settings into a cold snapshot. Hooks,
@@ -74,9 +74,9 @@ https://github.com/johnnybravo-xyz/agd/releases
 
 ## nvim-orgmode discussion
 
-**Agendum: local terminal agenda and safe writes beside nvim-orgmode**
+**Agenda: local terminal agenda and safe writes beside nvim-orgmode**
 
-Agendum reads the same Org files as nvim-orgmode and adds a fast Today/triage
+Agenda reads the same Org files as nvim-orgmode and adds a fast Today/triage
 TUI, deterministic JSON/CSV commands, and guarded local writes. It watches for
 external edits and opens selected headings with direct Neovim argv rather than
 embedding an editor.
@@ -95,9 +95,9 @@ https://github.com/johnnybravo-xyz/agd/releases
 
 ## Show HN
 
-**Show HN: Agendum – a terminal Org agenda tested against Emacs**
+**Show HN: Agenda – a terminal Org agenda tested against Emacs**
 
-Agendum is a single local binary for Org agenda, capture, safe edits, a Ratatui
+Agenda is a single local binary for Org agenda, capture, safe edits, a Ratatui
 workflow, and stdio MCP. It has no server or account.
 
 Two implementation choices make it different from another task-file parser:

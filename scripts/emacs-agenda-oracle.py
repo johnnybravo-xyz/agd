@@ -33,22 +33,22 @@ def docker(*args: str, capture: bool = False) -> str:
 
 
 def emacs_rows(case_dir: pathlib.Path, case: dict) -> str:
-    name = f"agendum-emacs-{uuid.uuid4().hex}"
+    name = f"agd-emacs-{uuid.uuid4().hex}"
     start = datetime.date.fromisoformat(case["from"])
     end = datetime.date.fromisoformat(case["to"])
     days = (end - start).days + 1
     environment = {
-        "AGENDUM_CASE_DIR": "/case",
-        "AGENDUM_FROM": case["from"],
-        "AGENDUM_TODAY": case["today"],
-        "AGENDUM_DAYS": str(days),
-        "AGENDUM_SKIP_SCHEDULED_IF_DONE": str(
+        "AGD_CASE_DIR": "/case",
+        "AGD_FROM": case["from"],
+        "AGD_TODAY": case["today"],
+        "AGD_DAYS": str(days),
+        "AGD_SKIP_SCHEDULED_IF_DONE": str(
             case.get("skip_scheduled_if_done", False)
         ).lower(),
-        "AGENDUM_SKIP_DEADLINE_IF_DONE": str(
+        "AGD_SKIP_DEADLINE_IF_DONE": str(
             case.get("skip_deadline_if_done", False)
         ).lower(),
-        "AGENDUM_SKIP_TIMESTAMP_IF_DONE": str(
+        "AGD_SKIP_TIMESTAMP_IF_DONE": str(
             case.get("skip_timestamp_if_done", False)
         ).lower(),
     }

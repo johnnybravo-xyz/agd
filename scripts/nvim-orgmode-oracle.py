@@ -17,7 +17,7 @@ def main() -> None:
     arguments = parser.parse_args()
     nvim = pathlib.Path(arguments.nvim).resolve()
     plugin = pathlib.Path(arguments.plugin).resolve()
-    with tempfile.TemporaryDirectory(prefix="agendum-nvim-") as directory:
+    with tempfile.TemporaryDirectory(prefix="agd-nvim-") as directory:
         directory = pathlib.Path(directory)
         agenda = directory / "tasks.org"
         agenda.write_text("* TODO Actual plugin probe\n", encoding="utf-8")
@@ -32,7 +32,7 @@ def main() -> None:
             encoding="utf-8",
         )
         environment = os.environ.copy()
-        environment["AGENDUM_IMPORT_SOURCE"] = "profile"
+        environment["AGD_IMPORT_SOURCE"] = "profile"
         result = subprocess.run(
             [str(nvim), "--headless", "-u", str(init), "-l", str(ROOT / "agd/probes/nvim.lua")],
             check=True,
@@ -41,7 +41,7 @@ def main() -> None:
             stderr=subprocess.STDOUT,
             env=environment,
         )
-    marker = "AGENDUM_JSON:"
+    marker = "AGD_JSON:"
     payload = next(
         (line[len(marker):] for line in result.stdout.splitlines() if line.startswith(marker)),
         None,

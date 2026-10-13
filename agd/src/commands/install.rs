@@ -8,7 +8,7 @@ use org_core::load_settings;
 use serde_json::{Map, Value, json};
 
 const SKILL: &str = r#"---
-name: agendum
+name: agd
 description: Read and safely update local org-mode agendas through the agd MCP server.
 ---
 
@@ -64,11 +64,11 @@ fn install_claude(directory: &Path, session_profile: Option<&str>) -> Result<()>
     let mcp_path = directory.join(".mcp.json");
     let mut mcp = read_json_object(&mcp_path)?;
     object_at(&mut mcp, "mcpServers")?.insert(
-        "agendum".to_string(),
+        "agd".to_string(),
         json!({"type": "stdio", "command": "agd", "args": ["mcp"]}),
     );
     write_json(&mcp_path, &mcp)?;
-    write_skill(directory.join(".claude/skills/agendum/SKILL.md"))?;
+    write_skill(directory.join(".claude/skills/agd/SKILL.md"))?;
 
     if let Some(profile) = session_profile {
         let settings_path = directory.join(".claude/settings.json");
@@ -120,7 +120,7 @@ fn install_codex(directory: &Path) -> Result<()> {
         .ok_or_else(|| anyhow!("{} must contain a TOML table", config_path.display()))?;
     let servers = table_at(root, "mcp_servers", &config_path)?;
     servers.insert(
-        "agendum".to_string(),
+        "agd".to_string(),
         toml::Value::Table(toml::Table::from_iter([
             (
                 "command".to_string(),
@@ -136,7 +136,7 @@ fn install_codex(directory: &Path) -> Result<()> {
         &config_path,
         format!("{}\n", toml::to_string_pretty(&config)?).as_bytes(),
     )?;
-    write_skill(directory.join(".codex/skills/agendum/SKILL.md"))?;
+    write_skill(directory.join(".codex/skills/agd/SKILL.md"))?;
     println!("installed Codex integration in {}", directory.display());
     println!("session agenda disabled");
     Ok(())
@@ -146,11 +146,11 @@ fn install_opencode(directory: &Path) -> Result<()> {
     let config_path = directory.join("opencode.json");
     let mut config = read_json_object(&config_path)?;
     object_at(&mut config, "mcp")?.insert(
-        "agendum".to_string(),
+        "agd".to_string(),
         json!({"type": "local", "command": ["agd", "mcp"], "enabled": true}),
     );
     write_json(&config_path, &config)?;
-    write_skill(directory.join(".opencode/skills/agendum/SKILL.md"))?;
+    write_skill(directory.join(".opencode/skills/agd/SKILL.md"))?;
     println!("installed OpenCode integration in {}", directory.display());
     println!("session agenda disabled");
     Ok(())
@@ -229,7 +229,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         .ok_or_else(|| anyhow!("{} has no parent directory", path.display()))?;
     fs::create_dir_all(parent).with_context(|| format!("cannot create {}", parent.display()))?;
     let temporary = parent.join(format!(
-        ".{}.agendum.{}.tmp",
+        ".{}.agd.{}.tmp",
         path.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("config"),

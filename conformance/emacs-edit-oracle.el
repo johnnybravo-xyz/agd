@@ -5,8 +5,8 @@
 (unless (re-search-forward "^[ \t]*:ID:[ \t]+task-id[ \t]*$" nil t)
   (error "task-id not found"))
 (org-back-to-heading t)
-(let ((operation (or (getenv "AGENDUM_EDIT_OPERATION")
-                     (error "AGENDUM_EDIT_OPERATION is required")))
+(let ((operation (or (getenv "AGD_EDIT_OPERATION")
+                     (error "AGD_EDIT_OPERATION is required")))
       (org-log-done nil)
       (org-log-repeat nil))
   (pcase operation
