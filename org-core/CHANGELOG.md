@@ -52,6 +52,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Align tags to `org-tags-column` (`tags.column`, imported from Emacs and
+  nvim-orgmode) whenever a headline is rewritten, as Emacs does, instead of
+  collapsing them to one space.
 - Write logs the way Emacs does: `State "DONE" from "TODO" [time]` entries
   for `!`/`@` keyword markers and `org-log-repeat`, `CLOSING NOTE` for
   `org-log-done` note, "Rescheduled from"/"New deadline from" for

@@ -1179,12 +1179,16 @@ fn build_edit_patches(
                 tags.push(tag.clone());
             }
         }
-        let line = render_headline(
-            headline.level,
-            state.as_deref(),
-            priority.as_deref(),
-            &title,
-            &tags,
+        let line = align_tags(
+            render_headline(
+                headline.level,
+                state.as_deref(),
+                priority.as_deref(),
+                &title,
+                &tags,
+            ),
+            !tags.is_empty(),
+            settings.tags.column,
         );
         patches.push(Patch {
             span: headline.line_span,
@@ -1439,6 +1443,26 @@ fn render_headline(
         line.push_str(&format!(" :{}:", tags.join(":")));
     }
     line
+}
+
+/// Aligns tags to org-tags-column the way Emacs does whenever it rewrites a
+/// headline: a negative column right-aligns them to end there, a positive
+/// one starts them there, and a long title keeps a single space.
+fn align_tags(rendered: String, has_tags: bool, column: i64) -> String {
+    use unicode_width::UnicodeWidthStr;
+
+    let Some(tags_start) = rendered.rfind(" :").filter(|_| has_tags) else {
+        return rendered;
+    };
+    let (head, tags) = rendered.split_at(tags_start);
+    let tags = tags.trim_start();
+    let start = if column < 0 {
+        column.unsigned_abs() as usize - tags.width().min(column.unsigned_abs() as usize)
+    } else {
+        column as usize
+    };
+    let gap = start.saturating_sub(head.width()).max(1);
+    format!("{head}{}{tags}", " ".repeat(gap))
 }
 
 fn render_planning_line(

@@ -48,6 +48,7 @@
   "source": "batch-profile",
   "tag_alist": [],
   "tag_inheritance_exclusions": [],
+  "tags_column": -77,
   "todo_sequences": [
     [
       "BACKLOG(b)",

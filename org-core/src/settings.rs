@@ -113,11 +113,24 @@ pub struct TodoSettings {
     pub ids: IdPolicy,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TagsSettings {
     pub alist: Vec<String>,
     pub persistent: Vec<String>,
+    /// org-tags-column: negative right-aligns tags to end at that column,
+    /// positive starts them there, as Emacs does when it rewrites a headline.
+    pub column: i64,
+}
+
+impl Default for TagsSettings {
+    fn default() -> Self {
+        Self {
+            alist: Vec::new(),
+            persistent: Vec::new(),
+            column: -77,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]

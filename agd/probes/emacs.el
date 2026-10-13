@@ -235,6 +235,7 @@
        (todo_sequences . ,(agd--todo-sequences))
        (tag_alist . ,(agd--strings org-tag-alist))
        (persistent_tags . ,(agd--strings org-tag-persistent-alist))
+       (tags_column . ,org-tags-column)
        (tag_inheritance_exclusions . ,(agd--strings org-tags-exclude-from-inheritance))
        (highest_priority . ,(char-to-string org-highest-priority))
        (lowest_priority . ,(char-to-string org-lowest-priority))

@@ -1,0 +1,5 @@
+#+TODO: TODO NEXT | DONE
+* DONE Migrate cron jobs to systemd timers                            :infra:
+:PROPERTIES:
+:ID: task-id
+:END:

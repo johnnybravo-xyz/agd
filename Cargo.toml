@@ -45,6 +45,7 @@ temp-env = "0.3.6"
 tokio = "1"
 toml = "1.0"
 tracing = "0.1.44"
+unicode-width = "0.2"
 uuid = { version = "1.18", features = ["v4"] }
 tracing-subscriber = { version = "0.3.22", features = [
   "env-filter",

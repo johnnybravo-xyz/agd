@@ -161,6 +161,7 @@ local output = {
   todo_sequences = todo_sequences(opts.org_todo_keywords),
   tag_alist = strings(opts.org_tag_alist),
   persistent_tags = strings(opts.org_tag_persistent_alist),
+  tags_column = tonumber(opts.org_tags_column or -80),
   tag_inheritance_exclusions = strings(opts.org_tags_exclude_from_inheritance),
   highest_priority = tostring(opts.org_highest_priority or "A"),
   lowest_priority = tostring(opts.org_lowest_priority or "C"),

@@ -64,6 +64,7 @@ pub struct ResolvedEditorConfig {
     pub todo_sequences: Vec<Vec<String>>,
     pub tag_alist: Vec<String>,
     pub persistent_tags: Vec<String>,
+    pub tags_column: i64,
     pub tag_inheritance_exclusions: Vec<String>,
     pub highest_priority: String,
     pub lowest_priority: String,
@@ -153,6 +154,7 @@ impl ImportSnapshot {
         settings.todo.sequences = resolved.todo_sequences.clone();
         settings.tags.alist = resolved.tag_alist.clone();
         settings.tags.persistent = resolved.persistent_tags.clone();
+        settings.tags.column = resolved.tags_column;
         settings.agenda.span = resolved.agenda_span.clone();
         settings.agenda.start_day = resolved.agenda_start_day.clone();
         settings.agenda.week_start = resolved.week_start.clone();
@@ -352,6 +354,7 @@ mod tests {
             ]],
             tag_alist: vec!["work".to_string()],
             persistent_tags: Vec::new(),
+            tags_column: -77,
             tag_inheritance_exclusions: Vec::new(),
             highest_priority: "A".to_string(),
             lowest_priority: "C".to_string(),

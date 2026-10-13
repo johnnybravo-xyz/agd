@@ -104,6 +104,7 @@
   "tag_inheritance_exclusions": [
     "noinherit"
   ],
+  "tags_column": -77,
   "todo_sequences": [
     [
       "TODO(t)",
