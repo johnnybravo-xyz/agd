@@ -342,7 +342,10 @@ mod tests {
             agenda: vec![file.to_string_lossy().into_owned()],
         })
         .unwrap();
-        assert_eq!(roots.agenda_files().unwrap(), vec![file]);
+        assert_eq!(
+            roots.agenda_files().unwrap(),
+            vec![std::fs::canonicalize(file).unwrap()]
+        );
     }
 
     #[cfg(unix)]
@@ -355,7 +358,10 @@ mod tests {
         std::fs::write(&target, "* TODO Safe\n").unwrap();
         symlink(&target, temp.path().join("link.org")).unwrap();
         let roots = roots(&temp);
-        assert_eq!(roots.resolve_read(Path::new("link.org")).unwrap(), target);
+        assert_eq!(
+            roots.resolve_read(Path::new("link.org")).unwrap(),
+            std::fs::canonicalize(target).unwrap()
+        );
         let error = roots
             .resolve_write(Path::new("link.org"), false)
             .unwrap_err();
