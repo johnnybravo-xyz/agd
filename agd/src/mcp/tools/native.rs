@@ -40,6 +40,10 @@ struct CaptureRequest {
     body: String,
     #[serde(default)]
     prompts: BTreeMap<String, String>,
+    /// Extra :PROPERTIES: recording where the task came from, e.g. REPO,
+    /// BRANCH, or SOURCE as an org link such as [[file:/repo/src/main.rs::42]].
+    #[serde(default)]
+    properties: BTreeMap<String, String>,
 }
 
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
@@ -143,6 +147,7 @@ impl OrgModeRouter {
                 deadline: parse_optional_date(request.deadline.as_deref(), today)?,
                 tags: request.tags,
                 priority: request.priority,
+                properties: request.properties,
             };
             WriteEngine::with_default_journal(self.settings.clone())?.capture(
                 &request.template,

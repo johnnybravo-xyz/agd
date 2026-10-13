@@ -16,13 +16,15 @@ static ESCAPE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"%(\?|i|U|u|T|t|%|\^g|\^\{([^}]+)\})").expect("capture escape regex")
 });
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CaptureDraft {
     pub title: String,
     pub scheduled: Option<PlanningTimestamp>,
     pub deadline: Option<PlanningTimestamp>,
     pub tags: Vec<String>,
     pub priority: Option<String>,
+    /// Extra `:PROPERTIES:` entries, e.g. where an agent found the task.
+    pub properties: BTreeMap<String, String>,
 }
 
 pub fn parse_date_input(input: &str, today: NaiveDate) -> Result<PlanningTimestamp, AgdError> {
@@ -120,6 +122,7 @@ pub fn parse_capture_line(input: &str, today: NaiveDate) -> Result<CaptureDraft,
         deadline,
         tags,
         priority,
+        properties: BTreeMap::new(),
     })
 }
 
@@ -175,7 +178,62 @@ pub fn render_capture_template(
     if !planning.is_empty() {
         lines.insert(1, planning.join(" "));
     }
+    add_properties(
+        &mut lines,
+        &draft.properties,
+        usize::from(!planning.is_empty()) + 1,
+    )?;
     Ok(lines.join(newline))
+}
+
+/// Adds properties to the template's own `:PROPERTIES:` drawer, or opens one
+/// right after the headline and planning line (`after`), keeping keys the
+/// template already sets.
+fn add_properties(
+    lines: &mut Vec<String>,
+    properties: &BTreeMap<String, String>,
+    after: usize,
+) -> Result<(), AgdError> {
+    if properties.is_empty() {
+        return Ok(());
+    }
+    let mut entries = Vec::new();
+    for (key, value) in properties {
+        if key.is_empty() || key.contains([' ', '\t', ':']) || value.contains(['\n', '\r']) {
+            return Err(AgdError::new(
+                "invalid_property",
+                format!("capture property '{key}' needs a plain key and a one-line value"),
+            ));
+        }
+        let present = lines.iter().any(|line| {
+            line.trim_start()
+                .to_ascii_uppercase()
+                .starts_with(&format!(":{}:", key.to_ascii_uppercase()))
+        });
+        if !present {
+            entries.push(format!(":{key}: {value}"));
+        }
+    }
+    let drawer = lines.iter().position(|line| line.trim() == ":PROPERTIES:");
+    let end = drawer.and_then(|start| {
+        lines[start..]
+            .iter()
+            .position(|line| line.trim() == ":END:")
+            .map(|offset| start + offset)
+    });
+    match end {
+        Some(end) => {
+            lines.splice(end..end, entries);
+        }
+        None => {
+            let at = after.min(lines.len());
+            let mut drawer = vec![":PROPERTIES:".to_string()];
+            drawer.extend(entries);
+            drawer.push(":END:".to_string());
+            lines.splice(at..at, drawer);
+        }
+    }
+    Ok(())
 }
 
 /// Names of the `%^{prompt}` fields a template asks for, in order and
@@ -357,6 +415,7 @@ mod tests {
             deadline: None,
             tags: Vec::new(),
             priority: None,
+            properties: BTreeMap::new(),
         };
         let now = NaiveDate::from_ymd_opt(2026, 10, 13)
             .unwrap()
@@ -372,6 +431,44 @@ mod tests {
     }
 
     #[test]
+    fn capture_properties_join_the_template_drawer_or_open_one() {
+        let now = NaiveDate::from_ymd_opt(2026, 10, 13)
+            .unwrap()
+            .and_hms_opt(14, 22, 0)
+            .unwrap();
+        let draft = CaptureDraft {
+            title: "Fix flaky test".to_string(),
+            properties: BTreeMap::from([
+                ("REPO".to_string(), "agd".to_string()),
+                (
+                    "SOURCE".to_string(),
+                    "[[file:~/src/agd/write.rs::42]]".to_string(),
+                ),
+            ]),
+            ..CaptureDraft::default()
+        };
+        let with_drawer = render_capture_template(
+            &CaptureTemplate::default(),
+            &draft,
+            "",
+            &BTreeMap::new(),
+            now,
+        )
+        .unwrap();
+        assert_eq!(
+            with_drawer,
+            "* TODO Fix flaky test\n:PROPERTIES:\n:CREATED: [2026-10-13 Tue 14:22]\n:REPO: agd\n:SOURCE: [[file:~/src/agd/write.rs::42]]\n:END:"
+        );
+        let plain = CaptureTemplate {
+            template: "* TODO %?\nNotes".to_string(),
+            ..CaptureTemplate::default()
+        };
+        let opened = render_capture_template(&plain, &draft, "", &BTreeMap::new(), now).unwrap();
+        assert!(opened.starts_with("* TODO Fix flaky test\n:PROPERTIES:\n:REPO: agd\n"));
+        assert!(opened.ends_with(":END:\nNotes"));
+    }
+
+    #[test]
     fn template_preview_is_exact_org_text() {
         let template = CaptureTemplate::default();
         let draft = CaptureDraft {
@@ -380,6 +477,7 @@ mod tests {
             deadline: Some(simple_date(NaiveDate::from_ymd_opt(2026, 10, 30).unwrap())),
             tags: vec!["admin".to_string()],
             priority: Some("A".to_string()),
+            properties: BTreeMap::new(),
         };
         let rendered = render_capture_template(
             &template,

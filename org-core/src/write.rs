@@ -1847,6 +1847,7 @@ mod tests {
             deadline: None,
             tags: Vec::new(),
             priority: None,
+            properties: BTreeMap::new(),
         };
         let agent = WriteContext {
             actor: "mcp:claude-code".to_string(),
@@ -2079,6 +2080,7 @@ mod tests {
             deadline: None,
             tags: Vec::new(),
             priority: None,
+            properties: BTreeMap::new(),
         };
         let preview = engine
             .capture("t", &draft, "", &BTreeMap::new(), true, &context())
