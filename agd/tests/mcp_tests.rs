@@ -1,39 +1,138 @@
-//! Integration tests for the `agd mcp` stdio surface.
+use std::fs;
 
-#[path = "mcp_integration/utils.rs"]
-mod utils;
+use chrono::Local;
+use rmcp::{
+    ServiceExt,
+    model::{CallToolRequestParams, ReadResourceRequestParams},
+    transport::{ConfigureCommandExt, TokioChildProcess},
+};
+use serde_json::{Map, Value, json};
 
-pub(crate) mod mcp_integration {
-    pub(crate) mod resources_tests;
-    pub(crate) mod server_tests;
-    pub(crate) mod tools_tests;
+fn binary() -> std::path::PathBuf {
+    std::env::var_os("CARGO_BIN_EXE_agd")
+        .map(Into::into)
+        .unwrap_or_else(|| {
+            let mut path = std::env::current_exe().expect("current executable");
+            path.pop();
+            if path.ends_with("deps") {
+                path.pop();
+            }
+            path.join(format!("agd{}", std::env::consts::EXE_SUFFIX))
+        })
 }
 
-pub(crate) use utils::{get_binary_path, setup_test_org_files};
+async fn service(
+    directory: &tempfile::TempDir,
+) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ()>, Box<dyn std::error::Error>> {
+    let command = tokio::process::Command::new(binary()).configure(|command| {
+        command
+            .args([
+                "--root-directory",
+                directory.path().to_str().expect("UTF-8 path"),
+                "mcp",
+            ])
+            .env("XDG_DATA_HOME", directory.path().join("data"));
+    });
+    Ok(().serve(TokioChildProcess::new(command)?).await?)
+}
 
-#[macro_export]
-macro_rules! create_mcp_service {
-    ($temp_dir:expr) => {{
-        use rmcp::{
-            ServiceExt,
-            transport::{ConfigureCommandExt, TokioChildProcess},
-        };
-        use tracing::error;
+fn fixture() -> tempfile::TempDir {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let today = Local::now().date_naive();
+    fs::write(
+        directory.path().join("tasks.org"),
+        format!(
+            "#+TODO: TODO NEXT | DONE\n* TODO Today :work:\n:PROPERTIES:\n:ID: today-task\n:END:\nSCHEDULED: <{}>\n* NEXT Later :work:\n",
+            today.format("%Y-%m-%d %a")
+        ),
+    )
+    .expect("org fixture");
+    directory
+}
 
-        let command =
-            tokio::process::Command::new($crate::get_binary_path("agd")).configure(|cmd| {
-                cmd.args([
-                    "--root-directory",
-                    $temp_dir.path().to_str().unwrap(),
-                    "mcp",
-                ]);
-            });
+fn content_json(value: &impl serde::Serialize) -> Value {
+    serde_json::to_value(value).expect("MCP result JSON")
+}
 
-        ().serve(TokioChildProcess::new(command)?)
-            .await
-            .map_err(|e| {
-                error!("Failed to connect to server: {}", e);
-                e
-            })?
-    }};
+#[tokio::test]
+async fn exposes_only_the_short_spec_tool_list() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = fixture();
+    let service = service(&directory).await?;
+    let tools = service.list_tools(Default::default()).await?;
+    let mut names: Vec<&str> = tools.tools.iter().map(|tool| tool.name.as_ref()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["agenda", "capture", "edit", "plan", "query", "set_state"]);
+    service.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn agenda_tool_and_today_resource_return_versioned_rows(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let directory = fixture();
+    let service = service(&directory).await?;
+    let today = Local::now().date_naive().to_string();
+    let arguments: Map<String, Value> = json!({"span": "day", "from": today})
+        .as_object()
+        .expect("arguments")
+        .clone();
+    let result = service
+        .call_tool(CallToolRequestParams::new("agenda").with_arguments(arguments))
+        .await?;
+    let encoded = content_json(&result).to_string();
+    assert!(encoded.contains("agendum.agenda-entry/v1"));
+    assert!(encoded.contains("Today"));
+
+    let resources = service.list_resources(Default::default()).await?;
+    assert_eq!(resources.resources.len(), 1);
+    assert_eq!(resources.resources[0].uri, "agenda://today");
+    let resource = service
+        .read_resource(ReadResourceRequestParams::new("agenda://today".to_string()))
+        .await?;
+    let encoded = content_json(&resource).to_string();
+    assert!(encoded.contains("agendum.agenda-entry/v1"));
+    service.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn writes_return_mutations_and_failures_return_error_schemas(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let directory = fixture();
+    let service = service(&directory).await?;
+    let arguments: Map<String, Value> = json!({"ref": "today-task", "state": "DONE"})
+        .as_object()
+        .expect("arguments")
+        .clone();
+    let result = service
+        .call_tool(CallToolRequestParams::new("set_state").with_arguments(arguments))
+        .await?;
+    let encoded = content_json(&result).to_string();
+    assert!(encoded.contains("agendum.mutation/v1"));
+    assert!(encoded.contains("DONE"));
+    let journal = fs::read_to_string(directory.path().join("data/agendum/journal.jsonl"))?;
+    let record: Value = serde_json::from_str(journal.lines().next().expect("journal record"))?;
+    assert!(
+        record["actor"]
+            .as_str()
+            .expect("actor")
+            .starts_with("mcp:")
+    );
+    assert_eq!(
+        record["project"],
+        directory.path().to_string_lossy().as_ref()
+    );
+
+    let arguments: Map<String, Value> = json!({"ref": "missing", "state": "DONE"})
+        .as_object()
+        .expect("arguments")
+        .clone();
+    let result = service
+        .call_tool(CallToolRequestParams::new("set_state").with_arguments(arguments))
+        .await?;
+    let encoded = content_json(&result).to_string();
+    assert!(encoded.contains("agendum.error/v1"));
+    assert!(encoded.contains("stale_ref"));
+    service.cancel().await?;
+    Ok(())
 }

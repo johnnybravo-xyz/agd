@@ -44,9 +44,10 @@ fn check_reports_duplicate_ids_and_exits_one() {
     .expect("second fixture");
 
     let assertion = cargo::cargo_bin_cmd!("agd")
+        .arg("--root-directory")
+        .arg(directory.path())
         .arg("check")
         .arg("--json")
-        .arg(directory.path())
         .assert()
         .code(1);
     let report: Value =

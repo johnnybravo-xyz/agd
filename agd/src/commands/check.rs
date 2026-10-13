@@ -1,39 +1,32 @@
-use std::path::PathBuf;
+use std::path::Path;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use clap::Args;
-use org_core::{CheckReport, check_paths};
+use org_core::{CheckReport, check_settings, load_settings};
 
 #[derive(Args)]
 pub struct CheckCommand {
-    /// Files or directories to check; defaults to the configured org directory
-    #[arg(value_name = "PATH")]
-    paths: Vec<PathBuf>,
-
     /// Emit a machine-readable report
     #[arg(long)]
     json: bool,
 }
 
 impl CheckCommand {
-    pub fn has_explicit_paths(&self) -> bool {
-        !self.paths.is_empty()
-    }
-
-    pub fn execute(&self, default_root: Option<PathBuf>) -> Result<bool> {
-        let roots = if self.paths.is_empty() {
-            vec![default_root.ok_or_else(|| anyhow!("no org directory configured"))?]
-        } else {
-            self.paths.clone()
-        };
-        let report = check_paths(&roots);
-
+    pub fn execute(
+        self,
+        config: Option<String>,
+        root_directory: Option<String>,
+    ) -> Result<bool> {
+        let loaded = load_settings(
+            config.as_deref().map(Path::new),
+            root_directory.as_deref().map(Path::new),
+        )?;
+        let report = check_settings(&loaded.settings)?;
         if self.json {
             println!("{}", serde_json::to_string_pretty(&report)?);
         } else {
             print_human_report(&report);
         }
-
         Ok(report.has_errors())
     }
 }
@@ -49,7 +42,6 @@ fn print_human_report(report: &CheckReport) {
             println!("{}: {}: {}", problem.file, problem.code, problem.message);
         }
     }
-
     println!(
         "checked {} files and {} headlines: {} errors",
         report.summary.files, report.summary.headlines, report.summary.errors

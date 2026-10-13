@@ -1,130 +1,39 @@
-mod org_agenda;
-mod org_file;
-mod org_file_list;
-mod org_heading;
-mod org_id;
-mod org_outline;
-mod utils;
-
-#[cfg(test)]
-mod resource_tests;
-
-use org_core::org_mode::AgendaViewType;
+use chrono::Local;
+use org_core::{AgendaEngine, AgendaQuery, WorkspaceIndex};
 use rmcp::model::{
-    Implementation, InitializeRequestParams, InitializeResult, ListResourceTemplatesResult,
-    ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse,
-    Resource, ResourceTemplate,
+    Implementation, InitializeRequestParams, InitializeResult, ListResourcesResult,
+    PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult,
+    Resource, ResourceContents, ServerCapabilities, ServerConfig,
 };
 use rmcp::service::RequestContext;
-use rmcp::{
-    ErrorData as McpError,
-    model::{ServerCapabilities, ServerConfig},
-    tool_handler,
-};
-
-use rmcp::{RoleServer, ServerHandler};
+use rmcp::{ErrorData as McpError, RoleServer, ServerHandler, tool_handler};
 use serde_json::json;
 
 use crate::mcp::OrgModeRouter;
 
-pub enum OrgResource {
-    OrgFiles,
-    Org { path: String },
-    OrgOutline { path: String },
-    OrgHeading { path: String, heading: String },
-    OrgId { id: String },
-    OrgAgenda { agenda_view_type: AgendaViewType },
-}
-
 #[tool_handler]
 impl ServerHandler for OrgModeRouter {
     fn get_info(&self) -> ServerConfig {
-        const INSTRUCTIONS: &str = concat!(
-            "This server provides org-mode tools and resources.\n\n",
-            "Tools:\n",
-            "- org-file-list\n",
-            "- org-search\n",
-            "- org-agenda\n",
-            "- org-capture\n",
-            "- org-update-todo\n",
-            "Resources:\n",
-            "- org:// (List all org-mode files in the configured directory tree)\n",
-            "- org://{file} (Access the raw content of an allowed Org file)\n",
-            "- org-outline://{file} (Get the hierarchical structure of an Org file)\n",
-            "- org-heading://{file}#{heading} (Access the content of a specific headline by its path)\n",
-            "- org-id://{uuid} (Access Org node content by its unique ID property)\n",
-            "- org-agenda:// (List all agenda items/tasks)\n",
-            "- org-agenda://today (Today's scheduled tasks)\n",
-            "- org-agenda://week (This week's scheduled tasks)\n",
-        );
-
         ServerConfig::new(
             ServerCapabilities::builder()
                 .enable_tools()
                 .enable_resources()
-                .enable_completions()
                 .build(),
         )
-        .with_instructions(INSTRUCTIONS)
+        .with_instructions(
+            "Local-only org agenda tools. Responses use agendum.item/v1, agendum.agenda-entry/v1, agendum.mutation/v1, or agendum.error/v1 schemas.",
+        )
         .with_server_info(Implementation::new("agd", env!("CARGO_PKG_VERSION")))
     }
 
     async fn list_resources(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _: RequestContext<RoleServer>,
+        _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
         Ok(ListResourcesResult::with_all_items(vec![
-            Resource::new("org://", "org")
-                .with_description("List all org-mode files in the configured directory tree")
-                .with_mime_type("application/json"),
-            Resource::new("org-agenda://", "org-agenda")
-                .with_description("List all agenda items and tasks")
-                .with_mime_type("application/json"),
-            Resource::new("org-agenda://today", "org-agenda-today")
-                .with_description("Today's scheduled agenda items")
-                .with_mime_type("application/json"),
-            Resource::new("org-agenda://week", "org-agenda-week")
-                .with_description("This week's scheduled agenda items")
-                .with_mime_type("application/json"),
-        ]))
-    }
-
-    async fn list_resource_templates(
-        &self,
-        _: Option<PaginatedRequestParams>,
-        _: RequestContext<RoleServer>,
-    ) -> Result<ListResourceTemplatesResult, McpError> {
-        Ok(ListResourceTemplatesResult::with_all_items(vec![
-            ResourceTemplate::new("org://{file}", "org-file")
-                .with_description("Access the raw content of an org-mode file by its path")
-                .with_mime_type("text/org"),
-            ResourceTemplate::new("org-outline://{file}", "org-outline-file")
-                .with_description(
-                    "Get the hierarchical outline structure of an org-mode file as JSON",
-                )
-                .with_mime_type("application/json"),
-            ResourceTemplate::new("org-heading://{file}#{heading}", "org-heading-file")
-                .with_description(
-                    "Access the content of a specific heading within an org-mode file",
-                )
-                .with_mime_type("application/json"),
-            ResourceTemplate::new("org-id://{id}", "org-element-by-id")
-                .with_description(
-                    "Access the content of any org-mode element by its unique ID property",
-                )
-                .with_mime_type("plain/text"),
-            ResourceTemplate::new("org-agenda://day/{date}", "org-agenda-day")
-                .with_description("Access the agenda items for a specific day (YYYY-MM-DD)")
-                .with_mime_type("application/json"),
-            ResourceTemplate::new("org-agenda://week/{num}", "org-agenda-week")
-                .with_description("Access the agenda items for the specified week number")
-                .with_mime_type("application/json"),
-            ResourceTemplate::new("org-agenda://month/{num}", "org-agenda-month")
-                .with_description("Access the agenda items for the specified month number")
-                .with_mime_type("application/json"),
-            ResourceTemplate::new("org-agenda://query/from/{from}/to/{to}", "org-agenda-query")
-                .with_description("Access the agenda items for the specified date range")
+            Resource::new("agenda://today", "agenda-today")
+                .with_description("Today's native agenda-entry/v1 rows")
                 .with_mime_type("application/json"),
         ]))
     }
@@ -134,24 +43,26 @@ impl ServerHandler for OrgModeRouter {
         ReadResourceRequestParams { uri, .. }: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, McpError> {
-        match OrgModeRouter::parse_resource(uri.clone()) {
-            Some(OrgResource::OrgFiles) => self.list_files(uri).await,
-            Some(OrgResource::Org { path }) => self.read_file(uri, path).await,
-            Some(OrgResource::OrgOutline { path }) => self.outline(uri, path).await,
-            Some(OrgResource::OrgHeading { path, heading }) => {
-                self.heading(uri, path, heading).await
-            }
-            Some(OrgResource::OrgId { id }) => self.id(uri, id).await,
-            Some(OrgResource::OrgAgenda { agenda_view_type }) => {
-                self.read_agenda(uri, agenda_view_type).await
-            }
-
-            None => Err(McpError::resource_not_found(
-                format!("Invalid resource URI format: {}", uri),
-                Some(json!({"uri": uri})),
-            )),
+        if uri != "agenda://today" {
+            return Err(McpError::resource_not_found(
+                format!("unknown resource: {uri}"),
+                Some(json!({ "uri": uri })),
+            ));
         }
-        .map(Into::into)
+        let today = Local::now().date_naive();
+        let payload = match WorkspaceIndex::load(self.settings.clone()).and_then(|index| {
+            AgendaEngine::new(&index).agenda(&AgendaQuery {
+                from: today,
+                to: today,
+                today,
+                match_expression: None,
+            })
+        }) {
+            Ok(entries) => serde_json::to_string(&entries),
+            Err(error) => serde_json::to_string(error.response()),
+        }
+        .map_err(|error| McpError::internal_error(error.to_string(), None))?;
+        Ok(ReadResourceResult::new(vec![ResourceContents::text(payload, uri)]).into())
     }
 
     async fn initialize(
@@ -160,288 +71,5 @@ impl ServerHandler for OrgModeRouter {
         _context: RequestContext<RoleServer>,
     ) -> Result<InitializeResult, McpError> {
         Ok(self.get_info())
-    }
-}
-
-impl OrgModeRouter {
-    fn parse_resource(uri: String) -> Option<OrgResource> {
-        let uri = Self::decode_uri_path(&uri);
-
-        if uri == "org://" {
-            Some(OrgResource::OrgFiles)
-        } else if let Some(path) = uri.strip_prefix("org://")
-            && !path.is_empty()
-        {
-            Some(OrgResource::Org {
-                path: path.to_string(),
-            })
-        } else if let Some(id) = uri.strip_prefix("org-id://")
-            && !id.is_empty()
-        {
-            Some(OrgResource::OrgId { id: id.to_string() })
-        } else if let Some(path) = uri.strip_prefix("org-outline://")
-            && !path.is_empty()
-        {
-            Some(OrgResource::OrgOutline {
-                path: path.to_string(),
-            })
-        } else if let Some(remainder) = uri.strip_prefix("org-heading://")
-            && !remainder.is_empty()
-            && let Some((path, heading)) = remainder.split_once('#')
-            && !path.is_empty()
-            && !heading.is_empty()
-        {
-            Some(OrgResource::OrgHeading {
-                path: path.to_string(),
-                heading: heading.to_string(),
-            })
-        } else if let Some(remainder) = uri.strip_prefix("org-agenda://") {
-            let agenda_view_type = if remainder.is_empty() {
-                AgendaViewType::default()
-            } else {
-                remainder.try_into().unwrap_or_default()
-            };
-            Some(OrgResource::OrgAgenda { agenda_view_type })
-        } else {
-            None
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::mcp::{OrgModeRouter, resources::OrgResource};
-
-    #[test]
-    fn test_org_files_list_resource() {
-        let result = OrgModeRouter::parse_resource("org://".to_string());
-        assert!(matches!(result, Some(OrgResource::OrgFiles)));
-    }
-
-    #[test]
-    fn test_org_resource_parsing() {
-        let cases = vec![
-            ("org://simple.org", "simple.org"),
-            ("org://path/to/file.org", "path/to/file.org"),
-            (
-                "org://deep/nested/path/document.org",
-                "deep/nested/path/document.org",
-            ),
-            (
-                "org://file_with_underscores.org",
-                "file_with_underscores.org",
-            ),
-            ("org://file-with-dashes.org", "file-with-dashes.org"),
-        ];
-
-        for (uri, expected_path) in cases {
-            let result = OrgModeRouter::parse_resource(uri.to_string());
-            match result {
-                Some(OrgResource::Org { path }) => {
-                    assert_eq!(path, expected_path, "Failed for URI: {}", uri);
-                }
-                _ => {
-                    unreachable!("Expected Org resource for URI: {}", uri);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_org_outline_resource_parsing() {
-        let cases = vec![
-            ("org-outline://simple.org", "simple.org"),
-            ("org-outline://path/to/file.org", "path/to/file.org"),
-            (
-                "org-outline://deep/nested/path/document.org",
-                "deep/nested/path/document.org",
-            ),
-        ];
-
-        for (uri, expected_path) in cases {
-            let result = OrgModeRouter::parse_resource(uri.to_string());
-            match result {
-                Some(OrgResource::OrgOutline { path }) => {
-                    assert_eq!(path, expected_path, "Failed for URI: {}", uri);
-                }
-                _ => {
-                    unreachable!("Expected OrgOutline resource for URI: {}", uri);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_org_heading_resource_parsing() {
-        let cases = vec![
-            (
-                "org-heading://file.org#Introduction",
-                "file.org",
-                "Introduction",
-            ),
-            (
-                "org-heading://path/to/file.org#My Heading",
-                "path/to/file.org",
-                "My Heading",
-            ),
-            (
-                "org-heading://notes/tasks.org#Project Planning",
-                "notes/tasks.org",
-                "Project Planning",
-            ),
-            (
-                "org-heading://complex/path#Heading with Multiple Words",
-                "complex/path",
-                "Heading with Multiple Words",
-            ),
-            (
-                "org-heading://file.org#Section 1.2.3",
-                "file.org",
-                "Section 1.2.3",
-            ),
-        ];
-
-        for (uri, expected_path, expected_heading) in cases {
-            let result = OrgModeRouter::parse_resource(uri.to_string());
-            match result {
-                Some(OrgResource::OrgHeading { path, heading }) => {
-                    assert_eq!(path, expected_path, "Path failed for URI: {}", uri);
-                    assert_eq!(heading, expected_heading, "Heading failed for URI: {}", uri);
-                }
-                _ => {
-                    unreachable!("Expected OrgHeading resource for URI: {}", uri);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_uri_decoding() {
-        let cases = vec![
-            ("path%2Fto%2Ffile.org", "path/to/file.org"),
-            ("file%20with%20spaces.org", "file with spaces.org"),
-            ("deep%2Fnested%2Fpath.org", "deep/nested/path.org"),
-            (
-                "path%2Fto%2Ffile.org%23Special%20Heading",
-                "path/to/file.org#Special Heading",
-            ),
-        ];
-
-        for (encoded_path, expected_decoded) in cases {
-            let decoded = OrgModeRouter::decode_uri_path(encoded_path);
-            assert_eq!(
-                decoded, expected_decoded,
-                "URI decoding failed for: {}",
-                encoded_path
-            );
-        }
-    }
-
-    #[test]
-    fn test_uri_decoding_in_parsing() {
-        let result = OrgModeRouter::parse_resource("org://path%2Fto%2Ffile.org".to_string());
-        match result {
-            Some(OrgResource::Org { path }) => {
-                assert_eq!(path, "path/to/file.org");
-            }
-            _ => {
-                unreachable!("Failed to parse URL-encoded org URI");
-            }
-        }
-
-        let result = OrgModeRouter::parse_resource(
-            "org-heading://notes%2Ftasks.org%23Project%20Planning".to_string(),
-        );
-        match result {
-            Some(OrgResource::OrgHeading { path, heading }) => {
-                assert_eq!(path, "notes/tasks.org");
-                assert_eq!(heading, "Project Planning");
-            }
-            _ => {
-                unreachable!("Failed to parse URL-encoded org-heading URI");
-            }
-        }
-    }
-
-    #[test]
-    fn test_invalid_uris() {
-        let invalid_cases = vec![
-            ("", "empty string"),
-            ("invalid://path", "invalid scheme"),
-            ("org-outline://", "empty outline path"),
-            ("org-heading://", "empty heading URI"),
-            ("org-heading://path", "missing heading separator"),
-            ("org-heading://path#", "empty heading"),
-            ("org-heading://#heading", "empty path"),
-            ("random-string", "no scheme"),
-            ("org", "incomplete scheme"),
-            ("org:/", "incomplete scheme"),
-        ];
-
-        for (uri, description) in invalid_cases {
-            let result = OrgModeRouter::parse_resource(uri.to_string());
-            assert!(
-                result.is_none(),
-                "Expected None for {} (URI: '{}')",
-                description,
-                uri
-            );
-        }
-    }
-
-    #[test]
-    fn test_boundary_cases() {
-        assert!(matches!(
-            OrgModeRouter::parse_resource("org://a".to_string()),
-            Some(OrgResource::Org { path }) if path == "a"
-        ));
-
-        assert!(matches!(
-            OrgModeRouter::parse_resource("org-heading://a#b".to_string()),
-            Some(OrgResource::OrgHeading { path, heading }) if path == "a" && heading == "b"
-        ));
-
-        let result =
-            OrgModeRouter::parse_resource("org-heading://file.org#Heading: With Colon".to_string());
-        match result {
-            Some(OrgResource::OrgHeading { path, heading }) => {
-                assert_eq!(path, "file.org");
-                assert_eq!(heading, "Heading: With Colon");
-            }
-            _ => {
-                unreachable!("Failed to parse heading with special characters");
-            }
-        }
-
-        let result =
-            OrgModeRouter::parse_resource("org-heading://file.org#Section#Subsection".to_string());
-        match result {
-            Some(OrgResource::OrgHeading { path, heading }) => {
-                assert_eq!(path, "file.org");
-                assert_eq!(heading, "Section#Subsection");
-            }
-            _ => {
-                unreachable!("Failed to parse heading with multiple # characters");
-            }
-        }
-    }
-
-    #[test]
-    fn test_case_sensitivity() {
-        let invalid_cases = vec![
-            "ORG://path/to/file",
-            "Org://path/to/file",
-            "org-OUTLINE://path/to/file",
-            "ORG-HEADING://path#heading",
-        ];
-
-        for uri in invalid_cases {
-            let result = OrgModeRouter::parse_resource(uri.to_string());
-            assert!(
-                result.is_none(),
-                "Expected case-sensitive scheme rejection for: {}",
-                uri
-            );
-        }
     }
 }

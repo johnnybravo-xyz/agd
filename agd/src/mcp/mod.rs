@@ -1,14 +1,13 @@
 mod resources;
 mod tools;
-mod utils;
 
-use std::sync::Arc;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use clap::Args;
-use org_core::{LoggingConfig, OrgMode, OrgModeError, config::OrgConfig};
+use org_core::{Settings, load_settings};
 use rmcp::{ServiceExt, handler::server::tool::ToolRouter, transport::stdio};
-use tokio::{runtime::Builder, sync::Mutex};
+use tokio::runtime::Builder;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
@@ -20,44 +19,51 @@ pub(crate) struct McpCommand {
 }
 
 pub(crate) struct OrgModeRouter {
-    pub(crate) org_mode: Arc<Mutex<OrgMode>>,
+    pub(crate) settings: Settings,
+    pub(crate) project: String,
 }
 
 impl McpCommand {
-    pub(crate) fn execute(self, config: OrgConfig, logging: LoggingConfig) -> Result<()> {
+    pub(crate) fn execute(
+        self,
+        config: Option<String>,
+        root_directory: Option<String>,
+    ) -> Result<()> {
+        let project = root_directory.clone().unwrap_or_else(|| {
+            std::env::current_dir()
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| "unknown".to_string())
+        });
+        let settings = load_settings(
+            config.as_deref().map(Path::new),
+            root_directory.as_deref().map(Path::new),
+        )?
+        .settings;
         let log_level = self
             .log_level
             .as_deref()
-            .unwrap_or(&logging.level)
+            .unwrap_or("info")
             .parse::<tracing::Level>()
             .unwrap_or(tracing::Level::INFO);
-
         tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env().add_directive(log_level.into()))
             .with_writer(std::io::stderr)
             .try_init()
             .map_err(|error| anyhow::anyhow!("failed to initialize MCP logging: {error}"))?;
-
-        info!(
-            "Starting MCP server with org directory: {}",
-            config.org_directory
-        );
-
+        info!(roots = ?settings.files.roots, "starting stdio MCP server");
         Builder::new_multi_thread()
             .enable_all()
             .build()
             .context("failed to create MCP runtime")?
-            .block_on(serve(config))
+            .block_on(serve(settings, project))
     }
 }
 
-async fn serve(config: OrgConfig) -> Result<()> {
-    let service = OrgModeRouter::with_config(config)?
+async fn serve(settings: Settings, project: String) -> Result<()> {
+    let service = OrgModeRouter { settings, project }
         .serve(stdio())
         .await
-        .inspect_err(|error| {
-            error!("Error starting server: {error}");
-        })
+        .inspect_err(|error| error!("error starting MCP server: {error}"))
         .context("failed to start MCP server")?;
     service
         .waiting()
@@ -67,28 +73,7 @@ async fn serve(config: OrgConfig) -> Result<()> {
 }
 
 impl OrgModeRouter {
-    fn with_config(config: OrgConfig) -> Result<Self, OrgModeError> {
-        let org_mode = OrgMode::new(config)?;
-        Ok(Self {
-            org_mode: Arc::new(Mutex::new(org_mode)),
-        })
-    }
-
-    #[cfg(test)]
-    fn with_directory(org_dir: &str) -> Result<Self, OrgModeError> {
-        let config = OrgConfig {
-            org_directory: org_dir.to_string(),
-            ..OrgConfig::default()
-        };
-        let config = config.validate()?;
-        Self::with_config(config)
-    }
-
     pub(crate) fn tool_router() -> ToolRouter<Self> {
-        Self::tool_router_list_files()
-            + Self::tool_router_search()
-            + Self::tool_router_agenda()
-            + Self::tool_router_capture()
-            + Self::tool_router_update_todo()
+        Self::tool_router_native()
     }
 }

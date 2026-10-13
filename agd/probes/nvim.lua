@@ -1,0 +1,152 @@
+local function fail(message)
+  error("agendum nvim import: " .. message, 0)
+end
+
+local ok_orgmode, orgmode = pcall(require, "orgmode")
+if not ok_orgmode then
+  fail("require('orgmode') failed")
+end
+if type(orgmode.is_setup_called) ~= "function" or not orgmode.is_setup_called() then
+  fail("nvim-orgmode setup has not completed")
+end
+local ok_config, config = pcall(require, "orgmode.config")
+if not ok_config or type(config) ~= "table" then
+  fail("require('orgmode.config') returned an unsupported value")
+end
+local opts = config.opts or config
+if type(opts) ~= "table" then
+  fail("nvim-orgmode config has no opts table")
+end
+if type(orgmode.instance) ~= "function" then
+  fail("nvim-orgmode instance() capability is unavailable")
+end
+local instance = orgmode.instance()
+if type(instance) ~= "table" or type(instance.files) ~= "table" then
+  fail("nvim-orgmode files capability is unavailable")
+end
+if type(instance.files.load_sync) ~= "function" then
+  fail("nvim-orgmode files:load_sync capability is unavailable")
+end
+local loaded = instance.files:load_sync(true, 5000)
+if type(loaded) ~= "table" or type(loaded.filenames) ~= "function" then
+  fail("nvim-orgmode resolved filenames capability is unavailable")
+end
+
+local org_version = orgmode.version or opts.version
+if org_version ~= nil and tostring(org_version) ~= "0.7.5" then
+  fail("nvim-orgmode version " .. tostring(org_version) .. " is unsupported; expected 0.7.5")
+end
+if org_version == nil then
+  local module_path = package.searchpath("orgmode", package.path)
+    or vim.api.nvim_get_runtime_file("lua/orgmode/init.lua", false)[1]
+  local root = module_path and module_path:gsub("/lua/orgmode/init%.lua$", "") or nil
+  if root == nil or root == module_path or type(vim.system) ~= "function" then
+    fail("cannot determine the nvim-orgmode 0.7.5 root and commit")
+  end
+  local result = vim.system({ "git", "-C", root, "rev-parse", "HEAD" }, { text = true }):wait()
+  local commit = result.code == 0 and vim.trim(result.stdout or "") or ""
+  if commit ~= "359538284a21c1edac20cb8a0b6b772ca098098e" then
+    fail("nvim-orgmode commit " .. commit .. " is unsupported; expected release 0.7.5")
+  end
+  org_version = "0.7.5@" .. commit
+end
+
+local function strings(values)
+  local result = {}
+  for _, value in ipairs(values or {}) do
+    result[#result + 1] = tostring(value)
+  end
+  return result
+end
+
+local function todo_sequences(values)
+  local sequences = {}
+  if type(values) == "table" and type(values[1]) == "table" then
+    for _, sequence in ipairs(values) do
+      sequences[#sequences + 1] = strings(sequence)
+    end
+  else
+    sequences[1] = strings(values or { "TODO", "|", "DONE" })
+  end
+  return sequences
+end
+
+local function capture_templates(values)
+  local result = {}
+  for key, template in pairs(values or {}) do
+    if type(template) == "table" then
+      local body = template.template or template[3] or ""
+      local target = template.target or template[2]
+      local enabled = type(body) == "string" and type(target) ~= "function"
+      local diagnostics = {}
+      if type(body) ~= "string" then
+        diagnostics[#diagnostics + 1] = "dynamic template body is unsupported"
+      elseif body:find("%(", 1, true) then
+        enabled = false
+        diagnostics[#diagnostics + 1] = "%(sexp) template forms are disabled"
+      end
+      if type(target) == "function" then
+        diagnostics[#diagnostics + 1] = "dynamic capture target is unsupported"
+      end
+      result[tostring(key)] = {
+        desc = tostring(template.description or template[1] or key),
+        file = type(target) == "string" and target or nil,
+        template = type(body) == "string" and body or "",
+        enabled = enabled,
+        diagnostics = diagnostics,
+      }
+    end
+  end
+  return result
+end
+
+local function custom_commands(values)
+  local result = {}
+  for key, command in pairs(values or {}) do
+    local supported = type(command) == "table" and type(command.type) == "string"
+    result[#result + 1] = {
+      key = tostring(key),
+      description = tostring(type(command) == "table" and (command.description or key) or key),
+      kind = tostring(type(command) == "table" and (command.type or "unsupported") or "unsupported"),
+      match_expression = type(command) == "table" and command.match or nil,
+      enabled = supported,
+      diagnostics = supported and {} or { "custom command form is unsupported" },
+    }
+  end
+  table.sort(result, function(left, right) return left.key < right.key end)
+  return result
+end
+
+local version = vim.version()
+local week_start = opts.org_agenda_start_on_weekday == 0 and "sunday" or "monday"
+local output = {
+  editor = "nvim",
+  editor_version = string.format("%d.%d.%d", version.major, version.minor, version.patch),
+  org_version = tostring(org_version),
+  source = vim.env.AGENDUM_IMPORT_SOURCE or "profile",
+  agenda_files = strings(loaded:filenames()),
+  todo_sequences = todo_sequences(opts.org_todo_keywords),
+  tag_alist = strings(opts.org_tag_alist),
+  persistent_tags = strings(opts.org_tag_persistent_alist),
+  tag_inheritance_exclusions = strings(opts.org_tags_exclude_from_inheritance),
+  highest_priority = tostring(opts.org_highest_priority or "A"),
+  lowest_priority = tostring(opts.org_lowest_priority or "C"),
+  default_priority = tostring(opts.org_default_priority or "B"),
+  deadline_warning_days = tonumber(opts.org_deadline_warning_days or 14),
+  agenda_span = tostring(opts.org_agenda_span or "week"),
+  agenda_start_day = opts.org_agenda_start_day,
+  week_start = week_start,
+  skip_scheduled_if_done = opts.org_agenda_skip_scheduled_if_done == true,
+  skip_deadline_if_done = opts.org_agenda_skip_deadline_if_done == true,
+  skip_timestamp_if_done = opts.org_agenda_skip_timestamp_if_done == true,
+  sorting_strategy = strings(opts.org_agenda_sorting_strategy or { "time-up", "priority-down", "category-keep" }),
+  time_grid = strings(opts.org_agenda_time_grid),
+  log_done = tostring(opts.org_log_done or "nil"),
+  log_repeat = tostring(opts.org_log_repeat or "nil"),
+  log_into_drawer = opts.org_log_into_drawer == true,
+  capture = capture_templates(opts.org_capture_templates),
+  groups = {},
+  commands = custom_commands(opts.org_agenda_custom_commands),
+  diagnostics = {},
+}
+vim.api.nvim_out_write("AGENDUM_JSON:" .. vim.json.encode(output) .. "\n")

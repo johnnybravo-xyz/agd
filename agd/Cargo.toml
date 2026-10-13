@@ -3,14 +3,20 @@ anyhow = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 config = { workspace = true }
+crossterm.workspace = true
+csv.workspace = true
+notify.workspace = true
 org-core = { package = "agd-core", version = "0.0.1", path = "../org-core" }
 rmcp.workspace = true
+ratatui.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+similar.workspace = true
 tokio = { workspace = true, features = ["io-std", "rt-multi-thread", "signal", "sync"] }
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tempfile.workspace = true
 urlencoding = { workspace = true }
 
 [dev-dependencies]
