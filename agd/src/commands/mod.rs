@@ -1,26 +1,13 @@
+pub mod agenda;
+pub mod capture;
 pub mod check;
-pub mod config;
-pub mod element_by_id;
-pub mod heading;
 pub mod import;
 pub mod install;
-pub mod list;
-pub mod native;
-pub mod outline;
-pub mod read;
-pub mod search;
+pub mod setup;
 
+pub use agenda::AgendaCommand;
+pub use capture::CaptureCommand;
 pub use check::CheckCommand;
-pub use config::ConfigCommand;
-pub use element_by_id::ElementByIdCommand;
-pub use heading::HeadingCommand;
 pub use import::ImportCommand;
 pub use install::InstallCommand;
-pub use list::ListCommand;
-pub use native::{
-    AgendaCommand, CaptureCommand, DeadlineCommand, EditCommand, OpenCommand, QueryCommand,
-    RefileCommand, ScheduleCommand, StateCommand, TodoCommand, UndoCommand,
-};
-pub use outline::OutlineCommand;
-pub use read::ReadCommand;
-pub use search::SearchCommand;
+pub use setup::SetupCommand;

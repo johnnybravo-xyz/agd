@@ -15,6 +15,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Trim the CLI to `agd` (Today; `--pane`), `agenda`, `capture`, `mcp` and
+  `setup import|install|check`. People write through the TUI and agents
+  through MCP; `todo`, `q`, `state`, `schedule`, `deadline`, `edit`, `open`,
+  `refile`, `undo`, `config`, `tui`, `pane`, `list`, `read`, `outline`,
+  `heading`, `element-by-id` and `search` are gone.
+- `agd agenda` prints an org-agenda style buffer and takes `--match`.
+- `agd capture <key> "<text>"` parses the TUI tokens (`due:`, `on:`, `+tag`,
+  `#A`) instead of separate date, tag and priority flags.
 - Rename the product from agendum to Agenda. Identifiers use `agd`: the
   config and data directories (`~/.config/agd`, `~/.local/share/agd`), JSON
   schemas (`agd.item/v1` and siblings), the installed `agd` skill, and

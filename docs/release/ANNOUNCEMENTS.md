@@ -62,7 +62,7 @@ rows for the supported subset.
 
 Emacs remains the editor of record. Agenda detects dirty-buffer lock files,
 revalidates source under its own sidecar lock, and refuses ambiguous or stale
-writes. `agd open` returns directly to Emacs, while a one-time explicit daemon
+writes. Enter in the TUI returns directly to Emacs, while a one-time explicit daemon
 or batch probe can export declarative settings into a cold snapshot. Hooks,
 advice, sexps, and function targets are retained as unsupported diagnostics,
 not evaluated.
@@ -81,7 +81,7 @@ TUI, deterministic JSON/CSV commands, and guarded local writes. It watches for
 external edits and opens selected headings with direct Neovim argv rather than
 embedding an editor.
 
-The explicit `agd import nvim --profile ... --verify` probe runs against the
+The explicit `agd setup import nvim --profile ... --verify` probe runs against the
 installed nvim-orgmode version on Neovim 0.12. It imports agenda files, TODO
 keywords, tags, priorities, and declarative captures into a versioned cold
 snapshot. Missing or incompatible runtime capabilities fail the import loudly.

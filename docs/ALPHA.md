@@ -7,7 +7,7 @@ passes the full release verification matrix.
 ## Start criteria
 
 - Install the exact candidate commit as the only `agd` binary under test.
-- Run `agd check` on every approved root and archive the JSON report locally.
+- Run `agd setup check` on every approved root and archive the JSON report locally.
 - Back up the Org roots through the user's normal backup mechanism.
 - Confirm the journal directory is writable and perform one capture plus
   guarded undo on a disposable heading.
@@ -23,7 +23,7 @@ coexistence and stale-ref behavior are exercised.
 
 At the end of each day:
 
-1. Run `agd check --json` over all roots.
+1. Run `agd setup check --json` over all roots.
 2. Inspect pending and committed journal records in Agent review.
 3. Confirm any `stale_ref`, dirty-lock, or undo conflict corresponded to a real
    concurrent change.

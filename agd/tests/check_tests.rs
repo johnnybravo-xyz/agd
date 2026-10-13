@@ -16,7 +16,7 @@ fn check_uses_configured_root_and_emits_json() {
     let assertion = cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(directory.path())
-        .arg("check")
+        .args(["setup", "check"])
         .arg("--json")
         .assert()
         .success();
@@ -46,7 +46,7 @@ fn check_reports_duplicate_ids_and_exits_one() {
     let assertion = cargo::cargo_bin_cmd!("agd")
         .arg("--root-directory")
         .arg(directory.path())
-        .arg("check")
+        .args(["setup", "check"])
         .arg("--json")
         .assert()
         .code(1);

@@ -28,17 +28,15 @@ Type "$AGD agenda --span day --from 2026-10-13 --csv"
 Enter
 Sleep 6s
 
-Type "$AGD todo --match work --json"
+Type "$AGD agenda --match work --json"
 Enter
 Sleep 7s
 
-Type "ref=$($AGD todo --json | jq -r '.[0].ref')"
-Enter
-Type "$AGD state \"$ref\" DONE --dry-run"
+Type "$AGD capture t 'Renew passport due:fri +personal' --dry-run"
 Enter
 Sleep 8s
 
-Type "$AGD tui"
+Type "$AGD"
 Enter
 Sleep 5s
 Type "T"

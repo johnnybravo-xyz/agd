@@ -43,79 +43,49 @@ for the aggregate `SHA256SUMS` file. The Arch recipe lives in
 
 ## First run
 
-Create the native configuration, point it at one or more existing Org roots,
-and validate the files before enabling writes:
+Point `agd` at your Org files, or import the settings your editor already
+uses, then check the files before any write:
 
 ```bash
-agd config init
-$EDITOR "$(agd config path)"
-agd check
-agd agenda --span day
+mkdir -p ~/.config/agd
+printf '[files]\nroots = ["~/org"]\n' > ~/.config/agd/config.toml
+agd setup import emacs --dry-run --verify   # or: agd setup import nvim
+agd setup check
+agd
 ```
 
-With no subcommand, `agd` opens Today in the full-screen TUI. `agd pane` opens
-the compact glance surface. `agd capture -i` opens only the focused capture
-popup.
+`agd` opens Today. `agd --pane` opens the narrow glance pane for a tmux or
+herdr split, and `agd capture -i` opens only the capture popup, e.g. from
+`tmux display-popup -E agd capture -i`.
 
-## Command surface
+## Commands
 
 ```text
-agd agenda        Day, week, or month occurrences; text, JSON, or Emacs CSV
-agd todo          Unfinished items with an optional Org tags matcher
-agd q             Supported org-ql subset
-agd capture       Template capture, exact dry-run preview, or interactive popup
-agd state         Change TODO state
-agd schedule      Set or remove SCHEDULED
-agd deadline      Set or remove DEADLINE
-agd edit          Change title, tags, priority, properties, or add a note
-agd open          Open the exact heading with configured editor argv
-agd refile        Move one subtree below another heading
-agd undo          Guarded journal rollback
-agd check         Parsing, byte-stability, path, UTF-8, and duplicate-ID checks
-agd import        Cold Emacs or nvim-orgmode configuration snapshot
-agd install       Claude Code, Codex, or OpenCode integration
-agd mcp           Stdio-only MCP server
-agd tui           Full terminal workflow
-agd pane          Narrow watched agenda
+agd                 Today, triage, capture and Agent review (full-screen TUI)
+agd --pane          Narrow glance pane
+agd agenda          The agenda as org-agenda prints it, or --json / --csv
+agd capture         One line through a template, or the popup with -i
+agd mcp             Stdio MCP server for coding agents
+agd setup import    Emacs or nvim-orgmode settings into a snapshot
+agd setup install   MCP server and skill for Claude Code, Codex, OpenCode
+agd setup check     Parse drift, invalid UTF-8 and duplicate IDs
 ```
 
-The retained `list`, `read`, `outline`, `heading`, `element-by-id`, and `search`
-commands provide direct knowledge-base reads. Run `agd <command> --help` for the
-complete arguments.
-
-### Agenda and queries
+People change tasks in the TUI and agents change them through MCP; both use the
+same guarded write path and journal.
 
 ```bash
-agd agenda --span day --from 2026-10-13
-agd agenda --span week --json
-agd agenda --span day --csv
-agd todo --match '+work/NEXT'
-agd q '(and (todo "NEXT") (tags "work"))' --json
+agd agenda --span week
+agd agenda --match 'work-someday/NEXT|TODO' --json
+agd agenda --span day --csv            # same columns as org-batch-agenda-csv
+agd capture t "Renew passport due:fri +personal #A" --dry-run
 ```
 
-Agenda JSON and TODO output include a stable `ref`. A heading `:ID:` is used
-when unique. Otherwise the ref is a file, line hint, and content digest. Write
-commands accept either form and return `stale_ref` if the referenced heading
-has changed.
-
-### Writes and previews
-
-```bash
-# Capture with template key t.
-agd capture t "Renew passport" --scheduled +2d --tag personal
-
-# Preview exact source changes without touching the file or journal.
-agd state '<ref>' DONE --dry-run
-agd edit '<ref>' --tags +work,-inbox --priority A --dry-run
-
-# Apply and, if necessary, roll back the latest journal entry.
-agd schedule '<ref>' fri
-agd undo
-```
-
-All machine-facing write commands accept `--json`. Errors use stable codes such
-as `stale_ref`, `duplicate_id`, `symlink_write_refused`, and
-`emacs_dirty_lock`.
+Capture text uses the TUI tokens: `due:` deadline, `on:` scheduled, `+tag`,
+`#A`; dates take org relative syntax (`fri`, `+2d`, `2026-10-30`). JSON items
+carry a stable `ref`: the heading `:ID:` when unique, otherwise file, line hint
+and content digest. Errors use stable codes such as `stale_ref`,
+`duplicate_id`, `symlink_write_refused` and `editor_dirty`.
 
 ## Configuration
 
@@ -172,16 +142,16 @@ paths with spaces intact and prevents Org text from becoming shell syntax.
 `agd` never needs an editor process for normal reads, agenda evaluation, or
 writes. It notices external file changes in the TUI. Before a write it refuses
 an Emacs dirty-buffer lock, takes its own sidecar lock, reloads the file, and
-re-resolves the item ref. Use `e` in the TUI or `agd open <ref>` to hand the
-heading back to the configured editor.
+re-resolves the item ref. Press `e` or Enter in the TUI to hand the heading
+back to the configured editor.
 
 Configuration import runs an editor probe once and writes a versioned, cold
 TOML snapshot:
 
 ```bash
-agd import emacs --batch-profile vanilla --dry-run --verify
-agd import emacs --batch-profile vanilla --verify
-agd import nvim --profile orgmode --dry-run --verify
+agd setup import emacs --server work --dry-run --verify
+agd setup import emacs --batch-profile vanilla --verify
+agd setup import nvim --profile orgmode --dry-run --verify
 ```
 
 Daemon selection is explicit. Batch and Neovim profiles are executable plus
@@ -204,16 +174,16 @@ CLI and TUI captures are never redirected.
 Install project-local client configuration and the `agd` skill with:
 
 ```bash
-agd install --directory . claude
-agd install --directory . codex
-agd install --directory . opencode
+agd setup install --directory . claude
+agd setup install --directory . codex
+agd setup install --directory . opencode
 ```
 
 Installers do not expose agenda content at session start. Claude's session
 agenda is opt-in and requires a named filtered profile:
 
 ```bash
-agd install --directory . claude --with-session-agenda work
+agd setup install --directory . claude --with-session-agenda work
 ```
 
 ## Safety and compatibility

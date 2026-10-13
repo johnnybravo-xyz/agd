@@ -2,34 +2,30 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use org_core::{AgdError, OrgMode};
+use org_core::AgdError;
 
 mod commands;
-mod config;
 mod importer;
 mod mcp;
 mod tui;
-use commands::{
-    AgendaCommand, CaptureCommand, CheckCommand, ConfigCommand, DeadlineCommand, EditCommand,
-    ElementByIdCommand, HeadingCommand, ImportCommand, InstallCommand, ListCommand, OpenCommand,
-    OutlineCommand, QueryCommand, ReadCommand, RefileCommand, ScheduleCommand, SearchCommand,
-    StateCommand, TodoCommand, UndoCommand,
-};
-use config::CliAppConfig;
+use commands::{AgendaCommand, CaptureCommand, SetupCommand};
 use mcp::McpCommand;
 
+/// Org agenda for terminals and coding agents. With no command, opens Today.
 #[derive(Parser)]
-#[command(name = "agd")]
-#[command(about = "Local-first org-mode tools for terminals and coding agents")]
-#[command(version = env!("CARGO_PKG_VERSION"))]
+#[command(name = "agd", version)]
 struct Cli {
-    /// Path to configuration file
-    #[arg(short, long)]
+    /// Configuration file (default: the platform config dir + agd/config.toml)
+    #[arg(short, long, global = true)]
     config: Option<String>,
 
-    /// Root directory containing org-mode files
-    #[arg(short, long)]
+    /// Use this directory as the only files root for this run
+    #[arg(short, long, global = true)]
     root_directory: Option<String>,
+
+    /// Open the narrow glance pane for a tmux or herdr split
+    #[arg(long)]
+    pane: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -37,54 +33,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// List agenda occurrences
+    /// Print the agenda like org-agenda, or as --json / --csv
     Agenda(AgendaCommand),
-    /// List unfinished TODO items
-    Todo(TodoCommand),
-    /// Query items with the supported org-ql subset
-    Q(QueryCommand),
-    /// Capture a new heading from a configured template
+    /// Capture one line through a template, or open the popup with -i
     Capture(CaptureCommand),
-    /// Change an item's TODO state
-    State(StateCommand),
-    /// Set an item's scheduled timestamp
-    Schedule(ScheduleCommand),
-    /// Set an item's deadline
-    Deadline(DeadlineCommand),
-    /// Edit item title, tags, priority, properties, or note
-    Edit(EditCommand),
-    /// Open an item in the configured editor
-    Open(OpenCommand),
-    /// Refile an item below another item
-    Refile(RefileCommand),
-    /// Undo a guarded journal entry
-    Undo(UndoCommand),
-    /// Check org files for parsing and identity problems
-    Check(CheckCommand),
-    /// Configuration management
-    Config(ConfigCommand),
-    /// Import resolved editor configuration into a cold native snapshot
-    Import(ImportCommand),
-    /// Install a privacy-safe coding-agent integration
-    Install(InstallCommand),
-    /// List all .org files in a directory
-    List(ListCommand),
-    /// Run the stdio Model Context Protocol server
+    /// Run the stdio MCP server for coding agents
     Mcp(McpCommand),
-    /// Open the full-screen terminal workflow
-    Tui,
-    /// Open the narrow glance surface
-    Pane,
-    /// Read the contents of an org file
-    Read(ReadCommand),
-    /// Get the outline (headings) of an org file
-    Outline(OutlineCommand),
-    /// Extract content from a specific heading in an org file
-    Heading(HeadingCommand),
-    /// Extract content from an element by ID across all org files
-    ElementById(ElementByIdCommand),
-    /// Search for text content across all org files using fuzzy matching
-    Search(SearchCommand),
+    /// Import editor settings, install agent integrations, check files
+    Setup(SetupCommand),
 }
 
 fn main() -> ExitCode {
@@ -107,66 +63,19 @@ fn main() -> ExitCode {
     }
 }
 
+/// Returns true when the command completed but found problems (exit 1).
 fn run() -> Result<bool> {
     let Cli {
         config,
         root_directory,
+        pane,
         command,
     } = Cli::parse();
-    let Some(command) = command else {
-        tui::run(config, root_directory, false)?;
-        return Ok(false);
-    };
-
     match command {
-        Commands::Agenda(command) => command.execute(config, root_directory),
-        Commands::Todo(command) => command.execute(config, root_directory),
-        Commands::Q(command) => command.execute(config, root_directory),
-        Commands::Capture(command) => command.execute(config, root_directory),
-        Commands::State(command) => command.execute(config, root_directory),
-        Commands::Schedule(command) => command.execute(config, root_directory),
-        Commands::Deadline(command) => command.execute(config, root_directory),
-        Commands::Edit(command) => command.execute(config, root_directory),
-        Commands::Open(command) => command.execute(config, root_directory),
-        Commands::Refile(command) => command.execute(config, root_directory),
-        Commands::Undo(command) => command.execute(config, root_directory),
-        Commands::Config(command) => command.execute(config),
-        Commands::Import(command) => command.execute(config, root_directory),
-        Commands::Install(command) => command.execute(config, root_directory),
-        Commands::Check(command) => return command.execute(config, root_directory),
-        Commands::Mcp(command) => command.execute(config, root_directory),
-        Commands::Tui => tui::run(config, root_directory, false),
-        Commands::Pane => tui::run(config, root_directory, true),
-        command => {
-            let config = CliAppConfig::load(config, root_directory)?;
-            let org_mode = OrgMode::new(config.org)?;
-            match command {
-                Commands::List(command) => command.execute(org_mode, config.cli),
-                Commands::Read(command) => command.execute(org_mode, config.cli),
-                Commands::Outline(command) => command.execute(org_mode, config.cli),
-                Commands::Heading(command) => command.execute(org_mode, config.cli),
-                Commands::ElementById(command) => command.execute(org_mode, config.cli),
-                Commands::Search(command) => command.execute(org_mode, config.cli),
-                Commands::Agenda(_)
-                | Commands::Todo(_)
-                | Commands::Q(_)
-                | Commands::Capture(_)
-                | Commands::State(_)
-                | Commands::Schedule(_)
-                | Commands::Deadline(_)
-                | Commands::Edit(_)
-                | Commands::Open(_)
-                | Commands::Refile(_)
-                | Commands::Undo(_)
-                | Commands::Check(_)
-                | Commands::Config(_)
-                | Commands::Import(_)
-                | Commands::Install(_)
-                | Commands::Mcp(_)
-                | Commands::Tui
-                | Commands::Pane => unreachable!(),
-            }
-        }
-    }?;
-    Ok(false)
+        None => tui::run(config, root_directory, pane).map(|()| false),
+        Some(Commands::Agenda(command)) => command.execute(config, root_directory).map(|()| false),
+        Some(Commands::Capture(command)) => command.execute(config, root_directory).map(|()| false),
+        Some(Commands::Mcp(command)) => command.execute(config, root_directory).map(|()| false),
+        Some(Commands::Setup(command)) => command.execute(config, root_directory),
+    }
 }

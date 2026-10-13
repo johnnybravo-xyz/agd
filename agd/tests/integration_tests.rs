@@ -62,21 +62,10 @@ impl Fixture {
         command.env("XDG_DATA_HOME", self.directory.path().join("data"));
         command
     }
-
-    fn first_ref(&self) -> String {
-        let output = self
-            .command()
-            .args(["todo", "--json"])
-            .output()
-            .expect("todo command");
-        assert!(output.status.success());
-        let items: Value = serde_json::from_slice(&output.stdout).expect("todo JSON");
-        items[0]["ref"].as_str().expect("item ref").to_string()
-    }
 }
 
 #[test]
-fn agenda_todo_and_query_emit_shared_native_schemas() {
+fn agenda_prints_org_agenda_layout_and_shared_schemas() {
     let fixture = Fixture::new();
     let agenda = fixture
         .command()
@@ -91,82 +80,67 @@ fn agenda_todo_and_query_emit_shared_native_schemas() {
 
     fixture
         .command()
-        .args(["q", "(and (todo \"NEXT\") (tags \"work\"))"])
+        .args(["agenda", "--span", "day", "--from", "2026-10-13"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("File paperwork"))
-        .stdout(predicate::str::contains("Renew passport").not());
+        .stdout(predicate::str::contains("Tuesday    13 October 2026"))
+        .stdout(predicate::str::contains(
+            "  cli:        09:30...... Scheduled:  TODO Renew passport  :admin:",
+        ));
+
+    fixture
+        .command()
+        .args([
+            "agenda",
+            "--from",
+            "2026-10-13",
+            "--match",
+            "admin",
+            "--csv",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Renew passport"));
 }
 
 #[test]
-fn write_preview_is_exact_and_does_not_mutate() {
+fn capture_parses_tokens_and_keeps_body_literal() {
     let fixture = Fixture::new();
     let before = fs::read(&fixture.tasks).expect("pre-image");
-    fixture
-        .command()
-        .args(["state", &fixture.first_ref(), "DONE", "--dry-run"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("-* TODO Renew passport"))
-        .stdout(predicate::str::contains("+* DONE Renew passport"));
-    assert_eq!(fs::read(&fixture.tasks).expect("post-preview"), before);
-}
-
-#[test]
-fn stale_write_returns_error_schema() {
-    let fixture = Fixture::new();
-    let item_ref = fixture.first_ref();
-    fixture
-        .command()
-        .args(["state", &item_ref, "DONE"])
-        .assert()
-        .success();
-    let assertion = fixture
-        .command()
-        .args(["state", &item_ref, "DONE", "--json"])
-        .assert()
-        .failure();
-    let error: Value =
-        serde_json::from_slice(&assertion.get_output().stderr).expect("error schema");
-    assert_eq!(error["schema"], "agd.error/v1");
-    assert_eq!(error["code"], "stale_ref");
-}
-
-#[test]
-fn capture_uses_configured_template_and_keeps_body_literal() {
-    let fixture = Fixture::new();
     fixture
         .command()
         .args([
             "capture",
             "t",
-            "Call embassy",
+            "Call embassy due:2026-10-30 +admin #A",
             "--body",
             "%(never-evaluate)",
-            "--deadline",
-            "2026-10-30 -7d",
             "--dry-run",
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("** TODO Call embassy"))
+        .stdout(predicate::str::contains(
+            "** TODO [#A] Call embassy :admin:",
+        ))
         .stdout(predicate::str::contains("%(never-evaluate)"))
-        .stdout(predicate::str::contains("DEADLINE: <2026-10-30 Fri -7d>"));
+        .stdout(predicate::str::contains("DEADLINE: <2026-10-30 Fri>"));
+    assert_eq!(fs::read(&fixture.tasks).expect("post-preview"), before);
 }
 
 #[test]
-fn command_help_exposes_the_spec_surface() {
-    cargo::cargo_bin_cmd!("agd")
+fn help_lists_only_the_five_surfaces() {
+    let assertion = cargo::cargo_bin_cmd!("agd")
         .arg("--help")
         .assert()
-        .success()
-        .stdout(predicate::str::contains("agenda"))
-        .stdout(predicate::str::contains("todo"))
-        .stdout(predicate::str::contains("capture"))
-        .stdout(predicate::str::contains("state"))
-        .stdout(predicate::str::contains("schedule"))
-        .stdout(predicate::str::contains("deadline"))
-        .stdout(predicate::str::contains("edit"))
-        .stdout(predicate::str::contains("open"))
-        .stdout(predicate::str::contains("mcp"));
+        .success();
+    let help = String::from_utf8_lossy(&assertion.get_output().stdout).into_owned();
+    for command in ["agenda", "capture", "mcp", "setup", "--pane"] {
+        assert!(help.contains(command), "missing {command} in\n{help}");
+    }
+    for removed in ["todo", "state", "schedule", "outline", "search"] {
+        assert!(
+            !help.contains(&format!("  {removed} ")),
+            "{removed} still listed"
+        );
+    }
 }

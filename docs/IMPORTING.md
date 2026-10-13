@@ -50,9 +50,9 @@ args = ["run", "--"]
 Preview the exact snapshot diff and verification report before writing:
 
 ```bash
-agd import emacs --batch-profile vanilla --dry-run --verify
-agd import emacs --batch-profile vanilla --stdout
-agd import emacs --batch-profile vanilla --verify
+agd setup import emacs --batch-profile vanilla --dry-run --verify
+agd setup import emacs --batch-profile vanilla --stdout
+agd setup import emacs --batch-profile vanilla --verify
 ```
 
 `--server NAME` asks a specific running daemon (`emacsclient --socket-name`)
@@ -88,8 +88,8 @@ args = ["--headless", "-u", "/home/me/.config/nvim/init.lua"]
 standalone Neovim init file.
 
 ```bash
-agd import nvim --profile orgmode --dry-run --verify
-agd import nvim --profile orgmode --verify
+agd setup import nvim --profile orgmode --dry-run --verify
+agd setup import nvim --profile orgmode --verify
 ```
 
 The probe requires nvim-orgmode to be loaded and its setup state to be

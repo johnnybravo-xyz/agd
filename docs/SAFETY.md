@@ -8,7 +8,7 @@ spans and preserves all other bytes, or it fails before replacing the file.
 Configured `files.roots` are the trust boundary. Discovery is deterministic
 and ignores paths outside those roots. A read through a symlink is accepted
 only when canonicalization ends inside an approved root. Files must be UTF-8
-for parsing or mutation; `agd check` reports invalid input without rewriting it.
+for parsing or mutation; `agd setup check` reports invalid input without rewriting it.
 
 A unique `:ID:` is the preferred identity. Duplicate IDs are reported before a
 targeted write. Headings without IDs receive a ref composed from file, line
@@ -45,7 +45,7 @@ post-image.
 ## Undo
 
 Journal entries store pre-image and post-image hashes plus inverse byte patches.
-`agd undo` applies an inverse only when the current file still matches the
+Undo (`u` in the TUI) applies an inverse only when the current file still matches the
 recorded post-image. A later editor or agent change therefore causes a conflict
 instead of overwriting newer work. Multi-file refile transactions are grouped
 and reversed as one operation.
@@ -87,7 +87,7 @@ Normal operation performs no network requests and starts no background service.
 `agd mcp` communicates only over stdin/stdout. Logs go to stderr or local files
 and do not contain telemetry exporters.
 
-The only runtime subprocesses are explicit actions: `agd open`, editor import,
+The only runtime subprocesses are explicit actions: opening the editor from the TUI, editor import,
 and opt-in integration hooks. Commands and arguments are passed as argv arrays,
 never interpolated into a shell command. Imported agenda paths outside approved
 roots are disabled with a diagnostic. Imported snapshots cannot broaden roots
