@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2]
+
+### ✨ Features
+
+
+- *(org)* Add org-update-todo tool and CLI command for updating TODOs ([#213](https://github.com/johnnybravo-xyz/agd/pull/213)) - ([8316984](https://github.com/johnnybravo-xyz/agd/commit/831698408cfd4faf30046a45e3c452843c97660f))
+- *(org)* Implement capture functionality ([#171](https://github.com/johnnybravo-xyz/agd/pull/171)) - ([a3690d4](https://github.com/johnnybravo-xyz/agd/commit/a3690d4c0b1654a49d12f2d1a0318aaee0174c8a))
+- Add lossless org checks and clean integrations - ([fa0f0db](https://github.com/johnnybravo-xyz/agd/commit/fa0f0db843c59c085ec4471782aee557320d8259))
+- Publish CLI as agd - ([41b4841](https://github.com/johnnybravo-xyz/agd/commit/41b484160d82974e7b8b29d2959845ef5c72c45a))
+- Extend org-update-todo with title, body, and property drawer support ([#216](https://github.com/johnnybravo-xyz/agd/pull/216)) - ([89524c0](https://github.com/johnnybravo-xyz/agd/commit/89524c065666bd39b25ff8d2e5dda346442fc741))
+- Add agent skills plugin for Claude Code, Codex, Cursor, and OpenCode ([#214](https://github.com/johnnybravo-xyz/agd/pull/214)) - ([ca88d64](https://github.com/johnnybravo-xyz/agd/commit/ca88d6418ba9958ebe75423968f4a4d4b815dbbb))
+- Implement agenda view functionality ([#86](https://github.com/johnnybravo-xyz/agd/pull/86)) - ([87e412d](https://github.com/johnnybravo-xyz/agd/commit/87e412dbcf5136972afb74ee0dd97400e3f883a3))
+
+### 🚜 Refactor
+
+
+- *(config)* [**breaking**] Improve configuration architecture ([#78](https://github.com/johnnybravo-xyz/agd/pull/78)) - ([4053d2e](https://github.com/johnnybravo-xyz/agd/commit/4053d2e8655125ec712438d021c89c768dd0962b))
+- Consolidate MCP into agd - ([45862d3](https://github.com/johnnybravo-xyz/agd/commit/45862d3014d071a1046f57ead5487ec634a6862b))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Release v0.0.2 - ([e7a6fed](https://github.com/johnnybravo-xyz/agd/commit/e7a6fedd6247f9ff1e49977e97c9701ef3eed65b))
+
+### Other changes
+
+
+- *(readme)* Simplify ([#217](https://github.com/johnnybravo-xyz/agd/pull/217)) - ([d0dd797](https://github.com/johnnybravo-xyz/agd/commit/d0dd7978cafe9e91c96877915f13c12e5bf29b2c))
+- Fix Windows MCP test build - ([01dd699](https://github.com/johnnybravo-xyz/agd/commit/01dd699b4dcbc8d75944229092a7a0125bda3204))
+- Fix cross-platform release gates - ([48755e9](https://github.com/johnnybravo-xyz/agd/commit/48755e9795e7e65391f7616455353250b33899b8))
+- Document native workflows and release readiness - ([7022a94](https://github.com/johnnybravo-xyz/agd/commit/7022a94748cf10345b95ea9bd8ba199a0121c622))
+- Finish native command and TUI surfaces - ([89c3453](https://github.com/johnnybravo-xyz/agd/commit/89c345369292aa87623d4b6dcdf49bb2364be7cb))
+- Refine TUI task workflows - ([2d8a2da](https://github.com/johnnybravo-xyz/agd/commit/2d8a2da7907b411100142f3580fd3fcf81c14291))
+- Replace legacy adapters with native surfaces - ([fa7a325](https://github.com/johnnybravo-xyz/agd/commit/fa7a32558cada112ba7fff4779ff8fdad7193b1c))
+- Rebrand project for agd - ([d6c7bce](https://github.com/johnnybravo-xyz/agd/commit/d6c7bcedbc5eb2d6ddd7ef0d0adc07164cb188e5))
+- Update configuration sample and path in README ([#120](https://github.com/johnnybravo-xyz/agd/pull/120)) - ([fa9ad89](https://github.com/johnnybravo-xyz/agd/commit/fa9ad89043f4ff2e38703f84daaef72d8c664b35))
+- Add cargo install and GitHub releases to setup instructions ([#81](https://github.com/johnnybravo-xyz/agd/pull/81)) - ([2b543ed](https://github.com/johnnybravo-xyz/agd/commit/2b543edfe29cc1d652f9b1880a09eecb4a41f432))
+- Convert README from org-mode to markdown ([#72](https://github.com/johnnybravo-xyz/agd/pull/72)) - ([2d7d3ec](https://github.com/johnnybravo-xyz/agd/commit/2d7d3eceec8b1e2f921b796a281f44d94fdaa293))
+
+
 ## [0.0.2](https://github.com/johnnybravo-xyz/agd/compare/agd-v0.0.1...agd-v0.0.2)
 
 ### ✨ Features
