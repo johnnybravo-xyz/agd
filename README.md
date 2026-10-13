@@ -228,6 +228,7 @@ agenda behavior and known unsupported Org forms are in
 ## Development
 
 ```bash
+make build
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
