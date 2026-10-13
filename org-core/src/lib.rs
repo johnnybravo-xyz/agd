@@ -8,7 +8,10 @@ pub mod paths;
 pub mod settings;
 pub mod write;
 
-pub use agenda_engine::{AgendaEngine, AgendaQuery, AgendaSpan, agenda_csv, agenda_title};
+pub use agenda_engine::{
+    AgendaEngine, AgendaQuery, AgendaSpan, ViewSection, agenda_csv, agenda_title, items_csv,
+    span_days,
+};
 pub use check::{
     CHECK_SCHEMA, CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError,
     IndexedHeadline, OrgDocument, SourceSpan, check_paths, check_settings,
@@ -34,7 +37,8 @@ pub use settings::{
     AgendaSettings, AgentProfile, AgentSettings, CaptureTemplate, CommandProfile,
     EMACS_IMPORT_SCHEMA, EditorImportSettings, EditorSettings, FilesSettings, IdPolicy,
     ImportSettings, LoadedSettings, NVIM_IMPORT_SCHEMA, Settings, TagsSettings, TodoSettings,
-    TriageSettings, load_settings, resolve_config_path, snapshot_or_default,
+    TriageSettings, VIEW_BLOCK_KINDS, ViewBlock, ViewSettings, load_settings, resolve_config_path,
+    snapshot_or_default,
 };
 pub use write::{
     Change, EditIntent, JournalRecord, JournalStatus, Patch, RefileResult, StoredPatch, UndoResult,

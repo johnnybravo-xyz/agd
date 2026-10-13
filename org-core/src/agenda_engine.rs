@@ -5,10 +5,50 @@ use std::sync::LazyLock;
 use chrono::{Datelike, Duration, Months, NaiveDate};
 use regex::Regex;
 
+use serde::Serialize;
+
 use crate::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, AgendaSettings, HeadlineSpan, Item, Occurrence,
-    OccurrenceType, PlanningTimestamp, WorkspaceIndex,
+    OccurrenceType, PlanningTimestamp, ViewSettings, WorkspaceIndex,
 };
+
+/// One block of a saved view: agenda rows for an agenda block, otherwise a
+/// list of items. `from`/`to` are set for agenda blocks only.
+#[derive(Clone, Debug, Serialize)]
+pub struct ViewSection {
+    pub header: String,
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+    pub entries: Vec<AgendaEntry>,
+    pub items: Vec<Item>,
+}
+
+/// Agenda bounds for an org-agenda span: day, week, month, or a number of
+/// days starting at `start`.
+pub fn span_days(
+    span: &str,
+    start: NaiveDate,
+    week_start: &str,
+) -> Result<(NaiveDate, NaiveDate), AgdError> {
+    match span {
+        "day" => Ok(AgendaSpan::Day.bounds(start, week_start)),
+        "week" => Ok(AgendaSpan::Week.bounds(start, week_start)),
+        "month" => Ok(AgendaSpan::Month.bounds(start, week_start)),
+        days => {
+            let days = days
+                .parse::<i64>()
+                .ok()
+                .filter(|days| *days > 0)
+                .ok_or_else(|| {
+                    AgdError::new(
+                        "invalid_span",
+                        format!("agenda span must be day, week, month or a day count: {span}"),
+                    )
+                })?;
+            Ok((start, start + Duration::days(days - 1)))
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AgendaSpan {
@@ -126,6 +166,85 @@ impl<'a> AgendaEngine<'a> {
             .collect();
         items.sort_by(compare_items);
         Ok(items)
+    }
+
+    /// Every heading matching an Emacs tags match, done or not, like an
+    /// org-agenda `tags` block.
+    pub fn tags(&self, match_expression: &str) -> Result<Vec<Item>, AgdError> {
+        let matcher = TagTodoMatcher::parse(match_expression)?;
+        let mut items: Vec<Item> = self
+            .index
+            .items()
+            .filter(|item| matcher.matches(item))
+            .cloned()
+            .collect();
+        items.sort_by(compare_items);
+        Ok(items)
+    }
+
+    /// Runs a saved view block by block. `start` is the first agenda day
+    /// before span alignment, as for `agd agenda --from`.
+    pub fn view(
+        &self,
+        view: &ViewSettings,
+        start: NaiveDate,
+        today: NaiveDate,
+        log_mode: bool,
+    ) -> Result<Vec<ViewSection>, AgdError> {
+        let settings = self.index.settings();
+        let mut sections = Vec::new();
+        for block in &view.blocks {
+            let match_expression = block.match_expression.clone();
+            let section = match block.kind.as_str() {
+                "agenda" => {
+                    let span = block.span.as_deref().unwrap_or(&settings.agenda.span);
+                    let (from, to) = span_days(span, start, &settings.agenda.week_start)?;
+                    ViewSection {
+                        header: block.header.clone().unwrap_or_default(),
+                        from: Some(from),
+                        to: Some(to),
+                        entries: self.agenda(&AgendaQuery {
+                            from,
+                            to,
+                            today,
+                            match_expression,
+                            log_mode,
+                        })?,
+                        items: Vec::new(),
+                    }
+                }
+                kind => {
+                    let keywords = match_expression.as_deref().unwrap_or("");
+                    let (items, default_header) = match kind {
+                        "alltodo" => (
+                            self.todo(None)?,
+                            "Global list of TODO items of type: ALL".to_string(),
+                        ),
+                        "todo" => (
+                            self.todo(Some(&format!("/{keywords}")))?,
+                            format!("Global list of TODO items of type: {keywords}"),
+                        ),
+                        "tags" => (
+                            self.tags(keywords)?,
+                            format!("Headlines with TAGS match: {keywords}"),
+                        ),
+                        _ => (
+                            self.todo(Some(keywords))?,
+                            format!("Headlines with TAGS match: {keywords}"),
+                        ),
+                    };
+                    ViewSection {
+                        header: block.header.clone().unwrap_or(default_header),
+                        from: None,
+                        to: None,
+                        entries: Vec::new(),
+                        items,
+                    }
+                }
+            };
+            sections.push(section);
+        }
+        Ok(sections)
     }
 
     pub fn query(&self, expression: &str, today: NaiveDate) -> Result<Vec<Item>, AgdError> {
@@ -888,6 +1007,36 @@ fn occurrence_name(kind: OccurrenceType) -> &'static str {
     }
 }
 
+/// TODO-list rows in the org-batch-agenda-csv layout (type `todo`, no date).
+pub fn items_csv(items: &[Item]) -> String {
+    let mut output = String::new();
+    for item in items {
+        let mut seen_tags = BTreeSet::new();
+        let tags = item
+            .inherited_tags
+            .iter()
+            .chain(&item.tags)
+            .filter(|tag| seen_tags.insert((*tag).clone()))
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(":");
+        let fields = [
+            item.category.clone(),
+            agenda_title(item),
+            "todo".to_string(),
+            item.todo.clone().unwrap_or_default(),
+            tags,
+            String::new(),
+            String::new(),
+            String::new(),
+            item.priority.clone().unwrap_or_default(),
+        ];
+        output.push_str(&fields.map(|field| csv_field(&field)).join(","));
+        output.push('\n');
+    }
+    output
+}
+
 fn csv_field(value: &str) -> String {
     if value.contains([',', '"', '\n', '\r']) {
         format!("\"{}\"", value.replace('"', "\"\""))
@@ -899,7 +1048,7 @@ fn csv_field(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Settings;
+    use crate::{Settings, ViewBlock};
 
     fn fixture(source: &str) -> (tempfile::TempDir, WorkspaceIndex) {
         let temp = tempfile::tempdir().unwrap();
@@ -909,6 +1058,55 @@ mod tests {
         settings.files.agenda = vec!["**/*.org".to_string()];
         let index = WorkspaceIndex::load(settings).unwrap();
         (temp, index)
+    }
+
+    #[test]
+    fn views_run_blocks_in_order_like_a_block_agenda() {
+        let (_temp, index) = fixture(
+            "#+TODO: TODO NEXT | DONE\n* TODO Today :work:\nSCHEDULED: <2026-10-13 Tue>\n* NEXT Later :home:\n* DONE Old :work:\n* Note :work:\n",
+        );
+        let view = ViewSettings {
+            desc: "Mixed".to_string(),
+            blocks: vec![
+                ViewBlock {
+                    kind: "agenda".to_string(),
+                    match_expression: None,
+                    span: Some("day".to_string()),
+                    header: Some("Today".to_string()),
+                },
+                ViewBlock {
+                    kind: "todo".to_string(),
+                    match_expression: Some("NEXT".to_string()),
+                    span: None,
+                    header: None,
+                },
+                ViewBlock {
+                    kind: "tags".to_string(),
+                    match_expression: Some("work".to_string()),
+                    span: None,
+                    header: None,
+                },
+            ],
+        };
+        let today = NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+        let sections = AgendaEngine::new(&index)
+            .view(&view, today, today, false)
+            .unwrap();
+        assert_eq!(sections[0].header, "Today");
+        assert_eq!(sections[0].entries.len(), 1);
+        let titles = |section: &ViewSection| -> Vec<String> {
+            section
+                .items
+                .iter()
+                .map(|item| item.title.clone())
+                .collect()
+        };
+        assert_eq!(
+            sections[1].header,
+            "Global list of TODO items of type: NEXT"
+        );
+        assert_eq!(titles(&sections[1]), ["Later"]);
+        assert_eq!(titles(&sections[2]), ["Today", "Old", "Note"]);
     }
 
     #[test]

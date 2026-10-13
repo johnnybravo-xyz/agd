@@ -4,8 +4,8 @@ use anyhow::{Context, Result, anyhow};
 use chrono::{Datelike, Duration, Local, NaiveDate};
 use clap::{Args, ValueEnum};
 use org_core::{
-    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Settings, WorkspaceIndex, agenda_csv,
-    agenda_title, load_settings, parse_date_input,
+    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Settings, ViewSection, WorkspaceIndex,
+    agenda_csv, agenda_title, items_csv, load_settings, parse_date_input,
 };
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -26,6 +26,9 @@ pub struct AgendaCommand {
     /// Emacs tags/todo match, e.g. 'work-someday/NEXT|TODO'
     #[arg(long = "match")]
     match_expression: Option<String>,
+    /// Run a saved view, like org-agenda's dispatcher keys (n, or [views.KEY])
+    #[arg(long, conflicts_with_all = ["span", "match_expression"])]
+    view: Option<String>,
     /// Use the files and match of a configured agents.profiles entry
     #[arg(long)]
     profile: Option<String>,
@@ -69,6 +72,30 @@ impl AgendaCommand {
             Some(value) => parse_day(&value, today)?,
             None => default_start(&settings, today)?,
         };
+        if let Some(key) = self.view.as_deref() {
+            let view = settings.views.get(key).ok_or_else(|| {
+                let keys: Vec<&str> = settings.views.keys().map(String::as_str).collect();
+                anyhow!(
+                    "unknown view '{key}'; configured views: {}",
+                    keys.join(", ")
+                )
+            })?;
+            let sections = AgendaEngine::new(&index).view(view, start, today, self.log)?;
+            if self.json {
+                println!("{}", serde_json::to_string_pretty(&sections)?);
+            } else if self.csv {
+                for section in &sections {
+                    print!(
+                        "{}{}",
+                        agenda_csv(&section.entries),
+                        items_csv(&section.items)
+                    );
+                }
+            } else {
+                print!("{}", render_view(&sections, &settings));
+            }
+            return Ok(());
+        }
         let span = match self.span {
             Some(SpanArg::Day) => AgendaSpan::Day,
             Some(SpanArg::Week) => AgendaSpan::Week,
@@ -161,6 +188,50 @@ fn agenda_line(entry: &AgendaEntry) -> String {
         line.push_str(&format!("  :{}:", item.tags.join(":")));
     }
     line
+}
+
+/// Blocks separated by a rule of `=`, as in an Emacs block agenda.
+fn render_view(sections: &[ViewSection], settings: &Settings) -> String {
+    let mut blocks = Vec::new();
+    for section in sections {
+        let mut block = String::new();
+        if let (Some(from), Some(to)) = (section.from, section.to) {
+            if !section.header.is_empty() {
+                block.push_str(&format!("{}\n", section.header));
+            }
+            let span = span_for_bounds(from, to, settings);
+            block.push_str(&render_agenda(&section.entries, from, to, span));
+        } else {
+            block.push_str(&format!("{}\n", section.header));
+            for item in &section.items {
+                let mut line = format!("  {:<12}", format!("{}:", item.category));
+                if let Some(todo) = &item.todo {
+                    line.push_str(&format!("{todo} "));
+                }
+                if let Some(priority) = &item.priority {
+                    line.push_str(&format!("[#{priority}] "));
+                }
+                line.push_str(&agenda_title(item));
+                if !item.tags.is_empty() {
+                    line.push_str(&format!("  :{}:", item.tags.join(":")));
+                }
+                block.push_str(&line);
+                block.push('\n');
+            }
+        }
+        blocks.push(block);
+    }
+    blocks.join(&format!("{}\n", "=".repeat(78)))
+}
+
+fn span_for_bounds(from: NaiveDate, to: NaiveDate, settings: &Settings) -> AgendaSpan {
+    if from == to {
+        AgendaSpan::Day
+    } else if AgendaSpan::Week.bounds(from, &settings.agenda.week_start) == (from, to) {
+        AgendaSpan::Week
+    } else {
+        AgendaSpan::Month
+    }
 }
 
 // Reads keep working when one agenda file cannot be indexed; say which file

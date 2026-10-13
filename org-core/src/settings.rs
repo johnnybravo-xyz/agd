@@ -21,7 +21,35 @@ pub struct Settings {
     pub editor: EditorSettings,
     pub agents: AgentSettings,
     pub triage: TriageSettings,
+    pub views: BTreeMap<String, ViewSettings>,
 }
+
+/// A saved agenda view, the declarative part of an org-agenda custom
+/// command: one block, or several shown one after another like a block
+/// agenda.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViewSettings {
+    pub desc: String,
+    pub blocks: Vec<ViewBlock>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViewBlock {
+    /// agenda, todo, alltodo, tags or tags-todo, as in org-agenda.
+    pub kind: String,
+    /// Tags/TODO match; for `todo` blocks, TODO keywords such as `NEXT|WAIT`.
+    #[serde(default, rename = "match", skip_serializing_if = "Option::is_none")]
+    pub match_expression: Option<String>,
+    /// For agenda blocks: day, week, month or a number of days.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+}
+
+pub const VIEW_BLOCK_KINDS: [&str; 5] = ["agenda", "todo", "alltodo", "tags", "tags-todo"];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -168,6 +196,27 @@ impl Default for Settings {
             editor: EditorSettings::default(),
             agents: AgentSettings::default(),
             triage: TriageSettings::default(),
+            // Org's built-in `n` command: "Agenda and all TODOs".
+            views: BTreeMap::from([(
+                "n".to_string(),
+                ViewSettings {
+                    desc: "Agenda and all TODOs".to_string(),
+                    blocks: vec![
+                        ViewBlock {
+                            kind: "agenda".to_string(),
+                            match_expression: None,
+                            span: None,
+                            header: None,
+                        },
+                        ViewBlock {
+                            kind: "alltodo".to_string(),
+                            match_expression: None,
+                            span: None,
+                            header: None,
+                        },
+                    ],
+                },
+            )]),
         }
     }
 }
@@ -497,6 +546,22 @@ fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
             return Err(config_error(format!(
                 "agents.capture_to must be \"template\" or \"inbox\", not \"{other}\""
             )));
+        }
+    }
+    for (key, view) in &settings.views {
+        if view.blocks.is_empty() {
+            return Err(config_error(format!(
+                "view '{key}' needs at least one block"
+            )));
+        }
+        for block in &view.blocks {
+            if !VIEW_BLOCK_KINDS.contains(&block.kind.as_str()) {
+                return Err(config_error(format!(
+                    "view '{key}' has unsupported block kind '{}'; use one of {}",
+                    block.kind,
+                    VIEW_BLOCK_KINDS.join(", ")
+                )));
+            }
         }
     }
     for (key, template) in &settings.capture {

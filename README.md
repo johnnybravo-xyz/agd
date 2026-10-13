@@ -119,6 +119,13 @@ template = "* TODO %?\n:PROPERTIES:\n:CREATED: %U\n:END:"
 command = "nvim"
 args = ["+{line}", "{file}"]
 
+[views.w]                # like an org-agenda custom command; `agd agenda --view w`
+desc = "Work"
+blocks = [
+  { kind = "agenda", span = "day" },
+  { kind = "tags-todo", match = "work/NEXT|TODO", header = "Work" },
+]
+
 [agents]
 capture_to = "template" # or "inbox": agent captures land unplanned in inbox_template
 inbox_template = "t"

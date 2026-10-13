@@ -20,6 +20,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Saved views (`[views.KEY]`): org-agenda custom commands as blocks of
+  `agenda`, `todo`, `alltodo`, `tags` and `tags-todo`, run by
+  `AgendaEngine::view`. Org's built-in `n` view ships by default.
+- `AgendaEngine::tags` and `items_csv` for tags blocks and TODO-list CSV rows.
 - Tags/TODO matches accept Emacs forms: bare tags (`work`), `&`, `|`
   alternatives, `/-WAIT` and `/!`; property and regexp matches fail with a
   clear `invalid_match`.

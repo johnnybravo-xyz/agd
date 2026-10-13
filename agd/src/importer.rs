@@ -7,7 +7,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use chrono::{Duration, Local, NaiveDate};
 use org_core::{
     AgendaEngine, AgendaQuery, AgendaSpan, CommandProfile, ImportSnapshot, ImportStatus,
-    ResolvedEditorConfig, Settings, WorkspaceIndex, agenda_csv, parse_date_input,
+    ResolvedEditorConfig, Settings, WorkspaceIndex, agenda_csv, items_csv, parse_date_input,
 };
 use similar::TextDiff;
 
@@ -318,14 +318,9 @@ fn verify_snapshot(
                     .match_expression
                     .as_deref()
                     .filter(|value| command.kind != "todo" || value.contains('/'));
-                engine.todo(expression).map(|items| {
-                    let csv = items
-                        .iter()
-                        .map(todo_csv_row)
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    normalize_csv(&(csv + "\n"))
-                })
+                engine
+                    .todo(expression)
+                    .map(|items| normalize_csv(&items_csv(&items)))
             }
             _ => {
                 results.push(VerificationResult {
@@ -511,41 +506,6 @@ trait EmptyDefault {
 impl EmptyDefault for str {
     fn if_empty<'a>(&'a self, default: &'a str) -> &'a str {
         if self.is_empty() { default } else { self }
-    }
-}
-
-fn todo_csv_row(item: &org_core::Item) -> String {
-    let mut seen = std::collections::BTreeSet::new();
-    let tags = item
-        .inherited_tags
-        .iter()
-        .chain(&item.tags)
-        .filter(|tag| seen.insert((*tag).clone()))
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(":");
-    [
-        item.category.as_str(),
-        item.title.as_str(),
-        "todo",
-        item.todo.as_deref().unwrap_or_default(),
-        &tags,
-        "",
-        "",
-        "",
-        item.priority.as_deref().unwrap_or_default(),
-    ]
-    .into_iter()
-    .map(csv_escape)
-    .collect::<Vec<_>>()
-    .join(",")
-}
-
-fn csv_escape(value: &str) -> String {
-    if value.contains([',', '"', '\n', '\r']) {
-        format!("\"{}\"", value.replace('"', "\"\""))
-    } else {
-        value.to_string()
     }
 }
 
