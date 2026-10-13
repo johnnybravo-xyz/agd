@@ -15,13 +15,16 @@ readme = "README.md"
 [workspace]
 resolver = "3"
 members = ["agd", "org-core", "test-utils"]
+exclude = ["fuzz"]
 
 [workspace.dependencies]
 anyhow = "1.0"
 assert_cmd = "2.1"
+csv = "1.4"
 chrono = "0.4"
 clap = { version = "4.5", features = ["derive"] }
 config = "0.15"
+crossterm = "0.29"
 dirs = "6"
 globset = "0.4"
 ignore = "0.4"
@@ -31,11 +34,14 @@ orgize = { version = "=0.10.0-alpha.10", features = ["tracing"] }
 pastey = "0.2"
 predicates = "3.1"
 regex = "1.12"
+notify = "8.2"
 rmcp = { version = "3.5.1", features = ["transport-io"] }
 rowan = "0.15"
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 serde_json = "1.0.149"
 serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"
+similar = "2.7"
 serial_test = "3.2"
 shellexpand = "3.1.2"
 tempfile = "3.26"

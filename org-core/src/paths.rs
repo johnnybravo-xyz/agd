@@ -179,8 +179,35 @@ impl RootSet {
     }
 
     fn org_files_matching(&self, patterns: &[String]) -> Result<Vec<PathBuf>, AgendumError> {
-        let matcher = build_globset(patterns)?;
+        let mut relative_patterns = Vec::new();
         let mut files = BTreeSet::new();
+        for pattern in patterns {
+            let path = Path::new(pattern);
+            reject_parent_segments(path)?;
+            if path.is_absolute() {
+                if pattern.contains(['*', '?', '[', ']']) {
+                    return Err(AgendumError::new(
+                        "invalid_agenda_pattern",
+                        format!("absolute agenda entries must be exact files: {pattern}"),
+                    ));
+                }
+                let resolved = self.validate_existing_read(path)?;
+                if resolved.extension().is_none_or(|extension| extension != "org") {
+                    return Err(AgendumError::new(
+                        "invalid_agenda_file",
+                        format!("agenda file does not have an .org extension: {pattern}"),
+                    ));
+                }
+                files.insert(resolved);
+            } else {
+                relative_patterns.push(pattern.clone());
+            }
+        }
+        if relative_patterns.is_empty() {
+            return Ok(files.into_iter().collect());
+        }
+
+        let matcher = build_globset(&relative_patterns)?;
         for root in &self.roots {
             for entry in WalkBuilder::new(root).follow_links(true).build() {
                 let entry = entry.map_err(|error| {
@@ -300,6 +327,19 @@ mod tests {
             .resolve_read(Path::new("../secret.org"))
             .unwrap_err();
         assert_eq!(error.code(), "path_traversal");
+    }
+
+    #[test]
+    fn accepts_exact_absolute_agenda_files_inside_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("tasks.org");
+        std::fs::write(&file, "* TODO Safe\n").unwrap();
+        let roots = RootSet::new(&FilesSettings {
+            roots: vec![temp.path().to_string_lossy().into_owned()],
+            agenda: vec![file.to_string_lossy().into_owned()],
+        })
+        .unwrap();
+        assert_eq!(roots.agenda_files().unwrap(), vec![file]);
     }
 
     #[cfg(unix)]

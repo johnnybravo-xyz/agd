@@ -226,6 +226,42 @@ impl WorkspaceIndex {
         &self.settings
     }
 
+    pub fn refresh_path(&mut self, path: &Path) -> Result<(), AgendumError> {
+        if path.exists() {
+            if path.extension().is_none_or(|extension| extension != "org") {
+                return Ok(());
+            }
+            let path = self.roots.resolve_read(path)?;
+            let bytes = std::fs::read(&path).map_err(|error| {
+                AgendumError::with_source(
+                    "io",
+                    format!("cannot read {}: {error}", path.display()),
+                    error,
+                )
+            })?;
+            let document = OrgDocument::parse(path.clone(), bytes, &self.settings)?;
+            self.documents.insert(path, document);
+        } else {
+            self.documents.remove(path);
+        }
+        self.rebuild_ids();
+        Ok(())
+    }
+
+    fn rebuild_ids(&mut self) {
+        self.ids.clear();
+        for (path, document) in &self.documents {
+            for (index, headline) in document.headlines().iter().enumerate() {
+                if let Some(id) = &headline.item.id {
+                    self.ids
+                        .entry(id.clone())
+                        .or_default()
+                        .push((path.clone(), index));
+                }
+            }
+        }
+    }
+
     pub fn documents(&self) -> impl Iterator<Item = &OrgDocument> {
         self.documents.values()
     }
@@ -295,16 +331,23 @@ impl WorkspaceIndex {
                 format!("invalid line hint in item ref: {item_ref}"),
             )
         })?;
-        let canonical = self.roots.resolve_read(Path::new(file))?;
-        let document = self.documents.get(&canonical).ok_or_else(|| {
-            AgendumError::new(
-                "stale_ref",
-                format!(
-                    "referenced file is not an agenda file: {}",
-                    canonical.display()
-                ),
-            )
-        })?;
+        let requested = Path::new(file);
+        self.roots.resolve_read(requested)?;
+        let document = self
+            .documents
+            .get(requested)
+            .or_else(|| {
+                requested
+                    .canonicalize()
+                    .ok()
+                    .and_then(|canonical| self.documents.get(&canonical))
+            })
+            .ok_or_else(|| {
+                AgendumError::new(
+                    "stale_ref",
+                    format!("referenced file is not an agenda file: {}", requested.display()),
+                )
+            })?;
         if let Some(headline) = document.headline_at_line(line)
             && headline.digest == digest
         {
@@ -329,7 +372,7 @@ impl WorkspaceIndex {
             }
             _ => Err(AgendumError::new(
                 "stale_ref",
-                format!("headline digest is ambiguous in {}", canonical.display()),
+                format!("headline digest is ambiguous in {}", requested.display()),
             )),
         }
     }
@@ -587,13 +630,14 @@ fn parse_metadata(
     let mut cursor = headline_line + 1;
     while let Some(line) = lines.get(cursor) {
         let text = &source[line.content.start..line.content.end];
+        let trimmed = text.trim_start();
         if HEADLINE_RE.is_match(text)
-            || text == ":PROPERTIES:"
-            || (!text.trim().is_empty() && !is_planning_line(text))
+            || trimmed == ":PROPERTIES:"
+            || (!trimmed.is_empty() && !is_planning_line(trimmed))
         {
             break;
         }
-        if is_planning_line(text) {
+        if is_planning_line(trimmed) {
             planning_span = Some(match planning_span {
                 Some(span) => ByteSpan {
                     start: span.start,
@@ -601,19 +645,19 @@ fn parse_metadata(
                 },
                 None => line.full,
             });
-            if let Some(timestamp) = labeled_timestamp(text, "SCHEDULED:") {
+            if let Some(timestamp) = labeled_timestamp(trimmed, "SCHEDULED:") {
                 planning.scheduled = Some(timestamp);
             }
-            if let Some(timestamp) = labeled_timestamp(text, "DEADLINE:") {
+            if let Some(timestamp) = labeled_timestamp(trimmed, "DEADLINE:") {
                 planning.deadline = Some(timestamp);
             }
-            if let Some(timestamp) = labeled_timestamp(text, "CLOSED:") {
+            if let Some(timestamp) = labeled_timestamp(trimmed, "CLOSED:") {
                 planning.closed = Some(timestamp);
             }
             cursor += 1;
             continue;
         }
-        if text.trim().is_empty() {
+        if trimmed.is_empty() {
             cursor += 1;
             continue;
         }
@@ -623,13 +667,15 @@ fn parse_metadata(
     let mut drawer_span = None;
     if let Some(line) = lines.get(cursor) {
         let text = &source[line.content.start..line.content.end];
-        if text == ":PROPERTIES:" {
+        let trimmed = text.trim_start();
+        if trimmed == ":PROPERTIES:" {
             let start = line.full.start;
             cursor += 1;
             let mut found_end = false;
             while let Some(property_line) = lines.get(cursor) {
                 let property_text = &source[property_line.content.start..property_line.content.end];
-                if property_text == ":END:" {
+                let property_trimmed = property_text.trim_start();
+                if property_trimmed == ":END:" {
                     drawer_span = Some(ByteSpan {
                         start,
                         end: property_line.full.end,
@@ -638,7 +684,7 @@ fn parse_metadata(
                     found_end = true;
                     break;
                 }
-                if let Some(captures) = PROPERTY_RE.captures(property_text) {
+                if let Some(captures) = PROPERTY_RE.captures(property_trimmed) {
                     let key = captures.get(1).expect("property key");
                     let value = captures.get(2);
                     properties.push(PropertySpan {
@@ -651,8 +697,14 @@ fn parse_metadata(
                                 end: property_line.content.end,
                             },
                             |matched| ByteSpan {
-                                start: property_line.content.start + matched.start(),
-                                end: property_line.content.start + matched.end(),
+                                start: property_line.content.start
+                                    + property_text.len()
+                                    - property_trimmed.len()
+                                    + matched.start(),
+                                end: property_line.content.start
+                                    + property_text.len()
+                                    - property_trimmed.len()
+                                    + matched.end(),
                             },
                         ),
                     });

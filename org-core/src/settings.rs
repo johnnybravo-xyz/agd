@@ -15,6 +15,7 @@ pub struct Settings {
     pub files: FilesSettings,
     pub imports: ImportSettings,
     pub todo: TodoSettings,
+    pub tags: TagsSettings,
     pub agenda: AgendaSettings,
     pub capture: BTreeMap<String, CaptureTemplate>,
     pub editor: EditorSettings,
@@ -62,6 +63,13 @@ pub struct CommandProfile {
 pub struct TodoSettings {
     pub sequences: Vec<Vec<String>>,
     pub ids: IdPolicy,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TagsSettings {
+    pub alist: Vec<String>,
+    pub persistent: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -122,6 +130,15 @@ pub struct EditorSettings {
 #[serde(default, deny_unknown_fields)]
 pub struct AgentSettings {
     pub capture_to: String,
+    pub profiles: BTreeMap<String, AgentProfile>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AgentProfile {
+    pub files: Vec<String>,
+    #[serde(rename = "match")]
+    pub match_expression: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -144,6 +161,7 @@ impl Default for Settings {
             files: FilesSettings::default(),
             imports: ImportSettings::default(),
             todo: TodoSettings::default(),
+            tags: TagsSettings::default(),
             agenda: AgendaSettings::default(),
             capture: BTreeMap::from([("t".to_string(), CaptureTemplate::default())]),
             editor: EditorSettings::default(),
@@ -250,6 +268,7 @@ impl Default for AgentSettings {
     fn default() -> Self {
         Self {
             capture_to: "template".to_string(),
+            profiles: BTreeMap::new(),
         }
     }
 }
