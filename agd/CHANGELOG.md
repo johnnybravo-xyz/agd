@@ -34,6 +34,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Keep the TUI running when a write is refused (`stale_ref`, `editor_dirty`,
+  a bad date) and show the reason on the status line.
+- Keep the cursor on the same heading when files change or a write
+  reorders rows; switching screens starts at the top.
 - Substitute `{col}` in `editor.args` for `agd open` and the TUI.
 - Keep CLI reads working when an agenda file is not UTF-8 and warn about the
   skipped file on stderr.

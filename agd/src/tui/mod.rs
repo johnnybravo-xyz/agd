@@ -28,7 +28,8 @@ use notify::{
     Config as NotifyConfig, Event as NotifyEvent, RecommendedWatcher, RecursiveMode, Watcher,
 };
 use org_core::{
-    Item, JournalRecord, Occurrence, Settings, WorkspaceIndex, WriteContext, load_settings,
+    AgdError, Item, JournalRecord, Occurrence, Settings, WorkspaceIndex, WriteContext,
+    load_settings,
 };
 use overlay::draw_overlay;
 use pane::draw_pane;
@@ -234,6 +235,13 @@ fn run_mode(
     result
 }
 
+fn error_status(error: &anyhow::Error) -> String {
+    match error.downcast_ref::<AgdError>() {
+        Some(error) => format!("✗ {}: {error}", error.code()),
+        None => format!("✗ {error:#}"),
+    }
+}
+
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
@@ -248,7 +256,9 @@ fn event_loop(
                             app.set_status(format!("reload failed: {error}"));
                         }
                     }
-                    app.reload_rows()?;
+                    if let Err(error) = app.reload_rows() {
+                        app.set_status(error_status(&error));
+                    }
                 }
                 Err(error) => app.set_status(format!("watch failed: {error}")),
             }
@@ -259,7 +269,13 @@ fn event_loop(
         terminal.draw(|frame| draw(frame, app))?;
         if event::poll(StdDuration::from_millis(100))? {
             match event::read()? {
-                Event::Key(key) => handle_key(terminal, app, key)?,
+                Event::Key(key) => {
+                    // A refused write (stale_ref, editor_dirty, a bad date) is
+                    // reported in place; only terminal failures end the TUI.
+                    if let Err(error) = handle_key(terminal, app, key) {
+                        app.set_status(error_status(&error));
+                    }
+                }
                 Event::Mouse(mouse) => match mouse.kind {
                     MouseEventKind::ScrollDown => app.move_selection(1),
                     MouseEventKind::ScrollUp => app.move_selection(-1),
@@ -441,6 +457,29 @@ mod tests {
                 app.selected_row().unwrap().item.todo.as_deref(),
                 Some("NEXT")
             );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn external_change_keeps_the_cursor_on_the_same_heading() {
+        let directory = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let path = directory.path().join("tasks.org");
+        let today = "SCHEDULED: <2026-10-13 Tue>";
+        fs::write(&path, format!("* TODO One\n{today}\n* TODO Two\n{today}\n")).unwrap();
+        with_vars([("HOME", home.path().to_str())], || {
+            let mut app = test_app(&path, directory.path());
+            app.reload_rows().unwrap();
+            app.selected = 1;
+            fs::write(
+                &path,
+                format!("* TODO Zero\n{today}\n* TODO One\n{today}\n* TODO Two\n{today}\n"),
+            )
+            .unwrap();
+            app.index.refresh_path(&path).unwrap();
+            app.reload_rows().unwrap();
+            assert_eq!(app.selected_row().unwrap().item.title, "Two");
         });
     }
 

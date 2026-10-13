@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use super::write_context;
-use super::{App, Overlay, PromptKind, RefileTarget, Screen, SelectionAnchor};
+use super::{App, Overlay, PromptKind, RefileTarget, Screen};
 use anyhow::Result;
 use chrono::{Duration, Local, NaiveDate};
 use org_core::{Change, EditIntent, WriteEngine, parse_capture_line, parse_date_input};
@@ -44,10 +44,6 @@ pub(super) fn added_text(diff: &str) -> String {
 
 impl App {
     pub(super) fn apply_state(&mut self, state: &str) -> Result<()> {
-        let selected = self.selected;
-        let anchor = self
-            .selected_row()
-            .map(|row| SelectionAnchor::from_item(&row.item));
         let targets = self.targets();
         let mut journals = Vec::new();
         let is_done = self.settings.todo.sequences.iter().any(|sequence| {
@@ -71,11 +67,7 @@ impl App {
         }
         self.marks.clear();
         self.set_status(format!("{} item(s) → {state} · u undo", targets.len()));
-        self.reload_rows()?;
-        self.selected = anchor
-            .and_then(|anchor| anchor.find(&self.rows))
-            .unwrap_or_else(|| selected.min(self.row_count().saturating_sub(1)));
-        Ok(())
+        self.reload_rows()
     }
 
     pub(super) fn cycle_state(&mut self) -> Result<()> {

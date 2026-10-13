@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::time::Instant;
 
-use super::{AgendaView, App, DisplayRow, Screen};
+use super::{AgendaView, App, DisplayRow, Screen, SelectionAnchor};
 use anyhow::Result;
 use chrono::{Duration, Local};
 use org_core::{
@@ -87,8 +87,31 @@ pub(super) fn view_title(app: &App) -> String {
 }
 
 impl App {
+    /// Rebuilds the visible rows and keeps the cursor on the same heading
+    /// (by ID or file, line and outline path); if it left the list, the
+    /// cursor stays at the same position, which is the next row.
     pub(super) fn reload_rows(&mut self) -> Result<()> {
+        let previous = self.selected;
+        let anchor = self
+            .selected_row()
+            .map(|row| SelectionAnchor::from_item(&row.item));
+        self.rebuild_rows()?;
+        self.selected = anchor
+            .and_then(|anchor| anchor.find(&self.rows))
+            .unwrap_or(previous)
+            .min(self.row_count().saturating_sub(1));
+        Ok(())
+    }
+
+    /// Changes screen with the cursor on the first row.
+    pub(super) fn switch_screen(&mut self, screen: Screen) -> Result<()> {
+        self.screen = screen;
+        self.rows.clear();
         self.selected = 0;
+        self.reload_rows()
+    }
+
+    fn rebuild_rows(&mut self) -> Result<()> {
         self.inbox_count = self
             .index
             .items()

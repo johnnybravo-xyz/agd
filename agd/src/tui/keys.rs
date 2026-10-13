@@ -47,8 +47,7 @@ pub(super) fn handle_key(
         KeyCode::Char('q') => app.quit = true,
         KeyCode::Esc => {
             if app.screen != Screen::Today {
-                app.screen = Screen::Today;
-                app.reload_rows()?;
+                app.switch_screen(Screen::Today)?;
             } else if app.peek {
                 app.peek = false;
             }
@@ -63,20 +62,18 @@ pub(super) fn handle_key(
         KeyCode::Char('n') if app.screen == Screen::Triage => app.apply_state("NEXT")?,
         KeyCode::Char('A') if app.screen == Screen::Review => app.review_all()?,
         KeyCode::Char('A') => {
-            app.screen = Screen::Review;
             app.review_diff = false;
-            app.reload_rows()?;
+            app.switch_screen(Screen::Review)?;
         }
         KeyCode::Char('j') | KeyCode::Down => app.move_selection(1),
         KeyCode::Char('k') | KeyCode::Up => app.move_selection(-1),
         KeyCode::Char('?') => app.overlay = Overlay::Help,
         KeyCode::Char('p') => app.peek = !app.peek,
         KeyCode::Char('T') => {
-            app.screen = Screen::Triage;
             app.triage_started = Some(Instant::now());
             app.triage_outcomes = [0; 6];
             app.triage_undo.clear();
-            app.reload_rows()?;
+            app.switch_screen(Screen::Triage)?;
         }
         KeyCode::Char('c') => {
             app.overlay = Overlay::Capture {
@@ -160,8 +157,7 @@ pub(super) fn handle_key(
         KeyCode::Char('u') => app.undo()?,
         KeyCode::Char('a') if app.screen == Screen::Review => app.review_selected()?,
         KeyCode::Enter if app.screen == Screen::Triage && app.rows.is_empty() => {
-            app.screen = Screen::Today;
-            app.reload_rows()?;
+            app.switch_screen(Screen::Today)?;
         }
         KeyCode::Enter if app.pane => app.pane = false,
         KeyCode::Enter | KeyCode::Char('e') => open_selected(terminal, app)?,
