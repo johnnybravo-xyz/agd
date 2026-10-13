@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2](https://github.com/johnnybravo-xyz/agd/compare/agd-v0.0.1...agd-v0.0.2)
+
+### ✨ Features
+
+
+- Add lossless org checks and clean integrations - ([fa0f0db](https://github.com/johnnybravo-xyz/agd/commit/fa0f0db843c59c085ec4471782aee557320d8259))
+
+### 🚜 Refactor
+
+
+- Consolidate MCP into agd - ([45862d3](https://github.com/johnnybravo-xyz/agd/commit/45862d3014d071a1046f57ead5487ec634a6862b))
+
+### Other changes
+
+
+- Fix Windows MCP test build - ([01dd699](https://github.com/johnnybravo-xyz/agd/commit/01dd699b4dcbc8d75944229092a7a0125bda3204))
+- Fix cross-platform release gates - ([48755e9](https://github.com/johnnybravo-xyz/agd/commit/48755e9795e7e65391f7616455353250b33899b8))
+- Document native workflows and release readiness - ([7022a94](https://github.com/johnnybravo-xyz/agd/commit/7022a94748cf10345b95ea9bd8ba199a0121c622))
+- Finish native command and TUI surfaces - ([89c3453](https://github.com/johnnybravo-xyz/agd/commit/89c345369292aa87623d4b6dcdf49bb2364be7cb))
+- Refine TUI task workflows - ([2d8a2da](https://github.com/johnnybravo-xyz/agd/commit/2d8a2da7907b411100142f3580fd3fcf81c14291))
+- Replace legacy adapters with native surfaces - ([fa7a325](https://github.com/johnnybravo-xyz/agd/commit/fa7a32558cada112ba7fff4779ff8fdad7193b1c))
+
+
 ### Added
 
 - Added `agd check` with human and JSON reports for unreadable input, invalid
