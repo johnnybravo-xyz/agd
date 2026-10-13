@@ -57,6 +57,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Journal captures with the new item's ref and its canonical path, so
+  provenance and Agent review can find what an agent captured.
 - Read planning only from the line right after the headline, as Org does;
   a second SCHEDULED/DEADLINE line is an ordinary timestamp. Captures write
   SCHEDULED and DEADLINE on one planning line instead of two.

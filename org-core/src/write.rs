@@ -257,6 +257,12 @@ impl WriteEngine {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(AgdError::from)?;
         }
+        // Canonical like every indexed path, so the journal, refs and the
+        // index agree (on macOS /var is /private/var).
+        let path = match (path.parent().map(fs::canonicalize), path.file_name()) {
+            (Some(Ok(parent)), Some(name)) => parent.join(name),
+            _ => path,
+        };
         self.roots.resolve_write(&path, true)?;
         let _lock = self.lock_target(&path)?;
         refuse_emacs_lock(&path)?;
@@ -311,7 +317,7 @@ impl WriteEngine {
         let record = self.commit_image(
             JournalImage {
                 path: &path,
-                item_ref: None,
+                item_ref: Some(&updated.item_ref),
                 pre_image: &pre_image,
                 post_image: &post_image,
                 patches: &stored,
@@ -1817,6 +1823,36 @@ mod tests {
             project: "fixture".to_string(),
             now: None,
         }
+    }
+
+    #[test]
+    fn capture_journal_records_the_new_item_ref() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut settings = settings(temp.path());
+        settings.capture.get_mut("t").unwrap().file =
+            Some(temp.path().join("inbox.org").to_string_lossy().into_owned());
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "New".to_string(),
+            ..CaptureDraft::default()
+        };
+        let mutation = engine
+            .capture("t", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap();
+        let record = engine
+            .journal()
+            .unwrap()
+            .into_iter()
+            .find(|record| record.id == mutation.journal_id)
+            .unwrap();
+        assert_eq!(
+            record.item_ref.as_deref(),
+            Some(mutation.item.item_ref.as_str())
+        );
+        assert_eq!(
+            Path::new(&record.file),
+            fs::canonicalize(temp.path().join("inbox.org")).unwrap()
+        );
     }
 
     #[test]
