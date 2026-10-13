@@ -4,7 +4,7 @@ import pathlib
 import subprocess
 import uuid
 
-IMAGE = "silex/emacs:29.4-alpine@sha256:2aef086ce79273d2fd0af2519a4e81b8b3ae5e225bf62c0e994a10f487d6f7d7"
+IMAGE = "silex/emacs:30.2-alpine@sha256:2dd43b22af2e2592753ad92c3cb78fc580ce5981fc4d8ad1edee60ec92241ae5"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
