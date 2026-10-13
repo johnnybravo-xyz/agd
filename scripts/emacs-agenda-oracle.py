@@ -79,27 +79,7 @@ def emacs_rows(case_dir: pathlib.Path, case: dict) -> str:
         if row[2] == "past-scheduled" and row[7] == "Scheduled:":
             row[2] = "scheduled"
         rows.append(row[:9])
-    ranks = {
-        "past-scheduled": 0,
-        "scheduled": 0,
-        "deadline": 1,
-        "block": 2,
-        "timestamp": 3,
-        "upcoming-deadline": 4,
-        "closed": 5,
-        "todo": 6,
-    }
-    rows.sort(
-        key=lambda row: (
-            row[5],
-            row[6] == "",
-            row[6],
-            row[8] or "B",
-            ranks[row[2]],
-            row[0],
-            row[1],
-        )
-    )
+    # Keep Emacs row order: it is the org-agenda sorting strategy under test.
     output = io.StringIO()
     writer = csv.writer(output, lineterminator="\n")
     writer.writerows(rows)

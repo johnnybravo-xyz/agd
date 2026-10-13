@@ -30,6 +30,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Order agenda rows as org-agenda does by default (time-up, urgency-down,
+  category-keep): urgency from priority, days overdue and days late, ties in
+  file order with deadlines before scheduled before timestamps. TODO lists
+  sort by priority, then file order, instead of by category name.
 - An explicit configuration path that does not exist is an error instead of
   silently using defaults.
 - Parse Org syntax seen in real setups: habit repeaters (`.+2d/3d`), Unicode

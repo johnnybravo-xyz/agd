@@ -1,14 +1,13 @@
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
-
 use std::sync::LazyLock;
 
 use chrono::{Datelike, Duration, Months, NaiveDate};
 use regex::Regex;
 
 use crate::{
-    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, HeadlineSpan, Item, Occurrence, OccurrenceType,
-    PlanningTimestamp, WorkspaceIndex,
+    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, AgendaSettings, HeadlineSpan, Item, Occurrence,
+    OccurrenceType, PlanningTimestamp, WorkspaceIndex,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -76,8 +75,13 @@ impl<'a> AgendaEngine<'a> {
             .as_deref()
             .map(TagTodoMatcher::parse)
             .transpose()?;
+        // org-agenda collects each file's deadlines, then scheduled entries,
+        // then blocks and timestamps, each in buffer order, and stable-sorts
+        // the day with its default strategy (time-up urgency-down
+        // category-keep, where category-keep keeps collection order).
         let mut entries = Vec::new();
         for document in self.index.documents() {
+            let mut file_entries = Vec::new();
             for headline in document.headlines() {
                 if matcher
                     .as_ref()
@@ -91,11 +95,24 @@ impl<'a> AgendaEngine<'a> {
                         format!("{}:{}: {error}", headline.item.file, headline.item.line),
                     )
                 })?;
-                entries.extend(occurrences);
+                file_entries.extend(occurrences);
             }
+            file_entries.sort_by_key(|entry| collection_rank(entry.occurrence.kind));
+            entries.extend(file_entries);
         }
-        entries.sort_by(compare_entries);
-        Ok(entries)
+        let settings = &self.index.settings().agenda;
+        let mut keyed: Vec<(i64, AgendaEntry)> = entries
+            .into_iter()
+            .map(|entry| (urgency(&entry, query.today, settings), entry))
+            .collect();
+        keyed.sort_by(|(left_urgency, left), (right_urgency, right)| {
+            left.occurrence
+                .date
+                .cmp(&right.occurrence.date)
+                .then_with(|| compare_time_of_day(&left.occurrence.time, &right.occurrence.time))
+                .then_with(|| right_urgency.cmp(left_urgency))
+        });
+        Ok(keyed.into_iter().map(|(_, entry)| entry).collect())
     }
 
     pub fn todo(&self, match_expression: Option<&str>) -> Result<Vec<Item>, AgdError> {
@@ -777,53 +794,85 @@ fn date_range(start: NaiveDate, end: NaiveDate) -> impl Iterator<Item = NaiveDat
     (0..=(end - start).num_days().max(-1)).map(move |days| start + Duration::days(days))
 }
 
-fn compare_entries(left: &AgendaEntry, right: &AgendaEntry) -> Ordering {
-    left.occurrence
-        .date
-        .cmp(&right.occurrence.date)
-        .then_with(|| compare_optional_time(&left.occurrence.time, &right.occurrence.time))
-        .then_with(|| compare_priority(&left.item.priority, &right.item.priority))
-        .then_with(|| {
-            occurrence_rank(left.occurrence.kind).cmp(&occurrence_rank(right.occurrence.kind))
-        })
-        .then_with(|| left.item.category.cmp(&right.item.category))
-        .then_with(|| left.item.title.cmp(&right.item.title))
-        .then_with(|| left.item.file.cmp(&right.item.file))
-        .then_with(|| left.item.line.cmp(&right.item.line))
+fn collection_rank(kind: OccurrenceType) -> u8 {
+    match kind {
+        OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline => 0,
+        OccurrenceType::Scheduled | OccurrenceType::PastScheduled => 1,
+        OccurrenceType::Block => 2,
+        OccurrenceType::Timestamp => 3,
+        OccurrenceType::Closed | OccurrenceType::Todo => 4,
+    }
 }
 
-fn compare_items(left: &Item, right: &Item) -> Ordering {
-    compare_priority(&left.priority, &right.priority)
-        .then_with(|| left.category.cmp(&right.category))
-        .then_with(|| left.file.cmp(&right.file))
-        .then_with(|| left.line.cmp(&right.line))
+/// org-agenda urgency: priority value (A=2000, B=1000, C=0 by default),
+/// raised by days overdue for today's deadline reminders, lowered by days
+/// left for upcoming ones, and raised by 99 plus days late for scheduled.
+fn urgency(entry: &AgendaEntry, today: NaiveDate, settings: &AgendaSettings) -> i64 {
+    let priority = priority_value(entry.item.priority.as_deref(), settings);
+    let date = parse_date(&entry.occurrence.date).ok();
+    match entry.occurrence.kind {
+        OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline => {
+            let base = entry
+                .item
+                .planning
+                .deadline
+                .as_ref()
+                .and_then(|deadline| parse_date(&deadline.date).ok());
+            match (date, base) {
+                (Some(date), Some(base)) if date == today => priority + (today - base).num_days(),
+                _ => priority,
+            }
+        }
+        OccurrenceType::Scheduled | OccurrenceType::PastScheduled => {
+            let base = entry
+                .item
+                .planning
+                .scheduled
+                .as_ref()
+                .and_then(|scheduled| parse_date(&scheduled.date).ok());
+            match (date, base) {
+                (Some(date), Some(base)) => priority + 99 + (date - base).num_days(),
+                _ => priority + 99,
+            }
+        }
+        _ => priority,
+    }
 }
 
-fn compare_optional_time(left: &Option<String>, right: &Option<String>) -> Ordering {
+fn priority_value(priority: Option<&str>, settings: &AgendaSettings) -> i64 {
+    let letter = |value: &str| value.chars().next().map_or(0, |c| c as i64);
+    let lowest = letter(&settings.lowest_priority);
+    let value = priority.map_or_else(|| letter(&settings.default_priority), letter);
+    1000 * (lowest - value)
+}
+
+// time-up with org-agenda-sort-notime-is-late: timed entries first.
+fn compare_time_of_day(left: &Option<String>, right: &Option<String>) -> Ordering {
     match (left, right) {
-        (Some(left), Some(right)) => left.cmp(right),
+        (Some(left), Some(right)) => time_minutes(left).cmp(&time_minutes(right)),
         (Some(_), None) => Ordering::Less,
         (None, Some(_)) => Ordering::Greater,
         (None, None) => Ordering::Equal,
     }
 }
 
+fn time_minutes(time: &str) -> u32 {
+    let (hours, minutes) = time.split_once(':').unwrap_or((time, "0"));
+    hours.parse::<u32>().unwrap_or(0) * 60 + minutes.parse::<u32>().unwrap_or(0)
+}
+
+// org-agenda TODO lists: urgency-down category-keep, i.e. priority first and
+// otherwise file and buffer order.
+fn compare_items(left: &Item, right: &Item) -> Ordering {
+    compare_priority(&left.priority, &right.priority)
+        .then_with(|| left.file.cmp(&right.file))
+        .then_with(|| left.line.cmp(&right.line))
+}
+
 fn compare_priority(left: &Option<String>, right: &Option<String>) -> Ordering {
     left.as_deref()
         .unwrap_or("B")
         .cmp(right.as_deref().unwrap_or("B"))
-}
-
-fn occurrence_rank(kind: OccurrenceType) -> u8 {
-    match kind {
-        OccurrenceType::PastScheduled | OccurrenceType::Scheduled => 0,
-        OccurrenceType::Deadline => 1,
-        OccurrenceType::Block => 2,
-        OccurrenceType::Timestamp => 3,
-        OccurrenceType::UpcomingDeadline => 4,
-        OccurrenceType::Closed => 5,
-        OccurrenceType::Todo => 6,
-    }
 }
 
 fn occurrence_name(kind: OccurrenceType) -> &'static str {

@@ -5,15 +5,15 @@ generated,Generated 52,upcoming-deadline,TODO,project,2026-10-13,,In   1 d.:,A
 generated,Generated 51,scheduled,TODO,home,2026-10-13,,Scheduled:,
 generated,Generated 14,block,WAIT,home,2026-10-13,,(1/4):,
 generated,Generated 59,block,NEXT,project,2026-10-13,,(1/3):,
-generated,Generated 06,upcoming-deadline,WAIT,errand,2026-10-13,,In   2 d.:,B
 generated,Generated 24,upcoming-deadline,TODO,project,2026-10-13,,In   1 d.:,
+generated,Generated 06,upcoming-deadline,WAIT,errand,2026-10-13,,In   2 d.:,B
 generated,Generated 25,upcoming-deadline,WAIT,errand,2026-10-13,,In   3 d.:,B
 generated,Generated 53,upcoming-deadline,WAIT,project,2026-10-13,,In   5 d.:,
 generated,Generated 32,block,DONE,errand,2026-10-13,,(1/4):,C
 generated,Generated 03,timestamp,TODO,errand,2026-10-13,,,C
-generated,Generated 04,upcoming-deadline,NEXT,work,2026-10-13,,In   4 d.:,C
 generated,Generated 18,upcoming-deadline,WAIT,errand,2026-10-13,,In   1 d.:,C
 generated,Generated 27,upcoming-deadline,NEXT,project,2026-10-13,,In   3 d.:,C
+generated,Generated 04,upcoming-deadline,NEXT,work,2026-10-13,,In   4 d.:,C
 generated,Generated 52,scheduled,TODO,project,2026-10-14,,Scheduled:,A
 generated,Generated 15,deadline,WAIT,project,2026-10-14,,Deadline:,A
 generated,Generated 52,deadline,TODO,project,2026-10-14,,Deadline:,A
@@ -37,17 +37,17 @@ generated,Generated 17,block,WAIT,project,2026-10-15,,(2/4):,C
 generated,Generated 32,block,DONE,errand,2026-10-15,,(3/4):,C
 generated,Generated 03,timestamp,TODO,errand,2026-10-15,,,C
 generated,Generated 43,timestamp,NEXT,home,2026-10-15,,,C
+generated,Generated 52,scheduled,TODO,project,2026-10-16,,Scheduled:,A
 generated,Generated 12,scheduled,DONE,home,2026-10-16,,Scheduled:,A
 generated,Generated 45,scheduled,NEXT,project,2026-10-16,,Scheduled:,A
-generated,Generated 52,scheduled,TODO,project,2026-10-16,,Scheduled:,A
 generated,Generated 55,scheduled,NEXT,project,2026-10-16,,Scheduled:,A
 generated,Generated 12,deadline,DONE,home,2026-10-16,,Deadline:,A
 generated,Generated 26,deadline,DONE,home,2026-10-16,,Deadline:,A
 generated,Generated 19,block,WAIT,home,2026-10-16,,(1/4):,A
-generated,Generated 05,scheduled,WAIT,project,2026-10-16,,Scheduled:,B
-generated,Generated 20,scheduled,WAIT,work,2026-10-16,,Scheduled:,B
-generated,Generated 46,scheduled,WAIT,home,2026-10-16,,Scheduled:,B
 generated,Generated 51,scheduled,TODO,home,2026-10-16,,Scheduled:,
+generated,Generated 20,scheduled,WAIT,work,2026-10-16,,Scheduled:,B
+generated,Generated 05,scheduled,WAIT,project,2026-10-16,,Scheduled:,B
+generated,Generated 46,scheduled,WAIT,home,2026-10-16,,Scheduled:,B
 generated,Generated 25,deadline,WAIT,errand,2026-10-16,,Deadline:,B
 generated,Generated 46,deadline,WAIT,home,2026-10-16,,Deadline:,B
 generated,Generated 14,block,WAIT,home,2026-10-16,,(4/4):,
@@ -75,10 +75,10 @@ generated,Generated 09,timestamp,WAIT,home,2026-10-17,,,C
 generated,Generated 43,timestamp,NEXT,home,2026-10-17,,,C
 generated,Generated 52,scheduled,TODO,project,2026-10-18,,Scheduled:,A
 generated,Generated 19,block,WAIT,home,2026-10-18,,(3/4):,A
-generated,Generated 00,scheduled,WAIT,project,2026-10-18,,Scheduled:,B
 generated,Generated 20,scheduled,WAIT,work,2026-10-18,,Scheduled:,B
-generated,Generated 41,scheduled,TODO,home,2026-10-18,,Scheduled:,
 generated,Generated 46,scheduled,WAIT,home,2026-10-18,,Scheduled:,B
+generated,Generated 00,scheduled,WAIT,project,2026-10-18,,Scheduled:,B
+generated,Generated 41,scheduled,TODO,home,2026-10-18,,Scheduled:,
 generated,Generated 53,scheduled,WAIT,project,2026-10-18,,Scheduled:,
 generated,Generated 53,deadline,WAIT,project,2026-10-18,,Deadline:,
 generated,Generated 40,block,NEXT,home,2026-10-18,,(1/3):,B
@@ -108,10 +108,10 @@ generated,Generated 44,deadline,WAIT,errand,2026-10-20,,Deadline:,A
 generated,Generated 10,block,TODO,errand,2026-10-20,,(1/4):,A
 generated,Generated 08,timestamp,NEXT,errand,2026-10-20,,,A
 generated,Generated 23,timestamp,NEXT,work,2026-10-20,,,A
-generated,Generated 00,scheduled,WAIT,project,2026-10-20,,Scheduled:,B
 generated,Generated 20,scheduled,WAIT,work,2026-10-20,,Scheduled:,B
-generated,Generated 41,scheduled,TODO,home,2026-10-20,,Scheduled:,
 generated,Generated 46,scheduled,WAIT,home,2026-10-20,,Scheduled:,B
+generated,Generated 00,scheduled,WAIT,project,2026-10-20,,Scheduled:,B
+generated,Generated 41,scheduled,TODO,home,2026-10-20,,Scheduled:,
 generated,Generated 57,scheduled,TODO,errand,2026-10-20,,Scheduled:,B
 generated,Generated 40,block,NEXT,home,2026-10-20,,(3/3):,B
 generated,Generated 58,block,TODO,home,2026-10-20,,(1/3):,B
@@ -121,8 +121,8 @@ generated,Generated 07,block,TODO,errand,2026-10-20,,(2/2):,C
 generated,Generated 13,block,DONE,home,2026-10-20,,(2/4):,C
 generated,Generated 10,block,TODO,errand,2026-10-21,,(2/4):,A
 generated,Generated 39,timestamp,NEXT,errand,2026-10-21,,,A
-generated,Generated 49,scheduled,WAIT,home,2026-10-21,,Scheduled:,B
 generated,Generated 53,scheduled,WAIT,project,2026-10-21,,Scheduled:,
+generated,Generated 49,scheduled,WAIT,home,2026-10-21,,Scheduled:,B
 generated,Generated 49,deadline,WAIT,home,2026-10-21,,Deadline:,B
 generated,Generated 58,block,TODO,home,2026-10-21,,(2/3):,B
 generated,Generated 01,timestamp,NEXT,work,2026-10-21,,,
