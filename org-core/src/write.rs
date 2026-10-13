@@ -20,12 +20,20 @@ pub struct Patch {
     pub replacement: String,
 }
 
+/// A journaled replacement: `start..end` is the span of `after` in the
+/// post-image; `context_before`/`context_after` are the post-image bytes
+/// around it (the rest of its lines plus one line each way), used to find the
+/// span again if the file changed elsewhere before undo.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct StoredPatch {
     pub start: usize,
     pub end: usize,
     pub before: String,
     pub after: String,
+    #[serde(default)]
+    pub context_before: Option<String>,
+    #[serde(default)]
+    pub context_after: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -555,18 +563,9 @@ impl WriteEngine {
                     error,
                 )
             })?;
-            if content_hash(&current) != record.post_hash {
-                return Err(AgdError::new(
-                    "undo_conflict",
-                    format!(
-                        "{} changed after journal entry {}",
-                        path.display(),
-                        record.id
-                    ),
-                ));
-            }
-            let (pre_image, _) = apply_patches(&current, inverse_patches(&record.patches))?;
-            if content_hash(&pre_image) != record.pre_hash {
+            let unchanged = content_hash(&current) == record.post_hash;
+            let (pre_image, _) = apply_patches(&current, relocate_inverse(&current, record)?)?;
+            if unchanged && content_hash(&pre_image) != record.pre_hash {
                 return Err(AgdError::new(
                     "journal_corrupt",
                     format!(
@@ -908,11 +907,76 @@ pub fn apply_patches(
             end: post_cursor,
             before,
             after: patch.replacement,
+            context_before: None,
+            context_after: None,
         });
         cursor = patch.span.end;
     }
     output.push_str(&source[cursor..]);
+    for patch in &mut stored {
+        let context_start = line_start(&output, line_start(&output, patch.start).saturating_sub(1));
+        let context_end = line_end(&output, line_end(&output, patch.end) + 1);
+        patch.context_before = Some(output[context_start..patch.start].to_string());
+        patch.context_after = Some(output[patch.end..context_end].to_string());
+    }
     Ok((output, stored))
+}
+
+fn line_start(text: &str, offset: usize) -> usize {
+    text[..offset.min(text.len())]
+        .rfind('\n')
+        .map_or(0, |index| index + 1)
+}
+
+/// Offset just past the newline that ends the line containing `offset`.
+fn line_end(text: &str, offset: usize) -> usize {
+    if offset >= text.len() {
+        return text.len();
+    }
+    text[offset..]
+        .find('\n')
+        .map_or(text.len(), |index| offset + index + 1)
+}
+
+/// Inverse patches against `current`. An unchanged file uses the recorded
+/// spans; otherwise each patch must be found exactly once by its context and
+/// replaced bytes, so undo never touches text someone changed since.
+fn relocate_inverse(current: &str, record: &JournalRecord) -> Result<Vec<Patch>, AgdError> {
+    if content_hash(current) == record.post_hash {
+        return Ok(inverse_patches(&record.patches));
+    }
+    let conflict = |detail: String| {
+        AgdError::new(
+            "undo_conflict",
+            format!(
+                "{} changed after journal entry {}: {detail}",
+                record.file, record.id
+            ),
+        )
+    };
+    let mut patches = Vec::with_capacity(record.patches.len());
+    for patch in &record.patches {
+        let (Some(before), Some(after)) = (&patch.context_before, &patch.context_after) else {
+            return Err(conflict("entry predates context-aware undo".to_string()));
+        };
+        let needle = format!("{before}{}{after}", patch.after);
+        let mut found = current.match_indices(&needle);
+        let (Some((position, _)), None) = (found.next(), found.next()) else {
+            return Err(conflict(format!(
+                "the edited text near byte {} changed",
+                patch.start
+            )));
+        };
+        let start = position + before.len();
+        patches.push(Patch {
+            span: ByteSpan {
+                start,
+                end: start + patch.after.len(),
+            },
+            replacement: patch.before.clone(),
+        });
+    }
+    Ok(patches)
 }
 
 fn inverse_patches(patches: &[StoredPatch]) -> Vec<Patch> {
@@ -1637,6 +1701,54 @@ mod tests {
     }
 
     #[test]
+    fn undo_survives_unrelated_edits_and_refuses_overlapping_ones() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("tasks.org");
+        fs::write(&path, "* TODO First\n* TODO Second\nbody\n").unwrap();
+        let settings = settings(temp.path());
+        let refs: Vec<String> = WorkspaceIndex::load(settings.clone())
+            .unwrap()
+            .items()
+            .map(|item| item.item_ref.clone())
+            .collect();
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let done = EditIntent {
+            state: Change::Set("DONE".to_string()),
+            ..EditIntent::default()
+        };
+
+        let second = engine.edit(&refs[1], &done, false, &context()).unwrap();
+        let edited = fs::read_to_string(&path).unwrap();
+        fs::write(
+            &path,
+            format!("#+TITLE: Added by an editor\n{edited}* TODO Third\n"),
+        )
+        .unwrap();
+        engine.undo(Some(&second.journal_id), &context()).unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "#+TITLE: Added by an editor\n* TODO First\n* TODO Second\nbody\n* TODO Third\n"
+        );
+
+        let first = engine.edit(&refs[0], &done, false, &context()).unwrap();
+        let edited = fs::read_to_string(&path).unwrap();
+        fs::write(
+            &path,
+            edited.replace("* DONE First", "* DONE First, renamed"),
+        )
+        .unwrap();
+        let error = engine
+            .undo(Some(&first.journal_id), &context())
+            .unwrap_err();
+        assert_eq!(error.code(), "undo_conflict");
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("First, renamed")
+        );
+    }
+
+    #[test]
     fn patch_and_inverse_preserve_every_untouched_byte() {
         let source = "α before\r\n* TODO Keep spacing   :x:\r\nbody\r\n";
         let start = source.find("TODO").unwrap();
@@ -1659,7 +1771,7 @@ mod tests {
     }
 
     #[test]
-    fn edit_revalidates_writes_journal_and_undoes_only_unchanged_postimage() {
+    fn edit_revalidates_writes_journal_and_undo_keeps_later_unrelated_text() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("tasks.org");
         let original = "#+TODO: TODO | DONE\r\n* TODO Exact  spacing :work:\r\nbody\r\n";
@@ -1720,12 +1832,10 @@ mod tests {
             format!("{}external\r\n", fs::read_to_string(&path).unwrap()),
         )
         .unwrap();
+        engine.undo(Some(&mutation.journal_id), &context()).unwrap();
         assert_eq!(
-            engine
-                .undo(Some(&mutation.journal_id), &context())
-                .unwrap_err()
-                .code(),
-            "undo_conflict"
+            fs::read_to_string(&path).unwrap(),
+            format!("{original}external\r\n")
         );
     }
 

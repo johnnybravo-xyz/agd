@@ -45,9 +45,11 @@ post-image.
 ## Undo
 
 Journal entries store pre-image and post-image hashes plus inverse byte patches.
-Undo (`u` in the TUI) applies an inverse only when the current file still matches the
-recorded post-image. A later editor or agent change therefore causes a conflict
-instead of overwriting newer work. Multi-file refile transactions are grouped
+Undo (`u` in the TUI) applies an inverse only where the bytes it wrote are
+still there. Each journaled patch keeps the surrounding lines; if the file
+changed elsewhere, undo finds the patch again by that context and applies it
+only when it matches exactly once. A later change to the edited lines is a
+conflict, so undo never overwrites newer work. Multi-file refile transactions are grouped
 and reversed as one operation.
 
 The journal also records the actor and project. CLI operations use a local

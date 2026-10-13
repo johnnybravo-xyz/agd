@@ -8,6 +8,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Undo reverts its own bytes even when the file changed elsewhere: journaled
+  patches keep their surrounding lines and are relocated by them; a change to
+  the edited lines is still `undo_conflict`. Older entries keep the
+  whole-file rule.
 - Remove the unused `agenda.time_grid` setting.
 - Import org-agenda custom commands from Emacs and nvim-orgmode as views,
   including block agendas and descriptionless commands; views with matches agd
