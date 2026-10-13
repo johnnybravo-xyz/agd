@@ -272,54 +272,48 @@ impl<'a> AgendaEngine<'a> {
 }
 
 #[derive(Clone, Debug)]
+// Emacs tags/todo match syntax: `|`-separated alternatives of tag terms
+// (`work`, `+work`, `-someday`, joined by `&` or nothing), then an optional
+// `/` TODO part (`NEXT|WAIT`, `-DONE`, a leading `!` for not-done states).
+// Property comparisons such as `PRIORITY="A"` are rejected explicitly.
 struct TagTodoMatcher {
-    include_tags: BTreeSet<String>,
-    exclude_tags: BTreeSet<String>,
-    todo: BTreeSet<String>,
+    alternatives: Vec<TagTerms>,
+    todo_include: BTreeSet<String>,
+    todo_exclude: BTreeSet<String>,
+    todo_not_done: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct TagTerms {
+    include: BTreeSet<String>,
+    exclude: BTreeSet<String>,
 }
 
 impl TagTodoMatcher {
     fn parse(input: &str) -> Result<Self, AgdError> {
         let (tags, todo) = input.split_once('/').unwrap_or((input, ""));
-        let mut include_tags = BTreeSet::new();
-        let mut exclude_tags = BTreeSet::new();
-        let mut cursor = 0;
-        let bytes = tags.as_bytes();
-        while cursor < bytes.len() {
-            let sign = bytes[cursor] as char;
-            if !matches!(sign, '+' | '-') {
-                return Err(AgdError::new(
-                    "invalid_match",
-                    format!("expected '+' or '-' at byte {cursor} in '{input}'"),
-                ));
-            }
-            cursor += 1;
-            let start = cursor;
-            while cursor < bytes.len() && !matches!(bytes[cursor], b'+' | b'-') {
-                cursor += 1;
-            }
-            if start == cursor {
-                return Err(AgdError::new(
-                    "invalid_match",
-                    format!("empty tag in '{input}'"),
-                ));
-            }
-            let tag = &tags[start..cursor];
-            if sign == '+' {
-                include_tags.insert(tag.to_string());
-            } else {
-                exclude_tags.insert(tag.to_string());
+        let mut alternatives = Vec::new();
+        if !tags.trim().is_empty() {
+            for alternative in tags.split('|') {
+                alternatives.push(parse_tag_terms(alternative, input)?);
             }
         }
-        let todo = todo
-            .split('|')
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .collect();
+        let todo_not_done = todo.starts_with('!');
+        let mut todo_include = BTreeSet::new();
+        let mut todo_exclude = BTreeSet::new();
+        for term in todo.trim_start_matches('!').split('|') {
+            let term = term.trim();
+            if let Some(keyword) = term.strip_prefix('-') {
+                todo_exclude.insert(keyword.to_string());
+            } else if !term.is_empty() {
+                todo_include.insert(term.trim_start_matches('+').to_string());
+            }
+        }
         Ok(Self {
-            include_tags,
-            exclude_tags,
-            todo,
+            alternatives,
+            todo_include,
+            todo_exclude,
+            todo_not_done,
         })
     }
 
@@ -330,19 +324,63 @@ impl TagTodoMatcher {
             .chain(&item.inherited_tags)
             .map(String::as_str)
             .collect();
-        self.include_tags
-            .iter()
-            .all(|tag| tags.contains(tag.as_str()))
-            && self
-                .exclude_tags
-                .iter()
-                .all(|tag| !tags.contains(tag.as_str()))
-            && (self.todo.is_empty()
-                || item
-                    .todo
-                    .as_ref()
-                    .is_some_and(|todo| self.todo.contains(todo)))
+        let tags_match = self.alternatives.is_empty()
+            || self.alternatives.iter().any(|terms| {
+                terms.include.iter().all(|tag| tags.contains(tag.as_str()))
+                    && terms.exclude.iter().all(|tag| !tags.contains(tag.as_str()))
+            });
+        let todo = item.todo.as_deref();
+        tags_match
+            && (!self.todo_not_done || (todo.is_some() && !item.done))
+            && (self.todo_include.is_empty()
+                || todo.is_some_and(|todo| self.todo_include.contains(todo)))
+            && todo.is_none_or(|todo| !self.todo_exclude.contains(todo))
     }
+}
+
+fn parse_tag_terms(alternative: &str, input: &str) -> Result<TagTerms, AgdError> {
+    let mut terms = TagTerms::default();
+    let mut chars = alternative.trim().chars().peekable();
+    while let Some(&next) = chars.peek() {
+        let include = match next {
+            '+' | '&' => {
+                chars.next();
+                if next == '&' {
+                    continue;
+                }
+                true
+            }
+            '-' => {
+                chars.next();
+                false
+            }
+            _ => true,
+        };
+        let mut tag = String::new();
+        while let Some(&character) = chars.peek() {
+            if character.is_alphanumeric() || matches!(character, '_' | '@' | '#' | '%') {
+                tag.push(character);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        if tag.is_empty() {
+            let found = chars.peek().map_or("end".to_string(), |c| format!("'{c}'"));
+            return Err(AgdError::new(
+                "invalid_match",
+                format!(
+                    "expected a tag before {found} in '{input}'; property and regexp matches are not supported"
+                ),
+            ));
+        }
+        if include {
+            terms.include.insert(tag);
+        } else {
+            terms.exclude.insert(tag);
+        }
+    }
+    Ok(terms)
 }
 
 #[derive(Clone, Debug)]
@@ -788,6 +826,33 @@ mod tests {
         settings.files.agenda = vec!["**/*.org".to_string()];
         let index = WorkspaceIndex::load(settings).unwrap();
         (temp, index)
+    }
+
+    #[test]
+    fn tags_todo_match_follows_emacs_syntax() {
+        let (_temp, index) = fixture(
+            "#+TODO: TODO NEXT WAIT | DONE\n* TODO A :work:\n* NEXT B :work:urgent:\n* WAIT C :home:\n* DONE D :home:\n* TODO E :work:someday:\n",
+        );
+        let titles = |expression: &str| -> Vec<String> {
+            index
+                .items()
+                .filter(|item| TagTodoMatcher::parse(expression).unwrap().matches(item))
+                .map(|item| item.title.clone())
+                .collect()
+        };
+        assert_eq!(titles("work"), ["A", "B", "E"]);
+        assert_eq!(titles("work-someday"), ["A", "B"]);
+        assert_eq!(titles("work&urgent|home"), ["B", "C", "D"]);
+        assert_eq!(titles("+work/NEXT|TODO"), ["A", "B", "E"]);
+        assert_eq!(titles("home/!"), ["C"]);
+        assert_eq!(titles("/-WAIT"), ["A", "B", "D", "E"]);
+        assert_eq!(
+            TagTodoMatcher::parse("PRIORITY=\"A\"")
+                .err()
+                .unwrap()
+                .code(),
+            "invalid_match"
+        );
     }
 
     #[test]

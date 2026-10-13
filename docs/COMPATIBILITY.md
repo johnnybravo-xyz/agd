@@ -24,7 +24,7 @@ without executing editor code.
 | Done-item skip settings for planning/timestamps | Exact | `conformance/agenda/done-skipping` |
 | In-file `#+TODO` and `#+SEQ_TODO` workflows | Exact for parsing and writes | Round-trip and edit oracle fixtures |
 | Priority, time, and category agenda ordering | Exact for supported strategies | Generated agenda oracle cases |
-| Tags/TODO match expressions | Native | Boolean include/exclude tags plus TODO terms |
+| Tags/TODO match expressions | Native | `work`, `+a-b`, `a&b`, `a\|b`, `/TODO\|NEXT`, `/-WAIT`, `/!`; property and regexp matches are rejected |
 | org-ql `and`, `or`, `not`, `todo`, `tags`, `priority`, `category`, `text`, `deadline`, `scheduled`, `done` | Native subset | Unknown predicates fail explicitly |
 | Plain day/week/month lists and CSV | Native | CSV fields follow the Emacs oracle schema |
 | Clock table, clocking UI, and effort calculations | Unsupported | Org source is preserved; no clock evaluator |

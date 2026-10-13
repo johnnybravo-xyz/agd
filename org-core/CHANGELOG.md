@@ -13,6 +13,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Tags/TODO matches accept Emacs forms: bare tags (`work`), `&`, `|`
+  alternatives, `/-WAIT` and `/!`; property and regexp matches fail with a
+  clear `invalid_match`.
 - `EditorSettings::args_for` substitutes `{file}`, `{line}` and `{col}`.
 - `todo.ids = "add-on-write"` gives a heading without `:ID:` a UUID v4 ID on
   its first edit, state change or planning change, as Emacs org-id does.
