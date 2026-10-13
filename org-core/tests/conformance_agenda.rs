@@ -60,6 +60,7 @@ fn native_agenda_matches_pinned_emacs_rows() {
                 to: date(&case.to),
                 today: date(&case.today),
                 match_expression: None,
+                log_mode: false,
             })
             .expect("run native agenda");
         let actual = agenda_csv(&entries);

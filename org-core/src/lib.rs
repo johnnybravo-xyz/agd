@@ -15,7 +15,7 @@ pub mod write;
 #[cfg(test)]
 mod error_tests;
 
-pub use agenda_engine::{AgendaEngine, AgendaQuery, AgendaSpan, agenda_csv};
+pub use agenda_engine::{AgendaEngine, AgendaQuery, AgendaSpan, agenda_csv, agenda_title};
 pub use check::{
     CHECK_SCHEMA, CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError,
     IndexedHeadline, OrgDocument, SourceSpan, check_paths, check_settings,

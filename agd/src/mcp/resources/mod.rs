@@ -56,6 +56,7 @@ impl ServerHandler for OrgModeRouter {
                 to: today,
                 today,
                 match_expression: None,
+                log_mode: false,
             })
         }) {
             Ok(entries) => serde_json::to_string(&entries),

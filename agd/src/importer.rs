@@ -252,6 +252,7 @@ fn verify_snapshot(
             to,
             today,
             match_expression: None,
+            log_mode: false,
         })
         .map(|entries| normalize_csv(&agenda_csv(&entries)));
     if snapshot.metadata.editor == "emacs" {
@@ -309,6 +310,7 @@ fn verify_snapshot(
                     to,
                     today,
                     match_expression: command.match_expression.clone(),
+                    log_mode: false,
                 })
                 .map(|entries| normalize_csv(&agenda_csv(&entries))),
             "todo" | "tags-todo" => {

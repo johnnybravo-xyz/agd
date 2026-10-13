@@ -42,6 +42,9 @@ pub struct AgendaCommand {
     csv: bool,
     #[arg(long)]
     brief: bool,
+    /// Also list CLOSED entries, like org-agenda log mode (`l`)
+    #[arg(long)]
+    log: bool,
 }
 
 #[derive(Args, Debug)]
@@ -191,6 +194,7 @@ impl AgendaCommand {
             to,
             today,
             match_expression,
+            log_mode: self.log,
         })?;
         if self.json {
             println!("{}", serde_json::to_string_pretty(&entries)?);

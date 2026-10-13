@@ -120,6 +120,7 @@ impl OrgModeRouter {
                 to,
                 today,
                 match_expression: request.match_expression,
+                log_mode: false,
             })
         })();
         schema_result(result)

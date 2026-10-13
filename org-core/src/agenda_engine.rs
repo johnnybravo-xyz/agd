@@ -1,7 +1,10 @@
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
+use std::sync::LazyLock;
+
 use chrono::{Datelike, Duration, Months, NaiveDate};
+use regex::Regex;
 
 use crate::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, HeadlineSpan, Item, Occurrence, OccurrenceType,
@@ -47,6 +50,8 @@ pub struct AgendaQuery {
     pub to: NaiveDate,
     pub today: NaiveDate,
     pub match_expression: Option<String>,
+    /// org-agenda log mode (`l`): also list CLOSED entries.
+    pub log_mode: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -80,7 +85,7 @@ impl<'a> AgendaEngine<'a> {
                 {
                     continue;
                 }
-                entries.extend(self.occurrences(headline, query.from, query.to, query.today)?);
+                entries.extend(self.occurrences(headline, query)?);
             }
         }
         entries.sort_by(compare_entries);
@@ -115,19 +120,22 @@ impl<'a> AgendaEngine<'a> {
     fn occurrences(
         &self,
         headline: &HeadlineSpan,
-        from: NaiveDate,
-        to: NaiveDate,
-        today: NaiveDate,
+        query: &AgendaQuery,
     ) -> Result<Vec<AgendaEntry>, AgdError> {
+        let (from, to, today) = (query.from, query.to, query.today);
         let item = &headline.item;
         let settings = &self.index.settings().agenda;
         let mut entries = Vec::new();
 
+        // Scheduled and deadline expansion mirrors org-agenda-get-scheduled
+        // and org-agenda-get-deadlines with Org's defaults: an entry shows on
+        // its base date and on future repeats, and today carries the
+        // past-scheduled or overdue reminder counted from the base date.
         if !(item.done && settings.skip_scheduled_if_done)
             && let Some(scheduled) = &item.planning.scheduled
         {
-            let dates = repeated_dates(scheduled, from, to, item.done)?;
-            for date in dates {
+            let base = parse_date(&scheduled.date)?;
+            for date in planning_dates(scheduled, from, to, today, item.done)? {
                 entries.push(entry(
                     item,
                     OccurrenceType::Scheduled,
@@ -136,21 +144,13 @@ impl<'a> AgendaEngine<'a> {
                     "Scheduled:".to_string(),
                 ));
             }
-            let previous = previous_occurrence(scheduled, today)?;
-            if !item.done
-                && previous < today
-                && today >= from
-                && today <= to
-                && !entries
-                    .iter()
-                    .any(|entry| entry.occurrence.date == today.format("%Y-%m-%d").to_string())
-            {
+            if !item.done && base < today && today >= from && today <= to {
                 entries.push(entry(
                     item,
                     OccurrenceType::PastScheduled,
                     today,
-                    scheduled.time.clone(),
-                    format!("Sched. {}x:", (today - previous).num_days()),
+                    None,
+                    format!("Sched.{:>2}x:", (today - base).num_days()),
                 ));
             }
         }
@@ -158,57 +158,46 @@ impl<'a> AgendaEngine<'a> {
         if !(item.done && settings.skip_deadline_if_done)
             && let Some(deadline) = &item.planning.deadline
         {
-            let due_dates = repeated_dates(deadline, from, to, item.done)?;
-            let base_due = parse_date(&deadline.date)?;
-            if base_due < today
-                && deadline.repeater.is_none()
-                && !item.done
-                && today >= from
-                && today <= to
-            {
+            let base = parse_date(&deadline.date)?;
+            for date in planning_dates(deadline, from, to, today, item.done)? {
                 entries.push(entry(
                     item,
                     OccurrenceType::Deadline,
-                    today,
+                    date,
                     deadline.time.clone(),
-                    format!("{} d. ago:", (today - base_due).num_days()),
+                    "Deadline:".to_string(),
                 ));
             }
-            for due in due_dates {
-                let warning_days = deadline
-                    .warning
-                    .as_deref()
-                    .and_then(parse_day_interval)
-                    .unwrap_or(settings.deadline_warning_days)
-                    .max(0);
-                let warning_start = due - Duration::days(warning_days);
-                if today >= from
-                    && today <= to
-                    && today >= warning_start
-                    && today < due
-                    && !item.done
-                {
+            let warning_days = deadline
+                .warning
+                .as_deref()
+                .and_then(parse_day_interval)
+                .unwrap_or(settings.deadline_warning_days)
+                .max(0);
+            if !item.done && today >= from && today <= to {
+                if base < today {
+                    entries.push(entry(
+                        item,
+                        OccurrenceType::Deadline,
+                        today,
+                        None,
+                        format!("{} d. ago:", (today - base).num_days()),
+                    ));
+                } else if base > today && (base - today).num_days() <= warning_days {
                     entries.push(entry(
                         item,
                         OccurrenceType::UpcomingDeadline,
                         today,
-                        deadline.time.clone(),
-                        format!("In {:>3} d.:", (due - today).num_days()),
-                    ));
-                }
-                if due >= from && due <= to {
-                    entries.push(entry(
-                        item,
-                        OccurrenceType::Deadline,
-                        due,
-                        deadline.time.clone(),
-                        "Deadline:".to_string(),
+                        None,
+                        format!("In {:>3} d.:", (base - today).num_days()),
                     ));
                 }
             }
         }
 
-        if let Some(closed) = &item.planning.closed {
+        if query.log_mode
+            && let Some(closed) = &item.planning.closed
+        {
             let date = parse_date(&closed.date)?;
             if date >= from && date <= to {
                 entries.push(entry(
@@ -589,6 +578,19 @@ fn string_value(tokens: &[Token], cursor: &mut usize) -> Result<String, AgdError
     }
 }
 
+static ACTIVE_TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[ \t]*<\d{4}-\d{2}-\d{2}[^>\n]*>").expect("active timestamp regex")
+});
+
+/// Headline text as org-agenda prints it: active timestamps in the title,
+/// such as `Birthday <1993-10-16 Sat +1y>`, are left out.
+pub fn agenda_title(item: &Item) -> String {
+    ACTIVE_TIMESTAMP_RE
+        .replace_all(&item.title, "")
+        .trim()
+        .to_string()
+}
+
 pub fn agenda_csv(entries: &[AgendaEntry]) -> String {
     let mut output = String::new();
     for entry in entries {
@@ -604,7 +606,7 @@ pub fn agenda_csv(entries: &[AgendaEntry]) -> String {
             .join(":");
         let fields = [
             entry.item.category.clone(),
-            entry.item.title.clone(),
+            agenda_title(&entry.item),
             occurrence_name(entry.occurrence.kind).to_string(),
             entry.item.todo.clone().unwrap_or_default(),
             tags,
@@ -669,23 +671,29 @@ fn repeated_dates(
     Ok(dates)
 }
 
-fn previous_occurrence(
+/// Days in [from, to] where a SCHEDULED or DEADLINE timestamp is listed
+/// itself: its base date, plus repeat dates after today while not done.
+fn planning_dates(
     timestamp: &PlanningTimestamp,
+    from: NaiveDate,
+    to: NaiveDate,
     today: NaiveDate,
-) -> Result<NaiveDate, AgdError> {
-    let mut date = parse_date(&timestamp.date)?;
-    let Some(repeater) = timestamp.repeater.as_deref() else {
-        return Ok(date);
-    };
-    let (_, amount, unit) = parse_repeater(repeater)?;
-    while date < today {
-        let next = add_period(date, amount, unit)?;
-        if next > today {
-            break;
-        }
-        date = next;
+    done: bool,
+) -> Result<Vec<NaiveDate>, AgdError> {
+    let base = parse_date(&timestamp.date)?;
+    let mut dates = Vec::new();
+    if base >= from && base <= to {
+        dates.push(base);
     }
-    Ok(date)
+    if done {
+        return Ok(dates);
+    }
+    for date in repeated_dates(timestamp, from, to, false)? {
+        if date > today && date != base {
+            dates.push(date);
+        }
+    }
+    Ok(dates)
 }
 
 fn parse_repeater(input: &str) -> Result<(&str, u64, char), AgdError> {
@@ -866,6 +874,7 @@ mod tests {
                 to: NaiveDate::from_ymd_opt(2026, 10, 16).unwrap(),
                 today: NaiveDate::from_ymd_opt(2026, 10, 14).unwrap(),
                 match_expression: Some("+work/TODO".to_string()),
+                log_mode: false,
             })
             .unwrap();
         assert!(
@@ -920,6 +929,7 @@ mod tests {
                 to: NaiveDate::from_ymd_opt(2026, 10, 13).unwrap(),
                 today: NaiveDate::from_ymd_opt(2026, 10, 13).unwrap(),
                 match_expression: None,
+                log_mode: false,
             })
             .unwrap();
         assert!(agenda_csv(&entries).contains("\"Call, bank\",scheduled,TODO"));

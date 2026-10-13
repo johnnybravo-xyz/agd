@@ -1,0 +1,25 @@
+#+TODO: TODO NEXT | DONE CANCELLED
+#+CATEGORY: overdue
+* Birthdays
+** [#A] Anniversary <1993-10-16 Sat +1y>
+** Weekly sync <2026-09-01 Tue +1w>
+* Bills
+** TODO Pay rent
+DEADLINE: <2024-11-03 Sun +1m>
+** TODO Card bill
+DEADLINE: <2026-10-10 Sat +1m -3d>
+** TODO Insurance
+DEADLINE: <2026-10-20 Tue +1y>
+* Work
+** TODO Old reading
+SCHEDULED: <2020-11-09 Mon>
+** NEXT Standup notes
+SCHEDULED: <2026-10-05 Mon +1d>
+** TODO Review twelve days late
+SCHEDULED: <2026-10-01 Thu>
+** DONE Shipped release
+CLOSED: [2026-10-13 Tue 12:10] SCHEDULED: <2026-10-13 Tue>
+** CANCELLED Dropped deadline
+CLOSED: [2026-10-12 Mon 09:00] DEADLINE: <2026-10-11 Sun>
+** TODO Base inside week
+DEADLINE: <2026-10-12 Mon +1w>

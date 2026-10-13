@@ -23,6 +23,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Match org-agenda for planning: overdue repeating deadlines show on today
+  counted from the base date, scheduled repeats show only on the base date and
+  after today, deadline warnings use the base date, and leaders use Org's
+  `Sched.%2dx:` / `%2d d. ago:` widths.
+- List active timestamps written on the headline line (`* Birthday <… +1y>`)
+  and drop them from the agenda title, as org-agenda does.
+- List CLOSED entries only with `AgendaQuery::log_mode`, like org-agenda log
+  mode; they previously appeared in every agenda.
 - Print dry-run diff headers with the plain file path instead of `a//abs`.
 - Skip non-UTF-8 agenda files for reads (`WorkspaceIndex::skipped_files`) and
   refuse writes to them with `non_utf8`, instead of failing every command.

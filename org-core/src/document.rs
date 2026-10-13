@@ -577,7 +577,12 @@ fn scan_headlines(
         let timestamp_start = raw[index]
             .planning_span
             .map_or(raw[index].line_span.end, |span| span.end);
-        raw[index].timestamps = scan_timestamps(source, timestamp_start, next_any);
+        // Org lists active timestamps on the headline line itself, e.g.
+        // `* Birthday <1993-10-16 Sat +1y>`, but never the planning line.
+        let mut timestamps =
+            scan_timestamps(source, raw[index].line_span.start, raw[index].line_span.end);
+        timestamps.extend(scan_timestamps(source, timestamp_start, next_any));
+        raw[index].timestamps = timestamps;
     }
 
     let excluded: BTreeSet<&str> = settings

@@ -583,6 +583,7 @@ impl App {
                 to: today,
                 today,
                 match_expression: None,
+                log_mode: false,
             })?;
             let mut seen = BTreeSet::new();
             let mut rows: Vec<DisplayRow> = entries
@@ -637,6 +638,7 @@ impl App {
                     to,
                     today,
                     match_expression: None,
+                    log_mode: false,
                 })?
                 .into_iter()
                 .map(|entry| DisplayRow {

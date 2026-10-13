@@ -8,6 +8,7 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `agd agenda --log` lists CLOSED entries, like org-agenda log mode.
 - `agd import emacs --server NAME` selects a running daemon by socket name.
 - `agd import emacs --batch-profile` prints the command it runs before
   executing your Emacs configuration.
