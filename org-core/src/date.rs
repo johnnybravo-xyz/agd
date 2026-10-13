@@ -161,6 +161,7 @@ pub fn render_capture_template(
             first.push_str(&format!(" :{}:", draft.tags.join(":")));
         }
     }
+    // One planning line, as Org writes it: SCHEDULED then DEADLINE.
     let mut planning = Vec::new();
     if let Some(scheduled) = &draft.scheduled {
         planning.push(format!(
@@ -172,7 +173,7 @@ pub fn render_capture_template(
         planning.push(format!("DEADLINE: {}", format_active_timestamp(deadline)?));
     }
     if !planning.is_empty() {
-        lines.splice(1..1, planning);
+        lines.insert(1, planning.join(" "));
     }
     Ok(lines.join(newline))
 }

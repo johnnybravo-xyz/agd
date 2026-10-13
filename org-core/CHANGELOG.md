@@ -52,6 +52,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Read planning only from the line right after the headline, as Org does;
+  a second SCHEDULED/DEADLINE line is an ordinary timestamp. Captures write
+  SCHEDULED and DEADLINE on one planning line instead of two.
 - Align tags to `org-tags-column` (`tags.column`, imported from Emacs and
   nvim-orgmode) whenever a headline is rewritten, as Emacs does, instead of
   collapsing them to one space.

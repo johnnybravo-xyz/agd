@@ -803,40 +803,19 @@ fn parse_metadata(
     _headline_count: usize,
 ) -> Result<ParsedMetadata, AgdError> {
     let mut planning = Planning::default();
+    // Org reads planning only from the line right after the headline; a
+    // second SCHEDULED/DEADLINE line or one after a blank line is plain text
+    // with an ordinary timestamp.
     let mut planning_span: Option<ByteSpan> = None;
     let mut cursor = headline_line + 1;
-    while let Some(line) = lines.get(cursor) {
-        let text = &source[line.content.start..line.content.end];
-        let trimmed = text.trim_start();
-        if HEADLINE_RE.is_match(text)
-            || trimmed == ":PROPERTIES:"
-            || (!trimmed.is_empty() && !is_planning_line(trimmed))
-        {
-            break;
-        }
+    if let Some(line) = lines.get(cursor) {
+        let trimmed = source[line.content.start..line.content.end].trim_start();
         if is_planning_line(trimmed) {
-            planning_span = Some(match planning_span {
-                Some(span) => ByteSpan {
-                    start: span.start,
-                    end: line.full.end,
-                },
-                None => line.full,
-            });
-            if let Some(timestamp) = labeled_timestamp(trimmed, "SCHEDULED:") {
-                planning.scheduled = Some(timestamp);
-            }
-            if let Some(timestamp) = labeled_timestamp(trimmed, "DEADLINE:") {
-                planning.deadline = Some(timestamp);
-            }
-            if let Some(timestamp) = labeled_timestamp(trimmed, "CLOSED:") {
-                planning.closed = Some(timestamp);
-            }
+            planning_span = Some(line.full);
+            planning.scheduled = labeled_timestamp(trimmed, "SCHEDULED:");
+            planning.deadline = labeled_timestamp(trimmed, "DEADLINE:");
+            planning.closed = labeled_timestamp(trimmed, "CLOSED:");
             cursor += 1;
-            continue;
-        }
-        if trimmed.is_empty() {
-            cursor += 1;
-            continue;
         }
     }
 

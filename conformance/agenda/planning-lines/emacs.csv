@@ -1,0 +1,6 @@
+planning,One planning line,upcoming-deadline,TODO,,2026-10-13,,In   3 d.:,
+planning,Two planning lines,scheduled,TODO,,2026-10-14,,Scheduled:,
+planning,One planning line,scheduled,TODO,,2026-10-14,,Scheduled:,
+planning,Planning after a blank line,timestamp,TODO,,2026-10-15,,,
+planning,One planning line,deadline,TODO,,2026-10-16,,Deadline:,
+planning,Two planning lines,timestamp,TODO,,2026-10-16,,,

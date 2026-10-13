@@ -1,0 +1,10 @@
+#+TODO: TODO | DONE
+#+CATEGORY: planning
+* TODO Two planning lines
+SCHEDULED: <2026-10-14 Wed>
+DEADLINE: <2026-10-16 Fri>
+* TODO One planning line
+SCHEDULED: <2026-10-14 Wed> DEADLINE: <2026-10-16 Fri>
+* TODO Planning after a blank line
+
+SCHEDULED: <2026-10-15 Thu>
