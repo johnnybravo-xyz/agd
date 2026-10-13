@@ -17,6 +17,27 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Rebuild the TUI to the design: a theme with light, dark, 16-colour and
+  `NO_COLOR` variants; tabs for Today, Week, Inbox and Agents; a footer with
+  the most-used keys and Emacs-style write confirmations.
+- Today groups SLIPPED (capped at three, with badges), SCHEDULE, DUE SOON,
+  DOING (with WAIT age) and INBOX (with who captured it), shows effort
+  totals, and keeps section headers unselectable. `v` gives the classic
+  org-agenda day list; Week shows every day as org-agenda does.
+- Peek shows dates with the next repeat, effort, LOGBOOK count, why the row
+  is listed, the body with link text and links; `y` copies a link through
+  the terminal (OSC 52, tmux-safe).
+- Triage is a card per item with age, reschedule count from LOGBOOK or the
+  journal, the earned Someday nudge, key chips and a summary; Someday also
+  clears an overdue deadline and skips already-demoted tasks.
+- Capture shows parsed chips, the destination, the exact org preview and
+  fields for `%^{prompt}`; `tab` changes template.
+- Agent review shows cards per change (capture, state, date, refile),
+  reviewed changes dimmed, `f` to filter by agent and `d` for the raw diff.
+- The pane sorts by clock time with ▸ on the next item, collapses overdue
+  to a count, and takes over automatically under 60 columns.
+- New keys: `a` saved views, `tab`/`1`–`4` tabs, `+`/`-` priority, `l` log
+  mode, `g` refresh, `y` copy link, `r` refile outside triage.
 - Trim the CLI to `agd` (Today; `--pane`), `agenda`, `capture`, `mcp` and
   `setup import|install|check`. People write through the TUI and agents
   through MCP; `todo`, `q`, `state`, `schedule`, `deadline`, `edit`, `open`,

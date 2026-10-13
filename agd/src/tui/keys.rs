@@ -1,147 +1,121 @@
 use std::io::Stdout;
 use std::time::Instant;
 
-use super::actions::fuzzy_match;
-use super::open_selected;
-use super::overlay::edit_capture_body;
-use super::rows::period_duration;
-use super::{AgendaView, App, Overlay, PromptKind, Screen};
 use anyhow::Result;
-use chrono::Local;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
-pub(super) fn handle_key(
-    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    app: &mut App,
-    key: KeyEvent,
-) -> Result<()> {
+use super::{App, Overlay, PromptKind, Screen, TriageState, capture, open_in_editor};
+
+type Term = Terminal<CrosstermBackend<Stdout>>;
+
+pub(super) fn handle_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
+    if key.kind == KeyEventKind::Release {
+        return Ok(());
+    }
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         app.quit = true;
         return Ok(());
     }
-    if matches!(app.overlay, Overlay::Capture { .. })
-        && key.modifiers.contains(KeyModifiers::CONTROL)
-        && key.code == KeyCode::Char('e')
-    {
-        return edit_capture_body(terminal, app);
+    match &app.overlay {
+        Overlay::None => {}
+        Overlay::Capture(_) => return capture::handle_key(terminal, app, key),
+        _ => return handle_overlay(app, key),
     }
-    if !matches!(app.overlay, Overlay::None) {
-        return handle_overlay(app, key);
+    if app.pane {
+        return pane_key(terminal, app, key);
     }
-    if app.pending_view_key {
-        app.pending_view_key = false;
-        match key.code {
-            KeyCode::Char('d') => app.view = AgendaView::Day,
-            KeyCode::Char('w') => app.view = AgendaView::Week,
-            KeyCode::Char('t') => app.view = AgendaView::Todo,
-            KeyCode::Esc => return Ok(()),
-            _ => app.set_status("view keys: d day · w week · t todo".to_string()),
-        }
-        app.reload_rows()?;
-        return Ok(());
+    match app.screen {
+        Screen::Triage => triage_key(app, key),
+        Screen::Review => review_key(terminal, app, key),
+        _ => list_key(terminal, app, key),
     }
+}
 
+/// Keys shared by every screen; returns true when handled.
+fn common_key(app: &mut App, key: KeyEvent) -> Result<bool> {
     match key.code {
-        KeyCode::Char('q') => app.quit = true,
-        KeyCode::Esc => {
-            if app.screen != Screen::Today {
-                app.switch_screen(Screen::Today)?;
-            } else if app.peek {
-                app.peek = false;
-            }
+        KeyCode::Char('j') | KeyCode::Down => app.move_selection(1),
+        KeyCode::Char('k') | KeyCode::Up => app.move_selection(-1),
+        KeyCode::PageDown => app.move_selection(10),
+        KeyCode::PageUp => app.move_selection(-10),
+        KeyCode::Home => app.selected = 0,
+        KeyCode::End => app.selected = app.row_count().saturating_sub(1),
+        KeyCode::Char('?') => app.overlay = Overlay::Help,
+        KeyCode::Char('c') => app.overlay = Overlay::Capture(capture::Draft::default()),
+        KeyCode::Char('g') => {
+            app.index = org_core::WorkspaceIndex::load(app.settings.clone())?;
+            app.reload_rows()?;
+            app.set_status("refreshed");
         }
-        KeyCode::Char('k') if app.screen == Screen::Triage => app.cancel_selected()?,
-        KeyCode::Char('p') if app.screen == Screen::Triage => {
-            app.overlay = Overlay::Prompt {
-                kind: PromptKind::Schedule,
-                input: String::new(),
-            }
-        }
-        KeyCode::Char('n') if app.screen == Screen::Triage => app.apply_state("NEXT")?,
-        KeyCode::Char('A') if app.screen == Screen::Review => app.review_all()?,
-        KeyCode::Char('A') => {
+        KeyCode::Tab => next_tab(app, 1)?,
+        KeyCode::BackTab => next_tab(app, -1)?,
+        KeyCode::Char('1') => app.switch_screen(Screen::Today)?,
+        KeyCode::Char('2') => app.switch_screen(Screen::Week)?,
+        KeyCode::Char('3') => app.switch_screen(Screen::Inbox)?,
+        KeyCode::Char('4') | KeyCode::Char('A') => {
             app.review_diff = false;
             app.switch_screen(Screen::Review)?;
         }
-        KeyCode::Char('j') | KeyCode::Down => app.move_selection(1),
-        KeyCode::Char('k') | KeyCode::Up => app.move_selection(-1),
-        KeyCode::Char('?') => app.overlay = Overlay::Help,
-        KeyCode::Char('p') => app.peek = !app.peek,
-        KeyCode::Char('T') => {
-            app.triage_started = Some(Instant::now());
-            app.triage_outcomes = [0; 6];
-            app.triage_undo.clear();
-            app.switch_screen(Screen::Triage)?;
-        }
-        KeyCode::Char('c') => {
-            app.overlay = Overlay::Capture {
-                template: None,
-                input: String::new(),
-                preview: "type a capture template key".to_string(),
-                body: String::new(),
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+fn next_tab(app: &mut App, delta: isize) -> Result<()> {
+    let tabs = [Screen::Today, Screen::Week, Screen::Inbox, Screen::Review];
+    let current = tabs.iter().position(|tab| *tab == app.screen).unwrap_or(0) as isize;
+    let next = (current + delta).rem_euclid(tabs.len() as isize) as usize;
+    app.switch_screen(tabs[next].clone())
+}
+
+/// Today, Week, Inbox and saved views.
+fn list_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
+    if common_key(app, key)? {
+        return Ok(());
+    }
+    let bulk = !app.marks.is_empty();
+    match key.code {
+        KeyCode::Char('q') => app.quit = true,
+        KeyCode::Esc => {
+            if app.peek {
+                app.peek = false;
+            } else if bulk {
+                app.marks.clear();
+            } else if !app.filter.is_empty() {
+                app.filter.clear();
+                app.reload_rows()?;
+            } else if app.screen != Screen::Today {
+                let back = app.back.clone();
+                app.switch_screen(if back == app.screen {
+                    Screen::Today
+                } else {
+                    back
+                })?;
             }
         }
-        KeyCode::Char('v') => {
-            app.classic = !app.classic;
-            app.reload_rows()?;
-        }
-        KeyCode::Char('V') => app.pending_view_key = true,
-        KeyCode::Char('f') => {
-            app.day += period_duration(app.view);
-            app.reload_rows()?;
-        }
-        KeyCode::Char('b') => {
-            app.day -= period_duration(app.view);
-            app.reload_rows()?;
-        }
-        KeyCode::Char('.') if app.screen == Screen::Triage || !app.marks.is_empty() => {
-            app.apply_date_to_targets("today")?;
-        }
-        KeyCode::Char('.') => {
-            app.day = Local::now().date_naive();
-            app.reload_rows()?;
-        }
-        KeyCode::Char('m') if app.screen == Screen::Triage || !app.marks.is_empty() => {
-            app.apply_date_to_targets("+1d")?
-        }
-        KeyCode::Char('w') if app.screen == Screen::Triage || !app.marks.is_empty() => {
-            app.apply_date_to_targets("+1w")?
-        }
-        KeyCode::Char('s') if app.screen == Screen::Triage || !app.marks.is_empty() => {
-            app.apply_someday()?
-        }
-        KeyCode::Char('x') => app.apply_state("DONE")?,
+        KeyCode::Enter | KeyCode::Char('e') => open_selected(terminal, app)?,
+        KeyCode::Char(' ') => app.toggle_mark(),
+        // Bulk actions on marked rows, as org-agenda's B menu.
+        KeyCode::Char('.') if bulk => app.schedule("today")?,
+        KeyCode::Char('m') if bulk => app.schedule("+1d")?,
+        KeyCode::Char('w') if bulk => app.schedule("+1w")?,
+        KeyCode::Char('s') if bulk => app.someday()?,
+        KeyCode::Char('x') => app.mark_done()?,
         KeyCode::Char('t') => app.cycle_state()?,
-        KeyCode::Char('s') => {
-            app.overlay = Overlay::Prompt {
-                kind: PromptKind::Schedule,
-                input: String::new(),
-            }
-        }
-        KeyCode::Char('d') if app.screen == Screen::Review => {
-            app.review_diff = !app.review_diff;
-        }
-        KeyCode::Char('d') => {
-            app.overlay = Overlay::Prompt {
-                kind: PromptKind::Deadline,
-                input: String::new(),
-            }
-        }
-        KeyCode::Char(',') => {
-            app.overlay = Overlay::Prompt {
-                kind: PromptKind::Priority,
-                input: String::new(),
-            }
-        }
-        KeyCode::Char(':') => {
-            app.overlay = Overlay::Prompt {
-                kind: PromptKind::Tags,
-                input: String::new(),
-            }
-        }
-        KeyCode::Char('r') if app.screen == Screen::Triage => app.open_refile(),
+        KeyCode::Char('s') => prompt(app, PromptKind::Schedule),
+        KeyCode::Char('d') => prompt(app, PromptKind::Deadline),
+        KeyCode::Char(',') => prompt(app, PromptKind::Priority),
+        KeyCode::Char('+') => app.shift_priority(true)?,
+        KeyCode::Char('-') => app.shift_priority(false)?,
+        KeyCode::Char(':') => prompt(app, PromptKind::Tags),
+        KeyCode::Char('r') => app.open_refile(),
+        KeyCode::Char('u') => app.undo()?,
+        KeyCode::Char('y') => app.copy_link()?,
+        KeyCode::Char('p') => app.peek = !app.peek,
+        KeyCode::Char('T') => start_triage(app)?,
+        KeyCode::Char('a') => app.overlay = Overlay::Views { selected: 0 },
         KeyCode::Char('/') => {
             app.overlay = Overlay::Prompt {
                 kind: PromptKind::Filter,
@@ -149,59 +123,173 @@ pub(super) fn handle_key(
             }
         }
         KeyCode::Char('<') => {
-            app.context = (app.context + 1) % 3;
+            let categories = app.categories();
+            let index = app
+                .context
+                .as_ref()
+                .and_then(|context| categories.iter().position(|category| category == context));
+            app.context = match index {
+                None => categories.first().cloned(),
+                Some(index) => categories.get(index + 1).cloned(),
+            };
             app.reload_rows()?;
         }
-        KeyCode::Char(' ') if app.screen != Screen::Review => app.toggle_mark(),
-        KeyCode::Char('u') if app.screen == Screen::Review => app.undo_review_selected()?,
-        KeyCode::Char('u') => app.undo()?,
-        KeyCode::Char('a') if app.screen == Screen::Review => app.review_selected()?,
-        KeyCode::Enter if app.screen == Screen::Triage && app.rows.is_empty() => {
-            app.switch_screen(Screen::Today)?;
+        KeyCode::Char('v') => {
+            app.classic = !app.classic;
+            app.reload_rows()?;
         }
-        KeyCode::Enter if app.pane => app.pane = false,
-        KeyCode::Enter | KeyCode::Char('e') => open_selected(terminal, app)?,
+        KeyCode::Char('l') => {
+            app.log_mode = !app.log_mode;
+            app.reload_rows()?;
+        }
+        KeyCode::Char('f') => {
+            app.day += period(app);
+            app.reload_rows()?;
+        }
+        KeyCode::Char('b') => {
+            app.day -= period(app);
+            app.reload_rows()?;
+        }
+        KeyCode::Char('.') => {
+            app.day = app.today;
+            app.reload_rows()?;
+        }
         _ => {}
     }
     Ok(())
 }
 
-pub(super) fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
-    match &mut app.overlay {
-        Overlay::Help => {
-            app.overlay = Overlay::None;
+fn period(app: &App) -> chrono::Duration {
+    if app.screen == Screen::Week {
+        chrono::Duration::weeks(1)
+    } else {
+        chrono::Duration::days(1)
+    }
+}
+
+fn prompt(app: &mut App, kind: PromptKind) {
+    if app.selected_row().is_some() || !app.marks.is_empty() {
+        app.overlay = Overlay::Prompt {
+            kind,
+            input: String::new(),
+        };
+    }
+}
+
+fn start_triage(app: &mut App) -> Result<()> {
+    app.triage = TriageState {
+        started: Some(Instant::now()),
+        ..TriageState::default()
+    };
+    app.switch_screen(Screen::Triage)
+}
+
+fn open_selected(terminal: &mut Term, app: &mut App) -> Result<()> {
+    let Some(row) = app.selected_row() else {
+        return Ok(());
+    };
+    let (file, line) = (row.item.file.clone(), row.item.line);
+    open_in_editor(terminal, app, &file, line)
+}
+
+/// One key per decision on the current card.
+fn triage_key(app: &mut App, key: KeyEvent) -> Result<()> {
+    if app.rows.is_empty() {
+        return match key.code {
+            KeyCode::Char('u') => app.undo(),
+            KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => app.switch_screen(Screen::Today),
+            _ => Ok(()),
+        };
+    }
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            let back = app.back.clone();
+            app.switch_screen(back)?;
         }
-        Overlay::Capture {
-            template, input, ..
-        } => match key.code {
-            KeyCode::Esc => app.overlay = Overlay::None,
-            KeyCode::Backspace => {
-                if input.is_empty() {
-                    *template = None;
+        KeyCode::Char('.') => app.schedule("today")?,
+        KeyCode::Char('m') => app.schedule("+1d")?,
+        KeyCode::Char('w') => app.schedule("+1w")?,
+        KeyCode::Char('p') => prompt(app, PromptKind::Schedule),
+        KeyCode::Char('x') => app.mark_done()?,
+        KeyCode::Char('n') => app.set_state("NEXT")?,
+        KeyCode::Char('s') => app.someday()?,
+        KeyCode::Char('k') => app.cancel()?,
+        KeyCode::Char('r') => app.open_refile(),
+        KeyCode::Char('u') => app.undo()?,
+        KeyCode::Char('j') | KeyCode::Down | KeyCode::Tab => app.move_selection(1),
+        KeyCode::Up | KeyCode::BackTab => app.move_selection(-1),
+        KeyCode::Char('?') => app.overlay = Overlay::Help,
+        _ => {}
+    }
+    Ok(())
+}
+
+fn review_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
+    if common_key(app, key)? {
+        return Ok(());
+    }
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            if app.review_diff {
+                app.review_diff = false;
+            } else {
+                let back = app.back.clone();
+                app.switch_screen(if back == Screen::Review {
+                    Screen::Today
                 } else {
-                    input.pop();
-                }
-                app.refresh_capture_preview();
+                    back
+                })?;
             }
-            KeyCode::Enter if template.is_some() && !input.trim().is_empty() => {
-                app.commit_capture()?;
+        }
+        KeyCode::Char('a') => app.accept_selected()?,
+        KeyCode::Char('A') => app.accept_all()?,
+        KeyCode::Char('u') => app.undo_selected_change()?,
+        KeyCode::Char('d') => app.review_diff = !app.review_diff,
+        KeyCode::Char('f') => app.cycle_agent_filter()?,
+        KeyCode::Enter | KeyCode::Char('e') => {
+            if let Some(record) = app.journals.get(app.selected) {
+                let file = record
+                    .file
+                    .split(',')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
+                let line = super::review::changed_line(record);
+                open_in_editor(terminal, app, &file, line)?;
             }
-            KeyCode::Char(character) => {
-                if template.is_none() && input.is_empty() {
-                    let key = character.to_string();
-                    if app.settings.capture.contains_key(&key) {
-                        *template = Some(key);
-                    } else {
-                        app.set_status(format!("unknown capture template: {character}"));
-                    }
-                } else {
-                    input.push(character);
-                }
-                app.refresh_capture_preview();
-            }
-            _ => {}
-        },
-        Overlay::Prompt { kind: _, input } => match key.code {
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// The pane: glance, mark done, triage, capture, or open the full TUI.
+fn pane_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => app.move_selection(1),
+        KeyCode::Char('k') | KeyCode::Up => app.move_selection(-1),
+        KeyCode::Char('x') => app.mark_done()?,
+        KeyCode::Char('u') => app.undo()?,
+        KeyCode::Char('c') => app.overlay = Overlay::Capture(capture::Draft::default()),
+        KeyCode::Char('T') => {
+            app.pane = false;
+            start_triage(app)?;
+        }
+        KeyCode::Char('e') => open_selected(terminal, app)?,
+        KeyCode::Enter => {
+            app.pane = false;
+            app.reload_rows()?;
+        }
+        KeyCode::Char('q') => app.quit = true,
+        _ => {}
+    }
+    Ok(())
+}
+
+fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
+    match &mut app.overlay {
+        Overlay::Help => app.overlay = Overlay::None,
+        Overlay::Prompt { input, .. } => match key.code {
             KeyCode::Esc => app.overlay = Overlay::None,
             KeyCode::Backspace => {
                 input.pop();
@@ -210,42 +298,49 @@ pub(super) fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
             KeyCode::Char(character) => input.push(character),
             _ => {}
         },
-        Overlay::Refile {
-            input,
-            selected,
-            targets,
-        } => match key.code {
+        Overlay::Refile(picker) => match key.code {
             KeyCode::Esc => app.overlay = Overlay::None,
-            KeyCode::Backspace => {
-                input.pop();
-                *selected = 0;
-            }
-            KeyCode::Up => {
-                let count = targets
-                    .iter()
-                    .filter(|target| fuzzy_match(&target.label, input))
-                    .count();
-                if count > 0 {
-                    *selected = (*selected + count - 1) % count;
-                }
-            }
+            KeyCode::Enter => app.commit_refile()?,
+            KeyCode::Up => picker.selected = picker.selected.saturating_sub(1),
             KeyCode::Down => {
-                let count = targets
-                    .iter()
-                    .filter(|target| fuzzy_match(&target.label, input))
-                    .count();
-                if count > 0 {
-                    *selected = (*selected + 1) % count;
-                }
+                let count = picker.matches().len();
+                picker.selected = (picker.selected + 1).min(count.saturating_sub(1));
             }
-            KeyCode::Enter => return app.commit_refile(),
+            KeyCode::Backspace => {
+                picker.input.pop();
+                picker.selected = 0;
+            }
             KeyCode::Char(character) => {
-                input.push(character);
-                *selected = 0;
+                picker.input.push(character);
+                picker.selected = 0;
             }
             _ => {}
         },
-        Overlay::None => {}
+        Overlay::Views { selected } => {
+            let keys: Vec<String> = app.settings.views.keys().cloned().collect();
+            match key.code {
+                KeyCode::Esc => app.overlay = Overlay::None,
+                KeyCode::Up | KeyCode::Char('k') => *selected = selected.saturating_sub(1),
+                KeyCode::Down | KeyCode::Char('j') => {
+                    *selected = (*selected + 1).min(keys.len().saturating_sub(1));
+                }
+                KeyCode::Enter => {
+                    if let Some(key) = keys.get(*selected).cloned() {
+                        app.overlay = Overlay::None;
+                        app.switch_screen(Screen::View(key))?;
+                    }
+                }
+                KeyCode::Char(character) => {
+                    if let Some(key) = keys.iter().find(|key| **key == character.to_string()) {
+                        let key = key.clone();
+                        app.overlay = Overlay::None;
+                        app.switch_screen(Screen::View(key))?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Overlay::None | Overlay::Capture(_) => {}
     }
     Ok(())
 }

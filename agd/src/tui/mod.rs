@@ -1,8 +1,14 @@
+//! Terminal workflows from the TUI design: Today (with Week, Inbox and saved
+//! views as tabs), Triage, Capture, Agent review, and the narrow pane.
+//! `mod.rs` owns state, the event loop and terminal handling; each screen
+//! draws itself from `App`, and every write goes through `actions`.
+
 mod actions;
+mod capture;
 mod help;
 mod keys;
-mod overlay;
 mod pane;
+mod peek;
 mod review;
 mod rows;
 mod theme;
@@ -10,7 +16,7 @@ mod today;
 mod triage;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{self, Stdout};
+use std::io::{self, Stdout, Write};
 use std::path::Path;
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver};
@@ -23,7 +29,6 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use keys::handle_key;
 use notify::{
     Config as NotifyConfig, Event as NotifyEvent, RecommendedWatcher, RecursiveMode, Watcher,
 };
@@ -31,25 +36,22 @@ use org_core::{
     AgdError, Item, JournalRecord, Occurrence, Settings, WorkspaceIndex, WriteContext,
     load_settings,
 };
-use overlay::draw_overlay;
-use pane::draw_pane;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
-use today::draw_full;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+use theme::Theme;
+
+/// Screens and tabs. Today, Week, Inbox and saved views share the list
+/// layout; Triage and Review have their own.
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum Screen {
     Today,
+    Week,
+    Inbox,
+    View(String),
     Triage,
     Review,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum AgendaView {
-    Day,
-    Week,
-    Todo,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,29 +67,32 @@ enum PromptKind {
 enum Overlay {
     None,
     Help,
-    Capture {
-        template: Option<String>,
-        input: String,
-        preview: String,
-        body: String,
-    },
+    Capture(capture::Draft),
     Prompt {
         kind: PromptKind,
         input: String,
     },
-    Refile {
-        input: String,
+    Refile(actions::RefilePicker),
+    /// org-agenda's dispatcher: saved views by key.
+    Views {
         selected: usize,
-        targets: Vec<RefileTarget>,
     },
 }
 
+/// One selectable row. `section` groups rows under a header: a Today
+/// section (SLIPPED, SCHEDULE, …), a day in Week, or a view block title.
 #[derive(Clone, Debug)]
 struct DisplayRow {
     section: String,
     item: Item,
     occurrence: Option<Occurrence>,
 }
+
+const SLIPPED: &str = "SLIPPED";
+const SCHEDULE: &str = "SCHEDULE";
+const DUE: &str = "DUE SOON";
+const DOING: &str = "DOING";
+const INBOX: &str = "INBOX";
 
 #[derive(Clone, Debug)]
 struct SelectionAnchor {
@@ -124,44 +129,158 @@ impl SelectionAnchor {
     }
 }
 
-#[derive(Clone, Debug)]
-struct RefileTarget {
-    item_ref: String,
-    label: String,
+/// Status line text; writes confirm for three seconds, errors stay a
+/// little longer.
+#[derive(Debug)]
+struct Status {
+    text: String,
+    error: bool,
+    at: Instant,
+}
+
+/// Cross-screen signals shown in tabs, the footer and the pane.
+#[derive(Debug, Default)]
+struct Counts {
+    slipped: usize,
+    inbox: usize,
+    agents: usize,
+}
+
+/// Progress of one triage pass; outcomes index TriageOutcome.
+#[derive(Debug, Default)]
+struct TriageState {
+    started: Option<Instant>,
+    outcomes: [usize; 7],
+    undo: Vec<(Vec<String>, usize)>,
 }
 
 struct App {
     settings: Settings,
     index: WorkspaceIndex,
-    rows: Vec<DisplayRow>,
-    journals: Vec<JournalRecord>,
-    screen: Screen,
-    view: AgendaView,
+    theme: Theme,
+    today: NaiveDate,
+    /// First day of the Today/Week agenda; f, b and . move it.
     day: NaiveDate,
+    screen: Screen,
+    /// Where esc returns to from Triage, Review or a view.
+    back: Screen,
+    rows: Vec<DisplayRow>,
+    /// Section headers in display order, including days without rows, so
+    /// Week shows every day as org-agenda does.
+    headers: Vec<String>,
+    journals: Vec<JournalRecord>,
     selected: usize,
     marks: BTreeSet<String>,
-    context: usize,
+    /// Context filter cycled with `<`: None is all categories.
+    context: Option<String>,
     filter: String,
     classic: bool,
+    log_mode: bool,
     peek: bool,
+    /// The narrow pane is showing: asked for with --pane, or the terminal
+    /// is under 60 columns.
     pane: bool,
+    pane_requested: bool,
     capture_only: bool,
-    pending_view_key: bool,
     overlay: Overlay,
-    status: String,
-    status_at: Instant,
+    status: Option<Status>,
     list_area: Rect,
-    inbox_count: usize,
-    agent_count: usize,
-    slipped_count: usize,
+    /// (screen row, row index) of the drawn list, for mouse clicks.
+    click_rows: Vec<(u16, usize)>,
+    counts: Counts,
+    /// Reschedules per item ref: LOGBOOK "Rescheduled from" notes, else
+    /// agd's own journal.
+    reschedules: BTreeMap<String, usize>,
+    /// item ref -> (actor, HH:MM) of the capture that created it.
+    provenance: BTreeMap<String, (String, String)>,
     recent_targets: Vec<String>,
-    reschedule_counts: BTreeMap<String, usize>,
-    provenance: BTreeMap<String, String>,
-    triage_started: Option<Instant>,
-    triage_outcomes: [usize; 6],
+    triage: TriageState,
     review_diff: bool,
-    triage_undo: Vec<(Vec<String>, usize)>,
+    agent_filter: Option<String>,
     quit: bool,
+}
+
+impl App {
+    fn new(settings: Settings, index: WorkspaceIndex, today: NaiveDate) -> Self {
+        let theme = Theme::detect(&settings.tui.theme);
+        Self {
+            settings,
+            index,
+            theme,
+            today,
+            day: today,
+            screen: Screen::Today,
+            back: Screen::Today,
+            rows: Vec::new(),
+            headers: Vec::new(),
+            journals: Vec::new(),
+            selected: 0,
+            marks: BTreeSet::new(),
+            context: None,
+            filter: String::new(),
+            classic: false,
+            log_mode: false,
+            peek: false,
+            pane: false,
+            pane_requested: false,
+            capture_only: false,
+            overlay: Overlay::None,
+            status: None,
+            list_area: Rect::default(),
+            click_rows: Vec::new(),
+            counts: Counts::default(),
+            reschedules: BTreeMap::new(),
+            provenance: BTreeMap::new(),
+            recent_targets: Vec::new(),
+            triage: TriageState::default(),
+            review_diff: false,
+            agent_filter: None,
+            quit: false,
+        }
+    }
+
+    fn set_status(&mut self, text: impl Into<String>) {
+        self.status = Some(Status {
+            text: text.into(),
+            error: false,
+            at: Instant::now(),
+        });
+    }
+
+    fn set_error(&mut self, error: &anyhow::Error) {
+        let text = match error.downcast_ref::<AgdError>() {
+            Some(error) => format!("✗ {}: {error}", error.code()),
+            None => format!("✗ {error:#}"),
+        };
+        self.status = Some(Status {
+            text,
+            error: true,
+            at: Instant::now(),
+        });
+    }
+
+    fn row_at(&self, column: u16, row: u16) -> Option<usize> {
+        if !self.list_area.contains((column, row).into()) {
+            return None;
+        }
+        self.click_rows
+            .iter()
+            .find(|(line, _)| *line == row)
+            .map(|(_, index)| *index)
+    }
+
+    /// `file:line` relative to the files root it lives in.
+    fn short_location(&self, item: &Item) -> String {
+        let path = Path::new(&item.file);
+        let relative = self
+            .index
+            .roots()
+            .roots()
+            .iter()
+            .find_map(|root| path.strip_prefix(root).ok())
+            .unwrap_or(path);
+        format!("{}:{}", relative.display(), item.line)
+    }
 }
 
 pub fn run(config: Option<String>, root: Option<String>, pane: bool) -> Result<()> {
@@ -178,68 +297,34 @@ fn run_mode(
     pane: bool,
     capture_only: bool,
 ) -> Result<()> {
-    let loaded = load_settings(
+    let settings = load_settings(
         config.as_deref().map(Path::new),
         root.as_deref().map(Path::new),
-    )?;
-    let settings = loaded.settings;
+    )?
+    .settings;
     let index = WorkspaceIndex::load(settings.clone())?;
     let (events, _watcher) = watch_roots(&index)?;
-    let mut app = App {
-        settings,
-        index,
-        rows: Vec::new(),
-        journals: Vec::new(),
-        screen: Screen::Today,
-        view: AgendaView::Day,
-        day: Local::now().date_naive(),
-        selected: 0,
-        marks: BTreeSet::new(),
-        context: 0,
-        filter: String::new(),
-        classic: false,
-        peek: false,
-        pane,
-        capture_only,
-        pending_view_key: false,
-        overlay: if capture_only {
-            Overlay::Capture {
-                template: None,
-                input: String::new(),
-                preview: "type a capture template key".to_string(),
-                body: String::new(),
-            }
-        } else {
-            Overlay::None
-        },
-        status: String::new(),
-        status_at: Instant::now(),
-        list_area: Rect::default(),
-        inbox_count: 0,
-        agent_count: 0,
-        slipped_count: 0,
-        recent_targets: Vec::new(),
-        triage_started: None,
-        provenance: BTreeMap::new(),
-        reschedule_counts: BTreeMap::new(),
-        triage_outcomes: [0; 6],
-        review_diff: false,
-        triage_undo: Vec::new(),
-        quit: false,
-    };
+    let mut app = App::new(settings, index, Local::now().date_naive());
+    app.pane = pane;
+    app.pane_requested = pane;
+    app.capture_only = capture_only;
+    if capture_only {
+        app.overlay = Overlay::Capture(capture::Draft::default());
+    }
     app.reload_rows()?;
+    let skipped: Vec<String> = app
+        .index
+        .skipped_files()
+        .map(|(_, reason)| format!("skipped {reason}"))
+        .collect();
+    if let Some(reason) = skipped.into_iter().next() {
+        app.set_status(reason);
+    }
 
     let mut terminal = start_terminal()?;
     let result = event_loop(&mut terminal, &mut app, &events);
     stop_terminal(&mut terminal)?;
     result
-}
-
-fn error_status(error: &anyhow::Error) -> String {
-    match error.downcast_ref::<AgdError>() {
-        Some(error) => format!("✗ {}: {error}", error.code()),
-        None => format!("✗ {error:#}"),
-    }
 }
 
 fn event_loop(
@@ -248,6 +333,7 @@ fn event_loop(
     changes: &Receiver<notify::Result<NotifyEvent>>,
 ) -> Result<()> {
     while !app.quit {
+        let mut changed = false;
         for event in changes.try_iter() {
             match event {
                 Ok(event) => {
@@ -256,53 +342,65 @@ fn event_loop(
                             app.set_status(format!("reload failed: {error}"));
                         }
                     }
-                    if let Err(error) = app.reload_rows() {
-                        app.set_status(error_status(&error));
-                    }
+                    changed = true;
                 }
                 Err(error) => app.set_status(format!("watch failed: {error}")),
             }
         }
-        if app.status_at.elapsed() > StdDuration::from_secs(3) {
-            app.status.clear();
+        let today = Local::now().date_naive();
+        if today != app.today {
+            // Past midnight: done items leave and the agenda moves on.
+            app.day += today - app.today;
+            app.today = today;
+            changed = true;
+        }
+        // Under 60 columns the full layout cannot fit; switch to the pane
+        // (and back when the terminal grows again).
+        let narrow = terminal.size()?.width < 60;
+        if !app.pane_requested && app.pane != narrow {
+            app.pane = narrow;
+            changed = true;
+        }
+        if changed && let Err(error) = app.reload_rows() {
+            app.set_error(&error);
+        }
+        let expired = app.status.as_ref().is_some_and(|status| {
+            status.at.elapsed() > StdDuration::from_secs(if status.error { 6 } else { 3 })
+        });
+        if expired {
+            app.status = None;
         }
         terminal.draw(|frame| draw(frame, app))?;
-        if event::poll(StdDuration::from_millis(100))? {
-            match event::read()? {
-                Event::Key(key) => {
-                    // A refused write (stale_ref, editor_dirty, a bad date) is
-                    // reported in place; only terminal failures end the TUI.
-                    if let Err(error) = handle_key(terminal, app, key) {
-                        app.set_status(error_status(&error));
-                    }
+        if !event::poll(StdDuration::from_millis(200))? {
+            continue;
+        }
+        match event::read()? {
+            Event::Key(key) => {
+                // A refused write (stale_ref, editor_dirty, a bad date) is
+                // reported in place; only terminal failures end the TUI.
+                if let Err(error) = keys::handle_key(terminal, app, key) {
+                    app.set_error(&error);
                 }
-                Event::Mouse(mouse) => match mouse.kind {
-                    MouseEventKind::ScrollDown => app.move_selection(1),
-                    MouseEventKind::ScrollUp => app.move_selection(-1),
-                    MouseEventKind::Down(_)
-                        if app.list_area.contains((mouse.column, mouse.row).into()) =>
-                    {
-                        let offset = mouse.row.saturating_sub(app.list_area.y + 1) as usize;
-                        if app.pane {
-                            if let Some((index, _)) = app
-                                .rows
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, row)| row.section != "SLIPPED")
-                                .nth(offset)
-                            {
-                                app.selected = index;
-                                app.pane = false;
+            }
+            Event::Mouse(mouse) => match mouse.kind {
+                MouseEventKind::ScrollDown => app.move_selection(1),
+                MouseEventKind::ScrollUp => app.move_selection(-1),
+                MouseEventKind::Down(_) => {
+                    if let Some(index) = app.row_at(mouse.column, mouse.row) {
+                        let already = index == app.selected;
+                        app.selected = index;
+                        // Clicking the selected pane row opens the full TUI there.
+                        if app.pane && already {
+                            app.pane = false;
+                            if let Err(error) = app.reload_rows() {
+                                app.set_error(&error);
                             }
-                        } else if offset < app.row_count() {
-                            app.selected = offset;
                         }
                     }
-                    _ => {}
-                },
-                Event::Resize(_, _) => {}
+                }
                 _ => {}
-            }
+            },
+            _ => {}
         }
     }
     Ok(())
@@ -310,20 +408,34 @@ fn event_loop(
 
 fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
     let area = frame.area();
-    if app.pane || area.width < 60 {
-        draw_pane(frame, app, area);
-    } else {
-        draw_full(frame, app, area);
+    if app.capture_only {
+        capture::draw(frame, app, area);
+        return;
     }
-    draw_overlay(frame, app, area);
+    if app.pane {
+        pane::draw(frame, app, area);
+    } else {
+        today::draw(frame, app, area);
+    }
+    match &app.overlay {
+        Overlay::None => {}
+        Overlay::Help => help::draw(frame, app, area),
+        Overlay::Capture(_) => capture::draw(frame, app, area),
+        Overlay::Prompt { .. } | Overlay::Refile(_) | Overlay::Views { .. } => {
+            today::draw_overlay(frame, app, area)
+        }
+    }
 }
 
-fn open_selected(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> Result<()> {
-    let Some(row) = app.selected_row() else {
-        return Ok(());
-    };
-    let file = row.item.file.clone();
-    let args = app.settings.editor.args_for(&file, row.item.line, 1);
+/// Leaves the alternate screen, runs the configured editor directly (never
+/// through a shell), and re-reads the file on return.
+fn open_in_editor(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+    file: &str,
+    line: usize,
+) -> Result<()> {
+    let args = app.settings.editor.args_for(file, line, 1);
     stop_terminal(terminal)?;
     let status = Command::new(&app.settings.editor.command)
         .args(args)
@@ -336,8 +448,43 @@ fn open_selected(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut Ap
     if !status.success() {
         app.set_status(format!("editor exited with {status}"));
     }
-    app.index.refresh_path(Path::new(&file))?;
+    if Path::new(file).exists() {
+        app.index.refresh_path(Path::new(file))?;
+    }
     app.reload_rows()
+}
+
+/// Copies text through the terminal (OSC 52), which works over SSH and
+/// inside tmux or herdr without a clipboard helper.
+fn copy_to_clipboard(text: &str) -> Result<()> {
+    let encoded = base64_encode(text.as_bytes());
+    let sequence = if std::env::var_os("TMUX").is_some() {
+        format!("\x1bPtmux;\x1b\x1b]52;c;{encoded}\x07\x1b\\")
+    } else {
+        format!("\x1b]52;c;{encoded}\x07")
+    };
+    let mut stdout = io::stdout();
+    stdout.write_all(sequence.as_bytes())?;
+    stdout.flush()?;
+    Ok(())
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut output = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let value = chunk.iter().enumerate().fold(0u32, |value, (index, byte)| {
+            value | (u32::from(*byte) << (16 - 8 * index))
+        });
+        for index in 0..4 {
+            if index <= chunk.len() {
+                output.push(ALPHABET[((value >> (18 - 6 * index)) & 63) as usize] as char);
+            } else {
+                output.push('=');
+            }
+        }
+    }
+    output
 }
 
 fn watch_roots(
@@ -385,122 +532,4 @@ fn write_context() -> WriteContext {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use super::*;
-    use serial_test::serial;
-    use temp_env::with_vars;
-
-    fn test_app(path: &Path, root: &Path) -> App {
-        let mut settings = Settings::default();
-        settings.files.roots = vec![root.to_string_lossy().into_owned()];
-        settings.files.agenda = vec![path.to_string_lossy().into_owned()];
-        let index = WorkspaceIndex::load(settings.clone()).unwrap();
-        App {
-            settings,
-            index,
-            rows: Vec::new(),
-            journals: Vec::new(),
-            screen: Screen::Today,
-            view: AgendaView::Day,
-            day: NaiveDate::from_ymd_opt(2026, 10, 13).unwrap(),
-            selected: 0,
-            marks: BTreeSet::new(),
-            context: 0,
-            filter: String::new(),
-            classic: false,
-            peek: false,
-            pane: false,
-            capture_only: false,
-            pending_view_key: false,
-            overlay: Overlay::None,
-            status: String::new(),
-            status_at: Instant::now(),
-            list_area: Rect::default(),
-            inbox_count: 0,
-            agent_count: 0,
-            slipped_count: 0,
-            recent_targets: Vec::new(),
-            reschedule_counts: BTreeMap::new(),
-            provenance: BTreeMap::new(),
-            triage_started: None,
-            triage_outcomes: [0; 6],
-            review_diff: false,
-            triage_undo: Vec::new(),
-            quit: false,
-        }
-    }
-
-    #[test]
-    #[serial]
-    fn cycling_state_keeps_current_position() {
-        let directory = tempfile::tempdir().unwrap();
-        let home = tempfile::tempdir().unwrap();
-        let path = directory.path().join("tasks.org");
-        fs::write(
-            &path,
-            "* TODO One\nSCHEDULED: <2026-10-13 Tue>\n\
-             * TODO Two\nSCHEDULED: <2026-10-13 Tue>\n\
-             * TODO Three\nSCHEDULED: <2026-10-13 Tue>\n",
-        )
-        .unwrap();
-        with_vars([("HOME", home.path().to_str())], || {
-            let mut app = test_app(&path, directory.path());
-            app.reload_rows().unwrap();
-            app.selected = 1;
-            let selected_title = app.selected_row().unwrap().item.title.clone();
-
-            app.cycle_state().unwrap();
-
-            assert_eq!(app.selected_row().unwrap().item.title, selected_title);
-            assert_eq!(
-                app.selected_row().unwrap().item.todo.as_deref(),
-                Some("NEXT")
-            );
-        });
-    }
-
-    #[test]
-    #[serial]
-    fn external_change_keeps_the_cursor_on_the_same_heading() {
-        let directory = tempfile::tempdir().unwrap();
-        let home = tempfile::tempdir().unwrap();
-        let path = directory.path().join("tasks.org");
-        let today = "SCHEDULED: <2026-10-13 Tue>";
-        fs::write(&path, format!("* TODO One\n{today}\n* TODO Two\n{today}\n")).unwrap();
-        with_vars([("HOME", home.path().to_str())], || {
-            let mut app = test_app(&path, directory.path());
-            app.reload_rows().unwrap();
-            app.selected = 1;
-            fs::write(
-                &path,
-                format!("* TODO Zero\n{today}\n* TODO One\n{today}\n* TODO Two\n{today}\n"),
-            )
-            .unwrap();
-            app.index.refresh_path(&path).unwrap();
-            app.reload_rows().unwrap();
-            assert_eq!(app.selected_row().unwrap().item.title, "Two");
-        });
-    }
-
-    #[test]
-    fn renders_five_thousand_headings_under_budget() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("tasks.org");
-        let source = (0..5_000)
-            .map(|index| format!("* TODO Task {index}\nSCHEDULED: <2026-10-13 Tue>\n"))
-            .collect::<String>();
-        fs::write(&path, source).unwrap();
-        let mut app = test_app(&path, directory.path());
-        app.reload_rows().unwrap();
-        assert_eq!(app.rows.len(), 5_000);
-        let backend = ratatui::backend::TestBackend::new(120, 40);
-        let mut terminal = Terminal::new(backend).unwrap();
-        let started = Instant::now();
-        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
-        let elapsed = started.elapsed();
-        eprintln!("5,000-heading render: {elapsed:?}");
-        assert!(elapsed < StdDuration::from_millis(100), "{elapsed:?}");
-    }
-}
+mod tests;

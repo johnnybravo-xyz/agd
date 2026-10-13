@@ -1,160 +1,309 @@
-use super::App;
-use super::theme::{accent, key_chip, no_color, rounded};
-use chrono::{Local, NaiveDate};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Gauge, Paragraph, Wrap};
+use ratatui::widgets::{LineGauge, Paragraph, Wrap};
 
-pub(super) fn draw_triage(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+use org_core::OccurrenceType;
+
+use super::actions::{DONE, NEXT_WEEK, REFILED, SOMEDAY, TODAY, TOMORROW, short_date};
+use super::rows::days_since;
+use super::{App, DisplayRow, INBOX, peek};
+
+pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let theme = &app.theme;
     let parts = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2),
-            Constraint::Min(8),
-            Constraint::Length(2),
-            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(CARD_HEIGHT + 1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
         ])
         .split(area);
-    let completed: usize = app.triage_outcomes.iter().sum();
+    let completed: usize = app.triage.outcomes.iter().sum();
     let total = completed + app.rows.len();
+    let position = if app.rows.is_empty() {
+        total
+    } else {
+        completed + app.selected + 1
+    };
     frame.render_widget(
-        Gauge::default()
-            .gauge_style(Style::default().fg(accent()))
+        Paragraph::new(Span::styled(
+            format!("{position} / {total} "),
+            theme.strong(theme.text),
+        ))
+        .alignment(ratatui::layout::Alignment::Right),
+        parts[0],
+    );
+    frame.render_widget(
+        LineGauge::default()
+            .filled_style(theme.fg(theme.accent))
+            .unfilled_style(theme.fg(theme.border))
             .ratio(if total == 0 {
                 1.0
             } else {
                 completed as f64 / total as f64
-            }),
-        parts[0],
+            })
+            .label(""),
+        parts[1],
     );
+    let card_area = centered_card(parts[2]);
     let Some(row) = app.selected_row() else {
-        let elapsed = app
-            .triage_started
-            .map(|started| started.elapsed().as_secs())
-            .unwrap_or_default();
-        let summary = format!(
-            "Triage done, {completed} items in {}m {}s: {} today, {} tomorrow, {} next week, {} someday, {} done, {} refiled.\n\nu undo all   ⏎ Today",
-            elapsed / 60,
-            elapsed % 60,
-            app.triage_outcomes[0],
-            app.triage_outcomes[1],
-            app.triage_outcomes[2],
-            app.triage_outcomes[3],
-            app.triage_outcomes[4],
-            app.triage_outcomes[5],
-        );
         frame.render_widget(
-            Paragraph::new(summary)
-                .block(rounded("Triage complete"))
-                .wrap(Wrap { trim: false }),
-            Rect {
-                height: parts[1].height + parts[2].height + parts[3].height,
-                ..parts[1]
-            },
+            Paragraph::new(summary(app))
+                .wrap(Wrap { trim: true })
+                .block(
+                    theme
+                        .panel("Triage done")
+                        .border_style(theme.fg(theme.done)),
+                ),
+            card_area,
         );
         return;
     };
-    let today = Local::now().date_naive();
-    let days = row
-        .occurrence
-        .as_ref()
-        .and_then(|occurrence| occurrence.date.parse::<NaiveDate>().ok())
-        .map(|date| today.signed_duration_since(date).num_days().max(0))
-        .unwrap_or_default();
-    let reschedules = app
-        .reschedule_counts
-        .get(&row.item.item_ref)
-        .copied()
-        .unwrap_or_default();
-    let age = if row.section == "INBOX" {
-        "Inbox".to_string()
-    } else {
-        format!("Slipped · {days} days")
+    draw_card(frame, app, row, card_area);
+    let indent = card_area.x.saturating_sub(area.x) as usize;
+    let chips = |pairs: &[(&str, &str)]| {
+        let mut spans = vec![Span::raw(" ".repeat(indent))];
+        for (key, action) in pairs {
+            spans.push(theme.pill(key.to_string(), theme.accent));
+            spans.push(Span::styled(format!(" {action:<12}"), theme.fg(theme.text)));
+        }
+        Line::from(spans)
     };
-    let scheduled = row
-        .item
-        .planning
-        .scheduled
-        .as_ref()
-        .map(|timestamp| timestamp.date.as_str())
-        .unwrap_or("none");
-    let deadline = row
-        .item
-        .planning
-        .deadline
-        .as_ref()
-        .map(|timestamp| timestamp.date.as_str())
-        .unwrap_or("no deadline");
-    let tags = if row.item.tags.is_empty() {
-        String::new()
-    } else {
-        format!("  #{}", row.item.tags.join(" #"))
-    };
-    let mut card = vec![
-        Line::from(vec![
-            Span::styled(
-                format!("{:<9}", row.item.todo.as_deref().unwrap_or("")),
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                row.item.title.clone(),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(tags, Style::default().fg(accent())),
-        ]),
-        Line::from(Span::styled(
-            format!("{} · {}", row.item.file, row.item.olpath.join(" › ")),
-            Style::default().add_modifier(Modifier::DIM),
-        )),
-        Line::from(format!(
-            "scheduled {scheduled}   rescheduled {reschedules}x   {deadline}"
-        )),
-    ];
-    if reschedules >= app.settings.triage.reschedule_nudge {
-        card.push(Line::from(Span::styled(
-            format!("↳ Rescheduled {reschedules} times. Someday?  [s]"),
-            Style::default().fg(accent()),
-        )));
-    }
-    let mut block = rounded(&age);
-    if !no_color() && row.section != "INBOX" {
-        block = block.border_style(Style::default().fg(Color::Red));
-    }
     frame.render_widget(
-        Paragraph::new(card).block(block).wrap(Wrap { trim: false }),
-        parts[1],
-    );
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            key_chip("."),
-            Span::raw(" today   "),
-            key_chip("m"),
-            Span::raw(" tomorrow   "),
-            key_chip("w"),
-            Span::raw(" next week   "),
-            key_chip("p"),
-            Span::raw(" pick date   "),
-            key_chip("x"),
-            Span::raw(" done"),
-        ])),
-        parts[2],
-    );
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            key_chip("n"),
-            Span::raw(" NEXT   "),
-            key_chip("s"),
-            Span::raw(" someday   "),
-            key_chip("k"),
-            Span::raw(" cancel   "),
-            key_chip("r"),
-            Span::raw(" refile   "),
-            key_chip("u"),
-            Span::raw(" undo"),
+        Paragraph::new(chips(&[
+            (".", "today"),
+            ("m", "tomorrow"),
+            ("w", "next week"),
+            ("p", "pick date"),
+            ("x", "done"),
         ])),
         parts[3],
     );
+    frame.render_widget(
+        Paragraph::new(chips(&[
+            ("n", "make NEXT"),
+            ("s", "someday"),
+            ("k", "cancel"),
+            ("r", "refile"),
+            ("u", "undo"),
+        ])),
+        parts[4],
+    );
+}
+
+/// Card rows: heading, path, chips, body line and the nudge, with spacing.
+const CARD_HEIGHT: u16 = 11;
+
+fn centered_card(area: Rect) -> Rect {
+    let width = area.width.min(84);
+    Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + 1,
+        width,
+        area.height.saturating_sub(1).min(CARD_HEIGHT),
+    )
+}
+
+fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
+    let theme = &app.theme;
+    let item = &row.item;
+    let inbox = row.section == INBOX;
+    let title = if inbox {
+        match app.provenance.get(&item.item_ref) {
+            Some((actor, time)) => format!("Inbox · from {actor} {time}"),
+            None => "Inbox".to_string(),
+        }
+    } else {
+        format!("Slipped · {} days", slipped_days(row, app.today))
+    };
+    let color = if inbox { theme.accent } else { theme.slipped };
+    let block = theme
+        .panel(title)
+        .border_style(theme.fg(color))
+        .title_style(theme.strong(color))
+        .padding(ratatui::widgets::Padding::horizontal(1));
+    let inner_width = block.inner(area).width as usize;
+
+    let mut heading = Vec::new();
+    if let Some(todo) = &item.todo {
+        heading.push(Span::styled(format!("{todo} "), theme.strong(theme.due)));
+    }
+    heading.push(Span::styled(
+        org_core::agenda_title(item),
+        theme.strong(theme.text),
+    ));
+    if let Some(priority) = &item.priority {
+        heading.push(Span::raw(" "));
+        heading.push(theme.pill(priority.clone(), theme.due));
+    }
+    let tags = item
+        .tags
+        .iter()
+        .map(|tag| format!("#{tag}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let used: usize = heading.iter().map(Span::width).sum();
+    if !tags.is_empty() && used + tags.len() + 2 < inner_width {
+        heading.push(Span::raw(" ".repeat(inner_width - used - tags.len() - 1)));
+        heading.push(Span::styled(tags, theme.fg(theme.accent)));
+    }
+    let file = app
+        .short_location(item)
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let parents = &item.olpath[..item.olpath.len().saturating_sub(1)];
+    let mut lines = vec![
+        Line::from(heading),
+        Line::from(Span::styled(
+            std::iter::once(file)
+                .chain(parents.iter().cloned())
+                .collect::<Vec<_>>()
+                .join(" › "),
+            theme.muted(),
+        )),
+        Line::default(),
+    ];
+
+    let reschedules = app.reschedules.get(&item.item_ref).copied().unwrap_or(0);
+    let nudge = reschedules >= app.settings.triage.reschedule_nudge;
+    let mut chips = vec![
+        theme.pill(
+            item.planning
+                .scheduled
+                .as_ref()
+                .map_or("not scheduled".to_string(), |scheduled| {
+                    format!("scheduled {}", short_date(scheduled))
+                }),
+            theme.muted,
+        ),
+        Span::raw("  "),
+    ];
+    if reschedules > 0 {
+        chips.push(theme.pill(
+            format!("rescheduled {reschedules}x"),
+            if nudge { theme.slipped } else { theme.muted },
+        ));
+        chips.push(Span::raw("  "));
+    }
+    chips.push(
+        theme.pill(
+            item.planning
+                .deadline
+                .as_ref()
+                .map_or("no deadline".to_string(), |deadline| {
+                    format!("deadline {}", short_date(deadline))
+                }),
+            if item.planning.deadline.is_some() {
+                theme.due
+            } else {
+                theme.muted
+            },
+        ),
+    );
+    lines.push(Line::from(chips));
+    lines.push(Line::default());
+    let text = peek::entry_text(&app.index, item);
+    if let Some(first) = text.lines().map(str::trim).find(|line| {
+        !line.is_empty()
+            && !line.starts_with(':')
+            && !line.contains("SCHEDULED:")
+            && !line.contains("DEADLINE:")
+            && !line.starts_with("- ")
+    }) {
+        lines.push(Line::from(first.to_string()));
+        lines.push(Line::default());
+    }
+    // The nudge is earned: after enough reschedules, suggest Someday.
+    if nudge {
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!(" ↳ Rescheduled {reschedules} times. Someday? "),
+                theme.fg(theme.accent),
+            ),
+            theme.pill("s", theme.accent),
+        ]));
+    }
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+/// Days since the item slipped: from org's `Sched.12x:` or `3 d. ago:`
+/// leader, else from its SCHEDULED date.
+fn slipped_days(row: &DisplayRow, today: chrono::NaiveDate) -> i64 {
+    if let Some(occurrence) = &row.occurrence {
+        let digits: String = occurrence
+            .extra
+            .chars()
+            .filter(char::is_ascii_digit)
+            .collect();
+        if matches!(
+            occurrence.kind,
+            OccurrenceType::PastScheduled | OccurrenceType::Deadline
+        ) && let Ok(days) = digits.parse()
+        {
+            return days;
+        }
+    }
+    row.item
+        .planning
+        .scheduled
+        .as_ref()
+        .and_then(|scheduled| days_since(&scheduled.date, today))
+        .unwrap_or(0)
+}
+
+/// "Triage done, 7 items in 1m 40s: 2 today, 1 tomorrow, …"
+fn summary(app: &App) -> Vec<Line<'static>> {
+    let theme = &app.theme;
+    let outcomes = &app.triage.outcomes;
+    let total: usize = outcomes.iter().sum();
+    let elapsed = app
+        .triage
+        .started
+        .map(|started| started.elapsed().as_secs())
+        .unwrap_or(0);
+    let mut parts = Vec::new();
+    for (index, label) in [
+        (TODAY, "today"),
+        (TOMORROW, "tomorrow"),
+        (NEXT_WEEK, "next week"),
+        (SOMEDAY, "someday"),
+        (DONE, "done"),
+        (REFILED, "refiled"),
+    ] {
+        if outcomes[index] > 0 {
+            parts.push(format!("{} {label}", outcomes[index]));
+        }
+    }
+    vec![
+        Line::from(vec![
+            Span::styled("Triage done", theme.strong(theme.done)),
+            Span::raw(format!(
+                ", {total} item{} in {}m {}s{}{}.",
+                if total == 1 { "" } else { "s" },
+                elapsed / 60,
+                elapsed % 60,
+                if parts.is_empty() { "" } else { ": " },
+                parts.join(", ")
+            )),
+        ]),
+        Line::default(),
+        Line::from(
+            [
+                app.theme.key_hint("u", "undoes all"),
+                app.theme.key_hint("⏎", "returns to Today"),
+            ]
+            .concat(),
+        ),
+    ]
 }

@@ -1,119 +1,98 @@
-use super::theme::{accent, centered_fixed, muted, no_color, rounded, surface};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
-pub(super) fn help_heading(title: &'static str) -> Line<'static> {
-    Line::from(Span::styled(
-        title,
-        Style::default().fg(accent()).add_modifier(Modifier::BOLD),
-    ))
-}
+use super::App;
+use super::theme::centered;
 
-pub(super) fn help_shortcut(key: &'static str, description: &'static str) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(
-            format!(" {key:<9}"),
-            if no_color() {
-                Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
-            } else {
-                Style::default()
-                    .fg(Color::White)
-                    .bg(Color::Rgb(30, 41, 59))
-                    .add_modifier(Modifier::BOLD)
-            },
-        ),
-        Span::raw("  "),
-        Span::styled(description, Style::default().fg(Color::White)),
-    ])
-}
+/// (key, action, org-agenda equivalent)
+type Key = (&'static str, &'static str, &'static str);
 
-pub(super) fn draw_help(frame: &mut ratatui::Frame<'_>, area: Rect) {
-    let popup = centered_fixed(area, 92, 22);
+/// Every key, with the org-agenda key it mirrors where there is one.
+const SECTIONS: &[(&str, &[Key])] = &[
+    (
+        "MOVE",
+        &[
+            ("j / k", "move", "n / p"),
+            ("tab · 1–4", "Today Week Inbox Agents", ""),
+            ("f / b / .", "next, previous, today", "f / b / ."),
+            ("⏎ / e", "open in $EDITOR", "RET"),
+            ("p", "peek", "SPC"),
+            ("a", "saved views", "C-c a"),
+            ("v", "classic agenda layout", "v"),
+            ("l", "log mode (closed items)", "l"),
+            ("g", "refresh", "g"),
+        ],
+    ),
+    (
+        "CHANGE",
+        &[
+            ("t", "cycle TODO state", "t"),
+            ("x", "mark done", ""),
+            ("s / d", "schedule / deadline", "C-c C-s / C-c C-d"),
+            (", + -", "priority", ", + -"),
+            (":", "tags", ":"),
+            ("r", "refile", "C-c C-w"),
+            ("u", "undo last write", "C-_"),
+            ("y", "copy link", ""),
+        ],
+    ),
+    (
+        "FLOW",
+        &[
+            ("c", "capture", "k"),
+            ("T", "triage overdue + inbox", ""),
+            ("A", "agent review", ""),
+            ("space", "mark, then . m w s", "m · B"),
+            ("<", "context filter", "<"),
+            ("/", "filter by text or tag", "/"),
+            ("esc", "back one level", ""),
+            ("q", "quit", "q"),
+        ],
+    ),
+];
+
+pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let theme = &app.theme;
+    let popup = centered(area, 150, 15);
     frame.render_widget(Clear, popup);
-    let panel = rounded("Keyboard shortcuts")
-        .style(Style::default().bg(surface()).fg(Color::White))
-        .border_style(Style::default().fg(accent()));
-    let inner = panel.inner(popup);
-    frame.render_widget(panel, popup);
-    let content = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2),
-            Constraint::Min(12),
-            Constraint::Length(1),
-        ])
-        .margin(1)
+    let block = theme.panel("Keys").border_style(theme.fg(theme.accent));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    // Three columns when they fit; org-agenda equivalents only with room.
+    let wide = inner.width >= 96;
+    let column_width = if wide { inner.width / 3 } else { inner.width } as usize;
+    let show_org = column_width >= 46;
+    let action_width = column_width.saturating_sub(11 + if show_org { 12 } else { 0 });
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(if wide {
+            vec![Constraint::Ratio(1, 3); 3]
+        } else {
+            vec![Constraint::Percentage(100)]
+        })
         .split(inner);
-    frame.render_widget(
-        Paragraph::new("Move quickly, edit safely, and keep context.")
-            .style(Style::default().fg(muted())),
-        content[0],
-    );
-
-    let navigation = vec![
-        help_heading("NAVIGATE"),
-        help_shortcut("j / k", "Move selection"),
-        help_shortcut("enter / e", "Open in editor"),
-        help_shortcut("f / b", "Next / previous period"),
-        help_shortcut(".", "Return to today"),
-        help_shortcut("/", "Filter visible tasks"),
-        Line::default(),
-        help_heading("VIEWS"),
-        help_shortcut("V d/w/t", "Day, week, or todo"),
-        help_shortcut("<", "Change context"),
-        help_shortcut("p", "Toggle details"),
-        help_shortcut("v", "Toggle classic view"),
-    ];
-    let actions = vec![
-        help_heading("EDIT"),
-        help_shortcut("t", "Cycle TODO state"),
-        help_shortcut("x", "Mark complete"),
-        help_shortcut("s / d", "Schedule / deadline"),
-        help_shortcut(", / :", "Priority / tags"),
-        help_shortcut("space", "Mark for bulk edit"),
-        help_shortcut("u", "Undo latest change"),
-        Line::default(),
-        help_heading("WORKFLOWS"),
-        help_shortcut("c", "Capture a task"),
-        help_shortcut("T", "Start triage"),
-        help_shortcut("A", "Review agent changes"),
-        help_shortcut("q", "Quit"),
-    ];
-    if content[1].width >= 70 {
-        let columns = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(50),
-                Constraint::Length(2),
-                Constraint::Percentage(50),
-            ])
-            .split(content[1]);
-        frame.render_widget(Paragraph::new(navigation), columns[0]);
-        frame.render_widget(Paragraph::new(actions), columns[2]);
-    } else {
-        let compact = vec![
-            help_heading("NAVIGATE"),
-            help_shortcut("j/k", "Move"),
-            help_shortcut("enter/e", "Open in editor"),
-            help_shortcut("f/b", "Change period"),
-            help_shortcut("V d/w/t", "Change view"),
-            help_shortcut("/", "Filter"),
-            Line::default(),
-            help_heading("EDIT & WORKFLOWS"),
-            help_shortcut("t / x", "Cycle / complete"),
-            help_shortcut("s / d", "Schedule / deadline"),
-            help_shortcut("space", "Mark"),
-            help_shortcut("u", "Undo"),
-            help_shortcut("c / T / A", "Capture / triage / review"),
-        ];
-        frame.render_widget(Paragraph::new(compact), content[1]);
+    let mut texts: Vec<Vec<Line<'_>>> = vec![Vec::new(); columns.len()];
+    for (index, (title, keys)) in SECTIONS.iter().enumerate() {
+        let column = &mut texts[if wide { index } else { 0 }];
+        column.push(Line::from(Span::styled(*title, theme.strong(theme.accent))));
+        for (key, action, org) in *keys {
+            let action: String = action.chars().take(action_width).collect();
+            let mut spans = vec![
+                Span::styled(format!(" {key:<10}"), theme.strong(theme.text)),
+                Span::raw(format!("{action:<action_width$}")),
+            ];
+            if show_org && !org.is_empty() {
+                spans.push(Span::styled(org.to_string(), theme.muted()));
+            }
+            column.push(Line::from(spans));
+        }
+        if !wide {
+            column.push(Line::default());
+        }
     }
-    frame.render_widget(
-        Paragraph::new("Any key closes this panel")
-            .style(Style::default().fg(muted()))
-            .alignment(ratatui::layout::Alignment::Center),
-        content[2],
-    );
+    for (text, column) in texts.into_iter().zip(columns.iter()) {
+        frame.render_widget(Paragraph::new(text), *column);
+    }
 }

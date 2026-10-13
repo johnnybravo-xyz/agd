@@ -1,90 +1,18 @@
 use std::collections::BTreeSet;
-use std::time::Instant;
 
-use super::{AgendaView, App, DisplayRow, Screen, SelectionAnchor};
 use anyhow::Result;
-use chrono::{Duration, Local};
+use chrono::{Datelike, Duration, NaiveDate};
 use org_core::{
-    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalStatus, Occurrence,
-    OccurrenceType, WriteEngine,
+    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalRecord, JournalStatus,
+    OccurrenceType, WorkspaceIndex, WriteEngine,
 };
 
-pub(super) fn period_duration(view: AgendaView) -> Duration {
-    match view {
-        AgendaView::Day | AgendaView::Todo => Duration::days(1),
-        AgendaView::Week => Duration::weeks(1),
-    }
-}
+use super::{App, DOING, DUE, DisplayRow, INBOX, SCHEDULE, SLIPPED, Screen, SelectionAnchor};
 
-pub(super) fn section_for(entry: &AgendaEntry) -> String {
-    if matches!(entry.occurrence.kind, OccurrenceType::PastScheduled) {
-        "SLIPPED"
-    } else if entry.occurrence.time.is_some() {
-        "SCHEDULE"
-    } else if matches!(
-        entry.occurrence.kind,
-        OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline
-    ) {
-        "DUE SOON"
-    } else if matches!(entry.item.todo.as_deref(), Some("NEXT" | "WAIT")) {
-        "IN PROGRESS"
-    } else if is_inbox(&entry.item) {
-        "INBOX"
-    } else {
-        "TODAY"
-    }
-    .to_string()
-}
-
-pub(super) fn section_order(section: &str) -> u8 {
-    match section {
-        "SLIPPED" => 0,
-        "SCHEDULE" => 1,
-        "DUE SOON" => 2,
-        "IN PROGRESS" => 3,
-        "INBOX" => 4,
-        _ => 5,
-    }
-}
-
-pub(super) fn is_inbox(item: &Item) -> bool {
-    item.olpath
-        .iter()
-        .any(|heading| heading.eq_ignore_ascii_case("inbox"))
-        || item.category.eq_ignore_ascii_case("inbox")
-}
-
-pub(super) fn occurrence_prefix(occurrence: Option<&Occurrence>) -> String {
-    let Some(occurrence) = occurrence else {
-        return String::new();
-    };
-    if !occurrence.extra.is_empty() {
-        return occurrence.extra.clone();
-    }
-    match occurrence.kind {
-        OccurrenceType::PastScheduled => "Sched.:",
-        OccurrenceType::Scheduled => "Scheduled:",
-        OccurrenceType::Deadline => "Deadline:",
-        OccurrenceType::UpcomingDeadline => "In:",
-        OccurrenceType::Timestamp => "",
-        OccurrenceType::Block => "Block:",
-        OccurrenceType::Closed => "Closed:",
-        OccurrenceType::Todo => "",
-    }
-    .to_string()
-}
-
-pub(super) fn view_title(app: &App) -> String {
-    match app.screen {
-        Screen::Triage => format!("Triage · {} remaining", app.rows.len()),
-        Screen::Review => "Agent review".to_string(),
-        Screen::Today => match app.view {
-            AgendaView::Day => format!("Today · {}", app.day.format("%a %d %b %Y")),
-            AgendaView::Week => format!("Week · {}", app.day.format("%d %b %Y")),
-            AgendaView::Todo => "Todo".to_string(),
-        },
-    }
-}
+/// Rows shown under SLIPPED on Today; the rest wait in Triage.
+const SLIPPED_ON_TODAY: usize = 3;
+/// Agent review shows this many recent changes.
+const REVIEW_LIMIT: usize = 200;
 
 impl App {
     /// Rebuilds the visible rows and keeps the cursor on the same heading
@@ -103,176 +31,18 @@ impl App {
         Ok(())
     }
 
-    /// Changes screen with the cursor on the first row.
+    /// Changes screen with the cursor on the first row; esc comes back.
     pub(super) fn switch_screen(&mut self, screen: Screen) -> Result<()> {
+        if matches!(screen, Screen::Triage | Screen::Review | Screen::View(_))
+            && !matches!(self.screen, Screen::Triage | Screen::Review)
+        {
+            self.back = self.screen.clone();
+        }
         self.screen = screen;
         self.rows.clear();
         self.selected = 0;
+        self.marks.clear();
         self.reload_rows()
-    }
-
-    fn rebuild_rows(&mut self) -> Result<()> {
-        self.inbox_count = self
-            .index
-            .items()
-            .filter(|item| item.todo.is_some() && !item.done && is_inbox(item))
-            .count();
-        let journals = WriteEngine::with_default_journal(self.settings.clone())?.journal()?;
-        self.provenance.clear();
-        for record in &journals {
-            if matches!(record.status, JournalStatus::Committed)
-                && let Some(item_ref) = &record.item_ref
-            {
-                self.provenance
-                    .insert(item_ref.clone(), record.actor.clone());
-            }
-        }
-        self.agent_count = journals
-            .iter()
-            .filter(|record| {
-                matches!(record.status, JournalStatus::Committed)
-                    && record.actor.starts_with("mcp:")
-            })
-            .count();
-        self.reschedule_counts.clear();
-        for record in &journals {
-            if matches!(record.status, JournalStatus::Committed)
-                && record.diff.contains("SCHEDULED:")
-                && let Some(item_ref) = &record.item_ref
-            {
-                *self.reschedule_counts.entry(item_ref.clone()).or_default() += 1;
-            }
-        }
-        if self.screen == Screen::Review {
-            self.journals = journals
-                .into_iter()
-                .filter(|record| {
-                    matches!(record.status, JournalStatus::Committed)
-                        && record.actor.starts_with("mcp:")
-                })
-                .collect();
-            return Ok(());
-        }
-        let today = Local::now().date_naive();
-        let engine = AgendaEngine::new(&self.index);
-        let mut rows = if self.screen == Screen::Triage {
-            let entries = engine.agenda(&AgendaQuery {
-                from: today - Duration::days(3650),
-                to: today,
-                today,
-                match_expression: None,
-                log_mode: false,
-            })?;
-            let mut seen = BTreeSet::new();
-            let mut rows: Vec<DisplayRow> = entries
-                .into_iter()
-                .filter(|entry| {
-                    matches!(entry.occurrence.kind, OccurrenceType::PastScheduled)
-                        || is_inbox(&entry.item)
-                })
-                .filter(|entry| !entry.item.done && seen.insert(entry.item.item_ref.clone()))
-                .map(|entry| DisplayRow {
-                    section: if is_inbox(&entry.item) {
-                        "INBOX"
-                    } else {
-                        "SLIPPED"
-                    }
-                    .to_string(),
-                    item: entry.item,
-                    occurrence: Some(entry.occurrence),
-                })
-                .collect();
-            for item in engine.todo(None)?.into_iter().filter(is_inbox) {
-                if seen.insert(item.item_ref.clone()) {
-                    rows.push(DisplayRow {
-                        section: "INBOX".to_string(),
-                        item,
-                        occurrence: None,
-                    });
-                }
-            }
-            rows
-        } else if self.view == AgendaView::Todo {
-            engine
-                .todo(None)?
-                .into_iter()
-                .map(|item| DisplayRow {
-                    section: "TODO".to_string(),
-                    item,
-                    occurrence: None,
-                })
-                .collect()
-        } else {
-            let span = if self.view == AgendaView::Week {
-                AgendaSpan::Week
-            } else {
-                AgendaSpan::Day
-            };
-            let (from, to) = span.bounds(self.day, &self.settings.agenda.week_start);
-            let mut seen = BTreeSet::new();
-            let mut rows: Vec<DisplayRow> = engine
-                .agenda(&AgendaQuery {
-                    from,
-                    to,
-                    today,
-                    match_expression: None,
-                    log_mode: false,
-                })?
-                .into_iter()
-                .map(|entry| DisplayRow {
-                    section: section_for(&entry),
-                    item: entry.item,
-                    occurrence: Some(entry.occurrence),
-                })
-                .inspect(|row| {
-                    seen.insert(row.item.item_ref.clone());
-                })
-                .collect();
-            if self.view == AgendaView::Day {
-                for item in engine.todo(None)?.into_iter().filter(is_inbox) {
-                    if seen.insert(item.item_ref.clone()) {
-                        rows.push(DisplayRow {
-                            section: "INBOX".to_string(),
-                            item,
-                            occurrence: None,
-                        });
-                    }
-                }
-            }
-            rows
-        };
-        let context = ["all", "work", "personal"][self.context];
-        rows.retain(|row| {
-            (context == "all" || row.item.category.eq_ignore_ascii_case(context))
-                && (self.filter.is_empty()
-                    || row
-                        .item
-                        .title
-                        .to_lowercase()
-                        .contains(&self.filter.to_lowercase())
-                    || row
-                        .item
-                        .tags
-                        .iter()
-                        .any(|tag| tag.eq_ignore_ascii_case(&self.filter)))
-        });
-        if self.screen == Screen::Today {
-            self.slipped_count = rows.iter().filter(|row| row.section == "SLIPPED").count();
-        }
-        if !self.classic && self.screen == Screen::Today {
-            let mut slipped = 0;
-            rows.retain(|row| {
-                if row.section == "SLIPPED" {
-                    slipped += 1;
-                    slipped <= 3
-                } else {
-                    true
-                }
-            });
-            rows.sort_by_key(|row| section_order(&row.section));
-        }
-        self.rows = rows;
-        Ok(())
     }
 
     pub(super) fn selected_row(&self) -> Option<&DisplayRow> {
@@ -289,16 +59,11 @@ impl App {
 
     pub(super) fn move_selection(&mut self, delta: isize) {
         let count = self.row_count();
-        if count == 0 {
-            self.selected = 0;
+        self.selected = if count == 0 {
+            0
         } else {
-            self.selected = (self.selected as isize + delta).rem_euclid(count as isize) as usize;
-        }
-    }
-
-    pub(super) fn set_status(&mut self, status: String) {
-        self.status = status;
-        self.status_at = Instant::now();
+            (self.selected as isize + delta).clamp(0, count as isize - 1) as usize
+        };
     }
 
     pub(super) fn toggle_mark(&mut self) {
@@ -308,8 +73,10 @@ impl App {
         if !self.marks.remove(&item_ref) {
             self.marks.insert(item_ref);
         }
+        self.move_selection(1);
     }
 
+    /// Marked rows when any are marked (bulk mode), else the selected row.
     pub(super) fn targets(&self) -> Vec<String> {
         if self.marks.is_empty() {
             self.selected_row()
@@ -318,5 +85,464 @@ impl App {
         } else {
             self.marks.iter().cloned().collect()
         }
+    }
+
+    /// Categories in the order they first appear, for the `<` context filter.
+    pub(super) fn categories(&self) -> Vec<String> {
+        let mut seen = BTreeSet::new();
+        self.index
+            .items()
+            .filter(|item| item.todo.is_some())
+            .map(|item| item.category.clone())
+            .filter(|category| seen.insert(category.clone()))
+            .collect()
+    }
+
+    fn rebuild_rows(&mut self) -> Result<()> {
+        let journals = WriteEngine::with_default_journal(self.settings.clone())?.journal()?;
+        self.provenance.clear();
+        for record in &journals {
+            if record.diff.lines().any(|line| line.starts_with("+*"))
+                && let Some(item_ref) = &record.item_ref
+            {
+                let actor = record
+                    .actor
+                    .strip_prefix("mcp:")
+                    .unwrap_or("you")
+                    .to_string();
+                let time = record.timestamp.get(11..16).unwrap_or_default().to_string();
+                self.provenance.insert(item_ref.clone(), (actor, time));
+            }
+        }
+        self.counts.agents = journals
+            .iter()
+            .filter(|record| is_agent(record) && record.status == JournalStatus::Committed)
+            .count();
+        let engine = AgendaEngine::new(&self.index);
+        let today_entries = engine.agenda(&self.query(self.today, self.today))?;
+        self.counts.slipped = today_entries
+            .iter()
+            .filter(|entry| is_slipped(entry))
+            .count();
+        let inbox = inbox_items(&self.index);
+        self.counts.inbox = inbox.len();
+
+        let mut headers: Vec<String> = Vec::new();
+        let mut rows = match &self.screen {
+            Screen::Review => {
+                self.journals = review_records(journals, self.agent_filter.as_deref());
+                self.rows.clear();
+                return Ok(());
+            }
+            Screen::Today if self.pane => {
+                pane_rows(engine.agenda(&self.query(self.today, self.today))?)
+            }
+            Screen::Today if self.classic => {
+                headers.extend(day_labels(self.day, self.day));
+                self.day_rows(&engine)?
+            }
+            Screen::Today => today_rows(
+                engine.agenda(&self.query(self.day, self.day))?,
+                &engine.todo(None)?,
+                &inbox,
+                &self.index,
+            ),
+            Screen::Week => {
+                let (from, to) =
+                    AgendaSpan::Week.bounds(self.day, &self.settings.agenda.week_start);
+                headers.extend(day_labels(from, to));
+                day_grouped(engine.agenda(&self.query(from, to))?)
+            }
+            Screen::Inbox => inbox
+                .into_iter()
+                .map(|item| DisplayRow {
+                    section: INBOX.to_string(),
+                    item,
+                    occurrence: None,
+                })
+                .collect(),
+            Screen::View(key) => {
+                let mut rows = Vec::new();
+                if let Some(view) = self.settings.views.get(key) {
+                    for section in engine.view(view, self.day, self.today, self.log_mode)? {
+                        // Agenda blocks list every day under their title, as
+                        // an Emacs block agenda does; list blocks use theirs.
+                        if !section.header.is_empty() {
+                            headers.push(section.header.clone());
+                        }
+                        if let (Some(from), Some(to)) = (section.from, section.to) {
+                            headers.extend(day_labels(from, to));
+                            rows.extend(day_grouped(section.entries));
+                        }
+                        rows.extend(section.items.into_iter().map(|item| DisplayRow {
+                            section: section.header.clone(),
+                            item,
+                            occurrence: None,
+                        }));
+                    }
+                }
+                rows
+            }
+            Screen::Triage => {
+                self.reschedules = reschedule_counts(&journals, &self.index);
+                let someday = self.settings.triage.someday_tag.clone();
+                let mut rows = triage_rows(today_entries, inbox);
+                // Demoted tasks are done being triaged.
+                rows.retain(|row| !row.item.tags.contains(&someday));
+                rows
+            }
+        };
+        rows.retain(|row| self.visible(&row.item));
+        // Sections that only exist through their rows (Today, Inbox).
+        for row in &rows {
+            if !headers.contains(&row.section) {
+                headers.push(row.section.clone());
+            }
+        }
+        self.headers = headers;
+        self.rows = rows;
+        Ok(())
+    }
+
+    fn query(&self, from: NaiveDate, to: NaiveDate) -> AgendaQuery {
+        AgendaQuery {
+            from,
+            to,
+            today: self.today,
+            match_expression: None,
+            log_mode: self.log_mode,
+        }
+    }
+
+    /// Classic view: the plain org-agenda day list for `day`.
+    fn day_rows(&self, engine: &AgendaEngine<'_>) -> Result<Vec<DisplayRow>> {
+        Ok(day_grouped(engine.agenda(&self.query(self.day, self.day))?))
+    }
+
+    /// Context (`<`) and text/tag (`/`) filters.
+    fn visible(&self, item: &Item) -> bool {
+        let context = self
+            .context
+            .as_ref()
+            .is_none_or(|context| item.category.eq_ignore_ascii_case(context));
+        let filter = self.filter.to_lowercase();
+        context
+            && (filter.is_empty()
+                || item.title.to_lowercase().contains(&filter)
+                || item
+                    .tags
+                    .iter()
+                    .chain(&item.inherited_tags)
+                    .any(|tag| tag.to_lowercase() == filter.trim_start_matches('+')))
+    }
+}
+
+/// Today's sections in the order you act on them. SLIPPED shows only the
+/// first few; DOING lists in-progress TODOs without a date today.
+fn today_rows(
+    entries: Vec<AgendaEntry>,
+    todos: &[Item],
+    inbox: &[Item],
+    index: &WorkspaceIndex,
+) -> Vec<DisplayRow> {
+    let mut sections: [(&str, Vec<DisplayRow>); 5] = [
+        (SLIPPED, Vec::new()),
+        (SCHEDULE, Vec::new()),
+        (DUE, Vec::new()),
+        (DOING, Vec::new()),
+        (INBOX, Vec::new()),
+    ];
+    let mut shown = BTreeSet::new();
+    for entry in entries {
+        let slot = if is_slipped(&entry) {
+            0
+        } else if matches!(
+            entry.occurrence.kind,
+            OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline
+        ) {
+            2
+        } else {
+            1
+        };
+        shown.insert(entry.item.item_ref.clone());
+        sections[slot].1.push(DisplayRow {
+            section: sections[slot].0.to_string(),
+            item: entry.item,
+            occurrence: Some(entry.occurrence),
+        });
+    }
+    sections[0].1.truncate(SLIPPED_ON_TODAY);
+    for item in todos {
+        if !shown.contains(&item.item_ref) && is_in_progress(item, index) {
+            shown.insert(item.item_ref.clone());
+            sections[3].1.push(DisplayRow {
+                section: DOING.to_string(),
+                item: item.clone(),
+                occurrence: None,
+            });
+        }
+    }
+    for item in inbox {
+        if shown.insert(item.item_ref.clone()) {
+            sections[4].1.push(DisplayRow {
+                section: INBOX.to_string(),
+                item: item.clone(),
+                occurrence: None,
+            });
+        }
+    }
+    sections.into_iter().flat_map(|(_, rows)| rows).collect()
+}
+
+/// The pane: today's dated rows, timed ones by clock time, then untimed,
+/// with done rows last; overdue rows are only counted.
+fn pane_rows(entries: Vec<AgendaEntry>) -> Vec<DisplayRow> {
+    let mut rows: Vec<DisplayRow> = entries
+        .into_iter()
+        .filter(|entry| !is_slipped(entry))
+        .map(|entry| DisplayRow {
+            section: SCHEDULE.to_string(),
+            item: entry.item,
+            occurrence: Some(entry.occurrence),
+        })
+        .collect();
+    rows.sort_by_key(|row| {
+        (
+            row.item.done,
+            row.occurrence
+                .as_ref()
+                .and_then(|occurrence| occurrence.time.clone())
+                .is_none(),
+            row.occurrence
+                .as_ref()
+                .and_then(|occurrence| occurrence.time.clone()),
+        )
+    });
+    rows
+}
+
+/// Reschedules per item: Org's own "Rescheduled from" LOGBOOK notes when
+/// org-log-reschedule wrote them, otherwise agd journal entries that moved
+/// an existing SCHEDULED date.
+fn reschedule_counts(
+    journals: &[JournalRecord],
+    index: &WorkspaceIndex,
+) -> std::collections::BTreeMap<String, usize> {
+    let mut counts = std::collections::BTreeMap::new();
+    for record in journals {
+        let moved = record
+            .diff
+            .lines()
+            .any(|line| line.starts_with('-') && line.contains("SCHEDULED:"))
+            && record
+                .diff
+                .lines()
+                .any(|line| line.starts_with('+') && line.contains("SCHEDULED:"));
+        if moved && let Some(item_ref) = &record.item_ref {
+            *counts.entry(item_ref.clone()).or_default() += 1;
+        }
+    }
+    for document in index.documents() {
+        for headline in document.headlines() {
+            let section =
+                &document.source()[headline.section_span.start..headline.section_span.end];
+            let logged = section.matches("- Rescheduled from").count();
+            if logged > 0 {
+                counts.insert(headline.item.item_ref.clone(), logged);
+            }
+        }
+    }
+    counts
+}
+
+/// org-agenda's day header: `Wednesday  14 October 2026`.
+pub(super) fn day_label(date: NaiveDate) -> String {
+    format!(
+        "{:<10} {:>2} {} {}",
+        date.format("%A"),
+        date.day(),
+        date.format("%B"),
+        date.year()
+    )
+}
+
+fn day_labels(from: NaiveDate, to: NaiveDate) -> Vec<String> {
+    let mut labels = Vec::new();
+    let mut day = from;
+    while day <= to {
+        labels.push(day_label(day));
+        day += Duration::days(1);
+    }
+    labels
+}
+
+/// org-agenda rows grouped under one header per day, as in Emacs.
+fn day_grouped(entries: Vec<AgendaEntry>) -> Vec<DisplayRow> {
+    entries
+        .into_iter()
+        .map(|entry| {
+            let section = entry
+                .occurrence
+                .date
+                .parse::<NaiveDate>()
+                .map(day_label)
+                .unwrap_or_else(|_| entry.occurrence.date.clone());
+            DisplayRow {
+                section,
+                item: entry.item,
+                occurrence: Some(entry.occurrence),
+            }
+        })
+        .collect()
+}
+
+/// Overdue items first (most days late first), then the inbox.
+fn triage_rows(entries: Vec<AgendaEntry>, inbox: Vec<Item>) -> Vec<DisplayRow> {
+    let mut seen = BTreeSet::new();
+    let mut rows: Vec<DisplayRow> = entries
+        .into_iter()
+        .filter(|entry| is_slipped(entry) && !entry.item.done)
+        .filter(|entry| seen.insert(entry.item.item_ref.clone()))
+        .map(|entry| DisplayRow {
+            section: SLIPPED.to_string(),
+            item: entry.item,
+            occurrence: Some(entry.occurrence),
+        })
+        .collect();
+    rows.extend(
+        inbox
+            .into_iter()
+            .filter(|item| seen.insert(item.item_ref.clone()))
+            .map(|item| DisplayRow {
+                section: INBOX.to_string(),
+                item,
+                occurrence: None,
+            }),
+    );
+    rows
+}
+
+/// Past-scheduled reminders and overdue deadlines.
+pub(super) fn is_slipped(entry: &AgendaEntry) -> bool {
+    match entry.occurrence.kind {
+        OccurrenceType::PastScheduled => true,
+        OccurrenceType::Deadline => entry.occurrence.extra.ends_with("ago:"),
+        _ => false,
+    }
+}
+
+/// A TODO in a middle state of its sequence (NEXT, INPROGRESS, WAIT…):
+/// not the first keyword and not done.
+fn is_in_progress(item: &Item, index: &WorkspaceIndex) -> bool {
+    let Some(todo) = item.todo.as_deref() else {
+        return false;
+    };
+    let Some(document) = index.document(std::path::Path::new(&item.file)) else {
+        return false;
+    };
+    let Some(keyword) = document.todo_keyword(todo) else {
+        return false;
+    };
+    let head = document
+        .todo_keywords()
+        .iter()
+        .find(|candidate| candidate.sequence == keyword.sequence);
+    !item.done && head.is_some_and(|head| head.name != todo)
+}
+
+/// Unfinished headings in an inbox: under a heading named Inbox, or in a
+/// file or category named inbox. Containers without a TODO keyword that have
+/// children are left out.
+pub(super) fn inbox_items(index: &WorkspaceIndex) -> Vec<Item> {
+    let mut items = Vec::new();
+    for document in index.documents() {
+        let in_inbox_file = document
+            .path()
+            .file_stem()
+            .is_some_and(|stem| stem.eq_ignore_ascii_case("inbox"));
+        for headline in document.headlines() {
+            let item = &headline.item;
+            let ancestors = &item.olpath[..item.olpath.len().saturating_sub(1)];
+            let under_inbox = ancestors
+                .iter()
+                .any(|heading| heading.eq_ignore_ascii_case("inbox"));
+            let leaf = headline.subtree_span.end == headline.section_span.end;
+            if !item.done
+                && (under_inbox || in_inbox_file || item.category.eq_ignore_ascii_case("inbox"))
+                && (item.todo.is_some() || leaf)
+                && !item.title.eq_ignore_ascii_case("inbox")
+            {
+                items.push(item.clone());
+            }
+        }
+    }
+    items
+}
+
+fn is_agent(record: &JournalRecord) -> bool {
+    record.actor.starts_with("mcp:")
+}
+
+/// Recent agent changes, unreviewed first, newest first within each group.
+fn review_records(journals: Vec<JournalRecord>, agent: Option<&str>) -> Vec<JournalRecord> {
+    let mut records: Vec<JournalRecord> = journals
+        .into_iter()
+        .filter(|record| {
+            is_agent(record)
+                && matches!(
+                    record.status,
+                    JournalStatus::Committed | JournalStatus::Reviewed
+                )
+                && agent.is_none_or(|agent| record.actor.strip_prefix("mcp:") == Some(agent))
+        })
+        .collect();
+    records.sort_by(|left, right| {
+        (left.status != JournalStatus::Committed)
+            .cmp(&(right.status != JournalStatus::Committed))
+            .then_with(|| right.timestamp.cmp(&left.timestamp))
+    });
+    records.truncate(REVIEW_LIMIT);
+    records
+}
+
+/// Days since a date, for "waiting 3d" and triage ages.
+pub(super) fn days_since(date: &str, today: NaiveDate) -> Option<i64> {
+    let date = date.get(..10)?.parse::<NaiveDate>().ok()?;
+    Some((today - date).num_days().max(0))
+}
+
+/// Next occurrence of a repeating SCHEDULED/DEADLINE after marking it DONE,
+/// as org-auto-repeat-maybe computes it, for the peek preview.
+pub(super) fn next_repeat(date: &str, repeater: &str, today: NaiveDate) -> Option<NaiveDate> {
+    let base = date.parse::<NaiveDate>().ok()?;
+    let (kind, value) = if let Some(value) = repeater.strip_prefix("++") {
+        ("++", value)
+    } else if let Some(value) = repeater.strip_prefix(".+") {
+        (".+", value)
+    } else {
+        ("+", repeater.strip_prefix('+')?)
+    };
+    let value = value.split('/').next()?;
+    let unit = value.chars().last()?;
+    let amount: i64 = value[..value.len() - 1].parse().ok()?;
+    let step = |date: NaiveDate| -> Option<NaiveDate> {
+        match unit {
+            'd' => Some(date + Duration::days(amount)),
+            'w' => Some(date + Duration::weeks(amount)),
+            'm' => date.checked_add_months(chrono::Months::new(amount as u32)),
+            'y' => date.checked_add_months(chrono::Months::new(12 * amount as u32)),
+            _ => None,
+        }
+    };
+    match kind {
+        ".+" => step(today),
+        "++" => {
+            let mut next = step(base)?;
+            while next <= today {
+                next = step(next)?;
+            }
+            Some(next)
+        }
+        _ => step(base),
     }
 }
