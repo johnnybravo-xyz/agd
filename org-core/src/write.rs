@@ -1526,10 +1526,7 @@ fn content_hash(source: &str) -> String {
 fn unified_diff(path: &Path, before: &str, after: &str) -> String {
     TextDiff::from_lines(before, after)
         .unified_diff()
-        .header(
-            &format!("a/{}", path.display()),
-            &format!("b/{}", path.display()),
-        )
+        .header(&path.display().to_string(), &path.display().to_string())
         .to_string()
 }
 

@@ -1975,14 +1975,10 @@ fn edit_capture_body(
     let mut file = tempfile::NamedTempFile::new().context("cannot create capture draft")?;
     file.write_all(body.as_bytes())?;
     file.flush()?;
-    let path = file.path().to_string_lossy().into_owned();
-    let args: Vec<String> = app
+    let args = app
         .settings
         .editor
-        .args
-        .iter()
-        .map(|argument| argument.replace("{file}", &path).replace("{line}", "1"))
-        .collect();
+        .args_for(&file.path().to_string_lossy(), 1, 1);
     stop_terminal(terminal)?;
     let status = Command::new(&app.settings.editor.command)
         .args(args)
@@ -2009,14 +2005,7 @@ fn open_selected(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut Ap
         return Ok(());
     };
     let file = row.item.file.clone();
-    let line = row.item.line.to_string();
-    let args: Vec<String> = app
-        .settings
-        .editor
-        .args
-        .iter()
-        .map(|argument| argument.replace("{file}", &file).replace("{line}", &line))
-        .collect();
+    let args = app.settings.editor.args_for(&file, row.item.line, 1);
     stop_terminal(terminal)?;
     let status = Command::new(&app.settings.editor.command)
         .args(args)

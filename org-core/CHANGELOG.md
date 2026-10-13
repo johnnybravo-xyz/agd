@@ -13,12 +13,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `EditorSettings::args_for` substitutes `{file}`, `{line}` and `{col}`.
 - `todo.ids = "add-on-write"` gives a heading without `:ID:` a UUID v4 ID on
   its first edit, state change or planning change, as Emacs org-id does.
 - Support the `%u`, `%T` and `%%` capture template escapes.
 
 ### Fixed
 
+- Print dry-run diff headers with the plain file path instead of `a//abs`.
 - Skip non-UTF-8 agenda files for reads (`WorkspaceIndex::skipped_files`) and
   refuse writes to them with `non_utf8`, instead of failing every command.
 - Treat an `:ID:` that also appears in a non-agenda org file under the roots as

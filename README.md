@@ -163,7 +163,8 @@ config file, then the `--root-directory` override. Imported snapshots may not
 replace approved roots, editor commands, or import commands.
 
 `editor.command` and each `editor.args` element are passed directly to the
-process API. `{file}` and `{line}` are substituted without a shell. This keeps
+process API. `{file}`, `{line}` and `{col}` are substituted without a shell,
+so `args = ["-n", "+{line}:{col}", "{file}"]` works for `emacsclient`. This keeps
 paths with spaces intact and prevents Org text from becoming shell syntax.
 
 ## Editor coexistence and import

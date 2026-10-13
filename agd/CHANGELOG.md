@@ -17,6 +17,7 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Substitute `{col}` in `editor.args` for `agd open` and the TUI.
 - Keep CLI reads working when an agenda file is not UTF-8 and warn about the
   skipped file on stderr.
 - Keep the selected task in view when cycling its TODO state, including when

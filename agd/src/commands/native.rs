@@ -353,14 +353,10 @@ impl OpenCommand {
         let settings = settings(config, root)?;
         let index = load_index(settings.clone())?;
         let (document, headline) = index.resolve(&self.item_ref)?;
-        let file = document.path().to_string_lossy();
-        let line = headline.item.line.to_string();
-        let args: Vec<String> = settings
-            .editor
-            .args
-            .iter()
-            .map(|argument| argument.replace("{file}", &file).replace("{line}", &line))
-            .collect();
+        let args =
+            settings
+                .editor
+                .args_for(&document.path().to_string_lossy(), headline.item.line, 1);
         let status = Command::new(&settings.editor.command)
             .args(&args)
             .status()

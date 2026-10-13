@@ -241,6 +241,23 @@ impl Default for CaptureTemplate {
     }
 }
 
+impl EditorSettings {
+    /// Substitutes `{file}`, `{line}` and `{col}` (both 1-based) inside each
+    /// argument. The result is passed straight to the process API, never to a
+    /// shell, so file names with spaces or quotes stay one argument.
+    pub fn args_for(&self, file: &str, line: usize, col: usize) -> Vec<String> {
+        self.args
+            .iter()
+            .map(|argument| {
+                argument
+                    .replace("{file}", file)
+                    .replace("{line}", &line.to_string())
+                    .replace("{col}", &col.to_string())
+            })
+            .collect()
+    }
+}
+
 impl Default for EditorSettings {
     fn default() -> Self {
         Self {
@@ -485,6 +502,22 @@ fn enabled() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn editor_args_substitute_every_placeholder_per_argument() {
+        let editor = EditorSettings {
+            command: "emacsclient".to_string(),
+            args: vec![
+                "-n".to_string(),
+                "+{line}:{col}".to_string(),
+                "{file}".to_string(),
+            ],
+        };
+        assert_eq!(
+            editor.args_for("/org/my tasks.org", 42, 1),
+            vec!["-n", "+42:1", "/org/my tasks.org"]
+        );
+    }
 
     #[test]
     fn manual_values_override_import_without_broadening_roots() {
