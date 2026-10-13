@@ -27,5 +27,8 @@
         (equal (getenv "AGD_SKIP_DEADLINE_IF_DONE") "true")
         org-agenda-skip-timestamp-if-done
         (equal (getenv "AGD_SKIP_TIMESTAMP_IF_DONE") "true"))
+  (when (getenv "AGD_SORTING")
+    (setq org-agenda-sorting-strategy
+          `((agenda ,@(mapcar #'intern (split-string (getenv "AGD_SORTING")))))))
   (cl-letf (((symbol-function 'current-time) (lambda () fixed-time)))
     (org-batch-agenda-csv "a")))

@@ -107,7 +107,7 @@ ids = "preserve" # "add-on-write" adds a UUID :ID: on first edit
 span = "week"
 week_start = "monday"
 deadline_warning_days = 14
-sorting_strategy = ["time-up", "priority-down", "category-keep"]
+sorting_strategy = ["time-up", "urgency-down", "category-keep"]  # org-agenda-sorting-strategy keys
 
 [capture.t]
 desc = "Todo"

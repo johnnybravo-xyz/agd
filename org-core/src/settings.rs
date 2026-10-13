@@ -49,6 +49,26 @@ pub struct ViewBlock {
     pub header: Option<String>,
 }
 
+/// Agenda sorting keys agd implements; habit-* and category-keep keep
+/// collection order.
+pub const SORTING_KEYS: [&str; 15] = [
+    "time-up",
+    "time-down",
+    "urgency-up",
+    "urgency-down",
+    "priority-up",
+    "priority-down",
+    "category-keep",
+    "category-up",
+    "category-down",
+    "alpha-up",
+    "alpha-down",
+    "todo-state-up",
+    "todo-state-down",
+    "habit-up",
+    "habit-down",
+];
+
 pub const VIEW_BLOCK_KINDS: [&str; 5] = ["agenda", "todo", "alltodo", "tags", "tags-todo"];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -118,8 +138,8 @@ pub struct AgendaSettings {
     pub skip_scheduled_if_done: bool,
     pub skip_deadline_if_done: bool,
     pub skip_timestamp_if_done: bool,
+    /// org-agenda-sorting-strategy for agenda days, from SORTING_KEYS.
     pub sorting_strategy: Vec<String>,
-    pub time_grid: Vec<String>,
     pub highest_priority: String,
     pub lowest_priority: String,
     pub default_priority: String,
@@ -256,12 +276,13 @@ impl Default for AgendaSettings {
             skip_scheduled_if_done: false,
             skip_deadline_if_done: false,
             skip_timestamp_if_done: false,
+            // Emacs's default for agenda days (Org 9.7+ names).
             sorting_strategy: vec![
+                "habit-down".to_string(),
                 "time-up".to_string(),
-                "priority-down".to_string(),
+                "urgency-down".to_string(),
                 "category-keep".to_string(),
             ],
-            time_grid: Vec::new(),
             highest_priority: "A".to_string(),
             lowest_priority: "C".to_string(),
             default_priority: "B".to_string(),
@@ -545,6 +566,14 @@ fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
         other => {
             return Err(config_error(format!(
                 "agents.capture_to must be \"template\" or \"inbox\", not \"{other}\""
+            )));
+        }
+    }
+    for key in &settings.agenda.sorting_strategy {
+        if !SORTING_KEYS.contains(&key.as_str()) {
+            return Err(config_error(format!(
+                "agenda.sorting_strategy key '{key}' is not supported; use {}",
+                SORTING_KEYS.join(", ")
             )));
         }
     }

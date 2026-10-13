@@ -1,0 +1,4 @@
+today = "2026-10-13"
+from = "2026-10-13"
+to = "2026-10-14"
+sorting_strategy = ["time-down", "alpha-down", "todo-state-up"]

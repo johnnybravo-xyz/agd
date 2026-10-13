@@ -149,6 +149,7 @@ local function custom_commands(values)
   return result
 end
 
+local sorting = opts.org_agenda_sorting_strategy or { agenda = { "time-up", "priority-down", "category-keep" } }
 local version = vim.version()
 local week_start = opts.org_agenda_start_on_weekday == 0 and "sunday" or "monday"
 local output = {
@@ -171,8 +172,7 @@ local output = {
   skip_scheduled_if_done = opts.org_agenda_skip_scheduled_if_done == true,
   skip_deadline_if_done = opts.org_agenda_skip_deadline_if_done == true,
   skip_timestamp_if_done = opts.org_agenda_skip_timestamp_if_done == true,
-  sorting_strategy = strings(opts.org_agenda_sorting_strategy or { "time-up", "priority-down", "category-keep" }),
-  time_grid = strings(opts.org_agenda_time_grid),
+  sorting_strategy = strings(sorting.agenda or sorting),
   log_done = tostring(opts.org_log_done or "nil"),
   log_repeat = tostring(opts.org_log_repeat or "nil"),
   log_into_drawer = opts.org_log_into_drawer == true,

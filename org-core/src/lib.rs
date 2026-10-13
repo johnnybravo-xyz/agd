@@ -36,9 +36,9 @@ pub use paths::RootSet;
 pub use settings::{
     AgendaSettings, AgentProfile, AgentSettings, CaptureTemplate, CommandProfile,
     EMACS_IMPORT_SCHEMA, EditorImportSettings, EditorSettings, FilesSettings, IdPolicy,
-    ImportSettings, LoadedSettings, NVIM_IMPORT_SCHEMA, Settings, TagsSettings, TodoSettings,
-    TriageSettings, VIEW_BLOCK_KINDS, ViewBlock, ViewSettings, load_settings, resolve_config_path,
-    snapshot_or_default,
+    ImportSettings, LoadedSettings, NVIM_IMPORT_SCHEMA, SORTING_KEYS, Settings, TagsSettings,
+    TodoSettings, TriageSettings, VIEW_BLOCK_KINDS, ViewBlock, ViewSettings, load_settings,
+    resolve_config_path, snapshot_or_default,
 };
 pub use write::{
     Change, EditIntent, JournalRecord, JournalStatus, Patch, RefileResult, StoredPatch, UndoResult,

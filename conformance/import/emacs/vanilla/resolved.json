@@ -75,14 +75,14 @@
   "default_priority": "C",
   "diagnostics": [],
   "editor": "emacs",
-  "editor_version": "29.4",
+  "editor_version": "30.2",
   "groups": [],
   "highest_priority": "A",
   "log_done": "time",
   "log_into_drawer": true,
   "log_repeat": "note",
   "lowest_priority": "D",
-  "org_version": "9.6.15",
+  "org_version": "9.7.11",
   "persistent_tags": [
     "(\"important\" . 105)"
   ],
@@ -101,12 +101,6 @@
   ],
   "tag_inheritance_exclusions": [
     "noinherit"
-  ],
-  "time_grid": [
-    "(daily today require-timed)",
-    "(800 1000 1200 1400 1600 1800 2000)",
-    "......",
-    "----------------"
   ],
   "todo_sequences": [
     [

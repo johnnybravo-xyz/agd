@@ -52,6 +52,8 @@ def emacs_rows(case_dir: pathlib.Path, case: dict) -> str:
             case.get("skip_timestamp_if_done", False)
         ).lower(),
     }
+    if case.get("sorting_strategy"):
+        environment["AGD_SORTING"] = " ".join(case["sorting_strategy"])
     create = ["create", "--name", name]
     for key, value in environment.items():
         create.extend(["--env", f"{key}={value}"])

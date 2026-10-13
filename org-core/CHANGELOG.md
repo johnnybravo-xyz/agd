@@ -8,6 +8,7 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Remove the unused `agenda.time_grid` setting.
 - Import org-agenda custom commands from Emacs and nvim-orgmode as views,
   including block agendas and descriptionless commands; views with matches agd
   cannot run are left out with a diagnostic. `ImportSnapshot::commands` is
@@ -27,6 +28,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Honor `agenda.sorting_strategy` with org-agenda's keys (`time`, `urgency`,
+  `priority`, `category`, `alpha`, `todo-state`, each `-up`/`-down`, plus
+  `category-keep` and `habit-*`); the default is Emacs's own. Imports read the
+  agenda strategy and map Org < 9.7 `priority-*` to `urgency-*`.
 - Saved views (`[views.KEY]`): org-agenda custom commands as blocks of
   `agenda`, `todo`, `alltodo`, `tags` and `tags-todo`, run by
   `AgendaEngine::view`. Org's built-in `n` view ships by default.

@@ -17,6 +17,8 @@ struct Case {
     skip_deadline_if_done: bool,
     #[serde(default)]
     skip_timestamp_if_done: bool,
+    /// Agenda sorting keys; Org 9.6 in the oracle has no urgency-* keys.
+    sorting_strategy: Option<Vec<String>>,
 }
 
 fn date(value: &str) -> NaiveDate {
@@ -53,6 +55,9 @@ fn native_agenda_matches_pinned_emacs_rows() {
         settings.agenda.skip_scheduled_if_done = case.skip_scheduled_if_done;
         settings.agenda.skip_deadline_if_done = case.skip_deadline_if_done;
         settings.agenda.skip_timestamp_if_done = case.skip_timestamp_if_done;
+        if let Some(strategy) = case.sorting_strategy {
+            settings.agenda.sorting_strategy = strategy;
+        }
         let index = WorkspaceIndex::load(settings).expect("index case");
         let entries = AgendaEngine::new(&index)
             .agenda(&AgendaQuery {

@@ -25,33 +25,27 @@
   "default_priority": "B",
   "diagnostics": [],
   "editor": "emacs",
-  "editor_version": "29.4",
+  "editor_version": "30.2",
   "groups": [],
   "highest_priority": "A",
   "log_done": "nil",
   "log_into_drawer": true,
   "log_repeat": "time",
   "lowest_priority": "C",
-  "org_version": "9.6.15",
+  "org_version": "9.7.11",
   "persistent_tags": [],
   "skip_deadline_if_done": false,
   "skip_scheduled_if_done": false,
   "skip_timestamp_if_done": false,
   "sorting_strategy": [
-    "(agenda habit-down time-up priority-down category-keep)",
-    "(todo priority-down category-keep)",
-    "(tags priority-down category-keep)",
-    "(search category-keep)"
+    "habit-down",
+    "time-up",
+    "urgency-down",
+    "category-keep"
   ],
   "source": "batch-profile",
   "tag_alist": [],
   "tag_inheritance_exclusions": [],
-  "time_grid": [
-    "(daily today require-timed)",
-    "(800 1000 1200 1400 1600 1800 2000)",
-    "......",
-    "----------------"
-  ],
   "todo_sequences": [
     [
       "TODO(t)",

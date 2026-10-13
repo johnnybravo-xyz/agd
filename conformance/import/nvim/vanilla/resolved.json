@@ -83,11 +83,6 @@
   "tag_inheritance_exclusions": [
     "noinherit"
   ],
-  "time_grid": [
-    "08:00",
-    "12:00",
-    "18:00"
-  ],
   "todo_sequences": [
     [
       "TODO(t)",

@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AgdError, CaptureTemplate, EMACS_IMPORT_SCHEMA, NVIM_IMPORT_SCHEMA, RootSet, Settings,
-    ViewBlock, ViewSettings,
+    AgdError, CaptureTemplate, EMACS_IMPORT_SCHEMA, NVIM_IMPORT_SCHEMA, RootSet, SORTING_KEYS,
+    Settings, ViewBlock, ViewSettings,
 };
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -76,7 +76,6 @@ pub struct ResolvedEditorConfig {
     pub skip_deadline_if_done: bool,
     pub skip_timestamp_if_done: bool,
     pub sorting_strategy: Vec<String>,
-    pub time_grid: Vec<String>,
     pub log_done: String,
     pub log_repeat: String,
     pub log_into_drawer: bool,
@@ -159,8 +158,18 @@ impl ImportSnapshot {
         settings.agenda.skip_scheduled_if_done = resolved.skip_scheduled_if_done;
         settings.agenda.skip_deadline_if_done = resolved.skip_deadline_if_done;
         settings.agenda.skip_timestamp_if_done = resolved.skip_timestamp_if_done;
-        settings.agenda.sorting_strategy = resolved.sorting_strategy.clone();
-        settings.agenda.time_grid = resolved.time_grid.clone();
+        settings.agenda.sorting_strategy.clear();
+        for key in &resolved.sorting_strategy {
+            if SORTING_KEYS.contains(&key.as_str()) {
+                settings.agenda.sorting_strategy.push(key.clone());
+            } else {
+                diagnostics.push(ImportDiagnostic {
+                    status: ImportStatus::Difference,
+                    key: "sorting".to_string(),
+                    message: format!("sorting key {key} is not supported and was left out"),
+                });
+            }
+        }
         settings.agenda.highest_priority = resolved.highest_priority.clone();
         settings.agenda.lowest_priority = resolved.lowest_priority.clone();
         settings.agenda.default_priority = resolved.default_priority.clone();
@@ -351,7 +360,6 @@ mod tests {
             skip_deadline_if_done: false,
             skip_timestamp_if_done: false,
             sorting_strategy: vec!["time-up".to_string()],
-            time_grid: Vec::new(),
             log_done: "time".to_string(),
             log_repeat: "time".to_string(),
             log_into_drawer: false,

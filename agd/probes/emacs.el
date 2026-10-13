@@ -187,6 +187,19 @@
         org-super-agenda-groups))
     []))
 
+;; The agenda part of org-agenda-sorting-strategy. Before Org 9.7 the
+;; priority-* keys sorted by what 9.7 renamed urgency.
+(defun agd--sorting-strategy ()
+  (let* ((value org-agenda-sorting-strategy)
+         (agenda (if (assq 'agenda value) (cdr (assq 'agenda value)) value)))
+    (vconcat
+     (mapcar (lambda (key)
+               (let ((name (agd--string key)))
+                 (if (version< (org-version) "9.7")
+                     (replace-regexp-in-string "\\`priority-" "urgency-" name)
+                   name)))
+             agenda))))
+
 (defun agd--verification-rows ()
   (let ((result (make-hash-table :test 'equal)))
     (when (or agd-import-verify
@@ -233,8 +246,7 @@
        (skip_scheduled_if_done . ,(if org-agenda-skip-scheduled-if-done t :json-false))
        (skip_deadline_if_done . ,(if org-agenda-skip-deadline-if-done t :json-false))
        (skip_timestamp_if_done . ,(if org-agenda-skip-timestamp-if-done t :json-false))
-       (sorting_strategy . ,(agd--strings org-agenda-sorting-strategy))
-       (time_grid . ,(agd--strings org-agenda-time-grid))
+       (sorting_strategy . ,(agd--sorting-strategy))
        (log_done . ,(agd--string org-log-done))
        (log_repeat . ,(agd--string org-log-repeat))
        (log_into_drawer . ,(if org-log-into-drawer t :json-false))

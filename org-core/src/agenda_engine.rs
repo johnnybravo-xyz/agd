@@ -158,12 +158,22 @@ impl<'a> AgendaEngine<'a> {
             .into_iter()
             .map(|entry| (urgency(&entry, query.today, settings), entry))
             .collect();
-        keyed.sort_by(|(left_urgency, left), (right_urgency, right)| {
-            left.occurrence
+        let todo_order: Vec<String> = self
+            .index
+            .settings()
+            .todo
+            .sequences
+            .iter()
+            .flatten()
+            .filter(|keyword| keyword.as_str() != "|")
+            .map(|keyword| keyword_name(keyword).to_string())
+            .collect();
+        keyed.sort_by(|left, right| {
+            left.1
+                .occurrence
                 .date
-                .cmp(&right.occurrence.date)
-                .then_with(|| compare_time_of_day(&left.occurrence.time, &right.occurrence.time))
-                .then_with(|| right_urgency.cmp(left_urgency))
+                .cmp(&right.1.occurrence.date)
+                .then_with(|| compare_by_strategy(left, right, settings, &todo_order))
         });
         Ok(keyed.into_iter().map(|(_, entry)| entry).collect())
     }
@@ -940,6 +950,51 @@ fn collection_rank(kind: OccurrenceType) -> u8 {
         OccurrenceType::Timestamp => 3,
         OccurrenceType::Closed | OccurrenceType::Todo => 4,
     }
+}
+
+/// One comparison per org-agenda-sorting-strategy key, first difference
+/// wins; the sort is stable, so category-keep and habit-* keep collection
+/// order.
+fn compare_by_strategy(
+    (left_urgency, left): &(i64, AgendaEntry),
+    (right_urgency, right): &(i64, AgendaEntry),
+    settings: &AgendaSettings,
+    todo_order: &[String],
+) -> Ordering {
+    let todo_rank = |entry: &AgendaEntry| {
+        entry.item.todo.as_deref().map_or(-1, |todo| {
+            todo_order
+                .iter()
+                .position(|keyword| keyword == todo)
+                .map_or(-1, |index| index as i64)
+        })
+    };
+    for key in &settings.sorting_strategy {
+        let (name, direction) = key.rsplit_once('-').unwrap_or((key, "up"));
+        let ordering = match name {
+            "time" => compare_time_of_day(&left.occurrence.time, &right.occurrence.time),
+            "urgency" => left_urgency.cmp(right_urgency),
+            "priority" => priority_value(left.item.priority.as_deref(), settings)
+                .cmp(&priority_value(right.item.priority.as_deref(), settings)),
+            "category" if direction != "keep" => left.item.category.cmp(&right.item.category),
+            "alpha" => agenda_title(&left.item).cmp(&agenda_title(&right.item)),
+            "todo-state" => todo_rank(left).cmp(&todo_rank(right)),
+            _ => Ordering::Equal,
+        };
+        let ordering = if direction == "down" {
+            ordering.reverse()
+        } else {
+            ordering
+        };
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+    }
+    Ordering::Equal
+}
+
+fn keyword_name(keyword: &str) -> &str {
+    keyword.split(['(', '!', '@']).next().unwrap_or(keyword)
 }
 
 /// org-agenda urgency: priority value (A=2000, B=1000, C=0 by default),
