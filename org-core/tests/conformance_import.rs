@@ -15,7 +15,9 @@ fn normalize_fixture(path: &Path, editor: &str) -> ImportSnapshot {
         fs::write(&target_task, "* TODO Fixture\n").expect("write imported agenda file");
     }
     let raw = fs::read_to_string(path.join("resolved.json")).expect("read resolved fixture");
-    let raw = raw.replace("/fixture", &temp.path().to_string_lossy());
+    let root = temp.path().to_string_lossy();
+    let escaped_root = serde_json::to_string(root.as_ref()).expect("encode fixture root");
+    let raw = raw.replace("/fixture", &escaped_root[1..escaped_root.len() - 1]);
     let resolved: ResolvedEditorConfig =
         serde_json::from_str(&raw).expect("parse resolved fixture");
     let mut approved = Settings::default();
