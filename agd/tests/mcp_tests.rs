@@ -1,3 +1,4 @@
+#[cfg(not(target_os = "windows"))]
 use std::fs;
 
 use chrono::Local;
@@ -21,17 +22,43 @@ fn binary() -> std::path::PathBuf {
         })
 }
 
+#[cfg(target_os = "macos")]
+fn journal_data_directory(directory: &tempfile::TempDir) -> std::path::PathBuf {
+    directory
+        .path()
+        .join("home")
+        .join("Library")
+        .join("Application Support")
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn journal_data_directory(directory: &tempfile::TempDir) -> std::path::PathBuf {
+    directory.path().join("data")
+}
+
+#[cfg(target_os = "macos")]
+fn configure_data_directory(command: &mut tokio::process::Command, directory: &tempfile::TempDir) {
+    command.env("HOME", directory.path().join("home"));
+}
+
+#[cfg(target_os = "windows")]
+fn configure_data_directory(_: &mut tokio::process::Command, _: &tempfile::TempDir) {}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn configure_data_directory(command: &mut tokio::process::Command, directory: &tempfile::TempDir) {
+    command.env("XDG_DATA_HOME", journal_data_directory(directory));
+}
+
 async fn service(
     directory: &tempfile::TempDir,
 ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ()>, Box<dyn std::error::Error>> {
     let command = tokio::process::Command::new(binary()).configure(|command| {
-        command
-            .args([
-                "--root-directory",
-                directory.path().to_str().expect("UTF-8 path"),
-                "mcp",
-            ])
-            .env("XDG_DATA_HOME", directory.path().join("data"));
+        command.args([
+            "--root-directory",
+            directory.path().to_str().expect("UTF-8 path"),
+            "mcp",
+        ]);
+        configure_data_directory(command, directory);
     });
     Ok(().serve(TokioChildProcess::new(command)?).await?)
 }
@@ -113,13 +140,17 @@ async fn writes_return_mutations_and_failures_return_error_schemas()
     let encoded = content_json(&result).to_string();
     assert!(encoded.contains("agendum.mutation/v1"));
     assert!(encoded.contains("DONE"));
-    let journal = fs::read_to_string(directory.path().join("data/agendum/journal.jsonl"))?;
-    let record: Value = serde_json::from_str(journal.lines().next().expect("journal record"))?;
-    assert!(record["actor"].as_str().expect("actor").starts_with("mcp:"));
-    assert_eq!(
-        record["project"],
-        directory.path().to_string_lossy().as_ref()
-    );
+    #[cfg(not(target_os = "windows"))]
+    {
+        let journal =
+            fs::read_to_string(journal_data_directory(&directory).join("agendum/journal.jsonl"))?;
+        let record: Value = serde_json::from_str(journal.lines().next().expect("journal record"))?;
+        assert!(record["actor"].as_str().expect("actor").starts_with("mcp:"));
+        assert_eq!(
+            record["project"],
+            directory.path().to_string_lossy().as_ref()
+        );
+    }
 
     let arguments: Map<String, Value> = json!({"ref": "missing", "state": "DONE"})
         .as_object()

@@ -56,7 +56,6 @@ tracing-subscriber = { version = "0.3.22", features = [
   "fmt",
 ] }
 tracing-test = { version = "0.2.6", features = ["no-env-filter"] }
-urlencoding = "2.1"
 
 [workspace.metadata.coverage]
 exclude = ["*/tests/*", "*/benches/*", "**/target/**"]

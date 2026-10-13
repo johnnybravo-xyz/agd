@@ -55,20 +55,30 @@ def main() -> int:
             continue
         if result.returncode != 0 or payload is None:
             raise RuntimeError(f"Neovim probe failed for {case}: {result.stdout}")
-        payload = json.loads(payload)
-        editor_version = payload.pop("editor_version", "")
+        actual = json.loads(payload)
+        editor_version = actual.get("editor_version", "")
         if len(editor_version.split(".")) != 3 or not all(
             part.isdigit() for part in editor_version.split(".")
         ):
             raise RuntimeError(f"Neovim probe returned invalid version: {editor_version}")
-        actual = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         expected = case / "resolved.json"
         if arguments.update:
-            expected.write_text(actual, encoding="utf-8")
+            expected.write_text(
+                json.dumps(actual, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
             print(f"updated {expected}")
-        elif not expected.is_file() or expected.read_text(encoding="utf-8") != actual:
-            print(f"Neovim import oracle drift: {case.name}")
+        elif not expected.is_file():
+            print(f"Neovim import oracle fixture missing: {case.name}")
             failed = True
+        else:
+            normalized_actual = dict(actual)
+            normalized_expected = json.loads(expected.read_text(encoding="utf-8"))
+            normalized_actual.pop("editor_version", None)
+            normalized_expected.pop("editor_version", None)
+            if normalized_expected != normalized_actual:
+                print(f"Neovim import oracle drift: {case.name}")
+                failed = True
     return int(failed)
 
 

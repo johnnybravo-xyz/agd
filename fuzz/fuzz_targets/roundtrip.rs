@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 
-use org_core::{IndexedDocument, Settings};
 use libfuzzer_sys::fuzz_target;
+use org_core::{IndexedDocument, Settings};
 
 fuzz_target!(|data: &[u8]| {
     if std::str::from_utf8(data).is_err() {
