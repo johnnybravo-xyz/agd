@@ -1,0 +1,130 @@
+#+TODO: TODO NEXT WAIT | DONE CANCELLED
+#+CATEGORY: generated
+* WAIT [#B] Generated 00 :project:
+SCHEDULED: <2026-10-18 Sun +2d>
+* NEXT Generated 01 :work:
+<2026-10-21 Wed ++3d>
+* DONE [#A] Generated 02 :errand:
+DEADLINE: <2026-10-13 Tue -5d>
+* TODO [#C] Generated 03 :errand:
+<2026-10-13 Tue +2d>
+* NEXT [#C] Generated 04 :work:
+SCHEDULED: <2026-10-17 Sat .+1w> DEADLINE: <2026-10-17 Sat -5d>
+* WAIT [#B] Generated 05 :project:
+SCHEDULED: <2026-10-16 Fri>
+* WAIT [#B] Generated 06 :errand:
+SCHEDULED: <2026-10-15 Thu .+1w> DEADLINE: <2026-10-15 Thu -5d>
+* TODO [#C] Generated 07 :errand:
+<2026-10-19 Mon>--<2026-10-20 Tue>
+* NEXT [#A] Generated 08 :errand:
+<2026-10-20 Tue>
+* WAIT [#C] Generated 09 :home:
+<2026-10-17 Sat .+1w>
+* TODO [#A] Generated 10 :errand:
+<2026-10-20 Tue>--<2026-10-23 Fri>
+* WAIT [#B] Generated 11 :work:
+<2026-10-21 Wed +2d>
+* DONE [#A] Generated 12 :home:
+SCHEDULED: <2026-10-16 Fri> DEADLINE: <2026-10-16 Fri -5d>
+* DONE [#C] Generated 13 :home:
+<2026-10-19 Mon>--<2026-10-22 Thu>
+* WAIT Generated 14 :home:
+<2026-10-13 Tue>--<2026-10-16 Fri>
+* WAIT [#A] Generated 15 :project:
+DEADLINE: <2026-10-14 Wed -5d>
+* TODO Generated 16 :home:
+SCHEDULED: <2026-10-17 Sat .+1w>
+* WAIT [#C] Generated 17 :project:
+<2026-10-14 Wed>--<2026-10-17 Sat>
+* WAIT [#C] Generated 18 :errand:
+DEADLINE: <2026-10-14 Wed -2d>
+* WAIT [#A] Generated 19 :home:
+<2026-10-16 Fri>--<2026-10-19 Mon>
+* WAIT [#B] Generated 20 :work:
+SCHEDULED: <2026-10-14 Wed +2d>
+* NEXT [#A] Generated 21 :errand:
+SCHEDULED: <2026-10-19 Mon .+1w> DEADLINE: <2026-10-19 Mon -2d>
+* DONE [#C] Generated 22 :work:
+<2026-10-16 Fri ++3d>
+* NEXT [#A] Generated 23 :work:
+<2026-10-20 Tue>
+* TODO Generated 24 :project:
+DEADLINE: <2026-10-14 Wed -2d>
+* WAIT [#B] Generated 25 :errand:
+DEADLINE: <2026-10-16 Fri -5d>
+* DONE [#A] Generated 26 :home:
+DEADLINE: <2026-10-16 Fri -5d>
+* NEXT [#C] Generated 27 :project:
+DEADLINE: <2026-10-16 Fri -5d>
+* TODO [#B] Generated 28 :work:
+<2026-10-17 Sat +2d>
+* TODO Generated 29 :project:
+<2026-10-16 Fri .+1w>
+* WAIT [#A] Generated 30 :project:
+DEADLINE: <2026-10-17 Sat -2d>
+* DONE [#B] Generated 31 :project:
+DEADLINE: <2026-10-19 Mon -5d>
+* DONE [#C] Generated 32 :errand:
+<2026-10-13 Tue>--<2026-10-16 Fri>
+* DONE [#A] Generated 33 :project:
+<2026-10-17 Sat>
+* NEXT [#B] Generated 34 :work:
+<2026-10-16 Fri .+1w>
+* WAIT [#C] Generated 35 :errand:
+SCHEDULED: <2026-10-16 Fri ++3d>
+* DONE Generated 36 :work:
+SCHEDULED: <2026-10-15 Thu ++3d>
+* NEXT [#C] Generated 37 :work:
+DEADLINE: <2026-10-21 Wed -5d>
+* DONE [#B] Generated 38 :home:
+<2026-10-16 Fri>--<2026-10-17 Sat>
+* NEXT [#A] Generated 39 :errand:
+<2026-10-15 Thu +2d>
+* NEXT [#B] Generated 40 :home:
+<2026-10-18 Sun>--<2026-10-20 Tue>
+* TODO Generated 41 :home:
+SCHEDULED: <2026-10-18 Sun +2d>
+* DONE [#C] Generated 42 :errand:
+<2026-10-19 Mon ++3d>
+* NEXT [#C] Generated 43 :home:
+<2026-10-15 Thu +2d>
+* WAIT [#A] Generated 44 :errand:
+DEADLINE: <2026-10-20 Tue -5d>
+* NEXT [#A] Generated 45 :project:
+SCHEDULED: <2026-10-16 Fri .+1w>
+* WAIT [#B] Generated 46 :home:
+SCHEDULED: <2026-10-16 Fri +2d> DEADLINE: <2026-10-16 Fri -2d>
+* DONE [#A] Generated 47 :home:
+<2026-10-13 Tue>--<2026-10-15 Thu>
+* TODO [#C] Generated 48 :errand:
+SCHEDULED: <2026-10-21 Wed>
+* WAIT [#B] Generated 49 :home:
+SCHEDULED: <2026-10-21 Wed ++3d> DEADLINE: <2026-10-21 Wed -2d>
+* WAIT [#C] Generated 50 :errand:
+SCHEDULED: <2026-10-20 Tue ++3d> DEADLINE: <2026-10-20 Tue -2d>
+* TODO Generated 51 :home:
+SCHEDULED: <2026-10-13 Tue ++3d>
+* TODO [#A] Generated 52 :project:
+SCHEDULED: <2026-10-14 Wed +2d> DEADLINE: <2026-10-14 Wed -2d>
+* WAIT Generated 53 :project:
+SCHEDULED: <2026-10-18 Sun ++3d> DEADLINE: <2026-10-18 Sun>
+* NEXT [#A] Generated 54 :home:
+SCHEDULED: <2026-10-19 Mon> DEADLINE: <2026-10-19 Mon -5d>
+* NEXT [#A] Generated 55 :project:
+SCHEDULED: <2026-10-16 Fri>
+* WAIT [#B] Generated 56 :work:
+<2026-10-18 Sun ++3d>
+* TODO [#B] Generated 57 :errand:
+SCHEDULED: <2026-10-20 Tue ++3d>
+* TODO [#B] Generated 58 :home:
+<2026-10-20 Tue>--<2026-10-22 Thu>
+* NEXT Generated 59 :project:
+<2026-10-13 Tue>--<2026-10-15 Thu>
+* DONE [#B] Generated 60 :work:
+<2026-10-15 Thu .+1w>
+* WAIT [#B] Generated 61 :project:
+<2026-10-18 Sun>--<2026-10-19 Mon>
+* WAIT [#C] Generated 62 :home:
+DEADLINE: <2026-10-17 Sat -2d>
+* WAIT [#A] Generated 63 :project:
+SCHEDULED: <2026-10-20 Tue .+1w>

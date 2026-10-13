@@ -1,0 +1,18 @@
+(require 'org)
+
+(find-file "/root/input.org")
+(goto-char (point-min))
+(unless (re-search-forward "^[ \t]*:ID:[ \t]+task-id[ \t]*$" nil t)
+  (error "task-id not found"))
+(org-back-to-heading t)
+(let ((operation (or (getenv "AGENDUM_EDIT_OPERATION")
+                     (error "AGENDUM_EDIT_OPERATION is required")))
+      (org-log-done nil)
+      (org-log-repeat nil))
+  (pcase operation
+    ("state" (org-todo "DONE"))
+    ("schedule" (org-schedule nil "2026-10-30"))
+    ("deadline" (org-deadline nil "2026-10-30"))
+    ("priority" (org-priority ?A))
+    (_ (error "unsupported edit operation: %s" operation))))
+(save-buffer)

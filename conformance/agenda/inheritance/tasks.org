@@ -1,0 +1,5 @@
+#+FILETAGS: :file:
+#+CATEGORY: inherited
+* Project :parent:
+** TODO Child :own:
+SCHEDULED: <2026-10-13 Tue>

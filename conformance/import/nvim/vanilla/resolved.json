@@ -1,0 +1,79 @@
+{
+  "agenda_files": [
+    "/fixture/tasks.org"
+  ],
+  "agenda_span": "week",
+  "agenda_start_day": "-1d",
+  "capture": {
+    "t": {
+      "desc": "Todo",
+      "diagnostics": [],
+      "enabled": true,
+      "file": "/fixture/tasks.org",
+      "template": "* TODO %?"
+    },
+    "x": {
+      "desc": "Dynamic",
+      "diagnostics": [
+        "dynamic template body is unsupported",
+        "dynamic capture target is unsupported"
+      ],
+      "enabled": false,
+      "template": ""
+    }
+  },
+  "commands": [
+    {
+      "description": "Work",
+      "diagnostics": [],
+      "enabled": true,
+      "key": "w",
+      "kind": "tags-todo",
+      "match_expression": "+work/TODO|NEXT"
+    }
+  ],
+  "deadline_warning_days": 6,
+  "default_priority": "C",
+  "diagnostics": [],
+  "editor": "nvim",
+  "editor_version": "0.12.6",
+  "groups": [],
+  "highest_priority": "A",
+  "log_done": "time",
+  "log_into_drawer": true,
+  "log_repeat": "note",
+  "lowest_priority": "D",
+  "org_version": "0.7.5",
+  "persistent_tags": [
+    "important"
+  ],
+  "skip_deadline_if_done": true,
+  "skip_scheduled_if_done": true,
+  "skip_timestamp_if_done": false,
+  "sorting_strategy": [
+    "priority-down",
+    "time-up"
+  ],
+  "source": "profile",
+  "tag_alist": [
+    "work",
+    "home"
+  ],
+  "tag_inheritance_exclusions": [
+    "noinherit"
+  ],
+  "time_grid": [
+    "08:00",
+    "12:00",
+    "18:00"
+  ],
+  "todo_sequences": [
+    [
+      "TODO(t)",
+      "NEXT(n!)",
+      "|",
+      "DONE(d!)"
+    ]
+  ],
+  "week_start": "sunday"
+}

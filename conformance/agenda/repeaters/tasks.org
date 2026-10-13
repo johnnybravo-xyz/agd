@@ -1,0 +1,8 @@
+#+TODO: TODO | DONE
+#+CATEGORY: repeaters
+* TODO Plus
+SCHEDULED: <2026-10-12 Mon +2d>
+* TODO Double plus
+SCHEDULED: <2026-10-12 Mon ++2d>
+* TODO Dot plus
+SCHEDULED: <2026-10-12 Mon .+2d>

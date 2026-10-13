@@ -1,0 +1,6 @@
+today = "2026-10-13"
+from = "2026-10-13"
+to = "2026-10-13"
+skip_scheduled_if_done = true
+skip_deadline_if_done = true
+skip_timestamp_if_done = true

@@ -1,0 +1,97 @@
+{
+  "agenda_files": [
+    "/fixture/tasks.org"
+  ],
+  "agenda_span": "week",
+  "agenda_start_day": "-1d",
+  "capture": {
+    "t": {
+      "datetree": false,
+      "desc": "Todo",
+      "diagnostics": [],
+      "enabled": true,
+      "file": "/fixture/tasks.org",
+      "heading": "Inbox",
+      "template": "* TODO %?\n:CREATED: %U"
+    },
+    "x": {
+      "datetree": false,
+      "desc": "Dynamic",
+      "diagnostics": [
+        "dynamic capture target is unsupported",
+        "%(sexp) template forms are disabled"
+      ],
+      "enabled": false,
+      "template": "* TODO %(danger)"
+    }
+  },
+  "commands": [
+    {
+      "description": "Work",
+      "diagnostics": [],
+      "enabled": true,
+      "key": "w",
+      "kind": "tags-todo",
+      "match_expression": "+work/TODO|NEXT"
+    },
+    {
+      "description": "Review",
+      "diagnostics": [
+        "custom command form is unsupported"
+      ],
+      "enabled": false,
+      "key": "r",
+      "kind": "agenda",
+      "match_expression": ""
+    }
+  ],
+  "deadline_warning_days": 5,
+  "default_priority": "C",
+  "diagnostics": [],
+  "editor": "emacs",
+  "editor_version": "29.4",
+  "groups": [],
+  "highest_priority": "A",
+  "log_done": "time",
+  "log_into_drawer": true,
+  "log_repeat": "note",
+  "lowest_priority": "D",
+  "org_version": "9.6.15",
+  "persistent_tags": [
+    "(\"important\" . 105)"
+  ],
+  "skip_deadline_if_done": true,
+  "skip_scheduled_if_done": true,
+  "skip_timestamp_if_done": false,
+  "sorting_strategy": [
+    "priority-down",
+    "time-up",
+    "category-keep"
+  ],
+  "source": "batch-profile",
+  "tag_alist": [
+    "(\"work\" . 119)",
+    "(\"home\" . 104)"
+  ],
+  "tag_inheritance_exclusions": [
+    "noinherit"
+  ],
+  "time_grid": [
+    "(daily today require-timed)",
+    "(800 1000 1200 1400 1600 1800 2000)",
+    "......",
+    "----------------"
+  ],
+  "todo_sequences": [
+    [
+      "TODO(t)",
+      "NEXT(n!)",
+      "WAIT(w@)",
+      "|",
+      "DONE(d!)",
+      "CANCELLED(c@)"
+    ]
+  ],
+  "verification": {},
+  "week_start": "sunday"
+}

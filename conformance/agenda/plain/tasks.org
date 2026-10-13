@@ -1,0 +1,6 @@
+#+TODO: TODO NEXT | DONE
+#+CATEGORY: plain
+* TODO [#A] Scheduled task :work:
+SCHEDULED: <2026-10-13 Tue 10:00>
+* NEXT Due task
+DEADLINE: <2026-10-13 Tue>

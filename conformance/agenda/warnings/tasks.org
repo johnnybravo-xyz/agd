@@ -1,0 +1,5 @@
+#+CATEGORY: warnings
+* TODO Past schedule
+SCHEDULED: <2026-10-10 Sat>
+* TODO Warn
+DEADLINE: <2026-10-16 Fri -2d>

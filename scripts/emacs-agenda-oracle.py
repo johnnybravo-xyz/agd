@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+import argparse
+import csv
+import datetime
+import io
+import pathlib
+import subprocess
+import sys
+import tomllib
+import uuid
+
+IMAGE = "silex/emacs:29.4-alpine@sha256:2aef086ce79273d2fd0af2519a4e81b8b3ae5e225bf62c0e994a10f487d6f7d7"
+KINDS = {
+    "scheduled",
+    "past-scheduled",
+    "deadline",
+    "upcoming-deadline",
+    "timestamp",
+    "block",
+    "closed",
+    "todo",
+}
+
+
+def docker(*args: str, capture: bool = False) -> str:
+    result = subprocess.run(
+        ["docker", *args],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+    )
+    return result.stdout if capture else ""
+
+
+def emacs_rows(case_dir: pathlib.Path, case: dict) -> str:
+    name = f"agendum-emacs-{uuid.uuid4().hex}"
+    start = datetime.date.fromisoformat(case["from"])
+    end = datetime.date.fromisoformat(case["to"])
+    days = (end - start).days + 1
+    environment = {
+        "AGENDUM_CASE_DIR": "/case",
+        "AGENDUM_FROM": case["from"],
+        "AGENDUM_TODAY": case["today"],
+        "AGENDUM_DAYS": str(days),
+        "AGENDUM_SKIP_SCHEDULED_IF_DONE": str(
+            case.get("skip_scheduled_if_done", False)
+        ).lower(),
+        "AGENDUM_SKIP_DEADLINE_IF_DONE": str(
+            case.get("skip_deadline_if_done", False)
+        ).lower(),
+        "AGENDUM_SKIP_TIMESTAMP_IF_DONE": str(
+            case.get("skip_timestamp_if_done", False)
+        ).lower(),
+    }
+    create = ["create", "--name", name]
+    for key, value in environment.items():
+        create.extend(["--env", f"{key}={value}"])
+    create.extend([IMAGE, "emacs", "-Q", "--batch", "-l", "/oracle.el"])
+    try:
+        docker(*create)
+        docker("cp", str(case_dir) + "/.", f"{name}:/case")
+        oracle = pathlib.Path(__file__).resolve().parent.parent / "conformance" / "emacs-agenda-oracle.el"
+        docker("cp", str(oracle), f"{name}:/oracle.el")
+        raw = docker("start", "-a", name, capture=True)
+    finally:
+        subprocess.run(
+            ["docker", "rm", "-f", name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    rows = []
+    for row in csv.reader(io.StringIO(raw)):
+        if len(row) < 9 or row[2] not in KINDS:
+            continue
+        if len(row) > 10:
+            row[5] = row[10]
+        row[6] = row[6].rstrip(".")
+        if row[2] == "past-scheduled" and row[7] == "Scheduled:":
+            row[2] = "scheduled"
+        rows.append(row[:9])
+    ranks = {
+        "past-scheduled": 0,
+        "scheduled": 0,
+        "deadline": 1,
+        "block": 2,
+        "timestamp": 3,
+        "upcoming-deadline": 4,
+        "closed": 5,
+        "todo": 6,
+    }
+    rows.sort(
+        key=lambda row: (
+            row[5],
+            row[6] == "",
+            row[6],
+            row[8] or "B",
+            ranks[row[2]],
+            row[0],
+            row[1],
+        )
+    )
+    output = io.StringIO()
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerows(rows)
+    return output.getvalue()
+
+
+def cases(root: pathlib.Path):
+    if (root / "case.toml").is_file():
+        yield root
+        return
+    yield from sorted(path.parent for path in root.glob("*/case.toml"))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("root", type=pathlib.Path, nargs="?", default="conformance/agenda")
+    parser.add_argument("--update", action="store_true")
+    arguments = parser.parse_args()
+    failed = False
+    for case_dir in cases(arguments.root.resolve()):
+        with (case_dir / "case.toml").open("rb") as file:
+            case = tomllib.load(file)
+        actual = emacs_rows(case_dir, case)
+        expected_path = case_dir / "emacs.csv"
+        if arguments.update:
+            expected_path.write_text(actual, encoding="utf-8")
+            print(f"updated {expected_path}")
+        elif not expected_path.is_file() or expected_path.read_text(encoding="utf-8") != actual:
+            print(f"Emacs oracle drift: {case_dir.name}", file=sys.stderr)
+            failed = True
+    return int(failed)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

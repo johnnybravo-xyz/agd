@@ -1,0 +1,27 @@
+name: Fuzz
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "org-core/**"
+      - "fuzz/**"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    - cron: "17 3 * * 2"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  roundtrip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2025-08-01
+      - uses: taiki-e/install-action@cargo-fuzz
+      - name: Run bounded round-trip fuzzing
+        run: cargo fuzz run roundtrip -- -max_total_time=${{ github.event_name == 'schedule' && '900' || '30' }}

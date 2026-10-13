@@ -1,0 +1,57 @@
+name: Conformance
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "agd/probes/**"
+      - "conformance/**"
+      - "org-core/src/**"
+      - "org-core/tests/conformance_*.rs"
+      - "scripts/*oracle.py"
+      - "scripts/fetch-*.sh"
+      - ".github/workflows/conformance.yml"
+  push:
+    branches: [master]
+    paths:
+      - "agd/probes/**"
+      - "conformance/**"
+      - "org-core/src/**"
+      - "org-core/tests/conformance_*.rs"
+      - "scripts/*oracle.py"
+      - "scripts/fetch-*.sh"
+      - ".github/workflows/conformance.yml"
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: conformance-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.89.0"
+      - name: Fetch pinned Neovim and nvim-orgmode
+        run: ./scripts/fetch-neovim-oracle.sh
+      - name: Check editor oracles
+        env:
+          NVIM: ${{ github.workspace }}/target/nvim-0.12.6/bin/nvim
+        run: |
+          ./scripts/emacs-agenda-oracle.py
+          ./scripts/emacs-edit-oracle.py
+          ./scripts/emacs-import-oracle.py
+          ./scripts/emacs-daemon-oracle.py
+          ./scripts/nvim-import-oracle.py
+          ./scripts/nvim-orgmode-oracle.py
+      - name: Fetch scheduled external corpus
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: ./scripts/fetch-conformance-corpus.sh
+      - name: Run conformance tests
+        env:
+          AGENDUM_CONFORMANCE_CORPUS: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && format('{0}/target/conformance-corpus', github.workspace) || '' }}
+        run: cargo test -p agd-core --tests
