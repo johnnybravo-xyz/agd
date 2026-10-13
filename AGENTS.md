@@ -9,7 +9,7 @@ files from terminals and coding agents.
   capture, update, and source-preserving behavior.
 - `agd/` publishes the single `agd` executable and owns command-line input,
   output, exit status, and the stdio MCP adapter.
-- `test-utils/` contains deterministic shared fixtures.
+- `conformance/` holds Emacs-oracle and round-trip fixtures.
 
 Put behavior in `agd-core`, then expose it through the thinnest required CLI or
 MCP adapter. Shared dependency versions belong in the root `Cargo.toml`.

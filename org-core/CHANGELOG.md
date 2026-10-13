@@ -8,6 +8,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Remove the upstream `OrgMode`, `OrgConfig`, `LoggingConfig` and
+  `OrgModeError` API, including its line-reassembly writes; `load_settings`
+  now returns `AgdError` with code `config`. Every caller uses the byte-span
+  `WriteEngine`, `WorkspaceIndex` and `AgendaEngine`.
+- Merge import snapshots from their default path (`imports/emacs.toml`,
+  `imports/nvim.toml`), so `agd setup import` takes effect without extra
+  configuration.
 - Rename agendum to Agenda: `AgendumError` is now `AgdError`, schema strings
   use the `agd.` prefix, and default paths use `agd` directories.
 
@@ -23,6 +30,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- An explicit configuration path that does not exist is an error instead of
+  silently using defaults.
 - Parse Org syntax seen in real setups: habit repeaters (`.+2d/3d`), Unicode
   tags and TODO keywords, non-English weekday names (`<2026-10-14 周三 10:30>`),
   and multi-day ranges that use the end time on their last day.

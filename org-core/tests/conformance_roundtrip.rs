@@ -17,7 +17,7 @@ fn org_files(root: &Path, files: &mut Vec<PathBuf>) {
 
 #[test]
 fn pinned_fixture_corpus_round_trips_byte_for_byte() {
-    let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../test-utils/fixtures");
+    let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../conformance/roundtrip");
     let mut files = Vec::new();
     org_files(&fixture_root, &mut files);
     if let Some(value) = std::env::var_os("AGD_CONFORMANCE_CORPUS") {

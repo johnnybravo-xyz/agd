@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::OrgModeError;
+use crate::AgdError;
 
 pub const EMACS_IMPORT_SCHEMA: &str = "agd.import/emacs/v1";
 pub const NVIM_IMPORT_SCHEMA: &str = "agd.import/nvim/v1";
@@ -286,24 +286,23 @@ impl Default for TriageSettings {
     }
 }
 
-pub fn default_config_path() -> Result<PathBuf, OrgModeError> {
-    let base = dirs::config_dir().ok_or_else(|| {
-        OrgModeError::ConfigError("cannot determine the platform configuration directory".into())
-    })?;
+pub fn default_config_path() -> Result<PathBuf, AgdError> {
+    let base = dirs::config_dir()
+        .ok_or_else(|| config_error("cannot determine the platform configuration directory"))?;
     Ok(base.join("agd").join("config.toml"))
 }
 
 pub fn load_settings(
     path: Option<&Path>,
     root_override: Option<&Path>,
-) -> Result<LoadedSettings, OrgModeError> {
+) -> Result<LoadedSettings, AgdError> {
     let config_path = path
         .map(Path::to_path_buf)
         .unwrap_or(default_config_path()?);
     let config_dir = config_path
         .parent()
         .ok_or_else(|| {
-            OrgModeError::ConfigError(format!(
+            config_error(format!(
                 "configuration path has no parent: {}",
                 config_path.display()
             ))
@@ -312,6 +311,11 @@ pub fn load_settings(
 
     let manual = if config_path.exists() {
         parse_toml_file(&config_path)?
+    } else if path.is_some() {
+        return Err(config_error(format!(
+            "configuration file does not exist: {}",
+            config_path.display()
+        )));
     } else {
         toml::Value::Table(toml::map::Map::new())
     };
@@ -321,30 +325,28 @@ pub fn load_settings(
         .cloned()
         .map(toml::Value::try_into)
         .transpose()
-        .map_err(|error| {
-            OrgModeError::ConfigError(format!("invalid imports configuration: {error}"))
-        })?
+        .map_err(|error| config_error(format!("invalid imports configuration: {error}")))?
         .unwrap_or_default();
 
     let mut merged = toml::Value::try_from(Settings::default())
-        .map_err(|error| OrgModeError::ConfigError(format!("cannot build defaults: {error}")))?;
+        .map_err(|error| config_error(format!("cannot build defaults: {error}")))?;
     merge_import_snapshot(
         &mut merged,
         &config_dir,
-        &manual_imports.emacs.snapshot,
+        &snapshot_or_default(&manual_imports.emacs.snapshot, "emacs.toml"),
         EMACS_IMPORT_SCHEMA,
     )?;
     merge_import_snapshot(
         &mut merged,
         &config_dir,
-        &manual_imports.nvim.snapshot,
+        &snapshot_or_default(&manual_imports.nvim.snapshot, "nvim.toml"),
         NVIM_IMPORT_SCHEMA,
     )?;
     merge_toml(&mut merged, manual);
 
     let mut settings: Settings = merged
         .try_into()
-        .map_err(|error| OrgModeError::ConfigError(format!("invalid configuration: {error}")))?;
+        .map_err(|error| config_error(format!("invalid configuration: {error}")))?;
     if let Some(root) = root_override {
         settings.files.roots = vec![root.to_string_lossy().into_owned()];
     }
@@ -357,12 +359,26 @@ pub fn load_settings(
     })
 }
 
+fn config_error(message: impl Into<String>) -> AgdError {
+    AgdError::new("config", message)
+}
+
+/// `agd setup import` writes to imports/<editor>.toml next to the config
+/// unless imports.<editor>.snapshot names another file; read the same path.
+pub fn snapshot_or_default(configured: &str, default_name: &str) -> String {
+    if configured.is_empty() {
+        format!("imports/{default_name}")
+    } else {
+        configured.to_string()
+    }
+}
+
 fn merge_import_snapshot(
     merged: &mut toml::Value,
     config_dir: &Path,
     snapshot: &str,
     expected_schema: &str,
-) -> Result<(), OrgModeError> {
+) -> Result<(), AgdError> {
     if snapshot.is_empty() {
         return Ok(());
     }
@@ -376,13 +392,13 @@ fn merge_import_snapshot(
         .and_then(toml::Value::as_str)
         .unwrap_or_default();
     if schema != expected_schema {
-        return Err(OrgModeError::ConfigError(format!(
+        return Err(config_error(format!(
             "snapshot {} has schema '{schema}', expected '{expected_schema}'",
             path.display()
         )));
     }
     let mut values = imported.get("settings").cloned().ok_or_else(|| {
-        OrgModeError::ConfigError(format!(
+        config_error(format!(
             "snapshot {} has no [settings] payload",
             path.display()
         ))
@@ -398,11 +414,16 @@ fn merge_import_snapshot(
     Ok(())
 }
 
-fn parse_toml_file(path: &Path) -> Result<toml::Value, OrgModeError> {
-    let source = fs::read_to_string(path).map_err(OrgModeError::IoError)?;
-    toml::from_str(&source).map_err(|error| {
-        OrgModeError::ConfigError(format!("cannot parse {}: {error}", path.display()))
-    })
+fn parse_toml_file(path: &Path) -> Result<toml::Value, AgdError> {
+    let source = fs::read_to_string(path).map_err(|error| {
+        AgdError::with_source(
+            "io",
+            format!("cannot read {}: {error}", path.display()),
+            error,
+        )
+    })?;
+    toml::from_str(&source)
+        .map_err(|error| config_error(format!("cannot parse {}: {error}", path.display())))
 }
 
 pub fn resolve_config_path(config_dir: &Path, value: &str) -> PathBuf {
@@ -431,33 +452,31 @@ fn merge_toml(base: &mut toml::Value, overlay: toml::Value) {
     }
 }
 
-fn validate_settings(settings: &Settings) -> Result<(), OrgModeError> {
+fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
     if settings.files.roots.is_empty() {
-        return Err(OrgModeError::ConfigError(
-            "files.roots must contain at least one approved root".into(),
+        return Err(config_error(
+            "files.roots must contain at least one approved root",
         ));
     }
     let mut roots = BTreeSet::new();
     for root in &settings.files.roots {
         let expanded = shellexpand::tilde(root).into_owned();
         let canonical = PathBuf::from(&expanded).canonicalize().map_err(|error| {
-            OrgModeError::ConfigError(format!("cannot resolve files root '{root}': {error}"))
+            config_error(format!("cannot resolve files root '{root}': {error}"))
         })?;
         if !canonical.is_dir() {
-            return Err(OrgModeError::ConfigError(format!(
+            return Err(config_error(format!(
                 "files root is not a directory: {root}"
             )));
         }
         if !roots.insert(canonical) {
-            return Err(OrgModeError::ConfigError(format!(
-                "duplicate files root: {root}"
-            )));
+            return Err(config_error(format!("duplicate files root: {root}")));
         }
     }
     for sequence in &settings.todo.sequences {
         if sequence.iter().filter(|word| word.as_str() == "|").count() != 1 {
-            return Err(OrgModeError::ConfigError(
-                "every todo.sequences entry must contain exactly one '|' separator".into(),
+            return Err(config_error(
+                "every todo.sequences entry must contain exactly one '|' separator",
             ));
         }
     }
@@ -468,26 +487,26 @@ fn validate_settings(settings: &Settings) -> Result<(), OrgModeError> {
                 .capture
                 .contains_key(&settings.agents.inbox_template)
             {
-                return Err(OrgModeError::ConfigError(format!(
+                return Err(config_error(format!(
                     "agents.capture_to = \"inbox\" needs capture template '{}' (agents.inbox_template)",
                     settings.agents.inbox_template
                 )));
             }
         }
         other => {
-            return Err(OrgModeError::ConfigError(format!(
+            return Err(config_error(format!(
                 "agents.capture_to must be \"template\" or \"inbox\", not \"{other}\""
             )));
         }
     }
     for (key, template) in &settings.capture {
         if key.is_empty() || key.chars().any(char::is_whitespace) {
-            return Err(OrgModeError::ConfigError(format!(
+            return Err(config_error(format!(
                 "invalid capture template key '{key}'"
             )));
         }
         if template.file.is_none() && template.id.is_none() {
-            return Err(OrgModeError::ConfigError(format!(
+            return Err(config_error(format!(
                 "capture template '{key}' needs a file or ID target"
             )));
         }
@@ -520,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn manual_values_override_import_without_broadening_roots() {
+    fn default_snapshot_is_merged_below_manual_values_without_roots() {
         let temp = tempfile::tempdir().unwrap();
         let approved = temp.path().join("approved");
         fs::create_dir(&approved).unwrap();
@@ -537,7 +556,7 @@ mod tests {
         fs::write(
             &config,
             format!(
-                "[files]\nroots = [{}]\n[agenda]\ndeadline_warning_days = 9\n[imports.emacs]\nsnapshot = \"imports/emacs.toml\"\n",
+                "[files]\nroots = [{}]\n[agenda]\ndeadline_warning_days = 9\n",
                 toml::Value::String(approved.to_string_lossy().into_owned())
             ),
         )
@@ -550,6 +569,13 @@ mod tests {
         );
         assert_eq!(loaded.settings.files.agenda, vec!["imported.org"]);
         assert_eq!(loaded.settings.agenda.deadline_warning_days, 9);
+    }
+
+    #[test]
+    fn explicit_missing_config_file_is_an_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let error = load_settings(Some(&temp.path().join("missing.toml")), None).unwrap_err();
+        assert_eq!(error.code(), "config");
     }
 
     #[test]

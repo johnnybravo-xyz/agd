@@ -216,7 +216,7 @@ nix flake check
 ```
 
 The workspace contains the released `agd` executable, the `agd-core` parsing
-and write library in `org-core/`, deterministic fixtures in `test-utils/`, and
+and write library in `org-core/`, Emacs-checked fixtures in `conformance/`, and
 editor conformance probes under `conformance/` and `scripts/`.
 
 ## Origin and license

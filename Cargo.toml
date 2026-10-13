@@ -14,7 +14,7 @@ readme = "README.md"
 
 [workspace]
 resolver = "3"
-members = ["agd", "org-core", "test-utils"]
+members = ["agd", "org-core"]
 exclude = ["fuzz"]
 
 [workspace.dependencies]
@@ -23,15 +23,11 @@ assert_cmd = "2.1"
 csv = "1.4"
 chrono = "0.4"
 clap = { version = "4.5", features = ["derive"] }
-config = "0.15"
 crossterm = "0.29"
 dirs = "6"
 globset = "0.4"
 ignore = "0.4"
-nucleo-matcher = "0.3"
-once_cell = "1.21.3"
 orgize = { version = "=0.10.0-alpha.10", features = ["tracing"] }
-pastey = "0.2"
 predicates = "3.1"
 regex = "1.12"
 notify = "8.2"
@@ -50,13 +46,11 @@ tokio = "1"
 toml = "1.0"
 tracing = "0.1.44"
 uuid = { version = "1.18", features = ["v4"] }
-tracing-appender = "0.2.4"
 tracing-subscriber = { version = "0.3.22", features = [
   "env-filter",
   "std",
   "fmt",
 ] }
-tracing-test = { version = "0.2.6", features = ["no-env-filter"] }
 
 [workspace.metadata.coverage]
 exclude = ["*/tests/*", "*/benches/*", "**/target/**"]

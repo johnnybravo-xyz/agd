@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
-use org_core::{ImportSnapshot, ImportStatus, load_settings, resolve_config_path};
+use org_core::{
+    ImportSnapshot, ImportStatus, load_settings, resolve_config_path, snapshot_or_default,
+};
 
 use crate::importer::{import_emacs, import_nvim};
 
@@ -117,10 +119,7 @@ impl ImportCommand {
 }
 
 fn snapshot_path(config_dir: &Path, configured: &str, default_name: &str) -> PathBuf {
-    if configured.is_empty() {
-        return config_dir.join("imports").join(default_name);
-    }
-    resolve_config_path(config_dir, configured)
+    resolve_config_path(config_dir, &snapshot_or_default(configured, default_name))
 }
 
 fn print_result(

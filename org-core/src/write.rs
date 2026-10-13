@@ -1823,10 +1823,20 @@ mod tests {
     }
 
     #[test]
-    fn real_fixture_planning_edit_and_undo_are_byte_exact() {
-        let temp = test_utils::fixtures::setup_test_org_files_with_dates().unwrap();
+    fn indented_planning_edit_and_undo_are_byte_exact() {
+        let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("agenda.org");
-        let original = fs::read_to_string(&path).unwrap();
+        let original = concat!(
+            "* Work Tasks\n",
+            "** TODO [#A] Complete quarterly report                                :work:\n",
+            "   SCHEDULED: <2026-10-14 Wed> DEADLINE: <2026-10-19 Mon>\n",
+            "   :PROPERTIES:\n",
+            "   :ID: work-task-001\n",
+            "   :END:\n",
+            "   Need to finish Q3 report for the board meeting.\n\n",
+            "** TODO [#B] Review pull requests :work:\n",
+        );
+        fs::write(&path, original).unwrap();
         let settings = settings(temp.path());
         let engine = WriteEngine::new(settings, temp.path().join("journal-real.jsonl")).unwrap();
         let mutation = engine
