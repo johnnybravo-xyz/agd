@@ -1,0 +1,10 @@
+#+TODO: TODO NEXT | DONE
+* NEXT Water plants
+SCHEDULED: <2026-10-06 Tue +1w>
+:PROPERTIES:
+:ID: task-id
+:END:
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-10-06 Tue 09:00]
+:END:
+Body remains.

@@ -146,6 +146,9 @@ pub struct AgendaSettings {
     pub tag_inheritance_exclusions: Vec<String>,
     pub log_done: String,
     pub log_repeat: String,
+    /// org-log-reschedule / org-log-redeadline: nil, time or note.
+    pub log_reschedule: String,
+    pub log_redeadline: String,
     pub log_into_drawer: bool,
 }
 
@@ -289,6 +292,8 @@ impl Default for AgendaSettings {
             tag_inheritance_exclusions: Vec::new(),
             log_done: "time".to_string(),
             log_repeat: "time".to_string(),
+            log_reschedule: "nil".to_string(),
+            log_redeadline: "nil".to_string(),
             log_into_drawer: false,
         }
     }

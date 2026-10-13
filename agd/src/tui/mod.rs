@@ -380,6 +380,7 @@ fn write_context() -> WriteContext {
         project: std::env::current_dir()
             .map(|path| path.to_string_lossy().into_owned())
             .unwrap_or_else(|_| "unknown".to_string()),
+        now: None,
     }
 }
 

@@ -76,8 +76,39 @@ pub struct OrgDocument {
     headlines: Vec<HeadlineSpan>,
     todo_active: Vec<String>,
     todo_done: Vec<String>,
+    todo_keywords: Vec<TodoKeyword>,
+    logging: LogSettings,
     file_tags: Vec<String>,
     file_category: String,
+}
+
+/// How a state change or planning change is recorded, as in Org's `!` (time)
+/// and `@` (note) markers and the org-log-* variables.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LogKind {
+    Time,
+    Note,
+}
+
+/// One TODO keyword with the logging markers from `KEYWORD(key!/@)`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TodoKeyword {
+    pub name: String,
+    pub done: bool,
+    /// Index of the sequence it belongs to; repeaters reset to its first keyword.
+    pub sequence: usize,
+    pub log_enter: Option<LogKind>,
+    pub log_leave: Option<LogKind>,
+}
+
+/// Effective logging for one file: configuration overridden by `#+STARTUP`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LogSettings {
+    pub done: Option<LogKind>,
+    pub repeat: Option<LogKind>,
+    pub reschedule: Option<LogKind>,
+    pub redeadline: Option<LogKind>,
+    pub into_drawer: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -141,7 +172,18 @@ impl OrgDocument {
             )
         })?;
         let lines = source_lines(&source);
-        let (todo_active, todo_done) = todo_keywords(&source, settings);
+        let todo_keywords = todo_keywords(&source, settings);
+        let todo_active: Vec<String> = todo_keywords
+            .iter()
+            .filter(|keyword| !keyword.done)
+            .map(|keyword| keyword.name.clone())
+            .collect();
+        let todo_done: Vec<String> = todo_keywords
+            .iter()
+            .filter(|keyword| keyword.done)
+            .map(|keyword| keyword.name.clone())
+            .collect();
+        let logging = log_settings(&source, settings);
         let file_tags = directive(&source, "FILETAGS")
             .map(parse_colon_tags)
             .unwrap_or_default();
@@ -188,6 +230,8 @@ impl OrgDocument {
             headlines: raw,
             todo_active,
             todo_done,
+            todo_keywords,
+            logging,
             file_tags,
             file_category,
         })
@@ -221,6 +265,20 @@ impl OrgDocument {
 
     pub fn todo_done(&self) -> &[String] {
         &self.todo_done
+    }
+
+    pub fn todo_keywords(&self) -> &[TodoKeyword] {
+        &self.todo_keywords
+    }
+
+    pub fn todo_keyword(&self, name: &str) -> Option<&TodoKeyword> {
+        self.todo_keywords
+            .iter()
+            .find(|keyword| keyword.name == name)
+    }
+
+    pub fn logging(&self) -> LogSettings {
+        self.logging
     }
 
     pub fn file_tags(&self) -> &[String] {
@@ -892,32 +950,107 @@ fn source_lines(source: &str) -> Vec<SourceLine> {
     lines
 }
 
-fn todo_keywords(source: &str, settings: &Settings) -> (Vec<String>, Vec<String>) {
-    let configured = directive(source, "TODO").or_else(|| directive(source, "SEQ_TODO"));
-    let sequences = configured
-        .map(|value| vec![value.split_whitespace().map(str::to_string).collect()])
-        .unwrap_or_else(|| settings.todo.sequences.clone());
-    let mut active = Vec::new();
-    let mut done = Vec::new();
-    for sequence in sequences {
-        let mut after_separator = false;
-        for raw in sequence {
+/// TODO keywords from every `#+TODO:`/`#+SEQ_TODO:`/`#+TYP_TODO:` line, or
+/// the configured sequences. A sequence without `|` makes its last keyword
+/// the done state, as in Org.
+fn todo_keywords(source: &str, settings: &Settings) -> Vec<TodoKeyword> {
+    let in_file: Vec<Vec<String>> = directives(source, &["TODO", "SEQ_TODO", "TYP_TODO"])
+        .map(|value| value.split_whitespace().map(str::to_string).collect())
+        .collect();
+    let sequences = if in_file.is_empty() {
+        settings.todo.sequences.clone()
+    } else {
+        in_file
+    };
+    let mut keywords = Vec::new();
+    for (index, sequence) in sequences.iter().enumerate() {
+        let separator = sequence.iter().position(|word| word == "|");
+        let last = sequence.len().saturating_sub(1);
+        for (position, raw) in sequence.iter().enumerate() {
             if raw == "|" {
-                after_separator = true;
                 continue;
             }
-            let keyword = raw.split_once('(').map_or(raw.as_str(), |(word, _)| word);
-            if keyword.is_empty() {
+            let (name, markers) = raw
+                .split_once('(')
+                .map_or((raw.as_str(), ""), |(name, rest)| {
+                    (name, rest.trim_end_matches(')'))
+                });
+            if name.is_empty() {
                 continue;
             }
-            if after_separator {
-                done.push(keyword.to_string());
-            } else {
-                active.push(keyword.to_string());
-            }
+            let (enter, leave) = markers.split_once('/').unwrap_or((markers, ""));
+            keywords.push(TodoKeyword {
+                name: name.to_string(),
+                done: separator.map_or(position == last, |separator| position > separator),
+                sequence: index,
+                log_enter: log_marker(enter),
+                log_leave: log_marker(leave),
+            });
         }
     }
-    (active, done)
+    keywords
+}
+
+fn log_marker(marker: &str) -> Option<LogKind> {
+    if marker.contains('@') {
+        Some(LogKind::Note)
+    } else if marker.contains('!') {
+        Some(LogKind::Time)
+    } else {
+        None
+    }
+}
+
+fn log_value(value: &str) -> Option<LogKind> {
+    match value {
+        "time" | "t" => Some(LogKind::Time),
+        "note" => Some(LogKind::Note),
+        _ => None,
+    }
+}
+
+/// org-log-* settings for one file, with `#+STARTUP:` options such as
+/// `logrepeat`, `lognotereschedule` or `nologdrawer` applied on top.
+fn log_settings(source: &str, settings: &Settings) -> LogSettings {
+    let agenda = &settings.agenda;
+    let mut logging = LogSettings {
+        done: log_value(&agenda.log_done),
+        repeat: log_value(&agenda.log_repeat),
+        reschedule: log_value(&agenda.log_reschedule),
+        redeadline: log_value(&agenda.log_redeadline),
+        into_drawer: agenda.log_into_drawer,
+    };
+    for option in directives(source, &["STARTUP"]).flat_map(str::split_whitespace) {
+        let option = option.to_ascii_lowercase();
+        let (kind, name) = if let Some(name) = option.strip_prefix("nolog") {
+            (None, name)
+        } else if let Some(name) = option.strip_prefix("lognote") {
+            (Some(LogKind::Note), name)
+        } else if let Some(name) = option.strip_prefix("log") {
+            (Some(LogKind::Time), name)
+        } else {
+            continue;
+        };
+        match name {
+            "done" => logging.done = kind,
+            "repeat" => logging.repeat = kind,
+            "reschedule" => logging.reschedule = kind,
+            "redeadline" => logging.redeadline = kind,
+            "drawer" => logging.into_drawer = kind.is_some(),
+            _ => {}
+        }
+    }
+    logging
+}
+
+fn directives<'a>(source: &'a str, names: &'a [&str]) -> impl Iterator<Item = &'a str> {
+    source.lines().filter_map(move |line| {
+        let (key, value) = line.strip_prefix("#+")?.split_once(':')?;
+        names
+            .iter()
+            .any(|name| key.eq_ignore_ascii_case(name))
+            .then_some(value.trim())
+    })
 }
 
 fn directive<'a>(source: &'a str, name: &str) -> Option<&'a str> {

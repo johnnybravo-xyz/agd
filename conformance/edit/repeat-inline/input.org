@@ -1,0 +1,7 @@
+#+TODO: TODO | DONE
+* TODO Pay rent
+DEADLINE: <2026-10-01 Thu .+1m>
+:PROPERTIES:
+:ID: task-id
+:END:
+Body remains.

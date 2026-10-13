@@ -78,6 +78,8 @@ pub struct ResolvedEditorConfig {
     pub sorting_strategy: Vec<String>,
     pub log_done: String,
     pub log_repeat: String,
+    pub log_reschedule: String,
+    pub log_redeadline: String,
     pub log_into_drawer: bool,
     #[serde(default)]
     pub capture: BTreeMap<String, CaptureTemplate>,
@@ -176,6 +178,8 @@ impl ImportSnapshot {
         settings.agenda.tag_inheritance_exclusions = resolved.tag_inheritance_exclusions.clone();
         settings.agenda.log_done = resolved.log_done.clone();
         settings.agenda.log_repeat = resolved.log_repeat.clone();
+        settings.agenda.log_reschedule = resolved.log_reschedule.clone();
+        settings.agenda.log_redeadline = resolved.log_redeadline.clone();
         settings.agenda.log_into_drawer = resolved.log_into_drawer;
         settings.capture = resolved.capture.clone();
         settings.views.clear();
@@ -362,6 +366,8 @@ mod tests {
             sorting_strategy: vec!["time-up".to_string()],
             log_done: "time".to_string(),
             log_repeat: "time".to_string(),
+            log_reschedule: "nil".to_string(),
+            log_redeadline: "nil".to_string(),
             log_into_drawer: false,
             capture: BTreeMap::new(),
             groups: Vec::new(),

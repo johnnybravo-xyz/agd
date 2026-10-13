@@ -316,5 +316,6 @@ fn write_context(client: &Peer<RoleServer>, project: &str) -> WriteContext {
             .map(|info| format!("mcp:{}", info.client_info.name))
             .unwrap_or_else(|| "mcp:unknown".to_string()),
         project: project.to_string(),
+        now: None,
     }
 }

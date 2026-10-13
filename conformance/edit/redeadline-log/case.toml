@@ -1,0 +1,4 @@
+operation = "deadline"
+value = "2026-10-30"
+now = "2026-10-13 14:22"
+log_redeadline = "time"

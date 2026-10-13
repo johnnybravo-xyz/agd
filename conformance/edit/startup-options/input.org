@@ -1,0 +1,10 @@
+#+STARTUP: logreschedule logdrawer
+#+TODO: TODO | DONE
+* TODO Report
+SCHEDULED: <2026-10-13 Tue>
+:PROPERTIES:
+:ID: task-id
+:END:
+:LOGBOOK:
+- Note taken on [2026-10-01 Thu 08:00]
+:END:

@@ -43,8 +43,8 @@ priority.
 
 | Mutation | Contract |
 | --- | --- |
-| TODO state | Uses the file's own TODO sequence; repeat completion and logging honor supported Org settings |
-| Schedule/deadline | Replaces only the planning timestamp span; repeaters and warning suffixes remain typed data |
+| TODO state | Every `#+TODO`/`#+SEQ_TODO`/`#+TYP_TODO` line or the configured sequences; `!`/`@` keyword markers, `org-log-done`, `org-log-repeat`, `org-log-into-drawer` and `#+STARTUP` log options write the same CLOSED, LAST_REPEAT and LOGBOOK lines as Emacs; repeats return to the head of the keyword's sequence |
+| Schedule/deadline | Replaces only the planning timestamp and keeps the old repeater and warning cookie, as `org-schedule` does; `org-log-reschedule`/`org-log-redeadline` add Emacs's "Rescheduled from" and "New deadline from" notes |
 | Title/tags/priority/properties | Patches the smallest source span and preserves surrounding bytes |
 | Capture | Literal templates and supported placeholders render exact Org text before insertion |
 | Refile | Moves the original subtree bytes; destination identity is revalidated under locks |

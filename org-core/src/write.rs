@@ -3,14 +3,14 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use chrono::{Duration, Local, Months, NaiveDate};
+use chrono::{Duration, Local, Months, NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use similar::TextDiff;
 
 use crate::{
     AgdError, ByteSpan, CaptureDraft, CaptureTemplate, HeadlineSpan, IdPolicy, IndexedDocument,
-    Item, MUTATION_SCHEMA, Mutation, PlanningTimestamp, RootSet, Settings, WorkspaceIndex,
+    Item, LogKind, MUTATION_SCHEMA, Mutation, PlanningTimestamp, RootSet, Settings, WorkspaceIndex,
     format_active_timestamp, render_capture_template,
 };
 
@@ -61,9 +61,16 @@ pub struct EditIntent {
 pub struct WriteContext {
     pub actor: String,
     pub project: String,
+    /// Clock for timestamps written into Org text (CLOSED, LOGBOOK, %U);
+    /// None uses the local time. Tests and oracles pin it.
+    pub now: Option<NaiveDateTime>,
 }
 
 impl WriteContext {
+    pub fn org_now(&self) -> NaiveDateTime {
+        self.now.unwrap_or_else(|| Local::now().naive_local())
+    }
+
     // MCP clients are journaled as "mcp:<client name>"; every other actor is a
     // person using the CLI or TUI.
     pub fn is_agent(&self) -> bool {
@@ -180,7 +187,13 @@ impl WriteEngine {
                 "item resolved to a different file while acquiring the write lock",
             ));
         }
-        let patches = build_edit_patches(document, headline, intent, &self.settings)?;
+        let patches = build_edit_patches(
+            document,
+            headline,
+            intent,
+            &self.settings,
+            context.org_now(),
+        )?;
         let (post_image, stored) = apply_patches(document.source(), patches)?;
         if post_image == document.source() {
             return Err(AgdError::new("no_change", "edit does not change the item"));
@@ -258,7 +271,7 @@ impl WriteEngine {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(error) => return Err(AgdError::from(error)),
         };
-        let now = Local::now().naive_local();
+        let now = context.org_now();
         let rendered = render_capture_template(&template, draft, body, prompts, now)?;
         let (offset, level) = capture_target(&path, &pre_image, &template, &self.settings)?;
         let rendered = set_capture_level(&rendered, level);
@@ -997,10 +1010,13 @@ fn build_edit_patches(
     headline: &HeadlineSpan,
     intent: &EditIntent,
     settings: &Settings,
+    now: NaiveDateTime,
 ) -> Result<Vec<Patch>, AgdError> {
     let source = document.source();
-    let now = Local::now().naive_local();
+    let logging = document.logging();
+    let stamp = format!("[{}]", now.format("%Y-%m-%d %a %H:%M"));
     let mut patches = Vec::new();
+    let previous_state = headline.item.todo.clone();
     let mut state = change_value(&headline.item.todo, &intent.state);
     if let Some(requested) = &state
         && !document.todo_active().contains(requested)
@@ -1011,8 +1027,8 @@ fn build_edit_patches(
             format!("TODO state '{requested}' is not enabled for this file"),
         ));
     }
-    let mut scheduled = change_value(&headline.item.planning.scheduled, &intent.scheduled);
-    let mut deadline = change_value(&headline.item.planning.deadline, &intent.deadline);
+    let mut scheduled = planning_change(&headline.item.planning.scheduled, &intent.scheduled);
+    let mut deadline = planning_change(&headline.item.planning.deadline, &intent.deadline);
     let mut closed = headline.item.planning.closed.clone();
     let mut properties = intent.properties.clone();
     if settings.todo.ids == IdPolicy::AddOnWrite
@@ -1022,18 +1038,72 @@ fn build_edit_patches(
         // Same shape as Emacs org-id with the default uuid method.
         properties.insert("ID".to_string(), Some(uuid::Uuid::new_v4().to_string()));
     }
+    // LOGBOOK entries in Org's org-log-note-headings format, newest first.
+    let mut log: Vec<LogEntry> = Vec::new();
     let mut note = intent.note.clone();
+    for (old, new, logged, moved, removed) in [
+        (
+            &headline.item.planning.scheduled,
+            &scheduled,
+            logging.reschedule,
+            "Rescheduled from",
+            "Not scheduled, was",
+        ),
+        (
+            &headline.item.planning.deadline,
+            &deadline,
+            logging.redeadline,
+            "New deadline from",
+            "Removed deadline, was",
+        ),
+    ] {
+        let (Some(kind), Some(old)) = (logged, old) else {
+            continue;
+        };
+        let heading = match new {
+            Some(new) if format_active_timestamp(new)? == format_active_timestamp(old)? => {
+                continue;
+            }
+            Some(_) => format!("{moved} \"{}\" on {stamp}", inactive_timestamp(old)?),
+            None => format!("{removed} \"{}\" on {stamp}", inactive_timestamp(old)?),
+        };
+        log.push(LogEntry::new(heading, kind, &mut note));
+    }
 
-    let requested_done = state
-        .as_ref()
-        .is_some_and(|value| done_keywords(document).contains(value));
+    let state_changed = !matches!(intent.state, Change::Keep) && state != previous_state;
+    let requested_done = state_changed
+        && state
+            .as_ref()
+            .is_some_and(|value| done_keywords(document).contains(value));
     let repeating = scheduled
         .as_ref()
         .is_some_and(|timestamp| timestamp.repeater.is_some())
         || deadline
             .as_ref()
             .is_some_and(|timestamp| timestamp.repeater.is_some());
+    let state_heading = |to: &str| {
+        let from = previous_state
+            .as_deref()
+            .map(|value| format!("\"{value}\""))
+            .unwrap_or_default();
+        format!("State {:<12} from {from:<12} {stamp}", format!("\"{to}\""))
+    };
+    // A keyword's own `!`/`@` marker on entering, or the previous one's on
+    // leaving, decides whether the change is logged (org-todo-log-states).
+    let keyword_log = state.as_deref().and_then(|value| {
+        document
+            .todo_keyword(value)
+            .and_then(|keyword| keyword.log_enter)
+            .or_else(|| {
+                previous_state
+                    .as_deref()
+                    .and_then(|value| document.todo_keyword(value))
+                    .and_then(|keyword| keyword.log_leave)
+            })
+    });
     if requested_done && repeating {
+        // org-auto-repeat-maybe: shift the dates, return to the head of the
+        // previous keyword's sequence, drop CLOSED, log only per org-log-repeat.
         if let Some(timestamp) = scheduled.as_mut()
             && timestamp.repeater.is_some()
         {
@@ -1044,17 +1114,15 @@ fn build_edit_patches(
         {
             advance_repeater(timestamp, now.date())?;
         }
-        state = document.todo_active().first().cloned();
-        properties.insert(
-            "LAST_REPEAT".to_string(),
-            Some(format!("[{}]", now.format("%Y-%m-%d %a %H:%M"))),
-        );
-        if settings.agenda.log_repeat != "nil" && settings.agenda.log_repeat != "false" {
-            note = Some(note.unwrap_or_else(|| "State repeated".to_string()));
-        }
+        let done_word = state.clone().unwrap_or_default();
+        state = sequence_head(document, previous_state.as_deref());
         closed = None;
+        if let Some(kind) = logging.repeat {
+            properties.insert("LAST_REPEAT".to_string(), Some(stamp.clone()));
+            log.insert(0, LogEntry::new(state_heading(&done_word), kind, &mut note));
+        }
     } else if requested_done {
-        if settings.agenda.log_done != "nil" && settings.agenda.log_done != "false" {
+        if logging.done.is_some() {
             closed = Some(PlanningTimestamp {
                 date: now.format("%Y-%m-%d").to_string(),
                 time: Some(now.format("%H:%M").to_string()),
@@ -1064,8 +1132,30 @@ fn build_edit_patches(
                 raw: None,
             });
         }
-    } else if !matches!(intent.state, Change::Keep) {
+        let done_word = state.clone().unwrap_or_default();
+        if let Some(kind) = keyword_log {
+            log.insert(0, LogEntry::new(state_heading(&done_word), kind, &mut note));
+        } else if logging.done == Some(LogKind::Note) {
+            log.insert(
+                0,
+                LogEntry::new(format!("CLOSING NOTE {stamp}"), LogKind::Note, &mut note),
+            );
+        }
+    } else if state_changed {
         closed = None;
+        if let Some(kind) = keyword_log {
+            let to = state.clone().unwrap_or_default();
+            log.insert(0, LogEntry::new(state_heading(&to), kind, &mut note));
+        }
+    }
+    if let Some(text) = note.take() {
+        log.insert(
+            0,
+            LogEntry {
+                heading: format!("Note taken on {stamp}"),
+                note: Some(text),
+            },
+        );
     }
 
     if !matches!(intent.state, Change::Keep)
@@ -1141,43 +1231,127 @@ fn build_edit_patches(
         });
     }
 
-    if let Some(note) = note {
-        if note.contains(['\n', '\r']) {
-            return Err(AgdError::new(
-                "invalid_note",
-                "state notes must be one line",
-            ));
-        }
-        let offset = headline.drawer_span.map_or_else(
-            || {
-                headline.planning_span.map_or(
-                    after_headline_line(source, headline.line_span.end),
-                    |span| span.end,
-                )
-            },
-            |span| span.end,
-        );
-        let indent = headline
-            .drawer_span
-            .or(headline.planning_span)
-            .map_or("", |span| leading_indent(source, span.start));
-        let log = format!(
-            "{indent}:LOGBOOK:{}{indent}- Note taken on [{}] :: {}{}{indent}:END:{}",
-            line_ending(source),
-            now.format("%Y-%m-%d %a %H:%M"),
-            note,
-            line_ending(source),
-            line_ending(source)
-        );
-        patches.push(Patch {
-            span: ByteSpan {
-                start: offset,
-                end: offset,
-            },
-            replacement: log,
-        });
+    if !log.is_empty() {
+        patches.push(log_patch(source, headline, &log, logging.into_drawer)?);
     }
     Ok(patches)
+}
+
+/// One `- heading` line in a LOGBOOK, with an optional note below it.
+struct LogEntry {
+    heading: String,
+    note: Option<String>,
+}
+
+impl LogEntry {
+    /// A `@` (note) entry takes the edit's note text, if any; a `!` (time)
+    /// entry leaves it for a separate "Note taken" entry.
+    fn new(heading: String, kind: LogKind, note: &mut Option<String>) -> Self {
+        let note = if kind == LogKind::Note {
+            note.take()
+        } else {
+            None
+        };
+        Self { heading, note }
+    }
+}
+
+/// Inserts log entries where org-log-beginning would: at the top of the
+/// entry's LOGBOOK drawer (created after planning and properties when
+/// missing) with org-log-into-drawer, otherwise right after them.
+fn log_patch(
+    source: &str,
+    headline: &HeadlineSpan,
+    entries: &[LogEntry],
+    into_drawer: bool,
+) -> Result<Patch, AgdError> {
+    let newline = line_ending(source);
+    let start = headline.drawer_span.or(headline.planning_span).map_or_else(
+        || after_headline_line(source, headline.line_span.end),
+        |span| span.end,
+    );
+    let indent = headline
+        .drawer_span
+        .or(headline.planning_span)
+        .map_or("", |span| leading_indent(source, span.start));
+    let mut lines = String::new();
+    for entry in entries {
+        let Some(note) = &entry.note else {
+            lines.push_str(&format!("{indent}- {}{newline}", entry.heading));
+            continue;
+        };
+        if note.contains(['\n', '\r']) {
+            return Err(AgdError::new("invalid_note", "log notes must be one line"));
+        }
+        lines.push_str(&format!(
+            "{indent}- {} \\\\{newline}{indent}  {note}{newline}",
+            entry.heading
+        ));
+    }
+    if into_drawer {
+        let section = &source[start..headline.section_span.end];
+        if let Some(offset) = logbook_line_end(section) {
+            let at = start + offset;
+            return Ok(Patch {
+                span: ByteSpan { start: at, end: at },
+                replacement: lines,
+            });
+        }
+        lines = format!("{indent}:LOGBOOK:{newline}{lines}{indent}:END:{newline}");
+    }
+    Ok(Patch {
+        span: ByteSpan { start, end: start },
+        replacement: lines,
+    })
+}
+
+/// End of the `:LOGBOOK:` line within a section, if the entry has one.
+fn logbook_line_end(section: &str) -> Option<usize> {
+    let mut offset = 0;
+    for line in section.split_inclusive('\n') {
+        offset += line.len();
+        if line.trim().eq_ignore_ascii_case(":LOGBOOK:") {
+            return Some(offset);
+        }
+    }
+    None
+}
+
+/// Org quotes the old timestamp of a reschedule as an inactive one.
+fn inactive_timestamp(timestamp: &PlanningTimestamp) -> Result<String, AgdError> {
+    let active = format_active_timestamp(timestamp)?;
+    Ok(format!("[{}]", &active[1..active.len() - 1]))
+}
+
+/// Setting a new SCHEDULED or DEADLINE date keeps the old repeater and
+/// warning cookie unless the new value has its own, as org-schedule does.
+fn planning_change(
+    current: &Option<PlanningTimestamp>,
+    change: &Change<PlanningTimestamp>,
+) -> Option<PlanningTimestamp> {
+    match (change, current) {
+        (Change::Set(new), Some(old)) => {
+            let mut new = new.clone();
+            new.repeater = new.repeater.or_else(|| old.repeater.clone());
+            new.warning = new.warning.or_else(|| old.warning.clone());
+            Some(new)
+        }
+        _ => change_value(current, change),
+    }
+}
+
+/// The first keyword of the sequence `state` belongs to; a repeating task
+/// returns there when marked done (org-todo-kwd-alist head).
+fn sequence_head(document: &IndexedDocument, state: Option<&str>) -> Option<String> {
+    let sequence = state
+        .and_then(|value| document.todo_keyword(value))
+        .map_or(0, |keyword| keyword.sequence);
+    document
+        .todo_keywords()
+        .iter()
+        .find(|keyword| keyword.sequence == sequence)
+        .or_else(|| document.todo_keywords().first())
+        .map(|keyword| keyword.name.clone())
 }
 
 fn validate_intent(intent: &EditIntent) -> Result<(), AgdError> {
@@ -1617,6 +1791,7 @@ mod tests {
         WriteContext {
             actor: "test".to_string(),
             project: "fixture".to_string(),
+            now: None,
         }
     }
 
@@ -1652,6 +1827,7 @@ mod tests {
         let agent = WriteContext {
             actor: "mcp:claude-code".to_string(),
             project: "fixture".to_string(),
+            now: None,
         };
         let agent_capture = engine
             .capture("w", &draft, "", &BTreeMap::new(), true, &agent)

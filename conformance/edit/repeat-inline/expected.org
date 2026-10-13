@@ -1,0 +1,9 @@
+#+TODO: TODO | DONE
+* TODO Pay rent
+DEADLINE: <2026-11-13 Fri .+1m>
+:PROPERTIES:
+:ID: task-id
+:LAST_REPEAT: [2026-10-13 Tue 14:22]
+:END:
+- State "DONE"       from "TODO"       [2026-10-13 Tue 14:22]
+Body remains.

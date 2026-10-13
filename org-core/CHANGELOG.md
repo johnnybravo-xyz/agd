@@ -32,6 +32,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `WriteContext::now` pins the clock for timestamps written into Org text.
+- `agenda.log_reschedule` and `agenda.log_redeadline`, imported from Emacs.
 - Honor `agenda.sorting_strategy` with org-agenda's keys (`time`, `urgency`,
   `priority`, `category`, `alpha`, `todo-state`, each `-up`/`-down`, plus
   `category-keep` and `habit-*`); the default is Emacs's own. Imports read the
@@ -50,6 +52,18 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Write logs the way Emacs does: `State "DONE" from "TODO" [time]` entries
+  for `!`/`@` keyword markers and `org-log-repeat`, `CLOSING NOTE` for
+  `org-log-done` note, "Rescheduled from"/"New deadline from" for
+  `org-log-reschedule`/`org-log-redeadline`, at the top of an existing
+  LOGBOOK or inline per `org-log-into-drawer`; `#+STARTUP` log options
+  override the configuration per file. Notes previously always opened a new
+  drawer.
+- Repeating tasks return to the head of their keyword's sequence, set
+  `LAST_REPEAT` only when repeats are logged, and new dates keep the old
+  repeater and warning cookie.
+- Read every `#+TODO` line of a file; a sequence without `|` makes its last
+  keyword the done state.
 - Skip Emacs `.#name` lock symlinks while discovering agenda files; an
   unsaved Emacs buffer no longer makes every read fail with `walk_error`.
 - Order agenda rows as org-agenda does by default (time-up, urgency-down,

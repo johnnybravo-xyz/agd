@@ -249,6 +249,8 @@
        (sorting_strategy . ,(agd--sorting-strategy))
        (log_done . ,(agd--string org-log-done))
        (log_repeat . ,(agd--string org-log-repeat))
+       (log_reschedule . ,(agd--string org-log-reschedule))
+       (log_redeadline . ,(agd--string org-log-redeadline))
        (log_into_drawer . ,(if org-log-into-drawer t :json-false))
        (capture . ,capture)
        (groups . ,(agd--super-groups))

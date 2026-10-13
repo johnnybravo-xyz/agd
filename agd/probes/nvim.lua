@@ -175,6 +175,9 @@ local output = {
   sorting_strategy = strings(sorting.agenda or sorting),
   log_done = tostring(opts.org_log_done or "nil"),
   log_repeat = tostring(opts.org_log_repeat or "nil"),
+  -- nvim-orgmode has no reschedule/redeadline logging.
+  log_reschedule = "nil",
+  log_redeadline = "nil",
   log_into_drawer = opts.org_log_into_drawer == true,
   capture = capture_templates(opts.org_capture_templates),
   groups = {},

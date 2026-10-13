@@ -80,7 +80,9 @@
   "highest_priority": "A",
   "log_done": "time",
   "log_into_drawer": true,
+  "log_redeadline": "nil",
   "log_repeat": "note",
+  "log_reschedule": "nil",
   "lowest_priority": "D",
   "org_version": "9.7.11",
   "persistent_tags": [

@@ -1,0 +1,7 @@
+#+TODO: TODO | DONE
+* DONE Task
+CLOSED: [2026-10-13 Tue 14:22]
+:PROPERTIES:
+:ID: task-id
+:END:
+Body remains.

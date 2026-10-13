@@ -1,0 +1,4 @@
+operation = "state"
+value = "WAIT"
+now = "2026-10-13 14:22"
+log_into_drawer = true
