@@ -55,7 +55,13 @@ def main() -> int:
             continue
         if result.returncode != 0 or payload is None:
             raise RuntimeError(f"Neovim probe failed for {case}: {result.stdout}")
-        actual = json.dumps(json.loads(payload), indent=2, sort_keys=True) + "\n"
+        payload = json.loads(payload)
+        editor_version = payload.pop("editor_version", "")
+        if len(editor_version.split(".")) != 3 or not all(
+            part.isdigit() for part in editor_version.split(".")
+        ):
+            raise RuntimeError(f"Neovim probe returned invalid version: {editor_version}")
+        actual = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         expected = case / "resolved.json"
         if arguments.update:
             expected.write_text(actual, encoding="utf-8")
