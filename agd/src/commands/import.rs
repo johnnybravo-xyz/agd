@@ -138,8 +138,8 @@ fn print_result(
         return;
     }
     println!(
-        "imported  {} custom commands, {} capture templates",
-        snapshot.commands.len(),
+        "imported  {} views, {} capture templates",
+        snapshot.settings.views.len(),
         snapshot.settings.capture.len()
     );
     println!("  ✓ core  resolved editor settings normalized exactly");

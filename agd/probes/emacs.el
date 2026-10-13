@@ -1,4 +1,6 @@
 (require 'cl-lib)
+(require 'seq)
+(require 'subr-x)
 (require 'json)
 (require 'org)
 (require 'org-agenda)
@@ -75,37 +77,88 @@
           (puthash (car normalized) (cdr normalized) result))))
     result))
 
+;; Lambdas, #'symbol forms and compiled functions; a bare symbol such as
+;; `org-agenda-files' in an option value is data, not code.
 (defun agd--contains-function-p (value)
   (cond
-   ((functionp value) t)
-   ((and (consp value) (eq (car value) 'lambda)) t)
+   ((and (consp value) (memq (car value) '(lambda function closure))) t)
    ((consp value)
     (or (agd--contains-function-p (car value))
         (agd--contains-function-p (cdr value))))
+   ((and value (not (symbolp value)) (functionp value)) t)
    (t nil)))
 
+;; org-agenda-custom-commands -> views. Only literal option values are read;
+;; nothing from the user's configuration is evaluated.
+(defconst agd--view-kinds
+  '((agenda . "agenda") (todo . "todo") (alltodo . "alltodo")
+    (tags . "tags") (tags-todo . "tags-todo")))
+
+(defun agd--literal (form)
+  (cond ((and (consp form) (eq (car form) 'quote)) (cadr form))
+        ((or (stringp form) (numberp form) (symbolp form)) form)
+        (t :agd-dynamic)))
+
+(defun agd--view-block (kind match options notes)
+  "Return (BLOCK . NOTES) for one block, or nil when KIND is unsupported."
+  (let ((name (cdr (assq kind agd--view-kinds)))
+        (block (make-hash-table :test 'equal)))
+    (when name
+      (puthash "kind" name block)
+      (when (and (stringp match) (not (string-empty-p match)))
+        (puthash "match" match block))
+      (dolist (option options)
+        (let ((symbol (car-safe option))
+              (value (agd--literal (car-safe (cdr-safe option)))))
+          (cond
+           ((and (eq symbol 'org-agenda-span)
+                 (memq value '(day week month)))
+            (puthash "span" (symbol-name value) block))
+           ((and (eq symbol 'org-agenda-span) (integerp value))
+            (puthash "span" (number-to-string value) block))
+           ((and (eq symbol 'org-agenda-overriding-header) (stringp value))
+            (puthash "header" value block))
+           (t (push (format "option %s is not imported" symbol) notes)))))
+      (cons block notes))))
+
+;; The description is optional: (KEY TYPE MATCH ...) is also valid.
 (defun agd--portable-command (entry)
+  (when (not (stringp (nth 1 entry)))
+    (setq entry (append (list (car entry) nil) (cdr entry))))
   (let* ((key (agd--string (nth 0 entry)))
-         (description (agd--string (nth 1 entry)))
-         (kind-value (nth 2 entry))
-         (kind (agd--string kind-value))
-         (supported (and (memq kind-value '(agenda todo tags tags-todo search))
-                         (not (agd--contains-function-p entry))))
-         (match-value (nth 3 entry))
-         (diagnostics (if supported '() '("custom command form is unsupported"))))
+         (description (or (nth 1 entry) key))
+         (third (nth 2 entry))
+         (blocks '())
+         (notes '())
+         (supported (not (agd--contains-function-p entry))))
+    (if (and (consp third) (consp (car third)))
+        ;; Block agenda: (KEY DESC ((TYPE MATCH OPTIONS) ...) OPTIONS FILES)
+        (dolist (spec third)
+          (let ((result (agd--view-block (nth 0 spec) (nth 1 spec)
+                                         (append (nth 2 spec) (nth 3 entry))
+                                         notes)))
+            (if result
+                (progn (push (car result) blocks) (setq notes (cdr result)))
+              (setq supported nil))))
+      ;; Single command: (KEY DESC TYPE MATCH OPTIONS FILES)
+      (let ((result (agd--view-block third (nth 3 entry) (nth 4 entry) notes)))
+        (if result
+            (progn (push (car result) blocks) (setq notes (cdr result)))
+          (setq supported nil))))
     `((key . ,key)
       (description . ,description)
-      (kind . ,kind)
-      (match_expression . ,(and (stringp match-value) match-value))
-      (enabled . ,(if supported t :json-false))
-      (diagnostics . ,(vconcat diagnostics)))))
+      (enabled . ,(if (and supported blocks) t :json-false))
+      (blocks . ,(vconcat (nreverse blocks)))
+      (diagnostics . ,(vconcat (if supported (delete-dups (nreverse notes))
+                                 '("custom command form is unsupported")))))))
 
 (defun agd--commands ()
   (vconcat
    (mapcar #'agd--portable-command
-           (or (and (boundp 'org-agenda-custom-commands)
-                    org-agenda-custom-commands)
-               '()))))
+           (seq-filter (lambda (entry) (and (consp entry) (> (length entry) 2)))
+                       (or (and (boundp 'org-agenda-custom-commands)
+                                org-agenda-custom-commands)
+                           '())))))
 
 (defconst agd--super-agenda-keys
   '(:name :tag :priority :todo :deadline :scheduled :time-grid :and :not :auto-category))
@@ -144,7 +197,7 @@
                          '()))
         (when (and (listp entry)
                    (stringp (car entry))
-                   (memq (nth 2 entry) '(agenda todo tags tags-todo search))
+                   (> (length entry) 2)
                    (not (agd--contains-function-p entry)))
           (condition-case error
               (puthash (car entry)

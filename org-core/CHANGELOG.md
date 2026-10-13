@@ -8,6 +8,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Import org-agenda custom commands from Emacs and nvim-orgmode as views,
+  including block agendas and descriptionless commands; views with matches agd
+  cannot run are left out with a diagnostic. `ImportSnapshot::commands` is
+  replaced by `settings.views` plus diagnostics.
+- `todo` view blocks with keywords list done-state keywords too, as Emacs does.
+- `agd-core` enables chrono's `serde` feature itself instead of relying on
+  workspace feature unification.
 - Remove the upstream `OrgMode`, `OrgConfig`, `LoggingConfig` and
   `OrgModeError` API, including its line-reassembly writes; `load_settings`
   now returns `AgdError` with code `config`. Every caller uses the byte-span

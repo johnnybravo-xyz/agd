@@ -25,4 +25,7 @@
         ("x" "Dynamic" entry (function ignore) "* TODO %(danger)")))
 (setq org-agenda-custom-commands
       '(("w" "Work" tags-todo "+work/TODO|NEXT")
+        ("b" "Home block" ((agenda "" ((org-agenda-span 'day)))
+                           (tags "home" ((org-agenda-overriding-header "Home"))))
+         ((org-agenda-files-ignored t)))
         ("r" "Review" agenda "" ((org-agenda-skip-function '(lambda () nil))))))

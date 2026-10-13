@@ -42,17 +42,19 @@ fn emacs_fixtures_preserve_resolved_ordering_and_disabled_entries() {
     }
     let vanilla = normalize_fixture(&root.join("vanilla"), "emacs");
     assert!(!vanilla.settings.capture["x"].enabled);
+    assert_eq!(vanilla.settings.views["w"].blocks[0].kind, "tags-todo");
+    let block = &vanilla.settings.views["b"].blocks;
+    assert_eq!(block[0].span.as_deref(), Some("day"));
+    assert_eq!(block[1].header.as_deref(), Some("Home"));
+    assert!(!vanilla.settings.views.contains_key("r"));
+    assert!(vanilla.diagnostics.iter().any(|diagnostic| {
+        diagnostic.key == "view b" && diagnostic.message.contains("org-agenda-files-ignored")
+    }));
     assert!(
         vanilla
-            .commands
+            .diagnostics
             .iter()
-            .any(|command| command.key == "w" && command.enabled)
-    );
-    assert!(
-        vanilla
-            .commands
-            .iter()
-            .any(|command| command.key == "r" && !command.enabled)
+            .any(|diagnostic| diagnostic.key == "view r")
     );
 }
 
@@ -65,4 +67,5 @@ fn neovim_fixture_accepts_installed_plugin_version() {
     assert_eq!(snapshot.settings.agenda.deadline_warning_days, 6);
     assert_eq!(snapshot.settings.agenda.week_start, "sunday");
     assert!(!snapshot.settings.capture["x"].enabled);
+    assert_eq!(snapshot.settings.views["r"].blocks.len(), 2);
 }

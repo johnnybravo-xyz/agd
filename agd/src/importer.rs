@@ -279,68 +279,24 @@ fn verify_snapshot(
         });
     }
 
-    for command in &snapshot.commands {
-        if !command.enabled {
-            results.push(VerificationResult {
-                status: ImportStatus::Unsupported,
-                key: command.key.clone(),
-                description: command.description.clone(),
-                detail: command
-                    .diagnostics
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| "unsupported command".to_string()),
-            });
-            continue;
-        }
+    for (key, view) in &snapshot.settings.views {
         if snapshot.metadata.editor != "emacs" {
             results.push(VerificationResult {
                 status: ImportStatus::Difference,
-                key: command.key.clone(),
-                description: command.description.clone(),
-                detail: "declarative command imported; live nvim-orgmode rows are not a stable API"
-                    .to_string(),
+                key: key.clone(),
+                description: view.desc.clone(),
+                detail: "view imported; nvim-orgmode has no stable row-export API".to_string(),
             });
             continue;
         }
-        let native = match command.kind.as_str() {
-            "agenda" => engine
-                .agenda(&AgendaQuery {
-                    from,
-                    to,
-                    today,
-                    match_expression: command.match_expression.clone(),
-                    log_mode: false,
-                })
-                .map(|entries| normalize_csv(&agenda_csv(&entries))),
-            "todo" | "tags-todo" => {
-                let expression = command
-                    .match_expression
-                    .as_deref()
-                    .filter(|value| command.kind != "todo" || value.contains('/'));
-                engine
-                    .todo(expression)
-                    .map(|items| normalize_csv(&items_csv(&items)))
-            }
-            _ => {
-                results.push(VerificationResult {
-                    status: ImportStatus::Difference,
-                    key: command.key.clone(),
-                    description: command.description.clone(),
-                    detail: format!(
-                        "{} command imported, but native row comparison is not defined for this kind",
-                        command.kind
-                    ),
-                });
-                continue;
-            }
-        };
-        results.push(compare_rows(
-            &command.key,
-            &command.description,
-            editor_rows.get(&command.key),
-            native,
-        ));
+        let native = engine.view(view, start, today, false).map(|sections| {
+            let rows: String = sections
+                .iter()
+                .map(|section| agenda_csv(&section.entries) + &items_csv(&section.items))
+                .collect();
+            normalize_csv(&rows)
+        });
+        results.push(compare_rows(key, &view.desc, editor_rows.get(key), native));
     }
     for group in &snapshot.groups {
         results.push(VerificationResult {

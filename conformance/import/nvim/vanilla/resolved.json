@@ -24,19 +24,40 @@
   },
   "commands": [
     {
+      "blocks": [
+        {
+          "header": "Today",
+          "kind": "agenda",
+          "span": "day"
+        },
+        {
+          "kind": "tags",
+          "match": "review"
+        }
+      ],
+      "description": "Review",
+      "diagnostics": [],
+      "enabled": true,
+      "key": "r"
+    },
+    {
+      "blocks": [
+        {
+          "kind": "tags-todo",
+          "match": "+work/TODO|NEXT"
+        }
+      ],
       "description": "Work",
       "diagnostics": [],
       "enabled": true,
-      "key": "w",
-      "kind": "tags-todo",
-      "match_expression": "+work/TODO|NEXT"
+      "key": "w"
     }
   ],
   "deadline_warning_days": 6,
   "default_priority": "C",
   "diagnostics": [],
   "editor": "nvim",
-  "editor_version": "0.12.6",
+  "editor_version": "0.12.5",
   "groups": [],
   "highest_priority": "A",
   "log_done": "time",

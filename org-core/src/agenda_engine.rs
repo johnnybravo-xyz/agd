@@ -9,8 +9,21 @@ use serde::Serialize;
 
 use crate::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, AgendaSettings, HeadlineSpan, Item, Occurrence,
-    OccurrenceType, PlanningTimestamp, ViewSettings, WorkspaceIndex,
+    OccurrenceType, PlanningTimestamp, ViewBlock, ViewSettings, WorkspaceIndex,
 };
+
+/// Checks a view block's match the way `AgendaEngine::view` will use it.
+pub fn validate_view_block(block: &ViewBlock) -> Result<(), AgdError> {
+    let Some(expression) = block.match_expression.as_deref() else {
+        return Ok(());
+    };
+    let expression = if block.kind == "todo" {
+        format!("/{expression}")
+    } else {
+        expression.to_string()
+    };
+    TagTodoMatcher::parse(&expression).map(|_| ())
+}
 
 /// One block of a saved view: agenda rows for an agenda block, otherwise a
 /// list of items. `from`/`to` are set for agenda blocks only.
@@ -220,9 +233,15 @@ impl<'a> AgendaEngine<'a> {
                             self.todo(None)?,
                             "Global list of TODO items of type: ALL".to_string(),
                         ),
-                        "todo" => (
-                            self.todo(Some(&format!("/{keywords}")))?,
+                        // `(todo "DELEGATED")` lists that keyword even when it is
+                        // a done state; only alltodo and tags-todo skip done.
+                        "todo" if !keywords.is_empty() => (
+                            self.tags(&format!("/{keywords}"))?,
                             format!("Global list of TODO items of type: {keywords}"),
+                        ),
+                        "todo" => (
+                            self.todo(None)?,
+                            "Global list of TODO items of type: ALL".to_string(),
                         ),
                         "tags" => (
                             self.tags(keywords)?,
@@ -1048,7 +1067,7 @@ fn csv_field(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Settings, ViewBlock};
+    use crate::Settings;
 
     fn fixture(source: &str) -> (tempfile::TempDir, WorkspaceIndex) {
         let temp = tempfile::tempdir().unwrap();
@@ -1076,7 +1095,7 @@ mod tests {
                 },
                 ViewBlock {
                     kind: "todo".to_string(),
-                    match_expression: Some("NEXT".to_string()),
+                    match_expression: Some("NEXT|DONE".to_string()),
                     span: None,
                     header: None,
                 },
@@ -1103,9 +1122,9 @@ mod tests {
         };
         assert_eq!(
             sections[1].header,
-            "Global list of TODO items of type: NEXT"
+            "Global list of TODO items of type: NEXT|DONE"
         );
-        assert_eq!(titles(&sections[1]), ["Later"]);
+        assert_eq!(titles(&sections[1]), ["Later", "Old"]);
         assert_eq!(titles(&sections[2]), ["Today", "Old", "Note"]);
     }
 

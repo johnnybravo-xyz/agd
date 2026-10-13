@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     AgdError, CaptureTemplate, EMACS_IMPORT_SCHEMA, NVIM_IMPORT_SCHEMA, RootSet, Settings,
+    ViewBlock, ViewSettings,
 };
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -34,6 +35,20 @@ pub struct PortableEntry {
     pub kind: String,
     pub match_expression: Option<String>,
     pub enabled: bool,
+    #[serde(default)]
+    pub diagnostics: Vec<String>,
+}
+
+/// One custom agenda command as the editor probe reports it. Enabled
+/// commands become `[views.KEY]`; `diagnostics` name what was left out.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImportedCommand {
+    pub key: String,
+    pub description: String,
+    pub enabled: bool,
+    #[serde(default)]
+    pub blocks: Vec<ViewBlock>,
     #[serde(default)]
     pub diagnostics: Vec<String>,
 }
@@ -70,7 +85,7 @@ pub struct ResolvedEditorConfig {
     #[serde(default)]
     pub groups: Vec<PortableEntry>,
     #[serde(default)]
-    pub commands: Vec<PortableEntry>,
+    pub commands: Vec<ImportedCommand>,
     #[serde(default)]
     pub diagnostics: Vec<ImportDiagnostic>,
     #[serde(default)]
@@ -94,7 +109,6 @@ pub struct ImportSnapshot {
     pub metadata: SnapshotMetadata,
     pub settings: Settings,
     pub groups: Vec<PortableEntry>,
-    pub commands: Vec<PortableEntry>,
     pub diagnostics: Vec<ImportDiagnostic>,
 }
 
@@ -155,14 +169,45 @@ impl ImportSnapshot {
         settings.agenda.log_repeat = resolved.log_repeat.clone();
         settings.agenda.log_into_drawer = resolved.log_into_drawer;
         settings.capture = resolved.capture.clone();
+        settings.views.clear();
+        for command in &resolved.commands {
+            let key = format!("view {}", command.key);
+            let unusable_match = command
+                .blocks
+                .iter()
+                .find_map(|block| crate::agenda_engine::validate_view_block(block).err());
+            if let Some(error) = &unusable_match {
+                diagnostics.push(ImportDiagnostic {
+                    status: ImportStatus::Unsupported,
+                    key: key.clone(),
+                    message: error.to_string(),
+                });
+            }
+            if command.enabled && unusable_match.is_none() {
+                settings.views.insert(
+                    command.key.clone(),
+                    ViewSettings {
+                        desc: command.description.clone(),
+                        blocks: command.blocks.clone(),
+                    },
+                );
+            }
+            let status = if command.enabled {
+                ImportStatus::Difference
+            } else {
+                ImportStatus::Unsupported
+            };
+            for message in &command.diagnostics {
+                diagnostics.push(ImportDiagnostic {
+                    status: status.clone(),
+                    key: key.clone(),
+                    message: message.clone(),
+                });
+            }
+        }
 
-        let digest_input = serde_json::to_vec(&(
-            &settings,
-            &resolved.groups,
-            &resolved.commands,
-            &diagnostics,
-        ))
-        .map_err(|error| AgdError::with_source("snapshot", "cannot encode snapshot", error))?;
+        let digest_input = serde_json::to_vec(&(&settings, &resolved.groups, &diagnostics))
+            .map_err(|error| AgdError::with_source("snapshot", "cannot encode snapshot", error))?;
         let digest = format!("{:x}", Sha256::digest(digest_input));
         Ok(Self {
             schema: schema.to_string(),
@@ -177,7 +222,6 @@ impl ImportSnapshot {
             },
             settings,
             groups: resolved.groups,
-            commands: resolved.commands,
             diagnostics,
         })
     }

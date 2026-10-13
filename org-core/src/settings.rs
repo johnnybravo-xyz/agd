@@ -562,6 +562,8 @@ fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
                     VIEW_BLOCK_KINDS.join(", ")
                 )));
             }
+            crate::agenda_engine::validate_view_block(block)
+                .map_err(|error| config_error(format!("view '{key}': {error}")))?;
         }
     }
     for (key, template) in &settings.capture {

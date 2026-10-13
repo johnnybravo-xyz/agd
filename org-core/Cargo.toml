@@ -1,5 +1,5 @@
 [dependencies]
-chrono.workspace = true
+chrono = { workspace = true, features = ["serde"] }
 dirs.workspace = true
 globset.workspace = true
 ignore.workspace = true

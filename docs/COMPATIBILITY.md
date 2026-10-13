@@ -60,7 +60,7 @@ ranges. Symlink writes remain intentionally unsupported.
 | --- | --- | --- | --- |
 | Emacs/Org | Agenda files inside approved roots; TODO sequences; tags; priority bounds; warning and skip settings; sorting; logging; literal capture templates | Editor display-only settings are normalized to native fields | Hooks, advice, function targets, arbitrary Lisp, `%(sexp)`, diary sexps, faces, themes |
 | org-super-agenda | Declarative tag, priority, TODO, scheduled, deadline, time-grid, category, `and`, and `not` entries are retained in the snapshot | Retained as portable group records; the native agenda does not execute the package | Arbitrary predicates and executable forms |
-| Custom Emacs agenda commands | Agenda/TODO/tags/tags-todo/search and block metadata are retained when declarative | Retained as portable command records for inspection | Arbitrary skip lambdas and executable command forms |
+| Custom agenda commands (Emacs and nvim-orgmode) | agenda, todo, alltodo, tags and tags-todo blocks, including block agendas, with literal `org-agenda-span` and `org-agenda-overriding-header` | Become `[views.KEY]`, run by the TUI dispatcher and `agd agenda --view KEY`; other options are listed as not imported | Lambdas, function types, search/stuck views, property or regexp matches |
 | Installed nvim-orgmode | Agenda files, TODO keywords, tags, priorities, and declarative capture templates exposed by the running plugin | Org/Emacs-only settings use native defaults and are reported as differences | Lua callbacks, functions, a profile where setup was not called, or a plugin version missing the required runtime capabilities |
 
 Every imported entry receives `exact`, `difference`, or `unsupported` status in

@@ -106,17 +106,43 @@ local function capture_templates(values)
   return result
 end
 
+-- nvim-orgmode custom commands -> views:
+-- { w = { description = "...", types = { { type = "tags_todo", match = "...",
+--   org_agenda_span = "day", org_agenda_overriding_header = "..." } } } }
+local view_kinds = { agenda = "agenda", tags = "tags", tags_todo = "tags-todo" }
+local view_options = { type = true, match = true, org_agenda_span = true, org_agenda_overriding_header = true }
+
 local function custom_commands(values)
   local result = {}
   for key, command in pairs(values or {}) do
-    local supported = type(command) == "table" and type(command.type) == "string"
+    local blocks, notes, supported = {}, {}, type(command) == "table" and type(command.types) == "table"
+    for _, spec in ipairs(supported and command.types or {}) do
+      local kind = type(spec) == "table" and view_kinds[spec.type] or nil
+      if not kind then
+        supported = false
+      else
+        local span = spec.org_agenda_span
+        blocks[#blocks + 1] = {
+          kind = kind,
+          match = type(spec.match) == "string" and spec.match ~= "" and spec.match or nil,
+          span = (type(span) == "string" or type(span) == "number") and tostring(span) or nil,
+          header = type(spec.org_agenda_overriding_header) == "string" and spec.org_agenda_overriding_header or nil,
+        }
+        for option in pairs(spec) do
+          if not view_options[option] then
+            notes[#notes + 1] = "option " .. tostring(option) .. " is not imported"
+          end
+        end
+      end
+    end
+    table.sort(notes)
+    supported = supported and #blocks > 0
     result[#result + 1] = {
       key = tostring(key),
       description = tostring(type(command) == "table" and (command.description or key) or key),
-      kind = tostring(type(command) == "table" and (command.type or "unsupported") or "unsupported"),
-      match_expression = type(command) == "table" and command.match or nil,
       enabled = supported,
-      diagnostics = supported and {} or { "custom command form is unsupported" },
+      blocks = supported and blocks or {},
+      diagnostics = supported and notes or { "custom command form is unsupported" },
     }
   end
   table.sort(result, function(left, right) return left.key < right.key end)

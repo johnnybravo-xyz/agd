@@ -27,22 +27,48 @@
   },
   "commands": [
     {
+      "blocks": [
+        {
+          "kind": "tags-todo",
+          "match": "+work/TODO|NEXT"
+        }
+      ],
       "description": "Work",
       "diagnostics": [],
       "enabled": true,
-      "key": "w",
-      "kind": "tags-todo",
-      "match_expression": "+work/TODO|NEXT"
+      "key": "w"
     },
     {
+      "blocks": [
+        {
+          "kind": "agenda",
+          "span": "day"
+        },
+        {
+          "header": "Home",
+          "kind": "tags",
+          "match": "home"
+        }
+      ],
+      "description": "Home block",
+      "diagnostics": [
+        "option org-agenda-files-ignored is not imported"
+      ],
+      "enabled": true,
+      "key": "b"
+    },
+    {
+      "blocks": [
+        {
+          "kind": "agenda"
+        }
+      ],
       "description": "Review",
       "diagnostics": [
         "custom command form is unsupported"
       ],
       "enabled": false,
-      "key": "r",
-      "kind": "agenda",
-      "match_expression": ""
+      "key": "r"
     }
   ],
   "deadline_warning_days": 5,

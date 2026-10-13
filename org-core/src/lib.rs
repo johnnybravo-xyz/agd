@@ -25,8 +25,8 @@ pub use document::{
     TimestampSpan, WorkspaceIndex, parse_timestamp,
 };
 pub use imports::{
-    ImportDiagnostic, ImportSnapshot, ImportStatus, PortableEntry, ResolvedEditorConfig,
-    SnapshotMetadata,
+    ImportDiagnostic, ImportSnapshot, ImportStatus, ImportedCommand, PortableEntry,
+    ResolvedEditorConfig, SnapshotMetadata,
 };
 pub use model::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ERROR_SCHEMA, ErrorResponse, ITEM_SCHEMA, Item,

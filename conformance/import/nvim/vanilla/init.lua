@@ -25,7 +25,8 @@ local opts = {
     x = { description = 'Dynamic', target = function() end, template = function() end },
   },
   org_agenda_custom_commands = {
-    w = { description = 'Work', type = 'tags-todo', match = '+work/TODO|NEXT' },
+    w = { description = 'Work', types = { { type = 'tags_todo', match = '+work/TODO|NEXT' } } },
+    r = { description = 'Review', types = { { type = 'agenda', org_agenda_span = 'day', org_agenda_overriding_header = 'Today' }, { type = 'tags', match = 'review' } } },
   },
 }
 local files = {}

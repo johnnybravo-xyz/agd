@@ -7,14 +7,18 @@
   "capture": {},
   "commands": [
     {
-      "description": "Agenda and all TODOs",
-      "diagnostics": [
-        "custom command form is unsupported"
+      "blocks": [
+        {
+          "kind": "agenda"
+        },
+        {
+          "kind": "alltodo"
+        }
       ],
-      "enabled": false,
-      "key": "n",
-      "kind": "((agenda \"\") (alltodo \"\"))",
-      "match_expression": null
+      "description": "Agenda and all TODOs",
+      "diagnostics": [],
+      "enabled": true,
+      "key": "n"
     }
   ],
   "deadline_warning_days": 9,

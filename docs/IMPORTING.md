@@ -111,6 +111,15 @@ Verification includes core settings, capture entries, retained group/command
 records, and agenda rows over the approved files. It never broadens roots just
 to make a verification pass.
 
+## Custom agenda commands
+
+`org-agenda-custom-commands` (and nvim-orgmode's `org_agenda_custom_commands`)
+become `[views.KEY]` entries in the snapshot: each block keeps its kind, match,
+literal span and overriding header. Options that change rows in other ways are
+reported as "not imported", and views whose match uses property or regexp terms
+are left out with the reason. `--verify` runs every imported view in Emacs and
+in `agd` and compares the rows.
+
 ## Portable capture boundary
 
 Supported capture destinations are file, file plus heading, outline path,
