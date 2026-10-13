@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GitHub repo: <https://github.com/szaffarano/org-mcp-server/>
+GitHub repo: <https://github.com/johnnybravo-xyz/agd/>
 
-MCP server for org-mode knowledge management in Rust. Provides search, content access, agenda views, and note linking for org-mode files through the [Model Context Protocol](https://modelcontextprotocol.io/).
+Local-first org-mode CLI and stdio MCP workspace in Rust. The published `agd` package provides search, content access, agenda views, capture, and task updates.
 
 ## Development Commands
 
@@ -14,11 +14,11 @@ MCP server for org-mode knowledge management in Rust. Provides search, content a
 cargo build                          # Build all crates (~47s, never cancel)
 cargo test                           # Run all tests
 cargo test <test_name>               # Run specific test
-cargo test -p <crate_name>           # Test specific crate (org-core, org-mcp-server, org-cli)
+cargo test -p <crate_name>           # Test specific crate (org-core, org-mcp-server, agd)
 cargo test --test integration_tests  # Run MCP server integration tests
 cargo clippy --all-targets --all-features -- -D warnings  # Lint
 cargo fmt --all                      # Format code
-cargo run --bin org-cli -- --help    # Run CLI tool
+cargo run -p agd -- --help           # Run CLI tool
 cargo run --bin org-mcp-server       # Run MCP server (needs valid org directory)
 cargo run --example <name>           # Run playground examples (in org-core/examples/)
 ```
@@ -41,16 +41,16 @@ Rust 2024 edition, multi-crate workspace with async-first design (`tokio`).
 ### Crate Dependency Flow
 
 ```text
-org-core  <--  org-mcp-server
-org-core  <--  org-cli
-test-utils <-- org-core (dev), org-mcp-server (dev), org-cli (dev)
+agd-core  <--  org-mcp-server
+agd-core  <--  agd
+test-utils <-- agd-core (dev), org-mcp-server (dev), agd (dev)
 ```
 
-- **`org-core`** — All business logic: org-mode parsing (`orgize`), file discovery (`ignore` crate's `Walk`), fuzzy search (`nucleo-matcher`), agenda/task querying, configuration loading (`config` crate with TOML/YAML/JSON + env vars). Central type is `OrgMode` struct (`org-core/src/org_mode/types.rs`) which holds an `OrgConfig` and provides all operations. Custom error type `OrgModeError` in `org-core/src/error.rs`.
+- **`agd-core`** (`org-core/`) — Published business-logic library: org-mode parsing (`orgize`), file discovery (`ignore` crate's `Walk`), fuzzy search (`nucleo-matcher`), agenda/task querying, and configuration loading (`config` crate with TOML/YAML/JSON + env vars). Its central type is `OrgMode` in `org-core/src/org_mode/types.rs`; errors use `OrgModeError` from `org-core/src/error.rs`.
 
 - **`org-mcp-server`** — MCP protocol layer using `rmcp`. `OrgModeRouter` (`src/core.rs`) wraps `Arc<Mutex<OrgMode>>` and a `ToolRouter`. Resources (`src/resources/mod.rs`) implement `ServerHandler` with URI-based routing (org://, org-outline://, org-heading://, org-id://, org-agenda://). Tools (`src/tools/`) expose org-file-list, org-search, org-agenda, org-capture. Server runs over stdio transport.
 
-- **`org-cli`** — CLI using `clap` with subcommands: config, list, read, outline, heading, element-by-id, search, agenda, capture. Each command in `src/commands/`. Delegates to `OrgMode` from org-core. The `Commands::Capture` enum variant is boxed (`Box<CaptureCommand>`) to keep the enum size small.
+- **`agd`** — Published CLI using `clap` with subcommands: config, list, read, outline, heading, element-by-id, search, agenda, capture, and update-todo. Each command is in `agd/src/commands/` and delegates to `OrgMode` from org-core. The `Commands::Capture` enum variant is boxed (`Box<CaptureCommand>`) to keep the enum size small.
 
 - **`test-utils`** — Shared test infrastructure. Fixtures in `test-utils/fixtures/` (20 .org files). Key helpers: `setup_test_org_files()` copies fixtures to temp dir, `setup_test_org_files_with_dates()` replaces date placeholders (`@TODAY@`, `@TODAY+N@`) for time-sensitive agenda tests.
 
@@ -64,7 +64,7 @@ test-utils <-- org-core (dev), org-mcp-server (dev), org-cli (dev)
 
 ### Configuration
 
-TOML config at `~/.config/org-mcp/config.toml`. Layered: defaults < config file < env vars (`ORG_` prefix, `__` separator) < CLI flags. See `org-core/src/config.rs` for `OrgConfig` and `LoggingConfig`. Notable capture-related field: `org_auto_created_property: bool` (default `true`) controls whether `capture_append` prepends a `:CREATED:` property.
+TOML config at the platform config directory under `agendum/config.toml`. Layered: defaults < config file < env vars (`AGD_` prefix, `__` separator) < CLI flags. See `org-core/src/config.rs` for `OrgConfig` and `LoggingConfig`. Notable capture-related field: `org_auto_created_property: bool` (default `true`) controls whether `capture_append` prepends a `:CREATED:` property.
 
 ### Capture path internals
 
@@ -87,7 +87,7 @@ TOML config at `~/.config/org-mcp/config.toml`. Layered: defaults < config file 
 
 ## Development Workflow
 
-1. New functionality goes into `org-core`, then gets exposed via `org-mcp-server` and/or `org-cli`
+1. New functionality goes into `org-core`, then gets exposed via `agd` and/or `org-mcp-server`
 2. Multi-crate dep changes go in root `Cargo.toml` `[workspace.dependencies]`
 3. Test fixtures for new org-mode features go in `test-utils/fixtures/`
 4. Integration tests for MCP server use the `create_mcp_service!` macro that spawns the server binary as a child process

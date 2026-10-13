@@ -12,7 +12,7 @@ Add org-mcp-server to the `plugin` array in your `opencode.json`
 
 ```json
 {
-  "plugin": ["org-mcp-server@git+https://github.com/szaffarano/org-mcp-server.git"]
+  "plugin": ["org-mcp-server@git+https://github.com/johnnybravo-xyz/agd.git"]
 }
 ```
 
@@ -40,7 +40,7 @@ To pin a specific version:
 
 ```json
 {
-  "plugin": ["org-mcp-server@git+https://github.com/szaffarano/org-mcp-server.git#v0.1.0"]
+  "plugin": ["org-mcp-server@git+https://github.com/johnnybravo-xyz/agd.git#org-mcp-server-v0.1.0"]
 }
 ```
 

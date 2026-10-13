@@ -1,7 +1,7 @@
 {
-  "name": "org-mcp-server",
-  "version": "0.1.1",
-  "description": "Org-mode skills for coding agents: agenda, task management, and document search",
+  "name": "agd",
+  "version": "0.0.1",
+  "description": "Local-first org-mode tools for terminals and coding agents",
   "type": "module",
   "main": ".opencode/plugins/org-mcp-server.js",
   "keywords": [
@@ -17,10 +17,10 @@
     "name": "Sebastián Zaffarano",
     "email": "sebas@zaffarano.com.ar"
   },
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
-    "url": "https://github.com/szaffarano/org-mcp-server.git"
+    "url": "https://github.com/johnnybravo-xyz/agd.git"
   },
-  "homepage": "https://github.com/szaffarano/org-mcp-server"
+  "homepage": "https://github.com/johnnybravo-xyz/agd"
 }

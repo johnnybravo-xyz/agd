@@ -7,9 +7,9 @@
     "name": "Sebastián Zaffarano",
     "email": "sebas@zaffarano.com.ar"
   },
-  "homepage": "https://github.com/szaffarano/org-mcp-server",
-  "repository": "https://github.com/szaffarano/org-mcp-server",
-  "license": "MIT",
+  "homepage": "https://github.com/johnnybravo-xyz/agd",
+  "repository": "https://github.com/johnnybravo-xyz/agd",
+  "license": "GPL-3.0-or-later",
   "keywords": [
     "org-mode",
     "agenda",
