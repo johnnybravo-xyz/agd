@@ -32,6 +32,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `[tui] theme` (auto, dark, light), `triage.someday_clears_scheduled` and
+  `capture_prompts` for the TUI's capture popup.
 - `WriteContext::now` pins the clock for timestamps written into Org text.
 - `agenda.log_reschedule` and `agenda.log_redeadline`, imported from Emacs.
 - Honor `agenda.sorting_strategy` with org-agenda's keys (`time`, `urgency`,

@@ -22,6 +22,22 @@ pub struct Settings {
     pub agents: AgentSettings,
     pub triage: TriageSettings,
     pub views: BTreeMap<String, ViewSettings>,
+    pub tui: TuiSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TuiSettings {
+    /// auto (follow COLORFGBG), dark or light.
+    pub theme: String,
+}
+
+impl Default for TuiSettings {
+    fn default() -> Self {
+        Self {
+            theme: "auto".to_string(),
+        }
+    }
 }
 
 /// A saved agenda view, the declarative part of an org-agenda custom
@@ -210,6 +226,8 @@ pub struct AgentProfile {
 #[serde(default, deny_unknown_fields)]
 pub struct TriageSettings {
     pub someday_tag: String,
+    /// Someday also removes SCHEDULED, so the task leaves the agenda.
+    pub someday_clears_scheduled: bool,
     pub reschedule_nudge: usize,
 }
 
@@ -232,6 +250,7 @@ impl Default for Settings {
             editor: EditorSettings::default(),
             agents: AgentSettings::default(),
             triage: TriageSettings::default(),
+            tui: TuiSettings::default(),
             // Org's built-in `n` command: "Agenda and all TODOs".
             views: BTreeMap::from([(
                 "n".to_string(),
@@ -369,6 +388,7 @@ impl Default for TriageSettings {
     fn default() -> Self {
         Self {
             someday_tag: "someday".to_string(),
+            someday_clears_scheduled: true,
             reschedule_nudge: 3,
         }
     }
@@ -586,6 +606,12 @@ fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
                 "agents.capture_to must be \"template\" or \"inbox\", not \"{other}\""
             )));
         }
+    }
+    if !["auto", "dark", "light"].contains(&settings.tui.theme.as_str()) {
+        return Err(config_error(format!(
+            "tui.theme must be auto, dark or light, not '{}'",
+            settings.tui.theme
+        )));
     }
     for key in &settings.agenda.sorting_strategy {
         if !SORTING_KEYS.contains(&key.as_str()) {

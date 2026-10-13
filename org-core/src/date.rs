@@ -178,6 +178,23 @@ pub fn render_capture_template(
     Ok(lines.join(newline))
 }
 
+/// Names of the `%^{prompt}` fields a template asks for, in order and
+/// without duplicates; `%^g` asks for "tags".
+pub fn capture_prompts(template: &CaptureTemplate) -> Vec<String> {
+    let mut prompts: Vec<String> = Vec::new();
+    for captures in ESCAPE_RE.captures_iter(&template.template) {
+        let name = match &captures[1] {
+            "^g" => "tags".to_string(),
+            escape if escape.starts_with("^{") => captures[2].to_string(),
+            _ => continue,
+        };
+        if !prompts.contains(&name) {
+            prompts.push(name);
+        }
+    }
+    prompts
+}
+
 // Expands every escape in one pass over the template so that user-supplied
 // title, body and prompt text is inserted literally and never re-expanded.
 fn expand_capture_escapes(
