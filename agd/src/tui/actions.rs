@@ -414,9 +414,11 @@ impl App {
             .map(|item| {
                 let location = self.short_location(item);
                 let file = location.split(':').next().unwrap_or_default().to_string();
+                let mut path = item.olpath[..item.olpath.len().saturating_sub(1)].to_vec();
+                path.push(super::peek::display_title(item));
                 (
                     item.item_ref.clone(),
-                    format!("{file} › {}", item.olpath.join(" › ")),
+                    format!("{file} › {}", path.join(" › ")),
                 )
             })
             .collect();

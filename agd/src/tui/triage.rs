@@ -133,7 +133,7 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
         heading.push(Span::styled(format!("{todo} "), theme.strong(theme.due)));
     }
     heading.push(Span::styled(
-        org_core::agenda_title(item),
+        peek::display_title(item),
         theme.strong(theme.text),
     ));
     if let Some(priority) = &item.priority {

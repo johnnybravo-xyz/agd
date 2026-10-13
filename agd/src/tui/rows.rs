@@ -167,12 +167,17 @@ impl App {
                     for section in engine.view(view, self.day, self.today, self.log_mode)? {
                         // Agenda blocks list every day under their title, as
                         // an Emacs block agenda does; list blocks use theirs.
-                        if !section.header.is_empty() {
-                            headers.push(section.header.clone());
-                        }
                         if let (Some(from), Some(to)) = (section.from, section.to) {
+                            headers.push(if section.header.is_empty() {
+                                agenda_block_title(from, to)
+                            } else {
+                                section.header.clone()
+                            });
                             headers.extend(day_labels(from, to));
                             rows.extend(day_grouped(section.entries));
+                        }
+                        if section.from.is_none() && !section.header.is_empty() {
+                            headers.push(section.header.clone());
                         }
                         rows.extend(section.items.into_iter().map(|item| DisplayRow {
                             section: section.header.clone(),
@@ -364,6 +369,17 @@ pub(super) fn day_label(date: NaiveDate) -> String {
         date.format("%B"),
         date.year()
     )
+}
+
+/// Emacs's title for an agenda block without an overriding header.
+fn agenda_block_title(from: NaiveDate, to: NaiveDate) -> String {
+    let days = (to - from).num_days() + 1;
+    let span = match days {
+        1 => "Day".to_string(),
+        7 => "Week".to_string(),
+        days => format!("{days}-day"),
+    };
+    format!("{span}-agenda (W{:02}):", from.iso_week().week())
 }
 
 fn day_labels(from: NaiveDate, to: NaiveDate) -> Vec<String> {

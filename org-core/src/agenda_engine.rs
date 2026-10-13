@@ -208,7 +208,11 @@ impl<'a> AgendaEngine<'a> {
                     .iter()
                     .any(|heading| heading.eq_ignore_ascii_case("inbox"));
                 let leaf = headline.subtree_span.end == headline.section_span.end;
+                // Top-level headings without a keyword in an inbox file are
+                // its sections (Tasks, Notes, Bookmarks), not items.
+                let container = in_inbox_file && headline.level == 1 && item.todo.is_none();
                 if !item.done
+                    && !container
                     && (under_inbox || in_inbox_file || item.category.eq_ignore_ascii_case("inbox"))
                     && (item.todo.is_some() || leaf)
                     && !item.title.eq_ignore_ascii_case("inbox")

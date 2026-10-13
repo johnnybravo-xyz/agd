@@ -326,7 +326,7 @@ fn card(theme: &Theme, record: &JournalRecord, width: usize, app: &App) -> Vec<L
         }
         Change::Dates { from, to } => {
             let title = changed_item(app, record, "")
-                .map(org_core::agenda_title)
+                .map(super::peek::display_title)
                 .unwrap_or_default();
             lines.push(Line::from(vec![
                 Span::styled(format!("  {location}"), theme.muted()),

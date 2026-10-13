@@ -62,6 +62,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Show links in titles as their description, untitled agenda blocks as
+  `Week-agenda (W42):`, and leave inbox-file section headings out of Inbox.
 - Keep the TUI running when a write is refused (`stale_ref`, `editor_dirty`,
   a bad date) and show the reason on the status line.
 - Keep the cursor on the same heading when files change or a write

@@ -4,8 +4,6 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 
-use org_core::agenda_title;
-
 use super::{App, DisplayRow};
 
 /// The 2-second glance for a herdr or tmux split: overdue collapses to a
@@ -161,7 +159,7 @@ fn pane_line(app: &App, row: &DisplayRow, next: bool, width: usize) -> Line<'sta
     } else {
         theme.muted()
     };
-    let mut title = agenda_title(item);
+    let mut title = super::peek::display_title(item);
     let available = width.saturating_sub(8 + right.width());
     if title.chars().count() > available {
         title = title

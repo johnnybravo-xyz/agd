@@ -6,7 +6,7 @@ use ratatui::widgets::{
     Clear, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
 };
 
-use org_core::{OccurrenceType, agenda_title};
+use org_core::OccurrenceType;
 
 use super::rows::days_since;
 use super::theme::{Theme, centered};
@@ -375,7 +375,7 @@ fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'stat
     } else {
         theme.fg(theme.text)
     };
-    spans.push(Span::styled(agenda_title(item), title_style));
+    spans.push(Span::styled(peek::display_title(item), title_style));
     if let Some(priority) = &item.priority {
         spans.push(Span::raw(" "));
         spans.push(theme.pill(priority.clone(), theme.due));

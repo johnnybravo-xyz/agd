@@ -70,9 +70,14 @@ fn body_lines(text: &str) -> Vec<String> {
     lines
 }
 
+/// A heading as the agenda shows it: no timestamps, links as their text.
+pub(super) fn display_title(item: &Item) -> String {
+    link_descriptions(&org_core::agenda_title(item))
+}
+
 /// `[[target][description]]` reads as its description, `[[target]]` as
 /// the target.
-fn link_descriptions(line: &str) -> String {
+pub(super) fn link_descriptions(line: &str) -> String {
     let mut output = String::new();
     let mut rest = line;
     while let Some(start) = rest.find("[[") {
