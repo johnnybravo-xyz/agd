@@ -1,4 +1,5 @@
 /target
+/specs/
 .direnv
 .idea/
 .pre-commit-config.yaml
