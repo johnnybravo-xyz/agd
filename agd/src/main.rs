@@ -93,9 +93,7 @@ fn main() -> ExitCode {
         Ok(false) => ExitCode::SUCCESS,
         Err(error) => {
             let json_requested = std::env::args_os().any(|argument| argument == "--json");
-            if json_requested
-                && let Some(error) = error.downcast_ref::<AgendumError>()
-            {
+            if json_requested && let Some(error) = error.downcast_ref::<AgendumError>() {
                 eprintln!(
                     "{}",
                     serde_json::to_string(error.response())
@@ -140,7 +138,7 @@ fn run() -> Result<bool> {
         Commands::Tui => tui::run(config, root_directory, false),
         Commands::Pane => tui::run(config, root_directory, true),
         command => {
-            let config = CliAppConfig::load(config, root_directory, None)?;
+            let config = CliAppConfig::load(config, root_directory)?;
             let org_mode = OrgMode::new(config.org)?;
             match command {
                 Commands::List(command) => command.execute(org_mode, config.cli),

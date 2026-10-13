@@ -80,14 +80,7 @@ fn agenda_todo_and_query_emit_shared_native_schemas() {
     let fixture = Fixture::new();
     let agenda = fixture
         .command()
-        .args([
-            "agenda",
-            "--span",
-            "week",
-            "--from",
-            "2026-10-13",
-            "--json",
-        ])
+        .args(["agenda", "--span", "week", "--from", "2026-10-13", "--json"])
         .output()
         .expect("agenda command");
     assert!(agenda.status.success());

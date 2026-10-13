@@ -12,11 +12,7 @@ pub struct CheckCommand {
 }
 
 impl CheckCommand {
-    pub fn execute(
-        self,
-        config: Option<String>,
-        root_directory: Option<String>,
-    ) -> Result<bool> {
+    pub fn execute(self, config: Option<String>, root_directory: Option<String>) -> Result<bool> {
         let loaded = load_settings(
             config.as_deref().map(Path::new),
             root_directory.as_deref().map(Path::new),

@@ -16,11 +16,13 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use notify::{Config as NotifyConfig, Event as NotifyEvent, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{
+    Config as NotifyConfig, Event as NotifyEvent, RecommendedWatcher, RecursiveMode, Watcher,
+};
 use org_core::{
-    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Change, EditIntent, Item,
-    JournalRecord, JournalStatus, Occurrence, OccurrenceType, Settings, WorkspaceIndex, WriteContext,
-    WriteEngine, load_settings, parse_capture_line, parse_date_input,
+    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Change, EditIntent, Item, JournalRecord,
+    JournalStatus, Occurrence, OccurrenceType, Settings, WorkspaceIndex, WriteContext, WriteEngine,
+    load_settings, parse_capture_line, parse_date_input,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -223,7 +225,9 @@ fn event_loop(
                 Event::Mouse(mouse) => match mouse.kind {
                     MouseEventKind::ScrollDown => app.move_selection(1),
                     MouseEventKind::ScrollUp => app.move_selection(-1),
-                    MouseEventKind::Down(_) if app.list_area.contains((mouse.column, mouse.row).into()) => {
+                    MouseEventKind::Down(_)
+                        if app.list_area.contains((mouse.column, mouse.row).into()) =>
+                    {
                         let offset = mouse.row.saturating_sub(app.list_area.y + 1) as usize;
                         if app.pane {
                             if let Some((index, _)) = app
@@ -355,30 +359,40 @@ fn handle_key(
         }
         KeyCode::Char('x') => app.apply_state("DONE")?,
         KeyCode::Char('t') => app.cycle_state()?,
-        KeyCode::Char('s') => app.overlay = Overlay::Prompt {
-            kind: PromptKind::Schedule,
-            input: String::new(),
-        },
+        KeyCode::Char('s') => {
+            app.overlay = Overlay::Prompt {
+                kind: PromptKind::Schedule,
+                input: String::new(),
+            }
+        }
         KeyCode::Char('d') if app.screen == Screen::Review => {
             app.review_diff = !app.review_diff;
         }
-        KeyCode::Char('d') => app.overlay = Overlay::Prompt {
-            kind: PromptKind::Deadline,
-            input: String::new(),
-        },
-        KeyCode::Char(',') => app.overlay = Overlay::Prompt {
-            kind: PromptKind::Priority,
-            input: String::new(),
-        },
-        KeyCode::Char(':') => app.overlay = Overlay::Prompt {
-            kind: PromptKind::Tags,
-            input: String::new(),
-        },
+        KeyCode::Char('d') => {
+            app.overlay = Overlay::Prompt {
+                kind: PromptKind::Deadline,
+                input: String::new(),
+            }
+        }
+        KeyCode::Char(',') => {
+            app.overlay = Overlay::Prompt {
+                kind: PromptKind::Priority,
+                input: String::new(),
+            }
+        }
+        KeyCode::Char(':') => {
+            app.overlay = Overlay::Prompt {
+                kind: PromptKind::Tags,
+                input: String::new(),
+            }
+        }
         KeyCode::Char('r') if app.screen == Screen::Triage => app.open_refile(),
-        KeyCode::Char('/') => app.overlay = Overlay::Prompt {
-            kind: PromptKind::Filter,
-            input: app.filter.clone(),
-        },
+        KeyCode::Char('/') => {
+            app.overlay = Overlay::Prompt {
+                kind: PromptKind::Filter,
+                input: app.filter.clone(),
+            }
+        }
         KeyCode::Char('<') => {
             app.context = (app.context + 1) % 3;
             app.reload_rows()?;
@@ -496,11 +510,11 @@ impl App {
         let journals = WriteEngine::with_default_journal(self.settings.clone())?.journal()?;
         self.provenance.clear();
         for record in &journals {
-            if matches!(record.status, JournalStatus::Committed) {
-                if let Some(item_ref) = &record.item_ref {
-                    self.provenance
-                        .insert(item_ref.clone(), record.actor.clone());
-                }
+            if matches!(record.status, JournalStatus::Committed)
+                && let Some(item_ref) = &record.item_ref
+            {
+                self.provenance
+                    .insert(item_ref.clone(), record.actor.clone());
             }
         }
         self.agent_count = journals
@@ -514,10 +528,9 @@ impl App {
         for record in &journals {
             if matches!(record.status, JournalStatus::Committed)
                 && record.diff.contains("SCHEDULED:")
+                && let Some(item_ref) = &record.item_ref
             {
-                if let Some(item_ref) = &record.item_ref {
-                    *self.reschedule_counts.entry(item_ref.clone()).or_default() += 1;
-                }
+                *self.reschedule_counts.entry(item_ref.clone()).or_default() += 1;
             }
         }
         if self.screen == Screen::Review {
@@ -548,7 +561,12 @@ impl App {
                 })
                 .filter(|entry| !entry.item.done && seen.insert(entry.item.item_ref.clone()))
                 .map(|entry| DisplayRow {
-                    section: if is_inbox(&entry.item) { "INBOX" } else { "SLIPPED" }.to_string(),
+                    section: if is_inbox(&entry.item) {
+                        "INBOX"
+                    } else {
+                        "SLIPPED"
+                    }
+                    .to_string(),
                     item: entry.item,
                     occurrence: Some(entry.occurrence),
                 })
@@ -615,7 +633,11 @@ impl App {
         rows.retain(|row| {
             (context == "all" || row.item.category.eq_ignore_ascii_case(context))
                 && (self.filter.is_empty()
-                    || row.item.title.to_lowercase().contains(&self.filter.to_lowercase())
+                    || row
+                        .item
+                        .title
+                        .to_lowercase()
+                        .contains(&self.filter.to_lowercase())
                     || row
                         .item
                         .tags
@@ -694,9 +716,7 @@ impl App {
                 .iter()
                 .skip_while(|keyword| keyword.as_str() != "|")
                 .skip(1)
-                .any(|keyword| {
-                    keyword.split(['(', '!', '@']).next().unwrap_or(keyword) == state
-                })
+                .any(|keyword| keyword.split(['(', '!', '@']).next().unwrap_or(keyword) == state)
         });
         for item_ref in &targets {
             journals.push(self.edit_ref(
@@ -725,13 +745,16 @@ impl App {
             .iter()
             .flat_map(|sequence| sequence.iter())
             .take_while(|keyword| keyword.as_str() != "|")
-            .map(|keyword| keyword.split(['(', '!','@']).next().unwrap_or(keyword))
+            .map(|keyword| keyword.split(['(', '!', '@']).next().unwrap_or(keyword))
             .collect();
         if active.is_empty() {
             return Ok(());
         }
         let current = row.item.todo.as_deref();
-        let index = active.iter().position(|keyword| Some(*keyword) == current).unwrap_or(0);
+        let index = active
+            .iter()
+            .position(|keyword| Some(*keyword) == current)
+            .unwrap_or(0);
         let next = active[(index + 1) % active.len()].to_string();
         self.apply_state(&next)
     }
@@ -779,7 +802,10 @@ impl App {
         };
         self.record_triage(journals, outcome);
         self.marks.clear();
-        self.set_status(format!("scheduled {} item(s) {value} · u undo", targets.len()));
+        self.set_status(format!(
+            "scheduled {} item(s) {value} · u undo",
+            targets.len()
+        ));
         self.reload_rows()
     }
 
@@ -798,7 +824,10 @@ impl App {
         }
         self.record_triage(journals, 3);
         self.marks.clear();
-        self.set_status(format!("moved {} item(s) to someday · u undo", targets.len()));
+        self.set_status(format!(
+            "moved {} item(s) to someday · u undo",
+            targets.len()
+        ));
         self.reload_rows()
     }
 
@@ -863,9 +892,12 @@ impl App {
         self.reload_rows()
     }
 
-
     fn review_all(&mut self) -> Result<()> {
-        let ids: Vec<String> = self.journals.iter().map(|record| record.id.clone()).collect();
+        let ids: Vec<String> = self
+            .journals
+            .iter()
+            .map(|record| record.id.clone())
+            .collect();
         let engine = WriteEngine::with_default_journal(self.settings.clone())?;
         for id in &ids {
             engine.review(id)?;
@@ -888,10 +920,7 @@ impl App {
     }
 
     fn open_refile(&mut self) {
-        let Some(source_ref) = self
-            .selected_row()
-            .map(|row| row.item.item_ref.clone())
-        else {
+        let Some(source_ref) = self.selected_row().map(|row| row.item.item_ref.clone()) else {
             return;
         };
         let mut targets: Vec<RefileTarget> = self
@@ -900,12 +929,7 @@ impl App {
             .filter(|item| item.item_ref != source_ref)
             .map(|item| RefileTarget {
                 item_ref: item.item_ref.clone(),
-                label: format!(
-                    "{}  {}:{}",
-                    item.olpath.join(" / "),
-                    item.file,
-                    item.line
-                ),
+                label: format!("{}  {}:{}", item.olpath.join(" / "), item.file, item.line),
             })
             .collect();
         targets.sort_by_key(|target| {
@@ -955,7 +979,8 @@ impl App {
         )?;
         self.index.refresh_path(Path::new(&source_file))?;
         self.index.refresh_path(Path::new(&result.item.file))?;
-        self.recent_targets.retain(|item_ref| item_ref != &target.item_ref);
+        self.recent_targets
+            .retain(|item_ref| item_ref != &target.item_ref);
         self.recent_targets.insert(0, target.item_ref);
         self.recent_targets.truncate(10);
         self.record_triage(result.journal_ids, 5);
@@ -1059,11 +1084,17 @@ impl App {
             }
             PromptKind::Priority => intent.priority = Change::Set(input),
             PromptKind::Tags => {
-                for tag in input.split(',').map(str::trim).filter(|tag| !tag.is_empty()) {
+                for tag in input
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|tag| !tag.is_empty())
+                {
                     if let Some(tag) = tag.strip_prefix('-') {
                         intent.tags_remove.insert(tag.to_string());
                     } else {
-                        intent.tags_add.insert(tag.trim_start_matches('+').to_string());
+                        intent
+                            .tags_add
+                            .insert(tag.trim_start_matches('+').to_string());
                     }
                 }
             }
@@ -1093,7 +1124,11 @@ fn draw_full(frame: &mut ratatui::Frame<'_>, app: &mut App, area: Rect) {
     let accent = accent();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(2), Constraint::Min(3), Constraint::Length(1)])
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Min(3),
+            Constraint::Length(1),
+        ])
         .split(area);
     draw_header(frame, app, chunks[0]);
 
@@ -1116,7 +1151,10 @@ fn draw_full(frame: &mut ratatui::Frame<'_>, app: &mut App, area: Rect) {
     if body.len() > 1 {
         draw_peek(frame, app, body[1]);
     }
-    let selected = app.selected_row().map(|row| format!("{}:{}", row.item.file, row.item.line)).unwrap_or_default();
+    let selected = app
+        .selected_row()
+        .map(|row| format!("{}:{}", row.item.file, row.item.line))
+        .unwrap_or_default();
     let context = ["all", "work", "personal"][app.context];
     let status = if app.status.is_empty() {
         if app.screen == Screen::Review {
@@ -1144,7 +1182,10 @@ fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let left = if app.screen == Screen::Triage {
         Line::from(vec![
             Span::styled(" TRIAGE ", tab_style(true, Color::Yellow)),
-            Span::styled(" overdue, then inbox", Style::default().add_modifier(Modifier::DIM)),
+            Span::styled(
+                " overdue, then inbox",
+                Style::default().add_modifier(Modifier::DIM),
+            ),
         ])
     } else {
         Line::from(vec![
@@ -1152,15 +1193,24 @@ fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             Span::raw("  "),
             Span::styled(
                 " Today ",
-                tab_style(app.screen == Screen::Today && app.view == AgendaView::Day, accent()),
+                tab_style(
+                    app.screen == Screen::Today && app.view == AgendaView::Day,
+                    accent(),
+                ),
             ),
             Span::raw(" "),
             Span::styled(
                 " Week ",
-                tab_style(app.screen == Screen::Today && app.view == AgendaView::Week, accent()),
+                tab_style(
+                    app.screen == Screen::Today && app.view == AgendaView::Week,
+                    accent(),
+                ),
             ),
             Span::raw(" "),
-            Span::styled(format!(" Inbox {} ", app.inbox_count), tab_style(false, accent())),
+            Span::styled(
+                format!(" Inbox {} ", app.inbox_count),
+                tab_style(false, accent()),
+            ),
             Span::raw(" "),
             Span::styled(
                 format!(" Agents {} ", app.agent_count),
@@ -1290,8 +1340,7 @@ fn draw_rows(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .highlight_style(selection_style());
     frame.render_stateful_widget(list, list_area, &mut state);
     if app.rows.len() > list_area.height.saturating_sub(2) as usize {
-        let mut scrollbar =
-            ScrollbarState::new(app.rows.len()).position(app.selected);
+        let mut scrollbar = ScrollbarState::new(app.rows.len()).position(app.selected);
         frame.render_stateful_widget(
             Scrollbar::new(ScrollbarOrientation::VerticalRight),
             list_area,
@@ -1389,9 +1438,14 @@ fn draw_triage(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled(
                 format!("{:<9}", row.item.todo.as_deref().unwrap_or("")),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(row.item.title.clone(), Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                row.item.title.clone(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
             Span::styled(tags, Style::default().fg(accent())),
         ]),
         Line::from(Span::styled(
@@ -1535,12 +1589,7 @@ fn agent_color(agent: &str) -> Color {
     if no_color() {
         return Color::Reset;
     }
-    const COLORS: [Color; 4] = [
-        Color::Magenta,
-        Color::Green,
-        Color::Cyan,
-        Color::Yellow,
-    ];
+    const COLORS: [Color; 4] = [Color::Magenta, Color::Green, Color::Cyan, Color::Yellow];
     let index = agent
         .bytes()
         .fold(0usize, |value, byte| value.wrapping_add(byte as usize))
@@ -1603,10 +1652,7 @@ fn draw_pane(frame: &mut ratatui::Frame<'_>, app: &mut App, area: Rect) {
         .enumerate()
         .filter(|(_, row)| row.section != "SLIPPED")
         .collect();
-    for (index, row) in visible
-        .iter()
-        .take(area.height.saturating_sub(5) as usize)
-    {
+    for (index, row) in visible.iter().take(area.height.saturating_sub(5) as usize) {
         let marker = if *index == app.selected { "▸" } else { " " };
         let when = row
             .occurrence
@@ -1739,14 +1785,13 @@ fn draw_overlay(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             let popup = centered(area, 70, 20);
             frame.render_widget(Clear, popup);
             frame.render_widget(
-                Paragraph::new(format!("> {input}"))
-                    .block(rounded(match kind {
-                        PromptKind::Schedule => "Schedule (date, +2d, fri)",
-                        PromptKind::Deadline => "Deadline (date, +2d, fri)",
-                        PromptKind::Priority => "Priority",
-                        PromptKind::Tags => "Tags (+tag,-tag)",
-                        PromptKind::Filter => "Filter",
-                    })),
+                Paragraph::new(format!("> {input}")).block(rounded(match kind {
+                    PromptKind::Schedule => "Schedule (date, +2d, fri)",
+                    PromptKind::Deadline => "Deadline (date, +2d, fri)",
+                    PromptKind::Priority => "Priority",
+                    PromptKind::Tags => "Tags (+tag,-tag)",
+                    PromptKind::Filter => "Filter",
+                })),
                 popup,
             );
         }
@@ -1814,10 +1859,7 @@ fn edit_capture_body(
     Ok(())
 }
 
-fn open_selected(
-    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    app: &mut App,
-) -> Result<()> {
+fn open_selected(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> Result<()> {
     let Some(row) = app.selected_row() else {
         return Ok(());
     };
@@ -1871,7 +1913,11 @@ fn start_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
 
 fn stop_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
     Ok(())
 }
@@ -1888,7 +1934,10 @@ fn section_for(entry: &AgendaEntry) -> String {
         "SLIPPED"
     } else if entry.occurrence.time.is_some() {
         "SCHEDULE"
-    } else if matches!(entry.occurrence.kind, OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline) {
+    } else if matches!(
+        entry.occurrence.kind,
+        OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline
+    ) {
         "DUE SOON"
     } else if matches!(entry.item.todo.as_deref(), Some("NEXT" | "WAIT")) {
         "IN PROGRESS"
@@ -1912,7 +1961,9 @@ fn section_order(section: &str) -> u8 {
 }
 
 fn is_inbox(item: &Item) -> bool {
-    item.olpath.iter().any(|heading| heading.eq_ignore_ascii_case("inbox"))
+    item.olpath
+        .iter()
+        .any(|heading| heading.eq_ignore_ascii_case("inbox"))
         || item.category.eq_ignore_ascii_case("inbox")
 }
 
@@ -1933,7 +1984,6 @@ fn added_text(diff: &str) -> String {
     }
     text
 }
-
 
 fn occurrence_prefix(occurrence: Option<&Occurrence>) -> String {
     let Some(occurrence) = occurrence else {
@@ -1970,7 +2020,6 @@ fn fuzzy_match(value: &str, query: &str) -> bool {
     }
     false
 }
-
 
 fn view_title(app: &App) -> String {
     match app.screen {

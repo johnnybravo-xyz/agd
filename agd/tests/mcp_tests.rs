@@ -61,14 +61,17 @@ async fn exposes_only_the_short_spec_tool_list() -> Result<(), Box<dyn std::erro
     let tools = service.list_tools(Default::default()).await?;
     let mut names: Vec<&str> = tools.tools.iter().map(|tool| tool.name.as_ref()).collect();
     names.sort_unstable();
-    assert_eq!(names, ["agenda", "capture", "edit", "plan", "query", "set_state"]);
+    assert_eq!(
+        names,
+        ["agenda", "capture", "edit", "plan", "query", "set_state"]
+    );
     service.cancel().await?;
     Ok(())
 }
 
 #[tokio::test]
-async fn agenda_tool_and_today_resource_return_versioned_rows(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn agenda_tool_and_today_resource_return_versioned_rows()
+-> Result<(), Box<dyn std::error::Error>> {
     let directory = fixture();
     let service = service(&directory).await?;
     let today = Local::now().date_naive().to_string();
@@ -96,8 +99,8 @@ async fn agenda_tool_and_today_resource_return_versioned_rows(
 }
 
 #[tokio::test]
-async fn writes_return_mutations_and_failures_return_error_schemas(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn writes_return_mutations_and_failures_return_error_schemas()
+-> Result<(), Box<dyn std::error::Error>> {
     let directory = fixture();
     let service = service(&directory).await?;
     let arguments: Map<String, Value> = json!({"ref": "today-task", "state": "DONE"})
@@ -112,12 +115,7 @@ async fn writes_return_mutations_and_failures_return_error_schemas(
     assert!(encoded.contains("DONE"));
     let journal = fs::read_to_string(directory.path().join("data/agendum/journal.jsonl"))?;
     let record: Value = serde_json::from_str(journal.lines().next().expect("journal record"))?;
-    assert!(
-        record["actor"]
-            .as_str()
-            .expect("actor")
-            .starts_with("mcp:")
-    );
+    assert!(record["actor"].as_str().expect("actor").starts_with("mcp:"));
     assert_eq!(
         record["project"],
         directory.path().to_string_lossy().as_ref()

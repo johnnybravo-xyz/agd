@@ -181,7 +181,10 @@ impl AgendaCommand {
             Some(value) => parse_day(&value, today)?,
             None => default_start(&settings, today)?,
         };
-        let span = self.span.map(SpanArg::into_core).unwrap_or_else(|| span_from_settings(&settings));
+        let span = self
+            .span
+            .map(SpanArg::into_core)
+            .unwrap_or_else(|| span_from_settings(&settings));
         let (from, to) = span.bounds(start, &settings.agenda.week_start);
         let entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
             from,
@@ -202,11 +205,7 @@ impl AgendaCommand {
                     let todo = entry.item.todo.as_deref().unwrap_or("");
                     println!(
                         "{} {} {:<10} {}  {}",
-                        entry.occurrence.date,
-                        time,
-                        todo,
-                        entry.item.title,
-                        entry.item.item_ref
+                        entry.occurrence.date, time, todo, entry.item.title, entry.item.item_ref
                     );
                 }
             }
@@ -277,7 +276,14 @@ impl StateCommand {
             note: self.note,
             ..EditIntent::default()
         };
-        edit_item(config, root, &self.item_ref, intent, self.dry_run, self.json)
+        edit_item(
+            config,
+            root,
+            &self.item_ref,
+            intent,
+            self.dry_run,
+            self.json,
+        )
     }
 }
 
@@ -287,7 +293,14 @@ impl ScheduleCommand {
             scheduled: Change::Set(parse_date_input(&self.date, Local::now().date_naive())?),
             ..EditIntent::default()
         };
-        edit_item(config, root, &self.item_ref, intent, self.dry_run, self.json)
+        edit_item(
+            config,
+            root,
+            &self.item_ref,
+            intent,
+            self.dry_run,
+            self.json,
+        )
     }
 }
 
@@ -297,14 +310,24 @@ impl DeadlineCommand {
             deadline: Change::Set(parse_date_input(&self.date, Local::now().date_naive())?),
             ..EditIntent::default()
         };
-        edit_item(config, root, &self.item_ref, intent, self.dry_run, self.json)
+        edit_item(
+            config,
+            root,
+            &self.item_ref,
+            intent,
+            self.dry_run,
+            self.json,
+        )
     }
 }
 
 impl EditCommand {
     pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<()> {
         let (tags_add, tags_remove) = parse_tag_edits(self.tags.as_deref())?;
-        let properties = key_values(self.properties, "property")?.into_iter().map(|(key, value)| (key, Some(value))).collect();
+        let properties = key_values(self.properties, "property")?
+            .into_iter()
+            .map(|(key, value)| (key, Some(value)))
+            .collect();
         let intent = EditIntent {
             title: self.title.map(Change::Set).unwrap_or_default(),
             priority: self.priority.map(Change::Set).unwrap_or_default(),
@@ -314,7 +337,14 @@ impl EditCommand {
             note: self.note,
             ..EditIntent::default()
         };
-        edit_item(config, root, &self.item_ref, intent, self.dry_run, self.json)
+        edit_item(
+            config,
+            root,
+            &self.item_ref,
+            intent,
+            self.dry_run,
+            self.json,
+        )
     }
 }
 
@@ -325,9 +355,12 @@ impl OpenCommand {
         let (document, headline) = index.resolve(&self.item_ref)?;
         let file = document.path().to_string_lossy();
         let line = headline.item.line.to_string();
-        let args: Vec<String> = settings.editor.args.iter().map(|argument| {
-            argument.replace("{file}", &file).replace("{line}", &line)
-        }).collect();
+        let args: Vec<String> = settings
+            .editor
+            .args
+            .iter()
+            .map(|argument| argument.replace("{file}", &file).replace("{line}", &line))
+            .collect();
         let status = Command::new(&settings.editor.command)
             .args(&args)
             .status()
@@ -376,7 +409,8 @@ fn settings(config: Option<String>, root: Option<String>) -> Result<Settings> {
     Ok(load_settings(
         config.as_deref().map(Path::new),
         root.as_deref().map(Path::new),
-    )?.settings)
+    )?
+    .settings)
 }
 
 fn edit_item(
@@ -387,8 +421,12 @@ fn edit_item(
     dry_run: bool,
     json: bool,
 ) -> Result<()> {
-    let mutation = WriteEngine::with_default_journal(settings(config, root)?)?
-        .edit(item_ref, &intent, dry_run, &write_context())?;
+    let mutation = WriteEngine::with_default_journal(settings(config, root)?)?.edit(
+        item_ref,
+        &intent,
+        dry_run,
+        &write_context(),
+    )?;
     print_mutation(&mutation, json, dry_run)
 }
 
@@ -416,7 +454,9 @@ fn print_items(items: &[Item], json: bool) -> Result<()> {
 }
 
 fn parse_optional_date(value: Option<&str>, today: NaiveDate) -> Result<Option<PlanningTimestamp>> {
-    value.map(|value| parse_date_input(value, today).map_err(Into::into)).transpose()
+    value
+        .map(|value| parse_date_input(value, today).map_err(Into::into))
+        .transpose()
 }
 
 fn parse_day(value: &str, today: NaiveDate) -> Result<NaiveDate> {
@@ -427,8 +467,13 @@ fn default_start(settings: &Settings, today: NaiveDate) -> Result<NaiveDate> {
     let Some(value) = settings.agenda.start_day.as_deref() else {
         return Ok(today);
     };
-    if let Some(days) = value.strip_prefix('-').and_then(|value| value.strip_suffix('d')) {
-        let days = days.parse::<i64>().with_context(|| format!("invalid agenda start_day: {value}"))?;
+    if let Some(days) = value
+        .strip_prefix('-')
+        .and_then(|value| value.strip_suffix('d'))
+    {
+        let days = days
+            .parse::<i64>()
+            .with_context(|| format!("invalid agenda start_day: {value}"))?;
         return Ok(today - Duration::days(days));
     }
     parse_day(value, today)
@@ -445,7 +490,11 @@ fn span_from_settings(settings: &Settings) -> AgendaSpan {
 fn parse_tag_edits(value: Option<&str>) -> Result<(BTreeSet<String>, BTreeSet<String>)> {
     let mut add = BTreeSet::new();
     let mut remove = BTreeSet::new();
-    for edit in value.into_iter().flat_map(|value| value.split(',')).filter(|value| !value.is_empty()) {
+    for edit in value
+        .into_iter()
+        .flat_map(|value| value.split(','))
+        .filter(|value| !value.is_empty())
+    {
         if let Some(tag) = edit.strip_prefix('+') {
             add.insert(tag.to_string());
         } else if let Some(tag) = edit.strip_prefix('-') {
@@ -458,18 +507,25 @@ fn parse_tag_edits(value: Option<&str>) -> Result<(BTreeSet<String>, BTreeSet<St
 }
 
 fn key_values(values: Vec<String>, label: &str) -> Result<BTreeMap<String, String>> {
-    values.into_iter().map(|value| {
-        let (key, value) = value.split_once('=').ok_or_else(|| anyhow!("{label} must be KEY=VALUE: {value}"))?;
-        if key.is_empty() {
-            bail!("{label} key cannot be empty");
-        }
-        Ok((key.to_string(), value.to_string()))
-    }).collect()
+    values
+        .into_iter()
+        .map(|value| {
+            let (key, value) = value
+                .split_once('=')
+                .ok_or_else(|| anyhow!("{label} must be KEY=VALUE: {value}"))?;
+            if key.is_empty() {
+                bail!("{label} key cannot be empty");
+            }
+            Ok((key.to_string(), value.to_string()))
+        })
+        .collect()
 }
 
 fn write_context() -> WriteContext {
     WriteContext {
         actor: "cli".to_string(),
-        project: std::env::current_dir().map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|_| "unknown".to_string()),
+        project: std::env::current_dir()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| "unknown".to_string()),
     }
 }

@@ -52,11 +52,7 @@ struct ImportOutput {
 }
 
 impl ImportCommand {
-    pub fn execute(
-        self,
-        config: Option<String>,
-        root_directory: Option<String>,
-    ) -> Result<()> {
+    pub fn execute(self, config: Option<String>, root_directory: Option<String>) -> Result<()> {
         let loaded = load_settings(
             config.as_deref().map(Path::new),
             root_directory.as_deref().map(Path::new),
@@ -159,7 +155,14 @@ fn print_result(
         let (mark, detail) = if template.enabled {
             ("✓", "declarative capture imported")
         } else {
-            ("✗", template.diagnostics.first().map(String::as_str).unwrap_or("unsupported"))
+            (
+                "✗",
+                template
+                    .diagnostics
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or("unsupported"),
+            )
         };
         println!("  {mark} c {key}  {}  {detail}", template.desc);
     }

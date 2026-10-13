@@ -14,7 +14,6 @@ use similar::TextDiff;
 const EMACS_PROBE: &str = include_str!("../probes/emacs.el");
 const NVIM_PROBE: &str = include_str!("../probes/nvim.lua");
 
-
 #[derive(Clone, Debug)]
 pub struct VerificationResult {
     pub status: ImportStatus,
@@ -114,9 +113,8 @@ fn run_emacs_daemon(
     } else {
         ""
     };
-    let expression = format!(
-        "(progn (load {quoted_path} nil nil t) {verify_form}(agendum-import-probe))"
-    );
+    let expression =
+        format!("(progn (load {quoted_path} nil nil t) {verify_form}(agendum-import-probe))");
     command.arg("--eval").arg(expression);
     command.env("AGENDUM_IMPORT_SOURCE", "daemon");
     let output = run(&mut command, "Emacs daemon probe")?;
@@ -131,7 +129,11 @@ fn run_emacs_batch(
     verify: bool,
 ) -> Result<ResolvedEditorConfig> {
     let mut command = Command::new(&profile.command);
-    command.args(&profile.args).arg("--batch").arg("-l").arg(probe);
+    command
+        .args(&profile.args)
+        .arg("--batch")
+        .arg("-l")
+        .arg(probe);
     command.env("AGENDUM_IMPORT_SOURCE", "batch-profile");
     command.env("AGENDUM_PROBE_STDOUT", "1");
     if verify {
@@ -157,8 +159,7 @@ fn run(command: &mut Command, label: &str) -> Result<Output> {
 }
 
 fn parse_process_json(output: &Output, editor: &str) -> Result<ResolvedEditorConfig> {
-    parse_marked_json(&output.stdout, editor)
-        .or_else(|_| parse_marked_json(&output.stderr, editor))
+    parse_marked_json(&output.stdout, editor).or_else(|_| parse_marked_json(&output.stderr, editor))
 }
 
 fn parse_marked_json(bytes: &[u8], editor: &str) -> Result<ResolvedEditorConfig> {
@@ -288,7 +289,8 @@ fn verify_snapshot(
                 status: ImportStatus::Difference,
                 key: command.key.clone(),
                 description: command.description.clone(),
-                detail: "declarative command imported; live nvim-orgmode rows are not a stable API".to_string(),
+                detail: "declarative command imported; live nvim-orgmode rows are not a stable API"
+                    .to_string(),
             });
             continue;
         }
@@ -557,7 +559,6 @@ fn verification_start(settings: &Settings, today: NaiveDate) -> NaiveDate {
             .unwrap_or(today)
     }
 }
-
 
 fn probe_file(name: &str, contents: &str) -> Result<tempfile::NamedTempFile> {
     let suffix = Path::new(name)

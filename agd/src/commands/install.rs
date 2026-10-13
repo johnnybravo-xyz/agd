@@ -78,7 +78,12 @@ fn install_claude(directory: &Path, session_profile: Option<&str>) -> Result<()>
             .entry("SessionStart")
             .or_insert_with(|| Value::Array(Vec::new()))
             .as_array_mut()
-            .ok_or_else(|| anyhow!("{}.hooks.SessionStart must be an array", settings_path.display()))?;
+            .ok_or_else(|| {
+                anyhow!(
+                    "{}.hooks.SessionStart must be an array",
+                    settings_path.display()
+                )
+            })?;
         let command = format!("agd agenda --span day --brief --profile {profile}");
         if !session.iter().any(|entry| {
             entry.pointer("/hooks/0/command").and_then(Value::as_str) == Some(command.as_str())
@@ -91,7 +96,10 @@ fn install_claude(directory: &Path, session_profile: Option<&str>) -> Result<()>
         write_json(&settings_path, &settings)?;
     }
 
-    println!("installed Claude Code integration in {}", directory.display());
+    println!(
+        "installed Claude Code integration in {}",
+        directory.display()
+    );
     if session_profile.is_none() {
         println!("session agenda disabled; use --with-session-agenda PROFILE to opt in");
     }
@@ -114,14 +122,20 @@ fn install_codex(directory: &Path) -> Result<()> {
     servers.insert(
         "agendum".to_string(),
         toml::Value::Table(toml::Table::from_iter([
-            ("command".to_string(), toml::Value::String("agd".to_string())),
+            (
+                "command".to_string(),
+                toml::Value::String("agd".to_string()),
+            ),
             (
                 "args".to_string(),
                 toml::Value::Array(vec![toml::Value::String("mcp".to_string())]),
             ),
         ])),
     );
-    atomic_write(&config_path, format!("{}\n", toml::to_string_pretty(&config)?).as_bytes())?;
+    atomic_write(
+        &config_path,
+        format!("{}\n", toml::to_string_pretty(&config)?).as_bytes(),
+    )?;
     write_skill(directory.join(".codex/skills/agendum/SKILL.md"))?;
     println!("installed Codex integration in {}", directory.display());
     println!("session agenda disabled");
@@ -182,18 +196,17 @@ fn read_json_object(path: &Path) -> Result<Map<String, Value>> {
         .ok_or_else(|| anyhow!("{} must contain a JSON object", path.display()))
 }
 
-fn object_at<'a>(root: &'a mut Map<String, Value>, key: &str) -> Result<&'a mut Map<String, Value>> {
+fn object_at<'a>(
+    root: &'a mut Map<String, Value>,
+    key: &str,
+) -> Result<&'a mut Map<String, Value>> {
     root.entry(key.to_string())
         .or_insert_with(|| Value::Object(Map::new()))
         .as_object_mut()
         .ok_or_else(|| anyhow!("{key} must be a JSON object"))
 }
 
-fn table_at<'a>(
-    root: &'a mut toml::Table,
-    key: &str,
-    path: &Path,
-) -> Result<&'a mut toml::Table> {
+fn table_at<'a>(root: &'a mut toml::Table, key: &str, path: &Path) -> Result<&'a mut toml::Table> {
     root.entry(key.to_string())
         .or_insert_with(|| toml::Value::Table(Default::default()))
         .as_table_mut()
@@ -214,14 +227,17 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| anyhow!("{} has no parent directory", path.display()))?;
-    fs::create_dir_all(parent)
-        .with_context(|| format!("cannot create {}", parent.display()))?;
+    fs::create_dir_all(parent).with_context(|| format!("cannot create {}", parent.display()))?;
     let temporary = parent.join(format!(
         ".{}.agendum.{}.tmp",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("config"),
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("config"),
         std::process::id()
     ));
-    let permissions = fs::metadata(path).ok().map(|metadata| metadata.permissions());
+    let permissions = fs::metadata(path)
+        .ok()
+        .map(|metadata| metadata.permissions());
     let mut file = OpenOptions::new()
         .create_new(true)
         .write(true)

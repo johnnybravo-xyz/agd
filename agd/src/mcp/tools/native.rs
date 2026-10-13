@@ -5,8 +5,8 @@ use org_core::{
     AgendaEngine, AgendaQuery, AgendaSpan, AgendumError, CaptureDraft, Change, EditIntent,
     PlanningTimestamp, WorkspaceIndex, WriteContext, WriteEngine, parse_date_input,
 };
-use rmcp::{Peer, RoleServer,
-    ErrorData as McpError,
+use rmcp::{
+    ErrorData as McpError, Peer, RoleServer,
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ContentBlock, ErrorCode},
     schemars, tool, tool_router,
@@ -82,7 +82,10 @@ struct QueryRequest {
 
 #[tool_router(router = "tool_router_native", vis = "pub(crate)")]
 impl OrgModeRouter {
-    #[tool(name = "agenda", description = "Return native agenda-entry/v1 rows for a date span")]
+    #[tool(
+        name = "agenda",
+        description = "Return native agenda-entry/v1 rows for a date span"
+    )]
     async fn agenda(
         &self,
         Parameters(request): Parameters<AgendaRequest>,
@@ -96,7 +99,11 @@ impl OrgModeRouter {
                 .map(|value| parse_day(value, today))
                 .transpose()?
                 .unwrap_or(today);
-            let span = match request.span.as_deref().unwrap_or(&self.settings.agenda.span) {
+            let span = match request
+                .span
+                .as_deref()
+                .unwrap_or(&self.settings.agenda.span)
+            {
                 "day" => AgendaSpan::Day,
                 "week" => AgendaSpan::Week,
                 "month" => AgendaSpan::Month,
@@ -118,7 +125,10 @@ impl OrgModeRouter {
         schema_result(result)
     }
 
-    #[tool(name = "capture", description = "Capture a literal item with a configured template")]
+    #[tool(
+        name = "capture",
+        description = "Capture a literal item with a configured template"
+    )]
     async fn capture(
         &self,
         Parameters(request): Parameters<CaptureRequest>,
@@ -145,7 +155,10 @@ impl OrgModeRouter {
         schema_result(result)
     }
 
-    #[tool(name = "set_state", description = "Set an item's TODO state after ref revalidation")]
+    #[tool(
+        name = "set_state",
+        description = "Set an item's TODO state after ref revalidation"
+    )]
     async fn set_state(
         &self,
         Parameters(request): Parameters<SetStateRequest>,
@@ -165,7 +178,10 @@ impl OrgModeRouter {
         ))
     }
 
-    #[tool(name = "plan", description = "Set an item's scheduled and/or deadline timestamp")]
+    #[tool(
+        name = "plan",
+        description = "Set an item's scheduled and/or deadline timestamp"
+    )]
     async fn plan(
         &self,
         Parameters(request): Parameters<PlanRequest>,
@@ -206,7 +222,10 @@ impl OrgModeRouter {
         schema_result(result)
     }
 
-    #[tool(name = "edit", description = "Edit item title, tags, priority, properties, or note")]
+    #[tool(
+        name = "edit",
+        description = "Edit item title, tags, priority, properties, or note"
+    )]
     async fn edit(
         &self,
         Parameters(request): Parameters<EditRequest>,
@@ -230,7 +249,10 @@ impl OrgModeRouter {
         ))
     }
 
-    #[tool(name = "query", description = "Query items with the supported org-ql subset")]
+    #[tool(
+        name = "query",
+        description = "Query items with the supported org-ql subset"
+    )]
     async fn query(
         &self,
         Parameters(request): Parameters<QueryRequest>,
@@ -257,7 +279,9 @@ fn edit(
     )
 }
 
-fn schema_result<T: Serialize>(result: Result<T, AgendumError>) -> Result<CallToolResult, McpError> {
+fn schema_result<T: Serialize>(
+    result: Result<T, AgendumError>,
+) -> Result<CallToolResult, McpError> {
     let content = match result {
         Ok(value) => ContentBlock::json(value),
         Err(error) => ContentBlock::json(error.response()),

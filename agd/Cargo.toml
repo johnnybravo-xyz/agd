@@ -2,7 +2,6 @@
 anyhow = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-config = { workspace = true }
 crossterm.workspace = true
 csv.workspace = true
 notify.workspace = true
