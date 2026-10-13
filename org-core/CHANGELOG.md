@@ -13,6 +13,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `todo.ids = "add-on-write"` gives a heading without `:ID:` a UUID v4 ID on
+  its first edit, state change or planning change, as Emacs org-id does.
 - Support the `%u`, `%T` and `%%` capture template escapes.
 
 ### Fixed

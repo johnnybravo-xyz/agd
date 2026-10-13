@@ -9,8 +9,8 @@ use sha2::{Digest, Sha256};
 use similar::TextDiff;
 
 use crate::{
-    AgdError, ByteSpan, CaptureDraft, CaptureTemplate, HeadlineSpan, IndexedDocument, Item,
-    MUTATION_SCHEMA, Mutation, PlanningTimestamp, RootSet, Settings, WorkspaceIndex,
+    AgdError, ByteSpan, CaptureDraft, CaptureTemplate, HeadlineSpan, IdPolicy, IndexedDocument,
+    Item, MUTATION_SCHEMA, Mutation, PlanningTimestamp, RootSet, Settings, WorkspaceIndex,
     format_active_timestamp, render_capture_template,
 };
 
@@ -951,6 +951,13 @@ fn build_edit_patches(
     let mut deadline = change_value(&headline.item.planning.deadline, &intent.deadline);
     let mut closed = headline.item.planning.closed.clone();
     let mut properties = intent.properties.clone();
+    if settings.todo.ids == IdPolicy::AddOnWrite
+        && headline.item.id.is_none()
+        && !properties.contains_key("ID")
+    {
+        // Same shape as Emacs org-id with the default uuid method.
+        properties.insert("ID".to_string(), Some(uuid::Uuid::new_v4().to_string()));
+    }
     let mut note = intent.note.clone();
 
     let requested_done = state
@@ -1596,6 +1603,40 @@ mod tests {
             .unwrap();
         assert!(human_capture.item.file.ends_with("work.org"));
         assert!(human_capture.diff.contains("SCHEDULED: <2026-10-15 Thu>"));
+    }
+
+    #[test]
+    fn add_on_write_inserts_an_id_only_when_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("tasks.org");
+        fs::write(
+            &path,
+            "* TODO New\n* TODO Known\n:PROPERTIES:\n:ID: kept\n:END:\n",
+        )
+        .unwrap();
+        let mut settings = settings(temp.path());
+        settings.todo.ids = IdPolicy::AddOnWrite;
+        let refs: Vec<String> = WorkspaceIndex::load(settings.clone())
+            .unwrap()
+            .items()
+            .map(|item| item.item_ref.clone())
+            .collect();
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let done = EditIntent {
+            state: Change::Set("DONE".to_string()),
+            ..EditIntent::default()
+        };
+        let added = engine.edit(&refs[0], &done, false, &context()).unwrap();
+        let id = added.item.id.clone().unwrap();
+        assert_eq!(id.len(), 36);
+        assert_eq!(added.item.item_ref, id);
+        engine.edit("kept", &done, false, &context()).unwrap();
+        let written = fs::read_to_string(&path).unwrap();
+        assert_eq!(written.matches(":ID:").count(), 2);
+        assert!(
+            written.contains(&format!(":ID:       {id}"))
+                || written.contains(&format!(":ID: {id}"))
+        );
     }
 
     #[test]

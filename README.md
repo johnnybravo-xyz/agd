@@ -131,7 +131,7 @@ agenda = ["**/*.org"]
 
 [todo]
 sequences = [["TODO", "NEXT", "WAIT", "|", "DONE", "CANCELLED"]]
-ids = "preserve" # or "add-on-write"
+ids = "preserve" # "add-on-write" adds a UUID :ID: on first edit
 
 [agenda]
 span = "week"
