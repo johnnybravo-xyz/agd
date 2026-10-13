@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `agd check` with human and JSON reports for unreadable input, invalid
+  UTF-8, parser byte drift, and duplicate heading IDs.
+- Added path-based checks that work without loading the normal application
+  configuration; with no path, the command checks the configured org root.
+
 ## [0.0.1] - 2026-10-13
 
 ### Changed

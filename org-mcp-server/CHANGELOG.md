@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Updated `rmcp` to 3.5.1 for current MCP tool-schema compatibility.
+- Restricted production MCP features to the server and stdio transport; client
+  and child-process support remain test-only.
+
 ## [0.1.1](https://github.com/szaffarano/org-mcp-server/compare/org-mcp-server-v0.1.0...org-mcp-server-v0.1.1)
 
 ### ✨ Features

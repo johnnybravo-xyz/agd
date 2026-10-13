@@ -1,4 +1,4 @@
-# justfile for org-mcp-server
+# Development commands for the agd workspace
 
 # Variables
 coverage_dir := "coverage"
@@ -11,17 +11,17 @@ _default:
 
 # Build all crates
 build:
-    cargo build
+    cargo build --workspace --all-targets
 
 # Build release version
 build-release:
-    cargo build --release
+    cargo build --workspace --all-targets --release
 
 # === Test & Coverage Recipes ===
 
 # Run all tests
 test:
-    cargo test
+    cargo test --workspace --all-targets --all-features
 
 # Clean build artifacts and coverage reports
 clean:
@@ -31,26 +31,26 @@ clean:
 # Generate HTML coverage report
 coverage-html:
     @echo "Generating HTML coverage report..."
-    cargo llvm-cov --html --output-dir {{coverage_dir}}/html
+    cargo llvm-cov --workspace --all-features --html --output-dir {{coverage_dir}}/html
     @echo "Coverage report generated in {{coverage_dir}}/html/"
     @echo "Open {{coverage_dir}}/html/index.html in your browser"
 
 # Show coverage summary in terminal
 coverage-summary:
     @echo "Running coverage analysis..."
-    cargo llvm-cov --summary-only
+    cargo llvm-cov --workspace --all-features --summary-only
 
 # Generate coverage for CI (LCOV format)
 coverage-ci:
     @echo "Generating coverage report for CI..."
     mkdir -p {{coverage_dir}}
-    cargo llvm-cov --lcov --output-path {{coverage_dir}}/lcov.info
+    cargo llvm-cov --workspace --all-features --lcov --output-path {{coverage_dir}}/lcov.info
 
 # Generate JSON coverage report
 coverage-json:
     @echo "Generating JSON coverage report..."
     mkdir -p {{coverage_dir}}
-    cargo llvm-cov --json --output-path {{coverage_dir}}/coverage.json
+    cargo llvm-cov --workspace --all-features --json --output-path {{coverage_dir}}/coverage.json
 
 # Generate all coverage formats
 coverage: coverage-html coverage-ci coverage-json coverage-summary
@@ -63,7 +63,7 @@ coverage: coverage-html coverage-ci coverage-json coverage-summary
 
 # Run clippy linter
 lint:
-    cargo clippy --all-targets --all-features -- -D warnings
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # Format code
 fmt:
@@ -71,7 +71,7 @@ fmt:
 
 # Check code formatting without modifying
 fmt-check:
-    cargo fmt --all -- --check
+    cargo fmt --all --check
 
 # === Workflow Recipes ===
 

@@ -7,6 +7,8 @@ on:
       - "Cargo.lock"
       - ".github/workflows/ci.yml"
       - "**/*.rs"
+      - "flake.nix"
+      - "flake.lock"
   push:
     branches: [master]
     paths:
@@ -14,6 +16,13 @@ on:
       - "Cargo.lock"
       - ".github/workflows/ci.yml"
       - "**/*.rs"
+      - "flake.nix"
+      - "flake.lock"
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
 jobs:
@@ -36,7 +45,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
       - name: Enforce formatting
-        run: cargo fmt --check
+        run: cargo fmt --all --check
 
   clippy:
     name: Clippy
@@ -57,7 +66,7 @@ jobs:
         with:
           components: clippy
       - name: Linting
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
     name: Test
@@ -65,7 +74,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [stable, beta]
+        rust: ["1.89.0", stable]
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
@@ -82,10 +91,8 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
-      - name: Build
-        run: cargo build --verbose --all-targets --all-features
       - name: Run tests
-        run: cargo test --verbose --all-targets --all-features
+        run: cargo test --workspace --all-targets --all-features
 
   machete:
     name: Detect unused dependencies
@@ -95,3 +102,14 @@ jobs:
         uses: actions/checkout@v7
       - name: Machete
         uses: bnjbvr/cargo-machete@v0.9.2
+
+  nix:
+    name: Nix flake
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      - name: Check flake outputs
+        run: nix flake check --print-build-logs
+      - name: Build Nix packages
+        run: nix build .#agd .#org-mcp-server --print-build-logs

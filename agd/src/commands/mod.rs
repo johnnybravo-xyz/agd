@@ -1,5 +1,6 @@
 pub mod agenda;
 pub mod capture;
+pub mod check;
 pub mod config;
 pub mod element_by_id;
 pub mod heading;
@@ -11,6 +12,7 @@ pub mod update_todo;
 
 pub use agenda::AgendaCommand;
 pub use capture::CaptureCommand;
+pub use check::CheckCommand;
 pub use config::ConfigCommand;
 pub use element_by_id::ElementByIdCommand;
 pub use heading::HeadingCommand;

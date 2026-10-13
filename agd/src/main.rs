@@ -1,3 +1,5 @@
+use std::process::ExitCode;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use org_core::OrgMode;
@@ -5,8 +7,8 @@ use org_core::OrgMode;
 mod commands;
 mod config;
 use commands::{
-    AgendaCommand, CaptureCommand, ConfigCommand, ElementByIdCommand, HeadingCommand, ListCommand,
-    OutlineCommand, ReadCommand, SearchCommand, UpdateTodoCommand,
+    AgendaCommand, CaptureCommand, CheckCommand, ConfigCommand, ElementByIdCommand, HeadingCommand,
+    ListCommand, OutlineCommand, ReadCommand, SearchCommand, UpdateTodoCommand,
 };
 use config::CliAppConfig;
 
@@ -33,6 +35,8 @@ enum Commands {
     Agenda(AgendaCommand),
     /// Capture a new heading into an org file
     Capture(Box<CaptureCommand>),
+    /// Check org files for parsing and identity problems
+    Check(CheckCommand),
     /// Configuration management
     Config(ConfigCommand),
     /// List all .org files in a directory
@@ -51,39 +55,59 @@ enum Commands {
     UpdateTodo(Box<UpdateTodoCommand>),
 }
 
-fn main() {
-    if let Err(e) = run() {
-        eprintln!("Error: {e:#}");
-        std::process::exit(1);
+fn main() -> ExitCode {
+    match run() {
+        Ok(true) => ExitCode::FAILURE,
+        Ok(false) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("Error: {error:#}");
+            ExitCode::FAILURE
+        }
     }
 }
 
-fn run() -> Result<()> {
-    let cli = Cli::parse();
+fn run() -> Result<bool> {
+    let Cli {
+        config,
+        root_directory,
+        command,
+    } = Cli::parse();
 
-    match cli.command {
-        Commands::Config(cmd) => cmd.execute(cli.config),
-        _ => {
-            // Load configuration with CLI overrides for non-config commands
+    match command {
+        Commands::Config(command) => {
+            command.execute(config)?;
+            Ok(false)
+        }
+        Commands::Check(command) => {
+            let default_root = if command.has_explicit_paths() {
+                None
+            } else {
+                let config = CliAppConfig::load(config, root_directory, None)?;
+                Some(config.org.org_directory.into())
+            };
+            command.execute(default_root)
+        }
+        command => {
             let config = CliAppConfig::load(
-                cli.config,
-                cli.root_directory,
+                config,
+                root_directory,
                 None, // log_level not needed for CLI
             )?;
-
             let org_mode = OrgMode::new(config.org)?;
-            match cli.command {
-                Commands::Agenda(cmd) => cmd.execute(org_mode, config.cli),
-                Commands::Capture(cmd) => cmd.execute(org_mode, config.cli),
-                Commands::Config(_) => unreachable!(),
-                Commands::List(cmd) => cmd.execute(org_mode, config.cli),
-                Commands::Read(cmd) => cmd.execute(org_mode, config.cli),
-                Commands::Outline(cmd) => cmd.execute(org_mode, config.cli),
-                Commands::Heading(cmd) => cmd.execute(org_mode, config.cli),
-                Commands::ElementById(cmd) => cmd.execute(org_mode, config.cli),
-                Commands::Search(cmd) => cmd.execute(org_mode, config.cli),
-                Commands::UpdateTodo(cmd) => cmd.execute(org_mode, config.cli),
-            }
+
+            match command {
+                Commands::Agenda(command) => command.execute(org_mode, config.cli),
+                Commands::Capture(command) => command.execute(org_mode, config.cli),
+                Commands::List(command) => command.execute(org_mode, config.cli),
+                Commands::Read(command) => command.execute(org_mode, config.cli),
+                Commands::Outline(command) => command.execute(org_mode, config.cli),
+                Commands::Heading(command) => command.execute(org_mode, config.cli),
+                Commands::ElementById(command) => command.execute(org_mode, config.cli),
+                Commands::Search(command) => command.execute(org_mode, config.cli),
+                Commands::UpdateTodo(command) => command.execute(org_mode, config.cli),
+                Commands::Check(_) | Commands::Config(_) => unreachable!(),
+            }?;
+            Ok(false)
         }
     }
 }

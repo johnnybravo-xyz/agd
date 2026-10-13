@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added a source-preserving `OrgDocument` parser that honors in-file `#+TODO`
+  and `#+SEQ_TODO` declarations and indexes headline source spans.
+- Added deterministic path checks for parse stability and duplicate heading
+  IDs.
+
 ## [0.0.1] - 2026-10-13
 
 ### Changed

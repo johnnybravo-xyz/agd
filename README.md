@@ -40,6 +40,7 @@ cargo install --path agd --locked
 ```text
 agd agenda         Agenda views and task management
 agd capture        Capture a new heading
+agd check          Check parsing, byte stability, and duplicate IDs
 agd config         Initialize, inspect, or locate configuration
 agd list           List org files
 agd read           Read an org file
@@ -51,8 +52,8 @@ agd update-todo    Update heading state, planning, tags, properties, or body
 ```
 
 Use `agd --help` and `agd <command> --help` for the complete argument surface.
-Every command that returns structured data supports JSON where its `--format`
-option is available.
+Commands with a `--format` option can return structured JSON. `agd check`
+accepts `--json` and exits with status 1 when it finds a problem.
 
 ### Examples
 
@@ -60,6 +61,10 @@ option is available.
 # Work against a directory without creating a config file.
 agd --root-directory ~/org list
 agd --root-directory ~/org search "project planning"
+
+# Validate a configured root or explicit paths before enabling writes.
+agd check
+agd check --json ~/org
 
 # Agenda views.
 agd --root-directory ~/org agenda today

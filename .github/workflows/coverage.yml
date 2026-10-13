@@ -23,28 +23,17 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "coverage"
-      - name: Create test fixture directories
-        run: |
-          mkdir -p org-core/tests/fixtures
-          # Create minimal test fixtures if they don't exist
-          if [ ! -f org-core/tests/fixtures/with_ids.org ]; then
-            echo "* Heading with Simple ID" > org-core/tests/fixtures/with_ids.org
-            echo ":PROPERTIES:" >> org-core/tests/fixtures/with_ids.org
-            echo ":ID: simple-123" >> org-core/tests/fixtures/with_ids.org
-            echo ":END:" >> org-core/tests/fixtures/with_ids.org
-          fi
       - name: Run tests with coverage
-        run: |
-          cargo build
-          cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+        run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
       - name: Generate coverage summary
         run: |
-          cargo build
-          cargo llvm-cov --all-features --workspace --summary-only > coverage-summary.txt
-          echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat coverage-summary.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          cargo llvm-cov report --summary-only | tee coverage-summary.txt
+          {
+            echo "## Coverage Summary"
+            echo '```text'
+            cat coverage-summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:

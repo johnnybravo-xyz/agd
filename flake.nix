@@ -1,5 +1,5 @@
 {
-  description = "OrgMode MCP Server";
+  description = "Local-first org-mode tools for terminals and coding agents";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -30,6 +30,8 @@
       systems = [
         "x86_64-linux"
         "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
       ];
 
       imports = [
@@ -38,57 +40,70 @@
       ];
 
       perSystem = {
-        self',
         config,
-        pkgs,
         system,
         ...
       }: let
-        overlays = [(import rust-overlay)];
-        pkgsWithOverlay = import nixpkgs {
-          inherit system overlays;
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [(import rust-overlay)];
         };
-
-        rustToolchain = pkgsWithOverlay.rust-bin.stable.latest.default.override {
+        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [
-            "rust-src"
             "rust-analyzer"
+            "rust-src"
+            "rustfmt"
+            "clippy"
             "llvm-tools-preview"
           ];
         };
-
-        rustPlatform = pkgsWithOverlay.makeRustPlatform {
+        rustPlatform = pkgs.makeRustPlatform {
           cargo = rustToolchain;
           rustc = rustToolchain;
         };
-      in {
-        packages = {
-          default = self'.packages.org-mcp;
-          org-mcp = rustPlatform.buildRustPackage rec {
-            pname = "org-mcp-server";
-            version = let
-              cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
-            in
-              cargoToml.workspace.package.version;
-
+        crateVersion = manifest:
+          (builtins.fromTOML (builtins.readFile manifest)).package.version;
+        mkRustPackage = {
+          pname,
+          manifest,
+          description,
+        }:
+          rustPlatform.buildRustPackage {
+            inherit pname;
+            version = crateVersion manifest;
             src = pkgs.lib.cleanSource ./.;
-            cargoLock = {
-              lockFile = ./Cargo.lock;
-            };
+            cargoLock.lockFile = ./Cargo.lock;
+            cargoBuildFlags = ["--package=${pname}"];
+            cargoTestFlags = ["--package=${pname}"];
+            cargoInstallFlags = ["--package=${pname}"];
 
-            nativeBuildInputs = [];
-            buildInputs = [];
-            meta = with pkgs.lib; {
-              description = "OrgMode MCP Server Full";
+            meta = {
+              inherit description;
               homepage = "https://github.com/johnnybravo-xyz/agd";
-              license = licenses.gpl3Plus;
-              maintainers = [];
+              license = pkgs.lib.licenses.gpl3Plus;
+              mainProgram = pname;
+              platforms = pkgs.lib.platforms.unix;
             };
           };
+      in {
+        packages = rec {
+          agd = mkRustPackage {
+            pname = "agd";
+            manifest = ./agd/Cargo.toml;
+            description = "Local-first command-line tools for org-mode files";
+          };
+          org-mcp-server = mkRustPackage {
+            pname = "org-mcp-server";
+            manifest = ./org-mcp-server/Cargo.toml;
+            description = "Stdio MCP adapter for org-mode files";
+          };
+          default = agd;
         };
+
         pre-commit = {
           check.enable = true;
           settings = {
+            src = ./.;
             hooks = {
               alejandra.enable = true;
               rustfmt.enable = true;
@@ -97,69 +112,31 @@
             };
           };
         };
+
         treefmt = {
           projectRootFile = "flake.nix";
           programs = {
             alejandra.enable = true;
-            deadnix.enable = true;
             rustfmt.enable = true;
-            statix.enable = true;
-            jsonfmt.enable = true;
-            mdformat.enable = true;
-            shfmt.enable = true;
-            toml-sort.enable = true;
-            yamlfmt.enable = true;
-          };
-          settings = {
-            on-unmatched = "info";
-            excludes = [
-              "Cargo.toml"
-              "*.conf"
-              "*.css"
-              "flake.lock"
-              "*.ini"
-              "*.pub"
-            ];
-          };
-          settings.formatter.shfmt = {
-            includes = [
-              "*.sh"
-            ];
           };
         };
 
-        devShells = {
-          default = pkgsWithOverlay.mkShell {
-            shellHook = ''
-              ${config.pre-commit.installationScript}
-            '';
-            inherit (self'.checks) pre-commit;
-            packages = with pkgsWithOverlay; [
-              cargo-bloat
-              cargo-deny
-              cargo-edit
-              cargo-llvm-cov
-              cargo-machete
-              cargo-nextest
-              cargo-outdated
-              cargo-semver-checks
-              cargo-udeps
-              cargo-watch
-              curl
-              git
-              jq
-              just
-              pkgs.alejandra
-              pkgs.deadnix
-              pkgs.statix
-              release-plz
-              rustToolchain
-            ];
-
-            env = {
-              RUST_BACKTRACE = "1";
-            };
-          };
+        devShells.default = pkgs.mkShell {
+          shellHook = config.pre-commit.installationScript;
+          packages = with pkgs; [
+            alejandra
+            cargo-deny
+            cargo-edit
+            cargo-llvm-cov
+            cargo-machete
+            cargo-nextest
+            deadnix
+            git
+            just
+            rustToolchain
+            statix
+          ];
+          RUST_BACKTRACE = "1";
         };
       };
     };

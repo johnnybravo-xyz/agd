@@ -3,7 +3,11 @@
 //! This module contains tests that verify the functionality of tools exposed
 //! by the org-mcp-server, including org-file-list and org-search tools.
 
-use rmcp::model::CallToolRequestParams;
+use rmcp::{
+    ClientLifecycleMode, ClientServiceExt,
+    model::{CacheScope, CallToolRequestParams, ProtocolVersion},
+    transport::{ConfigureCommandExt, TokioChildProcess},
+};
 use serde_json::{Map, Value};
 use tracing::{info, warn};
 use tracing_test::traced_test;
@@ -39,6 +43,32 @@ async fn test_list_tools() -> Result<(), Box<dyn std::error::Error>> {
     service.cancel().await?;
     info!("List tools test completed successfully");
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_modern_tool_list_has_required_cache_hints() -> Result<(), Box<dyn std::error::Error>>
+{
+    let temp_dir = setup_test_org_files()?;
+    let command = tokio::process::Command::new(crate::get_binary_path("org-mcp-server")).configure(
+        |command| {
+            command.args(["--root-directory", temp_dir.path().to_str().unwrap()]);
+        },
+    );
+    let service = ()
+        .serve_with_lifecycle(
+            TokioChildProcess::new(command)?,
+            ClientLifecycleMode::Discover {
+                preferred_versions: vec![ProtocolVersion::V_2026_07_28],
+            },
+        )
+        .await?;
+
+    let tools = service.list_tools(Default::default()).await?;
+
+    assert_eq!(tools.ttl_ms, Some(0));
+    assert_eq!(tools.cache_scope, Some(CacheScope::Public));
+    service.cancel().await?;
     Ok(())
 }
 

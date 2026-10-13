@@ -8,9 +8,16 @@
   },
   "packageRules": [
     {
+      "description": "Keep rowan compatible with orgize's syntax tree",
       "matchManagers": ["cargo"],
       "matchPackageNames": ["rowan"],
       "allowedVersions": "0.15"
+    },
+    {
+      "description": "Keep orgize exactly pinned for source-preserving writes",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["orgize"],
+      "rangeStrategy": "pin"
     }
   ]
 }
