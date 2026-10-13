@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `#+SEQ_TODO` declarations and indexes headline source spans.
 - Added deterministic path checks for parse stability and duplicate heading
   IDs.
+- Added typed item refs, planning occurrences, inherited tags/categories, and
+  deterministic agenda ordering with repeaters, ranges, and deadline warnings.
+- Added tags/TODO matching, the supported org-ql subset, and
+  Emacs-compatible agenda CSV rows.
+- Added minimal byte-span mutations for TODO state, planning, metadata,
+  capture, and subtree refile.
+- Added advisory locks, Emacs dirty-lock detection, fresh ref validation,
+  crash-consistent journals, atomic replacement, and guarded undo.
+- Added strict rooted discovery, symlink read containment, symlink write
+  refusal, and stable machine-readable error responses.
+- Added versioned cold import snapshots that cannot broaden configured roots.
 
 ## [0.0.1] - 2026-10-13
 
