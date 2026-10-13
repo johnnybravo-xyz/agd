@@ -31,6 +31,7 @@ pub struct ImportExecution {
 
 pub fn import_emacs(
     settings: &Settings,
+    server: Option<&str>,
     batch_profile: Option<&str>,
     destination: &Path,
     write: bool,
@@ -44,9 +45,15 @@ pub fn import_emacs(
             .batch_profiles
             .get(profile)
             .ok_or_else(|| anyhow!("unknown Emacs batch profile: {profile}"))?;
+        eprintln!(
+            "warning: the batch profile runs your Emacs configuration: {} {}",
+            profile.command,
+            profile.args.join(" ")
+        );
         run_emacs_batch(profile, probe.path(), verify)?
     } else {
-        run_emacs_daemon(settings, probe.path(), verify).context(
+        let server = server.or(settings.imports.emacs.server.as_deref());
+        run_emacs_daemon(settings, server, probe.path(), verify).context(
             "no usable Emacs daemon; start the selected daemon or choose an explicit --batch-profile",
         )?
     };
@@ -93,6 +100,7 @@ pub fn import_nvim(
 
 fn run_emacs_daemon(
     settings: &Settings,
+    server: Option<&str>,
     probe: &Path,
     verify: bool,
 ) -> Result<ResolvedEditorConfig> {
@@ -104,7 +112,7 @@ fn run_emacs_daemon(
             .unwrap_or_else(|| "emacsclient".to_string()),
     );
     command.args(&import.args);
-    if let Some(server) = &import.server {
+    if let Some(server) = server {
         command.arg("--socket-name").arg(server);
     }
     let quoted_path = serde_json::to_string(&probe.to_string_lossy().as_ref())?;

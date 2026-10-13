@@ -22,6 +22,9 @@ enum ImportEditor {
 
 #[derive(Args, Debug)]
 struct EmacsImport {
+    /// Emacs server (socket) name to ask; overrides imports.emacs.server
+    #[arg(long, conflicts_with = "batch_profile")]
+    server: Option<String>,
     /// Explicit configured batch profile; never selected implicitly
     #[arg(long)]
     batch_profile: Option<String>,
@@ -72,6 +75,7 @@ impl ImportCommand {
                 }
                 let result = import_emacs(
                     &loaded.settings,
+                    command.server.as_deref(),
                     command.batch_profile.as_deref(),
                     &destination,
                     write,

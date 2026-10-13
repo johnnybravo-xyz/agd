@@ -6,6 +6,12 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `agd import emacs --server NAME` selects a running daemon by socket name.
+- `agd import emacs --batch-profile` prints the command it runs before
+  executing your Emacs configuration.
+
 ### Changed
 
 - Rename the product from agendum to Agenda. Identifiers use `agd`: the

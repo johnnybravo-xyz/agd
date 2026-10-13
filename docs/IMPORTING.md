@@ -55,6 +55,10 @@ agd import emacs --batch-profile vanilla --stdout
 agd import emacs --batch-profile vanilla --verify
 ```
 
+`--server NAME` asks a specific running daemon (`emacsclient --socket-name`)
+and overrides `imports.emacs.server`. A batch profile prints the command it is
+about to run, because it executes your Emacs configuration.
+
 Without `--batch-profile`, the configured daemon path is attempted. Failure is
 explicit and recommends choosing a profile; `agd` never falls back to whichever
 Emacs initialization happens to be available.
