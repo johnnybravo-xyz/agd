@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::string::FromUtf8Error;
 
+use crate::{AgendumError, RootSet, Settings};
 use ignore::WalkBuilder;
 use orgize::{Org, ParseConfig, ast::Headline as OrgHeadline, rowan::ast::AstNode};
 use serde::Serialize;
@@ -203,6 +204,110 @@ pub fn check_paths(roots: &[PathBuf]) -> CheckReport {
         files,
         problems,
     }
+}
+
+pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgendumError> {
+    let roots = RootSet::new(&settings.files)?;
+    let paths = roots.all_org_files()?;
+    let configured_keywords: std::collections::HashSet<&str> = settings
+        .todo
+        .sequences
+        .iter()
+        .flatten()
+        .filter(|keyword| keyword.as_str() != "|")
+        .filter_map(|keyword| keyword.split('(').next())
+        .collect();
+    let mut files = Vec::with_capacity(paths.len());
+    let mut problems = Vec::new();
+    let mut ids: HashMap<String, (String, usize)> = HashMap::new();
+    let mut headline_count = 0;
+
+    for path in paths {
+        let display_path = path.to_string_lossy().into_owned();
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                problems.push(CheckProblem {
+                    file: display_path,
+                    line: None,
+                    code: "read_error",
+                    message: error.to_string(),
+                });
+                continue;
+            }
+        };
+        let document = match crate::document::OrgDocument::parse(path, bytes, settings) {
+            Ok(document) => document,
+            Err(error) => {
+                let code = match error.code() {
+                    "non_utf8" => "non_utf8",
+                    "parse_drift" => "byte_drift",
+                    _ => "invalid_org",
+                };
+                problems.push(CheckProblem {
+                    file: display_path,
+                    line: None,
+                    code,
+                    message: error.to_string(),
+                });
+                continue;
+            }
+        };
+
+        let effective: std::collections::HashSet<&str> = document
+            .todo_active()
+            .iter()
+            .chain(document.todo_done())
+            .map(String::as_str)
+            .collect();
+        for headline in document.headlines() {
+            if let Some(id) = &headline.item.id {
+                if let Some((first_file, first_line)) = ids.get(id) {
+                    problems.push(CheckProblem {
+                        file: display_path.clone(),
+                        line: Some(headline.item.line),
+                        code: "duplicate_id",
+                        message: format!("ID {id:?} first appears at {first_file}:{first_line}"),
+                    });
+                } else {
+                    ids.insert(id.clone(), (display_path.clone(), headline.item.line));
+                }
+            }
+
+            if headline.item.todo.is_none()
+                && let Some(first) = headline.item.title.split_whitespace().next()
+                && configured_keywords.contains(first)
+                && !effective.contains(first)
+            {
+                problems.push(CheckProblem {
+                    file: display_path.clone(),
+                    line: Some(headline.item.line),
+                    code: "unknown_todo_keyword",
+                    message: format!(
+                        "TODO keyword {first:?} is not enabled by this file's #+TODO settings"
+                    ),
+                });
+            }
+        }
+
+        let headlines = document.headlines().len();
+        headline_count += headlines;
+        files.push(CheckFileReport {
+            file: display_path,
+            headlines,
+        });
+    }
+
+    Ok(CheckReport {
+        schema: CHECK_SCHEMA,
+        summary: CheckSummary {
+            files: files.len(),
+            headlines: headline_count,
+            errors: problems.len(),
+        },
+        files,
+        problems,
+    })
 }
 
 fn parse_org(source: &str) -> Org {

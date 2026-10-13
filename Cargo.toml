@@ -35,7 +35,8 @@ rmcp = { version = "3.5.1", features = ["transport-io"] }
 rowan = "0.15"
 serde_json = "1.0.149"
 serde = { version = "1.0", features = ["derive"] }
-serial_test = "4.0.0"
+sha2 = "0.10"
+serial_test = "3.2"
 shellexpand = "3.1.2"
 tempfile = "3.26"
 temp-env = "0.3.6"
