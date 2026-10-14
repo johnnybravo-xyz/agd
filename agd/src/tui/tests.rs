@@ -16,9 +16,11 @@ fn today() -> NaiveDate {
 }
 
 fn test_app(root: &Path) -> App {
-    let mut settings = Settings::default();
-    settings.files.roots = vec![root.to_string_lossy().into_owned()];
-    settings.files.agenda = vec!["*.org".to_string()];
+    let settings = Settings {
+        roots: vec![root.to_string_lossy().into_owned()],
+        agenda_files: vec!["*.org".to_string()],
+        ..Settings::default()
+    };
     let index = WorkspaceIndex::load(settings.clone()).unwrap();
     App::new(settings, index, today())
 }
@@ -162,8 +164,7 @@ fn capture_preview_is_the_exact_text_that_will_be_written() {
     with_home(|root| {
         fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
         let mut app = test_app(root);
-        app.settings.capture.get_mut("t").unwrap().file =
-            Some(root.join("inbox.org").to_string_lossy().into_owned());
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
         app.overlay = Overlay::Capture(capture::Draft::default());
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
         for key in "tRenew passport due:fri +personal #A".chars() {

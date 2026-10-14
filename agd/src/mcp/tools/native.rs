@@ -106,7 +106,7 @@ impl OrgModeRouter {
             let span = match request
                 .span
                 .as_deref()
-                .unwrap_or(&self.settings.agenda.span)
+                .unwrap_or(&self.settings.agenda_span)
             {
                 "day" => AgendaSpan::Day,
                 "week" => AgendaSpan::Week,
@@ -118,7 +118,7 @@ impl OrgModeRouter {
                     ));
                 }
             };
-            let (from, to) = span.bounds(from, &self.settings.agenda.week_start);
+            let (from, to) = span.bounds(from, &self.settings.week_start);
             AgendaEngine::new(&index).agenda(&AgendaQuery {
                 from,
                 to,

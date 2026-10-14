@@ -3,6 +3,14 @@ use std::fs;
 use assert_cmd::cargo;
 use serde_json::Value;
 
+/// agd with no user config: XDG_CONFIG_HOME points into the test directory,
+/// so the developer's own config is never read.
+fn agd(directory: &tempfile::TempDir) -> assert_cmd::Command {
+    let mut command = cargo::cargo_bin_cmd!("agd");
+    command.env("XDG_CONFIG_HOME", directory.path().join("config"));
+    command
+}
+
 #[test]
 fn check_uses_configured_root_and_emits_json() {
     let directory = tempfile::tempdir().expect("temporary directory");
@@ -13,7 +21,7 @@ fn check_uses_configured_root_and_emits_json() {
     .expect("org fixture");
     fs::write(directory.path().join("ignored.txt"), "* Ignored\n").expect("ignored fixture");
 
-    let assertion = cargo::cargo_bin_cmd!("agd")
+    let assertion = agd(&directory)
         .arg("--root-directory")
         .arg(directory.path())
         .args(["setup", "check"])
@@ -43,7 +51,7 @@ fn check_reports_duplicate_ids_and_exits_one() {
     )
     .expect("second fixture");
 
-    let assertion = cargo::cargo_bin_cmd!("agd")
+    let assertion = agd(&directory)
         .arg("--root-directory")
         .arg(directory.path())
         .args(["setup", "check"])

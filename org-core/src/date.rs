@@ -133,15 +133,6 @@ pub fn render_capture_template(
     prompts: &BTreeMap<String, String>,
     now: NaiveDateTime,
 ) -> Result<String, AgdError> {
-    if !template.enabled {
-        return Err(AgdError::new(
-            "disabled_template",
-            format!(
-                "capture template is disabled: {}",
-                template.diagnostics.join("; ")
-            ),
-        ));
-    }
     if template.template.contains("%(") {
         return Err(AgdError::new(
             "unsupported_template",

@@ -27,7 +27,7 @@ pub struct AgendaCommand {
     /// Emacs tags/todo match, e.g. 'work-someday/NEXT|TODO'
     #[arg(long = "match")]
     match_expression: Option<String>,
-    /// Run a saved view, like org-agenda's dispatcher keys (n, or [views.KEY])
+    /// Run a saved view, like org-agenda's dispatcher keys (n, or a [[view]] key)
     #[arg(long, conflicts_with_all = ["span", "match_expression"])]
     view: Option<String>,
     /// Use the files and match of a configured agents.profiles entry
@@ -60,13 +60,11 @@ impl AgendaCommand {
         let mut match_expression = self.match_expression;
         if let Some(name) = self.profile.as_deref() {
             let profile = settings
-                .agents
-                .profiles
-                .get(name)
+                .agent_profile(name)
                 .cloned()
                 .ok_or_else(|| anyhow!("unknown agent agenda profile: {name}"))?;
             if !profile.files.is_empty() {
-                settings.files.agenda = profile.files;
+                settings.agenda_files = profile.files;
             }
             match_expression = match_expression.or(profile.match_expression);
         }
@@ -81,8 +79,12 @@ impl AgendaCommand {
             None => default_start(&settings, today)?,
         };
         if let Some(key) = self.view.as_deref() {
-            let view = settings.views.get(key).ok_or_else(|| {
-                let keys: Vec<&str> = settings.views.keys().map(String::as_str).collect();
+            let view = settings.view(key).ok_or_else(|| {
+                let keys: Vec<&str> = settings
+                    .views
+                    .iter()
+                    .map(|view| view.key.as_str())
+                    .collect();
                 anyhow!(
                     "unknown view '{key}'; configured views: {}",
                     keys.join(", ")
@@ -110,7 +112,7 @@ impl AgendaCommand {
             Some(SpanArg::Month) => AgendaSpan::Month,
             None => span_from_settings(&settings),
         };
-        let (from, to) = span.bounds(start, &settings.agenda.week_start);
+        let (from, to) = span.bounds(start, &settings.week_start);
         let entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
             from,
             to,
@@ -235,7 +237,7 @@ fn render_view(sections: &[ViewSection], settings: &Settings) -> String {
 fn span_for_bounds(from: NaiveDate, to: NaiveDate, settings: &Settings) -> AgendaSpan {
     if from == to {
         AgendaSpan::Day
-    } else if AgendaSpan::Week.bounds(from, &settings.agenda.week_start) == (from, to) {
+    } else if AgendaSpan::Week.bounds(from, &settings.week_start) == (from, to) {
         AgendaSpan::Week
     } else {
         AgendaSpan::Month
@@ -307,14 +309,14 @@ fn parse_day(value: &str, today: NaiveDate) -> Result<NaiveDate> {
 }
 
 fn default_start(settings: &Settings, today: NaiveDate) -> Result<NaiveDate> {
-    let Some(value) = settings.agenda.start_day.as_deref() else {
+    let Some(value) = settings.agenda_start_day.as_deref() else {
         return Ok(today);
     };
     parse_day(value, today).with_context(|| format!("invalid agenda start_day: {value}"))
 }
 
 fn span_from_settings(settings: &Settings) -> AgendaSpan {
-    match settings.agenda.span.as_str() {
+    match settings.agenda_span.as_str() {
         "day" => AgendaSpan::Day,
         "month" => AgendaSpan::Month,
         _ => AgendaSpan::Week,

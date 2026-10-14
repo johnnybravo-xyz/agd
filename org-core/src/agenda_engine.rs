@@ -8,8 +8,8 @@ use regex::Regex;
 use serde::Serialize;
 
 use crate::{
-    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, AgendaSettings, HeadlineSpan, Item, Occurrence,
-    OccurrenceType, PlanningTimestamp, ViewBlock, ViewSettings, WorkspaceIndex,
+    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, HeadlineSpan, Item, Occurrence, OccurrenceType,
+    PlanningTimestamp, Settings, ViewBlock, ViewSettings, WorkspaceIndex,
 };
 
 /// Checks a view block's match the way `AgendaEngine::view` will use it.
@@ -153,7 +153,7 @@ impl<'a> AgendaEngine<'a> {
             file_entries.sort_by_key(|entry| collection_rank(entry.occurrence.kind));
             entries.extend(file_entries);
         }
-        let settings = &self.index.settings().agenda;
+        let settings = self.index.settings();
         let mut keyed: Vec<(i64, AgendaEntry)> = entries
             .into_iter()
             .map(|entry| (urgency(&entry, query.today, settings), entry))
@@ -161,8 +161,7 @@ impl<'a> AgendaEngine<'a> {
         let todo_order: Vec<String> = self
             .index
             .settings()
-            .todo
-            .sequences
+            .todo_keywords
             .iter()
             .flatten()
             .filter(|keyword| keyword.as_str() != "|")
@@ -253,8 +252,8 @@ impl<'a> AgendaEngine<'a> {
             let match_expression = block.match_expression.clone();
             let section = match block.kind.as_str() {
                 "agenda" => {
-                    let span = block.span.as_deref().unwrap_or(&settings.agenda.span);
-                    let (from, to) = span_days(span, start, &settings.agenda.week_start)?;
+                    let span = block.span.as_deref().unwrap_or(&settings.agenda_span);
+                    let (from, to) = span_days(span, start, &settings.week_start)?;
                     ViewSection {
                         header: block.header.clone().unwrap_or_default(),
                         from: Some(from),
@@ -328,7 +327,7 @@ impl<'a> AgendaEngine<'a> {
     ) -> Result<Vec<AgendaEntry>, AgdError> {
         let (from, to, today) = (query.from, query.to, query.today);
         let item = &headline.item;
-        let settings = &self.index.settings().agenda;
+        let settings = self.index.settings();
         let mut entries = Vec::new();
 
         // Scheduled and deadline expansion mirrors org-agenda-get-scheduled
@@ -991,7 +990,7 @@ fn collection_rank(kind: OccurrenceType) -> u8 {
 fn compare_by_strategy(
     (left_urgency, left): &(i64, AgendaEntry),
     (right_urgency, right): &(i64, AgendaEntry),
-    settings: &AgendaSettings,
+    settings: &Settings,
     todo_order: &[String],
 ) -> Ordering {
     let todo_rank = |entry: &AgendaEntry| {
@@ -1033,7 +1032,7 @@ fn keyword_name(keyword: &str) -> &str {
 /// org-agenda urgency: priority value (A=2000, B=1000, C=0 by default),
 /// raised by days overdue for today's deadline reminders, lowered by days
 /// left for upcoming ones, and raised by 99 plus days late for scheduled.
-fn urgency(entry: &AgendaEntry, today: NaiveDate, settings: &AgendaSettings) -> i64 {
+fn urgency(entry: &AgendaEntry, today: NaiveDate, settings: &Settings) -> i64 {
     let priority = priority_value(entry.item.priority.as_deref(), settings);
     let date = parse_date(&entry.occurrence.date).ok();
     match entry.occurrence.kind {
@@ -1065,7 +1064,7 @@ fn urgency(entry: &AgendaEntry, today: NaiveDate, settings: &AgendaSettings) -> 
     }
 }
 
-fn priority_value(priority: Option<&str>, settings: &AgendaSettings) -> i64 {
+fn priority_value(priority: Option<&str>, settings: &Settings) -> i64 {
     let letter = |value: &str| value.chars().next().map_or(0, |c| c as i64);
     let lowest = letter(&settings.lowest_priority);
     let value = priority.map_or_else(|| letter(&settings.default_priority), letter);
@@ -1160,9 +1159,11 @@ mod tests {
     fn fixture(source: &str) -> (tempfile::TempDir, WorkspaceIndex) {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(temp.path().join("agenda.org"), source).unwrap();
-        let mut settings = Settings::default();
-        settings.files.roots = vec![temp.path().to_string_lossy().into_owned()];
-        settings.files.agenda = vec!["**/*.org".to_string()];
+        let settings = Settings {
+            roots: vec![temp.path().to_string_lossy().into_owned()],
+            agenda_files: vec!["**/*.org".to_string()],
+            ..Settings::default()
+        };
         let index = WorkspaceIndex::load(settings).unwrap();
         (temp, index)
     }
@@ -1173,6 +1174,7 @@ mod tests {
             "#+TODO: TODO NEXT | DONE\n* TODO Today :work:\nSCHEDULED: <2026-10-13 Tue>\n* NEXT Later :home:\n* DONE Old :work:\n* Note :work:\n",
         );
         let view = ViewSettings {
+            key: "m".to_string(),
             desc: "Mixed".to_string(),
             blocks: vec![
                 ViewBlock {

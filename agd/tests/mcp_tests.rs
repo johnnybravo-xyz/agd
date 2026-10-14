@@ -44,6 +44,8 @@ async fn service(
             "mcp",
         ]);
         configure_data_directory(command, directory);
+        // Never read the developer's own config.
+        command.env("XDG_CONFIG_HOME", directory.path().join("config"));
     });
     Ok(().serve(TokioChildProcess::new(command)?).await?)
 }

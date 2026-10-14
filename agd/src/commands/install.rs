@@ -165,7 +165,7 @@ fn validate_profile(profile: &str, config: Option<&str>, root: Option<&str>) -> 
         bail!("session agenda profile names may contain only letters, digits, '.', '_', and '-'");
     }
     let loaded = load_settings(config.map(Path::new), root.map(Path::new))?;
-    if !loaded.settings.agents.profiles.contains_key(profile) {
+    if loaded.settings.agent_profile(profile).is_none() {
         bail!("unknown agent agenda profile: {profile}");
     }
     Ok(())

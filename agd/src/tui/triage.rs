@@ -171,7 +171,7 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
     ];
 
     let reschedules = app.reschedules.get(&item.item_ref).copied().unwrap_or(0);
-    let nudge = reschedules >= app.settings.triage.reschedule_nudge;
+    let nudge = reschedules >= app.settings.reschedule_nudge;
     let mut chips = vec![
         theme.pill(
             item.planning

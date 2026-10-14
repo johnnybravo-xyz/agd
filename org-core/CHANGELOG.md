@@ -8,6 +8,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `Settings` is flat and matches `config.toml` key for key; `captures`,
+  `views` and `agent_profiles` are lists looked up with `capture_template`,
+  `view` and `agent_profile`, and `editor_command` replaces
+  `EditorSettings::args_for`. `RootSet::new` takes roots and agenda patterns.
+  `apply_import` applies resolved editor settings over a `Settings` and
+  `render_config` writes them; `ImportSnapshot`, its schemas and the
+  per-group settings structs are removed.
 - `default_config_path` and `WriteEngine::with_default_journal` follow the XDG
   base directories on every Unix, macOS included: `$XDG_CONFIG_HOME/agd` or
   `~/.config/agd`, and `$XDG_DATA_HOME/agd` or `~/.local/share/agd`. Windows

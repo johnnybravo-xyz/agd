@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, BorderType, Borders};
 
 /// The few colour roles the design allows: accent for focus and keys, red
 /// for slipped, amber for due and priority, green for done, one hue per
-/// agent. Built once at startup from the terminal and `[tui] theme`.
+/// agent. Built once at startup from the terminal and the `theme` setting.
 #[derive(Clone, Debug)]
 pub(super) struct Theme {
     pub accent: Color,

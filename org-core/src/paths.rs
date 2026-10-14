@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 
-use crate::{AgdError, FilesSettings};
+use crate::AgdError;
 
 /// agd's configuration directory: `$XDG_CONFIG_HOME/agd`, else
 /// `~/.config/agd`, on every Unix including macOS; the platform
@@ -56,9 +56,12 @@ pub struct RootSet {
 }
 
 impl RootSet {
-    pub fn new(files: &FilesSettings) -> Result<Self, AgdError> {
-        let mut roots = Vec::with_capacity(files.roots.len());
-        for configured in &files.roots {
+    /// `roots` are the only directories agd may read or write; `agenda`
+    /// holds the agenda file patterns (files, directories or globs).
+    pub fn new(roots: &[String], agenda: &[String]) -> Result<Self, AgdError> {
+        let configured_roots = roots;
+        let mut roots = Vec::with_capacity(configured_roots.len());
+        for configured in configured_roots {
             let expanded = shellexpand::tilde(configured).into_owned();
             let canonical = PathBuf::from(&expanded).canonicalize().map_err(|error| {
                 AgdError::with_source(
@@ -80,12 +83,12 @@ impl RootSet {
         if roots.is_empty() {
             return Err(AgdError::new(
                 "invalid_root",
-                "at least one approved files.root is required",
+                "at least one root is required",
             ));
         }
         Ok(Self {
             roots,
-            agenda: files.agenda.clone(),
+            agenda: agenda.to_vec(),
         })
     }
 
@@ -379,11 +382,7 @@ mod tests {
     use super::*;
 
     fn roots(temp: &tempfile::TempDir) -> RootSet {
-        RootSet::new(&FilesSettings {
-            roots: vec![temp.path().to_string_lossy().into_owned()],
-            agenda: Vec::new(),
-        })
-        .unwrap()
+        RootSet::new(&[temp.path().to_string_lossy().into_owned()], &[]).unwrap()
     }
 
     #[test]
@@ -400,10 +399,10 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let file = temp.path().join("tasks.org");
         std::fs::write(&file, "* TODO Safe\n").unwrap();
-        let roots = RootSet::new(&FilesSettings {
-            roots: vec![temp.path().to_string_lossy().into_owned()],
-            agenda: vec![file.to_string_lossy().into_owned()],
-        })
+        let roots = RootSet::new(
+            &[temp.path().to_string_lossy().into_owned()],
+            &[file.to_string_lossy().into_owned()],
+        )
         .unwrap();
         assert_eq!(
             roots.agenda_files().unwrap(),

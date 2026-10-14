@@ -1,12 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
-use org_core::{
-    ImportSnapshot, ImportStatus, load_settings, resolve_config_path, snapshot_or_default,
-};
+use org_core::{ImportStatus, Settings, default_config_path, parse_config_file};
 
-use crate::importer::{import_emacs, import_nvim};
+use crate::importer::{ImportExecution, import_emacs, import_nvim};
 
 #[derive(Args, Debug)]
 pub struct ImportCommand {
@@ -16,165 +14,120 @@ pub struct ImportCommand {
 
 #[derive(Subcommand, Debug)]
 enum ImportEditor {
-    /// Import resolved configuration from a selected Emacs daemon or batch profile
+    /// Import org settings from a running Emacs daemon
     Emacs(EmacsImport),
-    /// Import resolved configuration from nvim-orgmode
+    /// Import org settings from nvim-orgmode
     Nvim(NvimImport),
 }
 
 #[derive(Args, Debug)]
 struct EmacsImport {
-    /// Emacs server (socket) name to ask; overrides imports.emacs.server
-    #[arg(long, conflicts_with = "batch_profile")]
-    server: Option<String>,
-    /// Explicit configured batch profile; never selected implicitly
+    /// Emacs server (socket) name to ask
     #[arg(long)]
-    batch_profile: Option<String>,
+    server: Option<String>,
     #[command(flatten)]
     output: ImportOutput,
 }
 
 #[derive(Args, Debug)]
 struct NvimImport {
-    /// Configured Neovim executable-and-argv profile
-    #[arg(long)]
-    profile: Option<String>,
     #[command(flatten)]
     output: ImportOutput,
 }
 
 #[derive(Args, Debug)]
 struct ImportOutput {
-    /// Extract and show the snapshot diff without writing it
+    /// Show the config diff without writing it
     #[arg(long)]
     dry_run: bool,
-    /// Print generated TOML instead of writing it
+    /// Print the generated config instead of writing it
     #[arg(long)]
     stdout: bool,
-    /// Print exact, documented-difference, and unsupported entries
+    /// Replace an existing config file
+    #[arg(long)]
+    force: bool,
+    /// Compare imported views with the editor's own agenda rows
     #[arg(long)]
     verify: bool,
 }
 
 impl ImportCommand {
-    pub fn execute(self, config: Option<String>, root_directory: Option<String>) -> Result<()> {
-        let loaded = load_settings(
-            config.as_deref().map(Path::new),
-            root_directory.as_deref().map(Path::new),
-        )?;
-        match self.editor {
-            ImportEditor::Emacs(command) => {
-                let destination = snapshot_path(
-                    &loaded.config_dir,
-                    &loaded.settings.imports.emacs.snapshot,
-                    "emacs.toml",
-                );
-                let write = !command.output.dry_run && !command.output.stdout;
-                if command.output.verify {
-                    eprintln!(
-                        "warning: verification executes supported agenda views in the selected Emacs endpoint"
-                    );
-                }
-                let result = import_emacs(
-                    &loaded.settings,
-                    command.server.as_deref(),
-                    command.batch_profile.as_deref(),
-                    &destination,
-                    write,
-                    command.output.verify,
-                )?;
-                print_result(
-                    &result.snapshot,
-                    &result.toml,
-                    &result.diff,
-                    &result.verification,
-                    &command.output,
-                );
-            }
-            ImportEditor::Nvim(command) => {
-                let destination = snapshot_path(
-                    &loaded.config_dir,
-                    &loaded.settings.imports.nvim.snapshot,
-                    "nvim.toml",
-                );
-                let write = !command.output.dry_run && !command.output.stdout;
-                let result = import_nvim(
-                    &loaded.settings,
-                    command.profile.as_deref(),
-                    &destination,
-                    write,
-                    command.output.verify,
-                )?;
-                print_result(
-                    &result.snapshot,
-                    &result.toml,
-                    &result.diff,
-                    &result.verification,
-                    &command.output,
-                );
-            }
+    pub fn execute(self, config: Option<String>, _root_directory: Option<String>) -> Result<()> {
+        let destination = match config {
+            Some(path) => PathBuf::from(path),
+            None => default_config_path()?,
+        };
+        let base = if destination.exists() {
+            parse_config_file(&destination)?
+        } else {
+            Settings::default()
+        };
+        let output = match &self.editor {
+            ImportEditor::Emacs(command) => &command.output,
+            ImportEditor::Nvim(command) => &command.output,
+        };
+        let preview = output.dry_run || output.stdout;
+        let write = !preview && (!destination.exists() || output.force);
+        let result = match &self.editor {
+            ImportEditor::Emacs(command) => import_emacs(
+                &base,
+                command.server.as_deref(),
+                &destination,
+                write,
+                output.verify,
+            )?,
+            ImportEditor::Nvim(_) => import_nvim(&base, &destination, write, output.verify)?,
+        };
+        print_result(&result, output);
+        if !preview && !write && !result.diff.is_empty() {
+            bail!(
+                "{} exists; review the diff above and rerun with --force to replace it",
+                destination.display()
+            );
+        }
+        if write {
+            println!("wrote {}", destination.display());
         }
         Ok(())
     }
 }
 
-fn snapshot_path(config_dir: &Path, configured: &str, default_name: &str) -> PathBuf {
-    resolve_config_path(config_dir, &snapshot_or_default(configured, default_name))
-}
-
-fn print_result(
-    snapshot: &ImportSnapshot,
-    toml: &str,
-    diff: &str,
-    verification: &[crate::importer::VerificationResult],
-    output: &ImportOutput,
-) {
+fn print_result(execution: &ImportExecution, output: &ImportOutput) {
     if output.stdout {
-        print!("{toml}");
-    } else if !diff.is_empty() {
-        print!("{diff}");
+        print!("{}", execution.toml);
+    } else if !execution.diff.is_empty() {
+        print!("{}", execution.diff);
     }
-    if !output.verify {
-        return;
-    }
+    let settings = &execution.result.settings;
     println!(
-        "imported  {} views, {} capture templates",
-        snapshot.settings.views.len(),
-        snapshot.settings.capture.len()
+        "imported  {} agenda files, {} views, {} capture templates",
+        settings.agenda_files.len(),
+        settings.views.len(),
+        settings.captures.len()
     );
-    println!("  ✓ core  resolved editor settings normalized exactly");
-    for result in verification {
-        let mark = match result.status {
-            ImportStatus::Exact => "✓",
-            ImportStatus::Difference => "~",
-            ImportStatus::Unsupported => "✗",
-        };
+    for result in &execution.verification {
         println!(
-            "  {mark} {}  {}  {}",
-            result.key, result.description, result.detail
+            "  {} {}  {}  {}",
+            mark(&result.status),
+            result.key,
+            result.description,
+            result.detail
         );
     }
-    for (key, template) in &snapshot.settings.capture {
-        let (mark, detail) = if template.enabled {
-            ("✓", "declarative capture imported")
-        } else {
-            (
-                "✗",
-                template
-                    .diagnostics
-                    .first()
-                    .map(String::as_str)
-                    .unwrap_or("unsupported"),
-            )
-        };
-        println!("  {mark} c {key}  {}  {detail}", template.desc);
+    for diagnostic in &execution.result.diagnostics {
+        println!(
+            "  {} {}  {}",
+            mark(&diagnostic.status),
+            diagnostic.key,
+            diagnostic.message
+        );
     }
-    for diagnostic in &snapshot.diagnostics {
-        let mark = match diagnostic.status {
-            ImportStatus::Exact => "✓",
-            ImportStatus::Difference => "~",
-            ImportStatus::Unsupported => "✗",
-        };
-        println!("  {mark} {}  {}", diagnostic.key, diagnostic.message);
+}
+
+fn mark(status: &ImportStatus) -> &'static str {
+    match status {
+        ImportStatus::Exact => "✓",
+        ImportStatus::Difference => "~",
+        ImportStatus::Unsupported => "✗",
     }
 }

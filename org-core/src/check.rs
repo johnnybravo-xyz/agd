@@ -207,11 +207,10 @@ pub fn check_paths(roots: &[PathBuf]) -> CheckReport {
 }
 
 pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgdError> {
-    let roots = RootSet::new(&settings.files)?;
+    let roots = RootSet::new(&settings.roots, &settings.agenda_files)?;
     let paths = roots.all_org_files()?;
     let configured_keywords: std::collections::HashSet<&str> = settings
-        .todo
-        .sequences
+        .todo_keywords
         .iter()
         .flatten()
         .filter(|keyword| keyword.as_str() != "|")

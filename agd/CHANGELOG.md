@@ -22,6 +22,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `config.toml` is one flat table: every setting is a top-level key
+  (`roots`, `agenda_files`, `todo_keywords`, `deadline_warning_days`,
+  `editor = [program, args...]`, `theme`, ...), and capture templates, views
+  and agent profiles are `[[capture]]`, `[[view]]` and `[[agent_profile]]`
+  records with a `key` or `name`. Nested sections such as `[files]` or
+  `[capture.t]` are errors. Import writes into this file; the separate
+  `imports/*.toml` snapshots and `[imports.*]` profiles are gone.
 - Rewrite the README around the TUI, tmux and herdr use, agents and
   compatibility, with a demo GIF recorded from `docs/demo`.
 - Rebuild the TUI to the design: a theme with light, dark, 16-colour and

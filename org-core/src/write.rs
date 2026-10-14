@@ -143,7 +143,7 @@ struct JournalImage<'a> {
 
 impl WriteEngine {
     pub fn new(settings: Settings, journal_path: PathBuf) -> Result<Self, AgdError> {
-        let roots = RootSet::new(&settings.files)?;
+        let roots = RootSet::new(&settings.roots, &settings.agenda_files)?;
         let engine = Self {
             settings,
             roots,
@@ -236,12 +236,15 @@ impl WriteEngine {
         dry_run: bool,
         context: &WriteContext,
     ) -> Result<Mutation, AgdError> {
-        let template = self.settings.capture.get(template_key).ok_or_else(|| {
-            AgdError::new(
-                "unknown_template",
-                format!("capture template '{template_key}' is not configured"),
-            )
-        })?;
+        let template = self
+            .settings
+            .capture_template(template_key)
+            .ok_or_else(|| {
+                AgdError::new(
+                    "unknown_template",
+                    format!("capture template '{template_key}' is not configured"),
+                )
+            })?;
         let (template, draft) = apply_agent_capture_gate(template, draft, &self.settings, context);
         let draft = &draft;
         let file = template.file.as_deref().ok_or_else(|| {
@@ -1034,7 +1037,7 @@ fn build_edit_patches(
     let mut deadline = planning_change(&headline.item.planning.deadline, &intent.deadline);
     let mut closed = headline.item.planning.closed.clone();
     let mut properties = intent.properties.clone();
-    if settings.todo.ids == IdPolicy::AddOnWrite
+    if settings.ids == IdPolicy::AddOnWrite
         && headline.item.id.is_none()
         && !properties.contains_key("ID")
     {
@@ -1191,7 +1194,7 @@ fn build_edit_patches(
                 &tags,
             ),
             !tags.is_empty(),
-            settings.tags.column,
+            settings.tags_column,
         );
         patches.push(Patch {
             span: headline.line_span,
@@ -1643,12 +1646,11 @@ fn apply_agent_capture_gate(
     settings: &Settings,
     context: &WriteContext,
 ) -> (CaptureTemplate, CaptureDraft) {
-    if !context.is_agent() || settings.agents.capture_to != "inbox" {
+    if !context.is_agent() || settings.agent_capture_to != "inbox" {
         return (template.clone(), draft.clone());
     }
     let inbox = settings
-        .capture
-        .get(&settings.agents.inbox_template)
+        .capture_template(&settings.agent_inbox_template)
         .cloned()
         .unwrap_or_else(|| template.clone());
     let mut draft = draft.clone();
@@ -1808,10 +1810,11 @@ mod tests {
     use super::*;
 
     fn settings(root: &Path) -> Settings {
-        let mut settings = Settings::default();
-        settings.files.roots = vec![root.to_string_lossy().into_owned()];
-        settings.files.agenda = vec!["**/*.org".to_string()];
-        settings
+        Settings {
+            roots: vec![root.to_string_lossy().into_owned()],
+            agenda_files: vec!["**/*.org".to_string()],
+            ..Settings::default()
+        }
     }
 
     fn context() -> WriteContext {
@@ -1826,7 +1829,7 @@ mod tests {
     fn capture_journal_records_the_new_item_ref() {
         let temp = tempfile::tempdir().unwrap();
         let mut settings = settings(temp.path());
-        settings.capture.get_mut("t").unwrap().file =
+        settings.captures[0].file =
             Some(temp.path().join("inbox.org").to_string_lossy().into_owned());
         let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
         let draft = CaptureDraft {
@@ -1856,16 +1859,14 @@ mod tests {
     fn inbox_gate_redirects_only_agent_captures_and_drops_their_planning() {
         let temp = tempfile::tempdir().unwrap();
         let mut settings = settings(temp.path());
-        settings.agents.capture_to = "inbox".to_string();
-        settings.capture.insert(
-            "w".to_string(),
-            CaptureTemplate {
-                file: Some("work.org".to_string()),
-                heading: None,
-                template: "* TODO %?".to_string(),
-                ..CaptureTemplate::default()
-            },
-        );
+        settings.agent_capture_to = "inbox".to_string();
+        settings.captures.push(CaptureTemplate {
+            key: "w".to_string(),
+            file: Some("work.org".to_string()),
+            heading: None,
+            template: "* TODO %?".to_string(),
+            ..CaptureTemplate::default()
+        });
         let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
         let draft = CaptureDraft {
             title: "Planned".to_string(),
@@ -1910,7 +1911,7 @@ mod tests {
         )
         .unwrap();
         let mut settings = settings(temp.path());
-        settings.todo.ids = IdPolicy::AddOnWrite;
+        settings.ids = IdPolicy::AddOnWrite;
         let refs: Vec<String> = WorkspaceIndex::load(settings.clone())
             .unwrap()
             .items()

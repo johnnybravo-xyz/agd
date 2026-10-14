@@ -202,7 +202,7 @@ struct App {
 
 impl App {
     fn new(settings: Settings, index: WorkspaceIndex, today: NaiveDate) -> Self {
-        let theme = Theme::detect(&settings.tui.theme);
+        let theme = Theme::detect(&settings.theme);
         Self {
             settings,
             index,
@@ -435,12 +435,12 @@ fn open_in_editor(
     file: &str,
     line: usize,
 ) -> Result<()> {
-    let args = app.settings.editor.args_for(file, line, 1);
+    let (program, args) = app.settings.editor_command(file, line, 1);
     stop_terminal(terminal)?;
-    let status = Command::new(&app.settings.editor.command)
+    let status = Command::new(&program)
         .args(args)
         .status()
-        .with_context(|| format!("cannot start editor {}", app.settings.editor.command));
+        .with_context(|| format!("cannot start editor {program}"));
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     terminal.clear()?;

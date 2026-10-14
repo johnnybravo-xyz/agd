@@ -10,22 +10,24 @@ agd=${AGD:-$(command -v agd || echo "$here/../../target/debug/agd")}
 demo=$(mktemp -d "${TMPDIR:-/tmp}/agd-demo.XXXXXX")
 python3 "$here/render.py" "$demo/org"
 cat > "$demo/config.toml" <<CONFIG
-[files]
 roots = ["$demo/org"]
 
-[capture.t]
+[[capture]]
+key = "t"
 desc = "Todo"
 file = "$demo/org/inbox.org"
 heading = "Inbox"
 template = "* TODO %?\n:PROPERTIES:\n:CREATED:  %U\n:END:"
 
-[capture.n]
+[[capture]]
+key = "n"
 desc = "Note"
 file = "$demo/org/inbox.org"
 heading = "Inbox"
 template = "* %?\n%U"
 
-[views.w]
+[[view]]
+key = "w"
 desc = "Work focus"
 blocks = [
   { kind = "agenda", span = "day" },

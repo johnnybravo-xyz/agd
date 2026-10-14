@@ -317,7 +317,12 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
             _ => {}
         },
         Overlay::Views { selected } => {
-            let keys: Vec<String> = app.settings.views.keys().cloned().collect();
+            let keys: Vec<String> = app
+                .settings
+                .views
+                .iter()
+                .map(|view| view.key.clone())
+                .collect();
             match key.code {
                 KeyCode::Esc => app.overlay = Overlay::None,
                 KeyCode::Up | KeyCode::Char('k') => *selected = selected.saturating_sub(1),

@@ -86,8 +86,7 @@ fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     if let Screen::View(key) = &app.screen {
         let desc = app
             .settings
-            .views
-            .get(key)
+            .view(key)
             .map_or(key.as_str(), |view| view.desc.as_str());
         left.push(tab(format!("{key} {desc}"), true));
     }
@@ -206,8 +205,7 @@ fn list_title(app: &App) -> String {
         Screen::Inbox => format!("Inbox · {}", app.rows.len()),
         Screen::View(key) => app
             .settings
-            .views
-            .get(key)
+            .view(key)
             .map_or_else(|| key.clone(), |view| view.desc.clone()),
         Screen::Triage | Screen::Review => String::new(),
     }
@@ -587,8 +585,12 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
             );
         }
         Overlay::Views { selected } => {
-            let views: Vec<(&String, &org_core::ViewSettings)> =
-                app.settings.views.iter().collect();
+            let views: Vec<(&String, &org_core::ViewSettings)> = app
+                .settings
+                .views
+                .iter()
+                .map(|view| (&view.key, view))
+                .collect();
             let popup = centered(area, 60, views.len() as u16 + 4);
             frame.render_widget(Clear, popup);
             let items: Vec<ListItem<'_>> = views

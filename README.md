@@ -42,23 +42,19 @@ a Sigstore bundle for `SHA256SUMS`. The Arch recipe is in
 
 ## First run
 
-Tell `agd` where your Org files live, bring in your editor's settings, and
-check the files before the first write:
+Bring in your editor's org settings, check the files, and open Today:
 
 ```bash
-mkdir -p ~/.config/agd
-printf '[files]\nroots = ["~/org"]\n' > ~/.config/agd/config.toml
-agd setup import emacs --verify          # from a running daemon (--server NAME)
-agd setup import nvim --verify           # or from nvim-orgmode
+agd setup import emacs                   # from a running daemon (--server NAME)
+agd setup import nvim                    # or from nvim-orgmode
 agd setup check
 agd
 ```
 
-The import asks your running editor for its resolved settings (agenda files,
-TODO sequences, logging, priorities, capture templates, custom agenda
-commands) and stores them in `~/.config/agd/imports/`. `--verify` runs every
-imported view in Emacs and in `agd` and reports where rows differ. See
-[`docs/IMPORTING.md`](docs/IMPORTING.md).
+The import writes `~/.config/agd/config.toml` with your agenda files, TODO
+sequences, logging, priorities, capture templates and custom agenda
+commands, and lists anything it left out. Without an import, agd reads
+`~/org` with Org's defaults. See [`docs/IMPORTING.md`](docs/IMPORTING.md).
 
 ## The TUI
 
@@ -155,56 +151,46 @@ file, line hint and content digest. Errors use stable codes such as
 
 ## Configuration
 
-`~/.config/agd/config.toml` (or `$XDG_CONFIG_HOME/agd`) on Linux and macOS
-alike; `--config` picks another file. The journal lives in
-`~/.local/share/agd` (or `$XDG_DATA_HOME/agd`). Settings in this file override
-the imported snapshot; unknown keys are errors.
+One flat file: `~/.config/agd/config.toml` (or `$XDG_CONFIG_HOME/agd`) on
+Linux and macOS alike; `--config` picks another. Every setting is a top-level
+key; only capture templates, views and agent profiles are lists of records.
+Missing keys take the defaults shown; unknown keys are errors. The journal
+lives in `~/.local/share/agd` (or `$XDG_DATA_HOME/agd`).
 
 ```toml
-[files]
 roots = ["~/org"]                 # the only directories agd reads or writes
-agenda = ["**/*.org"]             # usually comes from your editor import
+agenda_files = ["**/*.org"]       # files, or globs relative to the roots; empty = all
 
-[todo]
-sequences = [["TODO(t)", "NEXT(n)", "WAIT(w@/!)", "|", "DONE(d!)", "CANCELLED(c@)"]]
+todo_keywords = [["TODO(t)", "NEXT(n)", "WAIT(w@/!)", "|", "DONE(d!)", "CANCELLED(c@)"]]
 ids = "preserve"                  # "add-on-write" adds an org-id :ID: on first edit
+tags_column = -77                 # org-tags-column
 
-[agenda]
-span = "week"
+agenda_span = "week"
 deadline_warning_days = 14
 sorting_strategy = ["habit-down", "time-up", "urgency-down", "category-keep"]
 log_done = "time"                 # org-log-done; also log_repeat, log_reschedule,
 log_into_drawer = true            # log_redeadline; #+STARTUP options win per file
 
-[tags]
-column = -77                      # org-tags-column
+editor = ["emacsclient", "-n", "+{line}:{col}", "{file}"]  # run directly, no shell
+theme = "auto"                    # dark, light
+agent_capture_to = "template"     # or "inbox"
+someday_tag = "someday"
+reschedule_nudge = 3
 
-[capture.t]
+[[capture]]
+key = "t"
 desc = "Todo"
 file = "inbox.org"
 heading = "Inbox"
 template = "* TODO %?\n:PROPERTIES:\n:CREATED: %U\n:END:"
 
-[views.w]                         # an org-agenda custom command
+[[view]]                          # an org-agenda custom command
+key = "w"
 desc = "Work"
 blocks = [
   { kind = "agenda", span = "day" },
   { kind = "tags-todo", match = "work/NEXT|WAIT", header = "Next and waiting" },
 ]
-
-[editor]
-command = "emacsclient"           # run directly, never through a shell
-args = ["-n", "+{line}:{col}", "{file}"]
-
-[agents]
-capture_to = "template"           # or "inbox"
-
-[triage]
-someday_tag = "someday"
-reschedule_nudge = 3
-
-[tui]
-theme = "auto"                    # dark, light
 ```
 
 ## Compatibility

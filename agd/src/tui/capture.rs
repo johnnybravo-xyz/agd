@@ -47,7 +47,7 @@ impl Default for Draft {
 
 impl Draft {
     fn choose(&mut self, app: &App, key: &str) {
-        let Some(template) = app.settings.capture.get(key) else {
+        let Some(template) = app.settings.capture_template(key) else {
             return;
         };
         self.template = Some(key.to_string());
@@ -140,7 +140,12 @@ pub(super) fn handle_key(
         }
         KeyCode::Char('e') if control => edit_body(terminal, app, &mut draft)?,
         KeyCode::Tab => {
-            let keys: Vec<String> = app.settings.capture.keys().cloned().collect();
+            let keys: Vec<String> = app
+                .settings
+                .captures
+                .iter()
+                .map(|template| template.key.clone())
+                .collect();
             let index = draft
                 .template
                 .as_ref()
@@ -224,15 +229,14 @@ fn edit_body(
         .context("cannot create capture draft")?;
     file.write_all(draft.body.as_bytes())?;
     file.flush()?;
-    let args = app
+    let (program, args) = app
         .settings
-        .editor
-        .args_for(&file.path().to_string_lossy(), 1, 1);
+        .editor_command(&file.path().to_string_lossy(), 1, 1);
     stop_terminal(terminal)?;
-    let status = Command::new(&app.settings.editor.command)
+    let status = Command::new(&program)
         .args(args)
         .status()
-        .with_context(|| format!("cannot start editor {}", app.settings.editor.command));
+        .with_context(|| format!("cannot start editor {program}"));
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     terminal.clear()?;
@@ -258,7 +262,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let template = draft
         .template
         .as_ref()
-        .and_then(|key| app.settings.capture.get(key));
+        .and_then(|key| app.settings.capture_template(key));
     let title = template.map_or("Capture".to_string(), |template| {
         format!("Capture · {}", template.desc)
     });
@@ -378,9 +382,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     .concat();
     let templates: Vec<String> = app
         .settings
-        .capture
+        .captures
         .iter()
-        .map(|(key, template)| format!("{key} {}", template.desc.to_lowercase()))
+        .map(|template| format!("{} {}", template.key, template.desc.to_lowercase()))
         .collect();
     footer.push(Span::styled(templates.join(" · "), theme.muted()));
     frame.render_widget(Paragraph::new(Line::from(footer)), parts[next + 3]);

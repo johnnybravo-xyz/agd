@@ -49,14 +49,16 @@ fn native_agenda_matches_pinned_emacs_rows() {
             &fs::read_to_string(directory.join("case.toml")).expect("read case.toml"),
         )
         .expect("parse case.toml");
-        let mut settings = Settings::default();
-        settings.files.roots = vec![directory.to_string_lossy().into_owned()];
-        settings.files.agenda = vec!["*.org".to_string(), "**/*.org".to_string()];
-        settings.agenda.skip_scheduled_if_done = case.skip_scheduled_if_done;
-        settings.agenda.skip_deadline_if_done = case.skip_deadline_if_done;
-        settings.agenda.skip_timestamp_if_done = case.skip_timestamp_if_done;
+        let mut settings = Settings {
+            roots: vec![directory.to_string_lossy().into_owned()],
+            agenda_files: vec!["*.org".to_string(), "**/*.org".to_string()],
+            ..Settings::default()
+        };
+        settings.skip_scheduled_if_done = case.skip_scheduled_if_done;
+        settings.skip_deadline_if_done = case.skip_deadline_if_done;
+        settings.skip_timestamp_if_done = case.skip_timestamp_if_done;
         if let Some(strategy) = case.sorting_strategy {
-            settings.agenda.sorting_strategy = strategy;
+            settings.sorting_strategy = strategy;
         }
         let index = WorkspaceIndex::load(settings).expect("index case");
         let entries = AgendaEngine::new(&index)

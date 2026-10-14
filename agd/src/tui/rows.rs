@@ -148,8 +148,7 @@ impl App {
                 &self.index,
             ),
             Screen::Week => {
-                let (from, to) =
-                    AgendaSpan::Week.bounds(self.day, &self.settings.agenda.week_start);
+                let (from, to) = AgendaSpan::Week.bounds(self.day, &self.settings.week_start);
                 headers.extend(day_labels(from, to));
                 day_grouped(engine.agenda(&self.query(from, to))?)
             }
@@ -163,7 +162,7 @@ impl App {
                 .collect(),
             Screen::View(key) => {
                 let mut rows = Vec::new();
-                if let Some(view) = self.settings.views.get(key) {
+                if let Some(view) = self.settings.view(key) {
                     for section in engine.view(view, self.day, self.today, self.log_mode)? {
                         // Agenda blocks list every day under their title, as
                         // an Emacs block agenda does; list blocks use theirs.
@@ -190,7 +189,7 @@ impl App {
             }
             Screen::Triage => {
                 self.reschedules = reschedule_counts(&journals, &self.index);
-                let someday = self.settings.triage.someday_tag.clone();
+                let someday = self.settings.someday_tag.clone();
                 let mut rows = triage_rows(today_entries, inbox);
                 // Demoted tasks are done being triaged.
                 rows.retain(|row| !row.item.tags.contains(&someday));

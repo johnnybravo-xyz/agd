@@ -25,8 +25,8 @@ pub use document::{
     SourceLine, TimestampSpan, TodoKeyword, WorkspaceIndex, parse_timestamp,
 };
 pub use imports::{
-    ImportDiagnostic, ImportSnapshot, ImportStatus, ImportedCommand, PortableEntry,
-    ResolvedEditorConfig, SnapshotMetadata,
+    ImportDiagnostic, ImportResult, ImportStatus, ImportedCapture, ImportedCommand, PortableEntry,
+    ResolvedEditorConfig, apply_import,
 };
 pub use model::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ERROR_SCHEMA, ErrorResponse, ITEM_SCHEMA, Item,
@@ -34,11 +34,9 @@ pub use model::{
 };
 pub use paths::RootSet;
 pub use settings::{
-    AgendaSettings, AgentProfile, AgentSettings, CaptureTemplate, CommandProfile,
-    EMACS_IMPORT_SCHEMA, EditorImportSettings, EditorSettings, FilesSettings, IdPolicy,
-    ImportSettings, LoadedSettings, NVIM_IMPORT_SCHEMA, SORTING_KEYS, Settings, TagsSettings,
-    TodoSettings, TriageSettings, VIEW_BLOCK_KINDS, ViewBlock, ViewSettings, load_settings,
-    resolve_config_path, snapshot_or_default,
+    AgentProfile, CaptureTemplate, IdPolicy, LoadedSettings, SORTING_KEYS, Settings,
+    VIEW_BLOCK_KINDS, ViewBlock, ViewSettings, default_config_path, load_settings,
+    parse_config_file, render_config,
 };
 pub use write::{
     Change, EditIntent, JournalRecord, JournalStatus, Patch, RefileResult, StoredPatch, UndoResult,

@@ -1,16 +1,9 @@
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use chrono::Local;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
-use crate::{
-    AgdError, CaptureTemplate, EMACS_IMPORT_SCHEMA, NVIM_IMPORT_SCHEMA, RootSet, SORTING_KEYS,
-    Settings, ViewBlock, ViewSettings,
-};
+use crate::{AgdError, CaptureTemplate, RootSet, SORTING_KEYS, Settings, ViewBlock, ViewSettings};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -39,8 +32,26 @@ pub struct PortableEntry {
     pub diagnostics: Vec<String>,
 }
 
-/// One custom agenda command as the editor probe reports it. Enabled
-/// commands become `[views.KEY]`; `diagnostics` name what was left out.
+/// One capture template as the editor reports it; disabled templates are
+/// reported, not imported.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ImportedCapture {
+    pub desc: String,
+    pub file: Option<String>,
+    pub heading: Option<String>,
+    pub outline_path: Option<Vec<String>>,
+    pub id: Option<String>,
+    #[serde(default)]
+    pub datetree: bool,
+    pub template: String,
+    pub template_file: Option<String>,
+    pub enabled: bool,
+    #[serde(default)]
+    pub diagnostics: Vec<String>,
+}
+
+/// One custom agenda command as the editor reports it. Enabled commands
+/// become views; `diagnostics` name what was left out.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImportedCommand {
@@ -83,7 +94,7 @@ pub struct ResolvedEditorConfig {
     pub log_redeadline: String,
     pub log_into_drawer: bool,
     #[serde(default)]
-    pub capture: BTreeMap<String, CaptureTemplate>,
+    pub capture: BTreeMap<String, ImportedCapture>,
     #[serde(default)]
     pub groups: Vec<PortableEntry>,
     #[serde(default)]
@@ -94,204 +105,148 @@ pub struct ResolvedEditorConfig {
     pub verification: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct SnapshotMetadata {
-    pub editor: String,
-    pub editor_version: String,
-    pub org_version: String,
-    pub source: String,
-    pub host: String,
-    pub extracted_at: String,
-    pub digest: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ImportSnapshot {
-    pub schema: String,
-    pub metadata: SnapshotMetadata,
+/// The editor's settings applied over `base`, and what could not be.
+#[derive(Clone, Debug)]
+pub struct ImportResult {
     pub settings: Settings,
-    pub groups: Vec<PortableEntry>,
     pub diagnostics: Vec<ImportDiagnostic>,
 }
 
-impl ImportSnapshot {
-    pub fn from_resolved(
-        resolved: ResolvedEditorConfig,
-        approved: &Settings,
-        host: impl Into<String>,
-    ) -> Result<Self, AgdError> {
-        let schema = match resolved.editor.as_str() {
-            "emacs" => EMACS_IMPORT_SCHEMA,
-            "nvim" => NVIM_IMPORT_SCHEMA,
-            value => {
-                return Err(AgdError::new(
-                    "unsupported_editor",
-                    format!("unsupported editor snapshot: {value}"),
-                ));
-            }
+/// Applies resolved editor settings over `base` (the current config). The
+/// editor's values replace the keys it reports; agd-only keys (roots,
+/// editor, theme, agents, triage) keep their `base` values. Agenda files
+/// outside the roots are left out with a diagnostic.
+pub fn apply_import(
+    resolved: &ResolvedEditorConfig,
+    base: &Settings,
+) -> Result<ImportResult, AgdError> {
+    validate_resolved(resolved)?;
+    let roots = RootSet::new(&base.roots, &[])?;
+    let mut diagnostics = resolved.diagnostics.clone();
+    let mut agenda_files = Vec::new();
+    for value in &resolved.agenda_files {
+        match roots.resolve_read(&PathBuf::from(value)) {
+            Ok(path) => agenda_files.push(path.to_string_lossy().into_owned()),
+            Err(error) => diagnostics.push(ImportDiagnostic {
+                status: ImportStatus::Unsupported,
+                key: value.clone(),
+                message: format!("agenda file left out, outside roots: {error}"),
+            }),
+        }
+    }
+    agenda_files.sort();
+    agenda_files.dedup();
+
+    let mut settings = base.clone();
+    settings.agenda_files = agenda_files;
+    settings.todo_keywords = resolved.todo_sequences.clone();
+    settings.tag_alist = resolved.tag_alist.clone();
+    settings.persistent_tags = resolved.persistent_tags.clone();
+    settings.tags_column = resolved.tags_column;
+    settings.agenda_span = resolved.agenda_span.clone();
+    settings.agenda_start_day = resolved.agenda_start_day.clone();
+    settings.week_start = resolved.week_start.clone();
+    settings.deadline_warning_days = resolved.deadline_warning_days;
+    settings.skip_scheduled_if_done = resolved.skip_scheduled_if_done;
+    settings.skip_deadline_if_done = resolved.skip_deadline_if_done;
+    settings.skip_timestamp_if_done = resolved.skip_timestamp_if_done;
+    settings.sorting_strategy.clear();
+    for key in &resolved.sorting_strategy {
+        if SORTING_KEYS.contains(&key.as_str()) {
+            settings.sorting_strategy.push(key.clone());
+        } else {
+            diagnostics.push(ImportDiagnostic {
+                status: ImportStatus::Difference,
+                key: "sorting_strategy".to_string(),
+                message: format!("sorting key {key} is not supported and was left out"),
+            });
+        }
+    }
+    settings.highest_priority = resolved.highest_priority.clone();
+    settings.lowest_priority = resolved.lowest_priority.clone();
+    settings.default_priority = resolved.default_priority.clone();
+    settings.tag_inheritance_exclusions = resolved.tag_inheritance_exclusions.clone();
+    settings.log_done = resolved.log_done.clone();
+    settings.log_repeat = resolved.log_repeat.clone();
+    settings.log_reschedule = resolved.log_reschedule.clone();
+    settings.log_redeadline = resolved.log_redeadline.clone();
+    settings.log_into_drawer = resolved.log_into_drawer;
+
+    settings.captures.clear();
+    for (key, capture) in &resolved.capture {
+        if !capture.enabled {
+            diagnostics.push(ImportDiagnostic {
+                status: ImportStatus::Unsupported,
+                key: format!("capture {key}"),
+                message: capture.diagnostics.join("; "),
+            });
+            continue;
+        }
+        settings.captures.push(CaptureTemplate {
+            key: key.clone(),
+            desc: capture.desc.clone(),
+            file: capture.file.clone(),
+            heading: capture.heading.clone(),
+            outline_path: capture.outline_path.clone(),
+            id: capture.id.clone(),
+            datetree: capture.datetree,
+            template: capture.template.clone(),
+            template_file: capture.template_file.clone(),
+        });
+    }
+    if settings.captures.is_empty() {
+        settings.captures = base.captures.clone();
+    }
+
+    settings.views.clear();
+    for command in &resolved.commands {
+        let key = format!("view {}", command.key);
+        let unusable_match = command
+            .blocks
+            .iter()
+            .find_map(|block| crate::agenda_engine::validate_view_block(block).err());
+        if let Some(error) = &unusable_match {
+            diagnostics.push(ImportDiagnostic {
+                status: ImportStatus::Unsupported,
+                key: key.clone(),
+                message: error.to_string(),
+            });
+        }
+        if command.enabled && unusable_match.is_none() {
+            settings.views.push(ViewSettings {
+                key: command.key.clone(),
+                desc: command.description.clone(),
+                blocks: command.blocks.clone(),
+            });
+        }
+        let status = if command.enabled {
+            ImportStatus::Difference
+        } else {
+            ImportStatus::Unsupported
         };
-        validate_resolved(&resolved)?;
-        let roots = RootSet::new(&approved.files)?;
-        let mut diagnostics = resolved.diagnostics.clone();
-        let mut agenda_files = Vec::new();
-        for value in &resolved.agenda_files {
-            let path = PathBuf::from(value);
-            match roots.resolve_read(&path) {
-                Ok(path) => agenda_files.push(path.to_string_lossy().into_owned()),
-                Err(error) => diagnostics.push(ImportDiagnostic {
-                    status: ImportStatus::Unsupported,
-                    key: value.clone(),
-                    message: format!("agenda file disabled by configured roots: {error}"),
-                }),
-            }
+        for message in &command.diagnostics {
+            diagnostics.push(ImportDiagnostic {
+                status: status.clone(),
+                key: key.clone(),
+                message: message.clone(),
+            });
         }
-        agenda_files.sort();
-        agenda_files.dedup();
-
-        let mut settings = Settings::default();
-        settings.files.roots.clear();
-        settings.files.agenda = agenda_files;
-        settings.todo.sequences = resolved.todo_sequences.clone();
-        settings.tags.alist = resolved.tag_alist.clone();
-        settings.tags.persistent = resolved.persistent_tags.clone();
-        settings.tags.column = resolved.tags_column;
-        settings.agenda.span = resolved.agenda_span.clone();
-        settings.agenda.start_day = resolved.agenda_start_day.clone();
-        settings.agenda.week_start = resolved.week_start.clone();
-        settings.agenda.deadline_warning_days = resolved.deadline_warning_days;
-        settings.agenda.skip_scheduled_if_done = resolved.skip_scheduled_if_done;
-        settings.agenda.skip_deadline_if_done = resolved.skip_deadline_if_done;
-        settings.agenda.skip_timestamp_if_done = resolved.skip_timestamp_if_done;
-        settings.agenda.sorting_strategy.clear();
-        for key in &resolved.sorting_strategy {
-            if SORTING_KEYS.contains(&key.as_str()) {
-                settings.agenda.sorting_strategy.push(key.clone());
-            } else {
-                diagnostics.push(ImportDiagnostic {
-                    status: ImportStatus::Difference,
-                    key: "sorting".to_string(),
-                    message: format!("sorting key {key} is not supported and was left out"),
-                });
-            }
-        }
-        settings.agenda.highest_priority = resolved.highest_priority.clone();
-        settings.agenda.lowest_priority = resolved.lowest_priority.clone();
-        settings.agenda.default_priority = resolved.default_priority.clone();
-        settings.agenda.tag_inheritance_exclusions = resolved.tag_inheritance_exclusions.clone();
-        settings.agenda.log_done = resolved.log_done.clone();
-        settings.agenda.log_repeat = resolved.log_repeat.clone();
-        settings.agenda.log_reschedule = resolved.log_reschedule.clone();
-        settings.agenda.log_redeadline = resolved.log_redeadline.clone();
-        settings.agenda.log_into_drawer = resolved.log_into_drawer;
-        settings.capture = resolved.capture.clone();
-        settings.views.clear();
-        for command in &resolved.commands {
-            let key = format!("view {}", command.key);
-            let unusable_match = command
-                .blocks
-                .iter()
-                .find_map(|block| crate::agenda_engine::validate_view_block(block).err());
-            if let Some(error) = &unusable_match {
-                diagnostics.push(ImportDiagnostic {
-                    status: ImportStatus::Unsupported,
-                    key: key.clone(),
-                    message: error.to_string(),
-                });
-            }
-            if command.enabled && unusable_match.is_none() {
-                settings.views.insert(
-                    command.key.clone(),
-                    ViewSettings {
-                        desc: command.description.clone(),
-                        blocks: command.blocks.clone(),
-                    },
-                );
-            }
-            let status = if command.enabled {
-                ImportStatus::Difference
-            } else {
-                ImportStatus::Unsupported
-            };
-            for message in &command.diagnostics {
-                diagnostics.push(ImportDiagnostic {
-                    status: status.clone(),
-                    key: key.clone(),
-                    message: message.clone(),
-                });
-            }
-        }
-
-        let digest_input = serde_json::to_vec(&(&settings, &resolved.groups, &diagnostics))
-            .map_err(|error| AgdError::with_source("snapshot", "cannot encode snapshot", error))?;
-        let digest = format!("{:x}", Sha256::digest(digest_input));
-        Ok(Self {
-            schema: schema.to_string(),
-            metadata: SnapshotMetadata {
-                editor: resolved.editor,
-                editor_version: resolved.editor_version,
-                org_version: resolved.org_version,
-                source: resolved.source,
-                host: host.into(),
-                extracted_at: Local::now().to_rfc3339(),
-                digest,
-            },
-            settings,
-            groups: resolved.groups,
-            diagnostics,
-        })
+    }
+    if settings.views.is_empty() {
+        settings.views = base.views.clone();
     }
 
-    pub fn to_toml(&self) -> Result<String, AgdError> {
-        toml::to_string_pretty(self).map_err(|error| {
-            AgdError::with_source("snapshot", "cannot encode import snapshot", error)
-        })
+    for group in &resolved.groups {
+        diagnostics.push(ImportDiagnostic {
+            status: ImportStatus::Unsupported,
+            key: format!("org-super-agenda {}", group.key),
+            message: "agd does not group agenda rows; the group is not imported".to_string(),
+        });
     }
-
-    pub fn write(&self, path: &Path) -> Result<(), AgdError> {
-        let contents = self.to_toml()?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|error| {
-                AgdError::with_source(
-                    "io",
-                    format!("cannot create {}: {error}", parent.display()),
-                    error,
-                )
-            })?;
-        }
-        let temporary = path.with_extension("toml.tmp");
-        let mut options = OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temporary).map_err(|error| {
-            AgdError::with_source(
-                "io",
-                format!("cannot write {}: {error}", temporary.display()),
-                error,
-            )
-        })?;
-        file.write_all(contents.as_bytes())
-            .and_then(|()| file.sync_all())
-            .map_err(|error| AgdError::with_source("io", "cannot persist snapshot", error))?;
-        fs::rename(&temporary, path).map_err(|error| {
-            AgdError::with_source(
-                "io",
-                format!("cannot replace {}: {error}", path.display()),
-                error,
-            )
-        })?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|error| {
-                AgdError::with_source("io", "cannot secure snapshot permissions", error)
-            })?;
-        }
-        Ok(())
-    }
+    Ok(ImportResult {
+        settings,
+        diagnostics,
+    })
 }
 
 fn validate_resolved(resolved: &ResolvedEditorConfig) -> Result<(), AgdError> {
@@ -330,14 +285,18 @@ fn validate_resolved(resolved: &ResolvedEditorConfig) -> Result<(), AgdError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
-    fn import_never_broadens_approved_roots() {
+    fn import_never_broadens_roots_and_keeps_agd_only_keys() {
         let temp = tempfile::tempdir().unwrap();
         let inside = temp.path().join("inside.org");
         fs::write(&inside, "* TODO Inside\n").unwrap();
-        let mut approved = Settings::default();
-        approved.files.roots = vec![temp.path().to_string_lossy().into_owned()];
+        let base = Settings {
+            roots: vec![temp.path().to_string_lossy().into_owned()],
+            theme: "dark".to_string(),
+            ..Settings::default()
+        };
         let resolved = ResolvedEditorConfig {
             editor: "emacs".to_string(),
             editor_version: "29.4".to_string(),
@@ -378,8 +337,11 @@ mod tests {
             diagnostics: Vec::new(),
             verification: BTreeMap::new(),
         };
-        let snapshot = ImportSnapshot::from_resolved(resolved, &approved, "test").unwrap();
-        assert_eq!(snapshot.settings.files.agenda.len(), 1);
-        assert_eq!(snapshot.diagnostics.len(), 1);
+        let result = apply_import(&resolved, &base).unwrap();
+        assert_eq!(result.settings.agenda_files.len(), 1);
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(result.settings.roots, base.roots);
+        assert_eq!(result.settings.theme, "dark");
+        assert_eq!(result.settings.captures, base.captures);
     }
 }

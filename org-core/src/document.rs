@@ -292,7 +292,7 @@ impl OrgDocument {
 
 impl WorkspaceIndex {
     pub fn load(settings: Settings) -> Result<Self, AgdError> {
-        let roots = RootSet::new(&settings.files)?;
+        let roots = RootSet::new(&settings.roots, &settings.agenda_files)?;
         let mut documents = BTreeMap::new();
         let mut skipped = BTreeMap::new();
         for path in roots.agenda_files()? {
@@ -646,7 +646,6 @@ fn scan_headlines(
     }
 
     let excluded: BTreeSet<&str> = settings
-        .agenda
         .tag_inheritance_exclusions
         .iter()
         .map(String::as_str)
@@ -937,7 +936,7 @@ fn todo_keywords(source: &str, settings: &Settings) -> Vec<TodoKeyword> {
         .map(|value| value.split_whitespace().map(str::to_string).collect())
         .collect();
     let sequences = if in_file.is_empty() {
-        settings.todo.sequences.clone()
+        settings.todo_keywords.clone()
     } else {
         in_file
     };
@@ -991,7 +990,7 @@ fn log_value(value: &str) -> Option<LogKind> {
 /// org-log-* settings for one file, with `#+STARTUP:` options such as
 /// `logrepeat`, `lognotereschedule` or `nologdrawer` applied on top.
 fn log_settings(source: &str, settings: &Settings) -> LogSettings {
-    let agenda = &settings.agenda;
+    let agenda = settings;
     let mut logging = LogSettings {
         done: log_value(&agenda.log_done),
         repeat: log_value(&agenda.log_repeat),
@@ -1164,9 +1163,10 @@ mod tests {
     use super::*;
 
     fn settings(root: &Path) -> Settings {
-        let mut settings = Settings::default();
-        settings.files.roots = vec![root.to_string_lossy().into_owned()];
-        settings
+        Settings {
+            roots: vec![root.to_string_lossy().into_owned()],
+            ..Settings::default()
+        }
     }
 
     #[test]
@@ -1247,7 +1247,7 @@ mod tests {
         )
         .unwrap();
         let mut settings = settings(temp.path());
-        settings.files.agenda = vec!["tasks.org".to_string()];
+        settings.agenda_files = vec!["tasks.org".to_string()];
         let index = WorkspaceIndex::load(settings).unwrap();
         assert_eq!(index.resolve("shared").unwrap_err().code(), "duplicate_id");
         let item_ref = index.items().next().unwrap().item_ref.clone();

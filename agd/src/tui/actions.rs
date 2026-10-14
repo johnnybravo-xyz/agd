@@ -186,8 +186,8 @@ impl App {
     /// the date that made it show up (SCHEDULED, or an overdue DEADLINE), so
     /// the task leaves the agenda without being deleted.
     pub(super) fn someday(&mut self) -> Result<()> {
-        let tag = self.settings.triage.someday_tag.clone();
-        let clears = self.settings.triage.someday_clears_scheduled;
+        let tag = self.settings.someday_tag.clone();
+        let clears = self.settings.someday_clears_scheduled;
         let overdue_deadline = self.selected_row().is_some_and(|row| {
             row.occurrence
                 .as_ref()
@@ -215,7 +215,7 @@ impl App {
         let Some(row) = self.selected_row() else {
             return Ok(());
         };
-        let agenda = &self.settings.agenda;
+        let agenda = &self.settings;
         let letter = |value: &str| value.chars().next().unwrap_or('B');
         let (highest, lowest) = (
             letter(&agenda.highest_priority),

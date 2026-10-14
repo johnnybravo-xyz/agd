@@ -1,11 +1,9 @@
 use std::fs;
 use std::path::Path;
 
-use org_core::{
-    EMACS_IMPORT_SCHEMA, ImportSnapshot, NVIM_IMPORT_SCHEMA, ResolvedEditorConfig, Settings,
-};
+use org_core::{ImportResult, ResolvedEditorConfig, Settings, apply_import};
 
-fn normalize_fixture(path: &Path, editor: &str) -> ImportSnapshot {
+fn import_fixture(path: &Path, editor: &str) -> ImportResult {
     let temp = tempfile::tempdir().expect("create import root");
     let source_task = path.join("tasks.org");
     let target_task = temp.path().join("tasks.org");
@@ -20,52 +18,53 @@ fn normalize_fixture(path: &Path, editor: &str) -> ImportSnapshot {
     let raw = raw.replace("/fixture", &escaped_root[1..escaped_root.len() - 1]);
     let resolved: ResolvedEditorConfig =
         serde_json::from_str(&raw).expect("parse resolved fixture");
-    let mut approved = Settings::default();
-    approved.files.roots = vec![temp.path().to_string_lossy().into_owned()];
-    let snapshot = ImportSnapshot::from_resolved(resolved, &approved, "fixture-host")
-        .expect("normalize resolved fixture");
-    assert_eq!(snapshot.metadata.editor, editor);
-    let encoded = snapshot.to_toml().expect("encode snapshot");
-    let decoded: ImportSnapshot = toml::from_str(&encoded).expect("decode snapshot");
-    assert_eq!(decoded.metadata.digest, snapshot.metadata.digest);
-    snapshot
+    assert_eq!(resolved.editor, editor);
+    let base = Settings {
+        roots: vec![temp.path().to_string_lossy().into_owned()],
+        ..Settings::default()
+    };
+    apply_import(&resolved, &base).expect("apply resolved fixture")
+}
+
+fn reported(result: &ImportResult, key: &str) -> bool {
+    result
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.key == key)
 }
 
 #[test]
-fn emacs_fixtures_preserve_resolved_ordering_and_disabled_entries() {
+fn emacs_fixtures_keep_resolved_ordering_and_report_what_is_left_out() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../conformance/import/emacs");
     for name in ["vanilla", "use-package", "doom"] {
-        let snapshot = normalize_fixture(&root.join(name), "emacs");
-        assert_eq!(snapshot.schema, EMACS_IMPORT_SCHEMA);
-        assert!(!snapshot.settings.todo.sequences.is_empty());
-        assert_eq!(snapshot.settings.files.agenda.len(), 1);
+        let result = import_fixture(&root.join(name), "emacs");
+        assert!(!result.settings.todo_keywords.is_empty());
+        assert_eq!(result.settings.agenda_files.len(), 1);
     }
-    let vanilla = normalize_fixture(&root.join("vanilla"), "emacs");
-    assert!(!vanilla.settings.capture["x"].enabled);
-    assert_eq!(vanilla.settings.views["w"].blocks[0].kind, "tags-todo");
-    let block = &vanilla.settings.views["b"].blocks;
+    let vanilla = import_fixture(&root.join("vanilla"), "emacs");
+    assert!(vanilla.settings.capture_template("x").is_none());
+    assert!(reported(&vanilla, "capture x"));
+    assert_eq!(
+        vanilla.settings.view("w").unwrap().blocks[0].kind,
+        "tags-todo"
+    );
+    let block = &vanilla.settings.view("b").unwrap().blocks;
     assert_eq!(block[0].span.as_deref(), Some("day"));
     assert_eq!(block[1].header.as_deref(), Some("Home"));
-    assert!(!vanilla.settings.views.contains_key("r"));
+    assert!(vanilla.settings.view("r").is_none());
     assert!(vanilla.diagnostics.iter().any(|diagnostic| {
         diagnostic.key == "view b" && diagnostic.message.contains("org-agenda-files-ignored")
     }));
-    assert!(
-        vanilla
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.key == "view r")
-    );
+    assert!(reported(&vanilla, "view r"));
 }
 
 #[test]
-fn neovim_fixture_accepts_installed_plugin_version() {
+fn neovim_fixture_imports_week_start_warnings_and_views() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../conformance/import/nvim/vanilla");
-    let snapshot = normalize_fixture(&root, "nvim");
-    assert_eq!(snapshot.schema, NVIM_IMPORT_SCHEMA);
-    assert_eq!(snapshot.metadata.org_version, "999.0.0");
-    assert_eq!(snapshot.settings.agenda.deadline_warning_days, 6);
-    assert_eq!(snapshot.settings.agenda.week_start, "sunday");
-    assert!(!snapshot.settings.capture["x"].enabled);
-    assert_eq!(snapshot.settings.views["r"].blocks.len(), 2);
+    let result = import_fixture(&root, "nvim");
+    assert_eq!(result.settings.deadline_warning_days, 6);
+    assert_eq!(result.settings.week_start, "sunday");
+    assert!(result.settings.capture_template("x").is_none());
+    assert!(reported(&result, "capture x"));
+    assert_eq!(result.settings.view("r").unwrap().blocks.len(), 2);
 }

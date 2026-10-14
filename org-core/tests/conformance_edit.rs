@@ -87,14 +87,16 @@ fn native_edits_match_pinned_emacs_results_byte_for_byte() {
         let temp = tempfile::tempdir().expect("create edit case");
         let path = temp.path().join("input.org");
         fs::copy(directory.join("input.org"), &path).expect("copy edit source");
-        let mut settings = Settings::default();
-        settings.files.roots = vec![temp.path().to_string_lossy().into_owned()];
-        settings.files.agenda = vec!["*.org".to_string()];
-        settings.agenda.log_done = case.log_done.clone();
-        settings.agenda.log_repeat = case.log_repeat.clone();
-        settings.agenda.log_reschedule = case.log_reschedule.clone();
-        settings.agenda.log_redeadline = case.log_redeadline.clone();
-        settings.agenda.log_into_drawer = case.log_into_drawer;
+        let mut settings = Settings {
+            roots: vec![temp.path().to_string_lossy().into_owned()],
+            agenda_files: vec!["*.org".to_string()],
+            ..Settings::default()
+        };
+        settings.log_done = case.log_done.clone();
+        settings.log_repeat = case.log_repeat.clone();
+        settings.log_reschedule = case.log_reschedule.clone();
+        settings.log_redeadline = case.log_redeadline.clone();
+        settings.log_into_drawer = case.log_into_drawer;
         let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl"))
             .expect("create write engine");
         let context = WriteContext {

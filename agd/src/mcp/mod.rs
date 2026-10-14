@@ -50,7 +50,7 @@ impl McpCommand {
             .with_writer(std::io::stderr)
             .try_init()
             .map_err(|error| anyhow::anyhow!("failed to initialize MCP logging: {error}"))?;
-        info!(roots = ?settings.files.roots, "starting stdio MCP server");
+        info!(roots = ?settings.roots, "starting stdio MCP server");
         Builder::new_multi_thread()
             .enable_all()
             .build()

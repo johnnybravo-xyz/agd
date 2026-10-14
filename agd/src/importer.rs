@@ -6,8 +6,8 @@ use std::process::{Command, Output};
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{Duration, Local, NaiveDate};
 use org_core::{
-    AgendaEngine, AgendaQuery, AgendaSpan, CommandProfile, ImportSnapshot, ImportStatus,
-    ResolvedEditorConfig, Settings, WorkspaceIndex, agenda_csv, items_csv, parse_date_input,
+    AgendaEngine, AgendaQuery, AgendaSpan, ImportResult, ImportStatus, ResolvedEditorConfig,
+    Settings, WorkspaceIndex, agenda_csv, apply_import, items_csv, parse_date_input, render_config,
 };
 use similar::TextDiff;
 
@@ -25,104 +25,54 @@ pub struct VerificationResult {
 }
 #[derive(Clone, Debug)]
 pub struct ImportExecution {
-    pub snapshot: ImportSnapshot,
+    pub result: ImportResult,
     pub toml: String,
     pub diff: String,
     pub verification: Vec<VerificationResult>,
 }
 
 pub fn import_emacs(
-    settings: &Settings,
+    base: &Settings,
     server: Option<&str>,
-    batch_profile: Option<&str>,
     destination: &Path,
     write: bool,
     verify: bool,
 ) -> Result<ImportExecution> {
     let probe = probe_file("emacs.el", EMACS_PROBE)?;
-    let resolved = if let Some(profile) = batch_profile {
-        let profile = settings
-            .imports
-            .emacs
-            .batch_profiles
-            .get(profile)
-            .ok_or_else(|| anyhow!("unknown Emacs batch profile: {profile}"))?;
-        eprintln!(
-            "warning: the batch profile runs your Emacs configuration: {} {}",
-            profile.command,
-            profile.args.join(" ")
-        );
-        run_emacs_batch(profile, probe.path(), verify)?
-    } else {
-        let server = server.or(settings.imports.emacs.server.as_deref());
-        run_emacs_daemon(settings, server, probe.path(), verify).context(
-            "no usable Emacs daemon; start the selected daemon or choose an explicit --batch-profile",
-        )?
-    };
-    finish_import(resolved, settings, destination, write, verify)
+    let resolved = run_emacs_daemon(server, probe.path(), verify)
+        .context("no usable Emacs daemon; start one, or name it with --server")?;
+    finish_import(resolved, base, destination, write, verify)
 }
 
 pub fn import_nvim(
-    settings: &Settings,
-    profile_name: Option<&str>,
+    base: &Settings,
     destination: &Path,
     write: bool,
     verify: bool,
 ) -> Result<ImportExecution> {
     let probe = probe_file("nvim.lua", NVIM_PROBE)?;
-    let profile = match profile_name {
-        Some(name) => settings
-            .imports
-            .nvim
-            .profiles
-            .get(name)
-            .cloned()
-            .ok_or_else(|| anyhow!("unknown Neovim profile: {name}"))?,
-        None => CommandProfile {
-            command: settings
-                .imports
-                .nvim
-                .command
-                .clone()
-                .unwrap_or_else(|| "nvim".to_string()),
-            args: if settings.imports.nvim.args.is_empty() {
-                vec!["--headless".to_string()]
-            } else {
-                settings.imports.nvim.args.clone()
-            },
-        },
-    };
     // `nvim -l` skips the user's config unless `-u` is given, so the probe
     // runs after normal startup instead: plugin managers load and resolve
     // `require('orgmode')`. `-i NONE` leaves the user's shada untouched, and a
     // probe error exits 1 with its message, as `-l` would.
-    let mut command = Command::new(&profile.command);
+    let mut command = Command::new("nvim");
     command
-        .args(&profile.args)
-        .args(["-i", "NONE", "-c"])
+        .args(["--headless", "-i", "NONE", "-c"])
         .arg(NVIM_RUN_PROBE)
         .args(["-c", "qa!"]);
     command.env("AGD_NVIM_PROBE", probe.path());
-    command.env("AGD_IMPORT_SOURCE", profile_name.unwrap_or("default"));
+    command.env("AGD_IMPORT_SOURCE", "default");
     let output = run(&mut command, "Neovim import probe")?;
     let resolved = parse_process_json(&output, "Neovim")?;
-    finish_import(resolved, settings, destination, write, verify)
+    finish_import(resolved, base, destination, write, verify)
 }
 
 fn run_emacs_daemon(
-    settings: &Settings,
     server: Option<&str>,
     probe: &Path,
     verify: bool,
 ) -> Result<ResolvedEditorConfig> {
-    let import = &settings.imports.emacs;
-    let mut command = Command::new(
-        import
-            .command
-            .clone()
-            .unwrap_or_else(|| "emacsclient".to_string()),
-    );
-    command.args(&import.args);
+    let mut command = Command::new("emacsclient");
     if let Some(server) = server {
         command.arg("--socket-name").arg(server);
     }
@@ -140,26 +90,6 @@ fn run_emacs_daemon(
     let json: String = serde_json::from_slice(&output.stdout)
         .context("Emacs daemon returned a non-string probe result")?;
     serde_json::from_str(&json).context("Emacs daemon returned an invalid probe payload")
-}
-
-fn run_emacs_batch(
-    profile: &CommandProfile,
-    probe: &Path,
-    verify: bool,
-) -> Result<ResolvedEditorConfig> {
-    let mut command = Command::new(&profile.command);
-    command
-        .args(&profile.args)
-        .arg("--batch")
-        .arg("-l")
-        .arg(probe);
-    command.env("AGD_IMPORT_SOURCE", "batch-profile");
-    command.env("AGD_PROBE_STDOUT", "1");
-    if verify {
-        command.env("AGD_IMPORT_VERIFY", "1");
-    }
-    let output = run(&mut command, "Emacs batch profile probe")?;
-    parse_process_json(&output, "Emacs")
 }
 
 fn run(command: &mut Command, label: &str) -> Result<Output> {
@@ -195,18 +125,19 @@ fn parse_marked_json(bytes: &[u8], editor: &str) -> Result<ResolvedEditorConfig>
 
 fn finish_import(
     mut resolved: ResolvedEditorConfig,
-    settings: &Settings,
+    base: &Settings,
     destination: &Path,
     write: bool,
     verify: bool,
 ) -> Result<ImportExecution> {
-    let host = std::env::var("HOSTNAME")
-        .or_else(|_| std::env::var("COMPUTERNAME"))
-        .unwrap_or_else(|_| "unknown".to_string());
     let editor_rows = std::mem::take(&mut resolved.verification);
-    let snapshot = ImportSnapshot::from_resolved(resolved, settings, host)?;
-    let verification = verify_snapshot(&snapshot, settings, &editor_rows, verify);
-    let toml = snapshot.to_toml()?;
+    let result = apply_import(&resolved, base)?;
+    let verification = verify_import(&result, &resolved.editor, &editor_rows, verify);
+    let header = format!(
+        "agd configuration. Imported from {} {} by `agd setup import`;\nedit freely. See https://github.com/johnnybravo-xyz/agd#configuration",
+        resolved.editor, resolved.editor_version
+    );
+    let toml = render_config(&result.settings, &header)?;
     let previous = fs::read_to_string(destination).unwrap_or_default();
     let diff = TextDiff::from_lines(&previous, &toml)
         .unified_diff()
@@ -216,26 +147,50 @@ fn finish_import(
         )
         .to_string();
     if write {
-        snapshot.write(destination)?;
+        write_config(destination, &toml)?;
     }
     Ok(ImportExecution {
-        snapshot,
+        result,
         toml,
         diff,
         verification,
     })
 }
-fn verify_snapshot(
-    snapshot: &ImportSnapshot,
-    approved: &Settings,
+
+/// Replaces the config file atomically with owner-only permissions.
+fn write_config(path: &Path, contents: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("cannot create {}", parent.display()))?;
+    }
+    let temporary = path.with_extension("toml.tmp");
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&temporary)
+        .with_context(|| format!("cannot write {}", temporary.display()))?;
+    file.write_all(contents.as_bytes())
+        .and_then(|()| file.sync_all())
+        .with_context(|| format!("cannot write {}", temporary.display()))?;
+    fs::rename(&temporary, path).with_context(|| format!("cannot replace {}", path.display()))?;
+    Ok(())
+}
+
+fn verify_import(
+    result: &ImportResult,
+    editor: &str,
     editor_rows: &std::collections::BTreeMap<String, String>,
     verify: bool,
 ) -> Vec<VerificationResult> {
     if !verify {
         return Vec::new();
     }
-    let mut settings = snapshot.settings.clone();
-    settings.files.roots = approved.files.roots.clone();
+    let settings = result.settings.clone();
     let index = match WorkspaceIndex::load(settings.clone()) {
         Ok(index) => index,
         Err(error) => {
@@ -250,12 +205,12 @@ fn verify_snapshot(
     let engine = AgendaEngine::new(&index);
     let today = Local::now().date_naive();
     let start = verification_start(&settings, today);
-    let span = match settings.agenda.span.as_str() {
+    let span = match settings.agenda_span.as_str() {
         "day" => AgendaSpan::Day,
         "month" => AgendaSpan::Month,
         _ => AgendaSpan::Week,
     };
-    let (from, to) = span.bounds(start, &settings.agenda.week_start);
+    let (from, to) = span.bounds(start, &settings.week_start);
     let mut results = Vec::new();
     let native_default = engine
         .agenda(&AgendaQuery {
@@ -266,7 +221,7 @@ fn verify_snapshot(
             log_mode: false,
         })
         .map(|entries| normalize_csv(&agenda_csv(&entries)));
-    if snapshot.metadata.editor == "emacs" {
+    if editor == "emacs" {
         results.push(compare_rows(
             "a",
             "Agenda",
@@ -290,8 +245,9 @@ fn verify_snapshot(
         });
     }
 
-    for (key, view) in &snapshot.settings.views {
-        if snapshot.metadata.editor != "emacs" {
+    for view in &settings.views {
+        let key = &view.key;
+        if editor != "emacs" {
             results.push(VerificationResult {
                 status: ImportStatus::Difference,
                 key: key.clone(),
@@ -308,27 +264,6 @@ fn verify_snapshot(
             normalize_csv(&rows)
         });
         results.push(compare_rows(key, &view.desc, editor_rows.get(key), native));
-    }
-    for group in &snapshot.groups {
-        results.push(VerificationResult {
-            status: if group.enabled {
-                ImportStatus::Difference
-            } else {
-                ImportStatus::Unsupported
-            },
-            key: format!("group:{}", group.key),
-            description: group.description.clone(),
-            detail: if group.enabled {
-                "declarative group imported; grouping does not change underlying agenda rows"
-                    .to_string()
-            } else {
-                group
-                    .diagnostics
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| "unsupported group".to_string())
-            },
-        });
     }
     results
 }
@@ -477,7 +412,7 @@ impl EmptyDefault for str {
 }
 
 fn verification_start(settings: &Settings, today: NaiveDate) -> NaiveDate {
-    let Some(value) = settings.agenda.start_day.as_deref() else {
+    let Some(value) = settings.agenda_start_day.as_deref() else {
         return today;
     };
     if let Some(days) = value
