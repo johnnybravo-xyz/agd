@@ -117,7 +117,8 @@ impl App {
         self.set_state(&next)
     }
 
-    /// `k` in triage: a done keyword whose name starts with CANCEL.
+    /// `X` in the lists, `k` in triage: the file's done keyword whose name
+    /// starts with CANCEL (CANCELLED or CANCELED).
     pub(super) fn cancel(&mut self) -> Result<()> {
         let state = self
             .selected_keywords()

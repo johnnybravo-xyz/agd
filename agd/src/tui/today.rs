@@ -172,6 +172,7 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
             ("T", "triage"),
             ("c", "capture"),
             ("a", "views"),
+            ("X", "cancel"),
             ("?", "help"),
         ],
     };

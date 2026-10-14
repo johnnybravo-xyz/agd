@@ -31,6 +31,7 @@ const SECTIONS: &[(&str, &[Key])] = &[
         &[
             ("t", "cycle TODO state", "t"),
             ("x", "mark done", ""),
+            ("X", "cancel", ""),
             ("s / d", "schedule / deadline", "C-c C-s / C-c C-d"),
             (", + -", "priority", ", + -"),
             (":", "tags", ":"),

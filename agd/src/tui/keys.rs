@@ -122,6 +122,7 @@ fn list_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('w') if bulk => app.schedule("+1w")?,
         KeyCode::Char('s') if bulk => app.someday()?,
         KeyCode::Char('x') => app.mark_done()?,
+        KeyCode::Char('X') => app.cancel()?,
         KeyCode::Char('t') => app.cycle_state()?,
         KeyCode::Char('s') => prompt(app, PromptKind::Schedule),
         KeyCode::Char('d') => prompt(app, PromptKind::Deadline),
@@ -296,6 +297,7 @@ fn pane_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('j') | KeyCode::Down => app.move_selection(1),
         KeyCode::Char('k') | KeyCode::Up => app.move_selection(-1),
         KeyCode::Char('x') => app.mark_done()?,
+        KeyCode::Char('X') => app.cancel()?,
         KeyCode::Char('u') => app.undo()?,
         KeyCode::Char('c') => app.overlay = Overlay::Capture(capture::Draft::default()),
         KeyCode::Char('T') => {

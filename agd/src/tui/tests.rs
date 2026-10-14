@@ -402,3 +402,26 @@ fn due_answers_a_deadline_prompt_so_it_is_not_asked() {
         assert!(screen.contains("DEADLINE: <2026-10-16 Fri>"), "{screen}");
     });
 }
+
+#[test]
+#[serial]
+fn shift_x_cancels_with_the_files_own_keyword() {
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(
+            &path,
+            "#+TODO: TODO | DONE CANCELED\n* TODO Old plan\nSCHEDULED: <2026-10-13 Tue>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.cancel().unwrap();
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("* CANCELED Old plan"),
+            "{}",
+            fs::read_to_string(&path).unwrap()
+        );
+    });
+}
