@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::{Result, bail};
@@ -74,7 +75,7 @@ impl ImportCommand {
             write,
             self.verify,
         )?;
-        self.print(&execution);
+        self.print(&execution)?;
         if !preview && !write && !execution.diff.is_empty() {
             bail!(
                 "{} exists; review the diff above and rerun with --force to replace it",
@@ -87,49 +88,59 @@ impl ImportCommand {
         Ok(())
     }
 
-    fn print(&self, execution: &ImportExecution) {
-        if self.stdout {
+    /// With --stdout the config is the only stdout output, so it can be
+    /// redirected to a file; the report goes to stderr.
+    fn print(&self, execution: &ImportExecution) -> Result<()> {
+        let (mut stdout, mut stderr) = (std::io::stdout(), std::io::stderr());
+        let out: &mut dyn Write = if self.stdout {
             print!("{}", execution.toml);
-        } else if !execution.diff.is_empty() {
+            &mut stderr
+        } else {
             print!("{}", execution.diff);
-        }
+            &mut stdout
+        };
         let sources = &execution.sources;
-        println!(
+        writeln!(
+            out,
             "read {} {} file(s):",
             sources.editor.name(),
             sources.files.len()
-        );
+        )?;
         for file in &sources.files {
-            println!("  {}", file.display());
+            writeln!(out, "  {}", file.display())?;
         }
         for note in &sources.notes {
-            println!("  {note}");
+            writeln!(out, "  {note}")?;
         }
         let settings = &execution.result.settings;
-        println!(
+        writeln!(
+            out,
             "imported  roots {}, {} agenda entries, {} capture templates, {} views",
             settings.roots.join(", "),
             settings.agenda_files.len(),
             settings.captures.len(),
             settings.views.len()
-        );
+        )?;
         for diagnostic in &execution.result.diagnostics {
-            println!(
+            writeln!(
+                out,
                 "  {} {}  {}",
                 mark(&diagnostic.status),
                 diagnostic.key,
                 diagnostic.message
-            );
+            )?;
         }
         for result in &execution.verification {
-            println!(
+            writeln!(
+                out,
                 "  {} view {}  {}  {}",
                 mark(&result.status),
                 result.key,
                 result.description,
                 result.detail
-            );
+            )?;
         }
+        Ok(())
     }
 }
 

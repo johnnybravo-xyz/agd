@@ -32,6 +32,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `agd setup import --stdout` prints only the config, with the report on
+  stderr, so it can be redirected to a file.
 - A lead that fills its six columns (`in 14d`, a rounded badge) keeps a
   space before the TODO keyword.
 - Capture templates with `DEADLINE: %^{deadline}t` no longer write a second,
