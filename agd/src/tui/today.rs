@@ -360,7 +360,10 @@ fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'stat
             ));
         }
     } else {
+        // The lead is padded to six columns but may fill them (`in 14d`,
+        // a rounded badge); the separator keeps it off the keyword.
         spans.extend(lead_cell(app, row));
+        spans.push(Span::raw(" "));
     }
     if let Some(todo) = &item.todo {
         spans.push(Span::styled(format!("{todo} "), keyword_style(app, row)));

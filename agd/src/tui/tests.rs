@@ -347,3 +347,20 @@ fn nerd_font_rounds_pills_and_the_default_does_not() {
         );
     });
 }
+
+#[test]
+#[serial]
+fn a_full_width_lead_keeps_a_space_before_the_keyword() {
+    with_home(|root| {
+        // Today is 2026-10-13, so this deadline is "in 14d", six columns.
+        fs::write(
+            root.join("work.org"),
+            "* TODO File taxes\nDEADLINE: <2026-10-27 Tue>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 100, 12).join("\n");
+        assert!(screen.contains("in 14d TODO File taxes"), "{screen}");
+    });
+}

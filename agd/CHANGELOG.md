@@ -22,6 +22,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A lead that fills its six columns (`in 14d`, a rounded badge) keeps a
+  space before the TODO keyword.
 - Capture templates with `DEADLINE: %^{deadline}t` no longer write a second,
   broken `DEADLINE: t` line: date prompts take dates, and `due:`/`on:` merge
   into the template's planning line.
