@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use crossterm::event::{EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, enable_raw_mode};
-use org_core::{CaptureDraft, WriteEngine, capture_prompts, parse_capture_line};
+use org_core::{CaptureDraft, CapturePrompt, WriteEngine, capture_prompts, parse_capture_line};
 use ratatui::Frame;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -26,7 +26,7 @@ use super::{App, Overlay, stop_terminal, write_context};
 pub(super) struct Draft {
     template: Option<String>,
     input: String,
-    prompts: Vec<(String, String)>,
+    prompts: Vec<(CapturePrompt, String)>,
     field: usize,
     body: String,
     preview: Result<String, String>,
@@ -53,7 +53,7 @@ impl Draft {
         self.template = Some(key.to_string());
         self.prompts = capture_prompts(template)
             .into_iter()
-            .map(|name| (name, String::new()))
+            .map(|prompt| (prompt, String::new()))
             .collect();
         self.field = 0;
     }
@@ -80,7 +80,7 @@ impl Draft {
             self.preview = Ok(String::new());
             return;
         }
-        let prompts: BTreeMap<String, String> = self.prompts.iter().cloned().collect();
+        let prompts = prompt_answers(&self.prompts);
         self.preview = self.parsed(app).and_then(|draft| {
             WriteEngine::with_default_journal(app.settings.clone())
                 .and_then(|engine| {
@@ -97,6 +97,13 @@ impl Draft {
                 .map_err(|error| error.to_string())
         });
     }
+}
+
+fn prompt_answers(prompts: &[(CapturePrompt, String)]) -> BTreeMap<String, String> {
+    prompts
+        .iter()
+        .map(|(prompt, value)| (prompt.name.clone(), value.clone()))
+        .collect()
 }
 
 fn added_lines(diff: &str) -> String {
@@ -196,7 +203,7 @@ pub(super) fn handle_key(
 fn commit(app: &mut App, draft: Draft) -> Result<()> {
     let template = draft.template.clone().unwrap_or_default();
     let parsed = parse_capture_line(&draft.input, app.today)?;
-    let prompts: BTreeMap<String, String> = draft.prompts.into_iter().collect();
+    let prompts = prompt_answers(&draft.prompts);
     let mutation = WriteEngine::with_default_journal(app.settings.clone())?.capture(
         &template,
         &parsed,
@@ -310,7 +317,8 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         ),
         parts[0],
     );
-    for (index, (name, value)) in draft.prompts.iter().enumerate() {
+    for (index, (prompt, value)) in draft.prompts.iter().enumerate() {
+        let name = &prompt.name;
         frame.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::styled(format!("  {name}: "), theme.muted()),

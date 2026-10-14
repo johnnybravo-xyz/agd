@@ -13,7 +13,9 @@ static ABSOLUTE_RE: LazyLock<Regex> = LazyLock::new(|| {
 static RELATIVE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\+(\d+)([dwmy])$").expect("relative date regex"));
 static ESCAPE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"%(\?|i|U|u|T|t|%|\^g|\^\{([^}]+)\})").expect("capture escape regex")
+    // %^{name}t/T/u/U and a bare %^t/T/u/U prompt for a date, as Org does.
+    Regex::new(r"%(\?|i|U|u|T|t|%|\^g|\^\{([^}]+)\}([tTuU])?|\^([tTuU]))")
+        .expect("capture escape regex")
 });
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -155,19 +157,33 @@ pub fn render_capture_template(
             first.push_str(&format!(" :{}:", draft.tags.join(":")));
         }
     }
-    // One planning line, as Org writes it: SCHEDULED then DEADLINE.
-    let mut planning = Vec::new();
-    if let Some(scheduled) = &draft.scheduled {
-        planning.push(format!(
-            "SCHEDULED: {}",
-            format_active_timestamp(scheduled)?
-        ));
+    // One planning line, as Org writes it: SCHEDULED then DEADLINE. A
+    // template's own planning line (often `DEADLINE: %^{deadline}t`) is
+    // merged with the due:/on: dates, which win; a keyword left without a
+    // date is dropped.
+    let template_planning = lines
+        .get(1)
+        .filter(|line| is_planning_line(line))
+        .map(|line| planning_dates(line));
+    if template_planning.is_some() {
+        lines.remove(1);
     }
-    if let Some(deadline) = &draft.deadline {
-        planning.push(format!("DEADLINE: {}", format_active_timestamp(deadline)?));
+    let (mut scheduled, mut deadline) = template_planning.unwrap_or_default();
+    if let Some(timestamp) = &draft.scheduled {
+        scheduled = Some(format_active_timestamp(timestamp)?);
+    }
+    if let Some(timestamp) = &draft.deadline {
+        deadline = Some(format_active_timestamp(timestamp)?);
+    }
+    let mut planning = Vec::new();
+    if let Some(timestamp) = scheduled {
+        planning.push(format!("SCHEDULED: {timestamp}"));
+    }
+    if let Some(timestamp) = deadline {
+        planning.push(format!("DEADLINE: {timestamp}"));
     }
     if !planning.is_empty() {
-        lines.insert(1, planning.join(" "));
+        lines.insert(1.min(lines.len()), planning.join(" "));
     }
     add_properties(
         &mut lines,
@@ -175,6 +191,27 @@ pub fn render_capture_template(
         usize::from(!planning.is_empty()) + 1,
     )?;
     Ok(lines.join(newline))
+}
+
+fn is_planning_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("SCHEDULED:") || trimmed.starts_with("DEADLINE:")
+}
+
+/// The SCHEDULED and DEADLINE timestamps on a template's planning line;
+/// a keyword with no timestamp after it yields None.
+fn planning_dates(line: &str) -> (Option<String>, Option<String>) {
+    let date_after = |keyword: &str| {
+        let rest = line.split_once(keyword)?.1.trim_start();
+        let close = match rest.chars().next()? {
+            '<' => '>',
+            '[' => ']',
+            _ => return None,
+        };
+        let end = rest.find(close)?;
+        Some(rest[..=end].to_string())
+    };
+    (date_after("SCHEDULED:"), date_after("DEADLINE:"))
 }
 
 /// Adds properties to the template's own `:PROPERTIES:` drawer, or opens one
@@ -227,21 +264,57 @@ fn add_properties(
     Ok(())
 }
 
-/// Names of the `%^{prompt}` fields a template asks for, in order and
-/// without duplicates; `%^g` asks for "tags".
-pub fn capture_prompts(template: &CaptureTemplate) -> Vec<String> {
-    let mut prompts: Vec<String> = Vec::new();
+/// One `%^{...}` field a template asks for. A date prompt (`%^{name}t`,
+/// `%^t`, ...) takes the same input as `due:` and may be left empty.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CapturePrompt {
+    pub name: String,
+    pub date: bool,
+}
+
+/// The `%^{prompt}` fields a template asks for, in order and without
+/// duplicates; `%^g` asks for "tags" and a bare `%^t` for "date".
+pub fn capture_prompts(template: &CaptureTemplate) -> Vec<CapturePrompt> {
+    let mut prompts: Vec<CapturePrompt> = Vec::new();
     for captures in ESCAPE_RE.captures_iter(&template.template) {
-        let name = match &captures[1] {
-            "^g" => "tags".to_string(),
-            escape if escape.starts_with("^{") => captures[2].to_string(),
+        let prompt = match (&captures[1], captures.get(2), captures.get(4)) {
+            ("^g", _, _) => CapturePrompt {
+                name: "tags".to_string(),
+                date: false,
+            },
+            (_, Some(name), _) => CapturePrompt {
+                name: name.as_str().to_string(),
+                date: captures.get(3).is_some(),
+            },
+            (_, None, Some(_)) => CapturePrompt {
+                name: "date".to_string(),
+                date: true,
+            },
             _ => continue,
         };
-        if !prompts.contains(&name) {
-            prompts.push(name);
+        if !prompts.iter().any(|existing| existing.name == prompt.name) {
+            prompts.push(prompt);
         }
     }
     prompts
+}
+
+/// A date prompt's answer as an Org timestamp: `t` active date, `T` active
+/// with time, `u`/`U` the inactive forms. Empty stays empty.
+fn prompted_date(value: &str, kind: &str, today: NaiveDate) -> Result<String, AgdError> {
+    if value.trim().is_empty() {
+        return Ok(String::new());
+    }
+    let mut timestamp = parse_date_input(value, today)?;
+    if kind == "t" || kind == "u" {
+        timestamp.time = None;
+    }
+    let active = format_active_timestamp(&timestamp)?;
+    Ok(if kind == "u" || kind == "U" {
+        format!("[{}]", &active[1..active.len() - 1])
+    } else {
+        active
+    })
 }
 
 // Expands every escape in one pass over the template so that user-supplied
@@ -271,14 +344,29 @@ fn expand_capture_escapes(
                 AgdError::new("missing_prompt", "capture tag prompt has no 'tags' value")
             })?),
             _ => {
-                let prompt = captures.get(2).expect("prompt name").as_str();
-                let value = prompts.get(prompt).ok_or_else(|| {
-                    AgdError::new(
-                        "missing_prompt",
-                        format!("capture prompt '{prompt}' has no value"),
-                    )
-                })?;
-                rendered.push_str(value);
+                let date_kind = captures
+                    .get(3)
+                    .or(captures.get(4))
+                    .map(|kind| kind.as_str());
+                let prompt = captures.get(2).map_or("date", |name| name.as_str());
+                match date_kind {
+                    Some(kind) => {
+                        let value = prompts.get(prompt).map_or("", String::as_str);
+                        let date = prompted_date(value, kind, now.date()).map_err(|error| {
+                            AgdError::new("invalid_date", format!("{prompt}: {error}"))
+                        })?;
+                        rendered.push_str(&date);
+                    }
+                    None => {
+                        let value = prompts.get(prompt).ok_or_else(|| {
+                            AgdError::new(
+                                "missing_prompt",
+                                format!("capture prompt '{prompt}' has no value"),
+                            )
+                        })?;
+                        rendered.push_str(value);
+                    }
+                }
             }
         }
     }
@@ -484,6 +572,98 @@ mod tests {
         assert_eq!(
             rendered,
             "* TODO [#A] Renew passport :admin:\nDEADLINE: <2026-10-30 Fri>\n:PROPERTIES:\n:CREATED: [2026-10-13 Tue 09:30]\n:END:"
+        );
+    }
+
+    fn deadline_template() -> CaptureTemplate {
+        CaptureTemplate {
+            template: "* TODO %?\nDEADLINE: %^{deadline}t\nCREATED: %U".to_string(),
+            ..CaptureTemplate::default()
+        }
+    }
+
+    fn render(
+        template: &CaptureTemplate,
+        draft: &CaptureDraft,
+        deadline: &str,
+    ) -> Result<String, AgdError> {
+        let now = NaiveDate::from_ymd_opt(2026, 10, 13)
+            .unwrap()
+            .and_hms_opt(9, 30, 0)
+            .unwrap();
+        let prompts = BTreeMap::from([("deadline".to_string(), deadline.to_string())]);
+        render_capture_template(template, draft, "", &prompts, now)
+    }
+
+    #[test]
+    fn a_date_prompt_is_a_date_and_lists_as_one() {
+        assert_eq!(
+            capture_prompts(&deadline_template()),
+            vec![CapturePrompt {
+                name: "deadline".to_string(),
+                date: true
+            }]
+        );
+        let draft = CaptureDraft {
+            title: "Renew passport".to_string(),
+            ..CaptureDraft::default()
+        };
+        assert_eq!(
+            render(&deadline_template(), &draft, "fri").unwrap(),
+            "* TODO Renew passport\nDEADLINE: <2026-10-16 Fri>\nCREATED: [2026-10-13 Tue 09:30]"
+        );
+        let error = render(&deadline_template(), &draft, "someday").unwrap_err();
+        assert!(error.to_string().contains("deadline"), "{error}");
+    }
+
+    #[test]
+    fn token_dates_merge_into_the_template_planning_line() {
+        let draft = CaptureDraft {
+            title: "Renew passport".to_string(),
+            scheduled: Some(simple_date(NaiveDate::from_ymd_opt(2026, 10, 19).unwrap())),
+            deadline: Some(simple_date(NaiveDate::from_ymd_opt(2026, 10, 28).unwrap())),
+            ..CaptureDraft::default()
+        };
+        let expected = "* TODO Renew passport\nSCHEDULED: <2026-10-19 Mon> DEADLINE: <2026-10-28 Wed>\nCREATED: [2026-10-13 Tue 09:30]";
+        // The prompt left empty: the due: token fills the deadline.
+        assert_eq!(render(&deadline_template(), &draft, "").unwrap(), expected);
+        // Both given: the token wins, and there is still one planning line.
+        assert_eq!(
+            render(&deadline_template(), &draft, "fri").unwrap(),
+            expected
+        );
+        // Neither: the empty DEADLINE keyword is dropped.
+        let plain = CaptureDraft {
+            title: "Renew passport".to_string(),
+            ..CaptureDraft::default()
+        };
+        assert_eq!(
+            render(&deadline_template(), &plain, "").unwrap(),
+            "* TODO Renew passport\nCREATED: [2026-10-13 Tue 09:30]"
+        );
+    }
+
+    #[test]
+    fn timed_and_inactive_date_prompts_render_as_org_does() {
+        let template = CaptureTemplate {
+            template: "* Meeting %?\n%^{when}T\nLogged %^{deadline}u".to_string(),
+            ..CaptureTemplate::default()
+        };
+        let draft = CaptureDraft {
+            title: "Sync".to_string(),
+            ..CaptureDraft::default()
+        };
+        let now = NaiveDate::from_ymd_opt(2026, 10, 13)
+            .unwrap()
+            .and_hms_opt(9, 30, 0)
+            .unwrap();
+        let prompts = BTreeMap::from([
+            ("when".to_string(), "2026-10-30 14:00".to_string()),
+            ("deadline".to_string(), "2026-10-30 14:00".to_string()),
+        ]);
+        assert_eq!(
+            render_capture_template(&template, &draft, "", &prompts, now).unwrap(),
+            "* Meeting Sync\n<2026-10-30 Fri 14:00>\nLogged [2026-10-30 Fri]"
         );
     }
 }

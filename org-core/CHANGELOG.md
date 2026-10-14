@@ -6,6 +6,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Capture templates support Org's date prompts (`%^{name}t`, `T`, `u`, `U`
+  and a bare `%^t`): the answer takes the same input as `due:` and renders
+  as a timestamp. A template's own planning line, such as
+  `DEADLINE: %^{deadline}t`, merges with the `due:`/`on:` dates instead of
+  producing a second planning line and a literal `t`.
+
 ## [0.1.0] - 2026-10-14
 
 First public release: the parsing, agenda and write engine behind `agd`.

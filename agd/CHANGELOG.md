@@ -6,6 +6,12 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Capture templates with `DEADLINE: %^{deadline}t` no longer write a second,
+  broken `DEADLINE: t` line: date prompts take dates, and `due:`/`on:` merge
+  into the template's planning line.
+
 ## [0.1.0] - 2026-10-14
 
 First public release: an org-agenda for the terminal and for coding agents,
