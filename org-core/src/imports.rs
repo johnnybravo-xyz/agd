@@ -385,20 +385,6 @@ pub fn apply_import(
     settings.views.clear();
     for command in &resolved.commands {
         let key = format!("view {}", command.key);
-        let mut command = command.clone();
-        for block in &mut command.blocks {
-            if let Some(rewritten) = block.match_expression.as_deref().and_then(todo_state_match) {
-                diagnostics.push(ImportDiagnostic {
-                    status: ImportStatus::Difference,
-                    key: key.clone(),
-                    message: format!(
-                        "match {} imported as {rewritten}",
-                        block.match_expression.as_deref().unwrap_or_default()
-                    ),
-                });
-                block.match_expression = Some(rewritten);
-            }
-        }
         let unusable_match = command
             .blocks
             .iter()
@@ -438,22 +424,6 @@ pub fn apply_import(
         settings,
         diagnostics,
     })
-}
-
-/// `TODO="NEXT"`, the common nvim-orgmode way to match a TODO state, as
-/// agd's equivalent `/NEXT`; None for any other match.
-fn todo_state_match(expression: &str) -> Option<String> {
-    let state = expression
-        .trim()
-        .strip_prefix('+')
-        .unwrap_or(expression.trim())
-        .strip_prefix("TODO=\"")?
-        .strip_suffix('"')?;
-    (!state.is_empty()
-        && state
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
-    .then(|| format!("/{state}"))
 }
 
 /// The literal directory an agenda entry starts from: a directory itself, a
@@ -662,16 +632,5 @@ mod tests {
                 .any(|diagnostic| diagnostic.key == "/elsewhere/private.org")
         );
         assert_eq!(result.settings.captures, base.captures);
-    }
-
-    #[test]
-    fn only_a_bare_todo_state_match_is_rewritten() {
-        assert_eq!(todo_state_match("TODO=\"NEXT\""), Some("/NEXT".to_string()));
-        assert_eq!(
-            todo_state_match("+TODO=\"WAIT\""),
-            Some("/WAIT".to_string())
-        );
-        assert_eq!(todo_state_match("TODO=\"DONE\"+CLOSED>=\"<-3w>\""), None);
-        assert_eq!(todo_state_match("+work/NEXT"), None);
     }
 }

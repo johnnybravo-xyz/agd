@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::NaiveDate;
-use org_core::{AgendaEngine, AgendaQuery, Settings, WorkspaceIndex, agenda_csv};
+use org_core::{AgendaEngine, AgendaQuery, Settings, WorkspaceIndex, agenda_csv, items_csv};
 use serde::Deserialize;
 use similar::TextDiff;
 
@@ -19,6 +19,10 @@ struct Case {
     skip_timestamp_if_done: bool,
     /// Agenda sorting keys; Org 9.6 in the oracle has no urgency-* keys.
     sorting_strategy: Option<Vec<String>>,
+    /// A tags or tags-todo match run instead of the agenda.
+    #[serde(rename = "match")]
+    match_expression: Option<String>,
+    match_kind: Option<String>,
 }
 
 fn date(value: &str) -> NaiveDate {
@@ -61,19 +65,35 @@ fn native_agenda_matches_pinned_emacs_rows() {
             settings.sorting_strategy = strategy;
         }
         let index = WorkspaceIndex::load(settings).expect("index case");
-        let entries = AgendaEngine::new(&index)
-            .agenda(&AgendaQuery {
-                from: date(&case.from),
-                to: date(&case.to),
-                today: date(&case.today),
-                match_expression: None,
-                log_mode: false,
-            })
-            .expect("run native agenda");
-        let actual = agenda_csv(&entries);
+        let engine = AgendaEngine::new(&index);
+        let today = date(&case.today);
         let expected = fs::read_to_string(directory.join("emacs.csv"))
             .expect("read Emacs rows")
             .replace("\r\n", "\n");
+        let (actual, expected) = match &case.match_expression {
+            // agd lists matched items as `todo` rows where Emacs says `tagsmatch`.
+            Some(expression) => {
+                let items = if case.match_kind.as_deref() == Some("tags-todo") {
+                    engine.todo(Some(expression), today)
+                } else {
+                    engine.tags(expression, today)
+                }
+                .expect("run native match");
+                (items_csv(&items), expected.replace(",tagsmatch,", ",todo,"))
+            }
+            None => {
+                let entries = engine
+                    .agenda(&AgendaQuery {
+                        from: date(&case.from),
+                        to: date(&case.to),
+                        today,
+                        match_expression: None,
+                        log_mode: false,
+                    })
+                    .expect("run native agenda");
+                (agenda_csv(&entries), expected)
+            }
+        };
         assert!(
             actual == expected,
             "agenda drift in {}\n{}",

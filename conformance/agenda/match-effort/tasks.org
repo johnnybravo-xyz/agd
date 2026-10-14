@@ -1,0 +1,22 @@
+#+TODO: TODO NEXT | DONE
+* NEXT Ten minutes as a number
+:PROPERTIES:
+:Effort:   10
+:END:
+* NEXT Ten minutes as a duration
+:PROPERTIES:
+:Effort:   0:10
+:END:
+* NEXT An hour and a half
+:PROPERTIES:
+:Effort:   1:30
+:END:
+* NEXT Thirty minutes as a number
+:PROPERTIES:
+:Effort:   30
+:END:
+* NEXT No estimate
+* TODO Not next
+:PROPERTIES:
+:Effort:   5
+:END:

@@ -1,0 +1,7 @@
+#+CATEGORY: home
+* Garden
+** TODO Water plants
+** DONE Trim the hedge
+*** TODO Buy shears
+* TODO Laundry :chores:
+* TODO Taxes :admin:

@@ -10,6 +10,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `X` cancels the selected task in the lists and the pane, with the file's
   own CANCELLED (or CANCELED) keyword.
+- Saved views with property matches run and import, such as a dashboard's
+  `TODO="DONE"+CLOSED>="<-3w>"` or `TODO="NEXT"+Effort<15`.
 - `nerd_font = true` rounds every pill and chip with Nerd Font caps; off by
   default, since terminals without such a font show missing-glyph boxes.
 

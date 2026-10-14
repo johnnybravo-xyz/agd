@@ -143,7 +143,7 @@ impl App {
             }
             Screen::Today => today_rows(
                 engine.agenda(&self.query(self.day, self.day))?,
-                &engine.todo(None)?,
+                &engine.todo(None, self.today)?,
                 &inbox,
                 &self.index,
             ),

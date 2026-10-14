@@ -1,0 +1,7 @@
+#+TODO: TODO NEXT SOMEDAY | DONE
+* TODO [#A] Fix init time :Emacs:
+* SOMEDAY [#A] Rewrite the theme :Emacs:
+* TODO [#B] Try a new package :Emacs:
+* TODO Untagged priority A [#A] wait no cookie here
+* NEXT [#A] Unrelated tag :work:
+* TODO No cookie at all :Emacs:

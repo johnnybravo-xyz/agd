@@ -30,8 +30,23 @@
   (when (getenv "AGD_SORTING")
     (setq org-agenda-sorting-strategy
           `((agenda ,@(mapcar #'intern (split-string (getenv "AGD_SORTING")))))))
-  ;; org-today reads the clock through the time-since primitive, which a
-  ;; current-time override does not reach, so freeze both.
-  (cl-letf (((symbol-function 'current-time) (lambda () fixed-time))
-            ((symbol-function 'org-today) (lambda () (time-to-days fixed-time))))
-    (org-batch-agenda-csv "a")))
+  ;; A case with AGD_MATCH runs that tags or tags-todo match as a custom
+  ;; command instead of the agenda.
+  (when (getenv "AGD_MATCH")
+    (setq org-agenda-custom-commands
+          `(("x" "match" ,(intern (or (getenv "AGD_MATCH_KIND") "tags"))
+             ,(getenv "AGD_MATCH")))))
+  ;; org-today reads the clock through the time-since primitive, and the
+  ;; tags matcher's <today>/<now> through float-time and decode-time; a
+  ;; current-time override reaches none of these C primitives, so freeze
+  ;; each one's "now".
+  (let ((float-time-now (symbol-function 'float-time))
+        (decode-time-now (symbol-function 'decode-time)))
+    (cl-letf (((symbol-function 'current-time) (lambda () fixed-time))
+              ((symbol-function 'org-today) (lambda () (time-to-days fixed-time)))
+              ((symbol-function 'float-time)
+               (lambda (&optional time) (funcall float-time-now (or time fixed-time))))
+              ((symbol-function 'decode-time)
+               (lambda (&optional time zone form)
+                 (funcall decode-time-now (or time fixed-time) zone form))))
+      (org-batch-agenda-csv (if (getenv "AGD_MATCH") "x" "a")))))

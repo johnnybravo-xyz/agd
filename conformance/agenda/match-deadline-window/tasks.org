@@ -1,0 +1,9 @@
+* TODO Due today
+DEADLINE: <2026-10-13 Tue>
+* TODO Due in five days
+DEADLINE: <2026-10-18 Sun>
+* TODO Due in two weeks
+DEADLINE: <2026-10-27 Tue>
+* TODO Overdue
+DEADLINE: <2026-10-01 Thu>
+* TODO No deadline

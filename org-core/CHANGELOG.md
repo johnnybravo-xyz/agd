@@ -6,7 +6,21 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Tags/TODO matches take property terms with Org's semantics, checked
+  against Emacs: `TODO="DONE"`, `PRIORITY="A"` (the default priority when
+  a heading has none), `LEVEL`, `CATEGORY`, planning dates and drawer
+  properties; string, number (`Effort<15`) and time (`CLOSED>="<-3w>"`,
+  `DEADLINE<="<+1w>"`) comparisons, `-` negation and `OP*`. Regexp terms
+  are still rejected with `invalid_match`.
+
 ### Changed
+
+- `AgendaEngine::todo` and `AgendaEngine::tags` take the agenda day, which
+  relative times in a match count from.
+- Import keeps `TODO="X"` matches as written instead of rewriting them to
+  `/X`.
 
 - `CapturePrompt::planning` names the planning keyword a date prompt fills,
   and `answered_by` tells whether a capture line's `due:`/`on:` already

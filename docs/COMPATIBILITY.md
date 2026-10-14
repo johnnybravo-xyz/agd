@@ -28,7 +28,7 @@ without executing editor code.
 | In-file `#+TODO` and `#+SEQ_TODO` workflows | Exact for parsing and writes | Round-trip and edit oracle fixtures |
 | Row order: urgency, priority, time, category, alpha, todo-state keys | Exact | All cases compare Emacs's own row order; `conformance/agenda/sorting` sets a custom strategy |
 | Custom agenda commands as views (agenda, todo, alltodo, tags, tags-todo blocks) | Exact rows | `agd setup import <emacs config> --verify` runs each view in Emacs and agd |
-| Tags/TODO match expressions | Native | `work`, `+a-b`, `a&b`, `a\|b`, `/TODO\|NEXT`, `/-WAIT`, `/!`; property and regexp matches are rejected |
+| Tags/TODO match expressions, with property terms | Exact | `conformance/agenda/match-*`: `work`, `+a-b`, `a\|b`, `/!`, `/-WAIT`, and `TODO="DONE"`, `PRIORITY="A"`, `LEVEL=2`, `CATEGORY="home"`, `Effort<15`, `CLOSED>="<-3w>"`, `DEADLINE<="<+1w>"`, `-STATUS="review"` with Org's string, number and time comparisons; regexp terms (`{...}`) are rejected |
 | org-ql `and`, `or`, `not`, `todo`, `tags`, `priority`, `category`, `text`, `deadline`, `scheduled`, `done` | Native subset | Unknown predicates fail explicitly |
 | Plain day/week/month lists and CSV | Native | CSV fields follow the Emacs oracle schema |
 | Effort totals | Native | Today sums `:Effort:`; no column view |
@@ -71,7 +71,7 @@ case that does not import.
 | Emacs config files (`.el`, literate `config.org`) | Org settings assigned at the top level or in `after!`, `with-eval-after-load`, `use-package` and Spacemacs's user-config; their values evaluated in `emacs -Q` | Values that call your own or a package's functions; defaults set by Doom modules or packages; settings inside `let`, hooks or your own functions |
 | nvim-orgmode (`setup()` call or lazy.nvim spec) | Every option agd uses, with nvim-orgmode's defaults for the rest; agenda globs kept | No `setup()` in the files read; options built from other plugins' APIs |
 | Capture templates | `entry` templates with `file`, `file+headline`, `file+olp`, datetree or `id` targets | Other types, computed targets or bodies, `%(sexp)` |
-| Custom agenda commands | agenda, todo, alltodo, tags and tags-todo blocks with literal span and header; a bare `TODO="X"` match as `/X` | Lambdas, search/stuck views, property or regexp matches (the view is left out); other options |
+| Custom agenda commands | agenda, todo, alltodo, tags and tags-todo blocks with literal span and header, including property matches | Lambdas, search/stuck views, regexp matches (the view is left out); other options |
 | org-super-agenda, org-ql | Nothing: agd does not group agenda rows | Each setting, as not used by agd |
 
 ## Tested editor paths

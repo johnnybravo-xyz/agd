@@ -1,0 +1,5 @@
+today = "2026-10-13"
+from = "2026-10-13"
+to = "2026-10-13"
+match_kind = "tags"
+match = 'TODO="DONE"+CLOSED>="<-3w>"'

@@ -1,0 +1,11 @@
+#+TODO: TODO NEXT | DONE CANCELLED
+* DONE Shipped last week
+CLOSED: [2026-10-06 Tue 10:00]
+* DONE Shipped two months ago
+CLOSED: [2026-08-10 Mon 09:00]
+* CANCELLED Dropped yesterday
+CLOSED: [2026-10-12 Mon 18:00]
+* DONE Done without a CLOSED line
+* DONE Closed exactly three weeks ago
+CLOSED: [2026-09-22 Tue 12:00]
+* TODO Still open

@@ -45,7 +45,7 @@ imported  roots ~/org, 2 agenda entries, 3 capture templates, 3 views
   ✓ org-todo-keywords  config.el:457
   ~ org-agenda-start-with-log-mode  config.el:393: not used by agd
   ✗ capture j  a computed capture target is unsupported
-  ✗ view e  ... property and regexp matches are not supported
+  ✗ view e  regexp matches ({...}) are not supported in '+{^@}'
 ```
 
 `✓` imported, with where it came from; `~` imported with a difference, or
@@ -104,8 +104,9 @@ wins.
   the rest import. Supported targets are `file`, `file+headline`,
   `file+olp`, `file+datetree` and `id`.
 - **Custom agenda commands** with lambdas, `search` or `stuck` blocks, or
-  property and regexp matches: `✗ view KEY`, left out whole. A bare
-  `TODO="NEXT"` match imports as `/NEXT`. Options other than
+  regexp matches (`{...}`): `✗ view KEY`, left out whole. Property matches
+  such as `TODO="DONE"+CLOSED>="<-3w>"` or `Effort<15` import as written.
+  Options other than
   `org-agenda-span` and `org-agenda-overriding-header` are listed
   `~ ... not imported`.
 - **org-super-agenda, org-ql, prefix formats, skip functions** and other
@@ -152,8 +153,8 @@ Options you do not set take nvim-orgmode's defaults.
 - **Capture templates** with a function target or body, `%(sexp)`, or a
   datetree: `✗ capture KEY` with the reason.
 - **Custom commands** other than `agenda`, `tags` and `tags_todo`, or with
-  property and regexp matches: `✗ view KEY`. A bare `TODO="NEXT"` match
-  imports as `/NEXT`.
+  regexp matches (`{...}`): `✗ view KEY`. Property matches import as
+  written.
 - **nvim-orgmode has no tag list, timestamp skipping or reschedule
   logging**: those keys keep agd's defaults.
 

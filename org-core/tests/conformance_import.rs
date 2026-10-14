@@ -72,7 +72,7 @@ fn emacs_deferred_settings_win_over_top_level_ones() {
 }
 
 #[test]
-fn neovim_setup_call_imports_options_and_todo_state_matches() {
+fn neovim_setup_call_imports_options_and_property_matches() {
     let (_temp, result) = import_fixture("nvim/vanilla");
     assert_eq!(result.settings.deadline_warning_days, 6);
     assert_eq!(result.settings.week_start, "sunday");
@@ -83,9 +83,8 @@ fn neovim_setup_call_imports_options_and_todo_state_matches() {
         result.settings.view("n").unwrap().blocks[0]
             .match_expression
             .as_deref(),
-        Some("/NEXT")
+        Some("TODO=\"NEXT\"")
     );
-    assert!(reported(&result, "view n", "imported as /NEXT"));
     assert_eq!(result.settings.view("r").unwrap().blocks.len(), 2);
 }
 

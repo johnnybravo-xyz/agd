@@ -11,6 +11,7 @@ import uuid
 
 IMAGE = "silex/emacs:30.2-alpine@sha256:2dd43b22af2e2592753ad92c3cb78fc580ce5981fc4d8ad1edee60ec92241ae5"
 KINDS = {
+    "tagsmatch",
     "scheduled",
     "past-scheduled",
     "deadline",
@@ -54,6 +55,9 @@ def emacs_rows(case_dir: pathlib.Path, case: dict) -> str:
     }
     if case.get("sorting_strategy"):
         environment["AGD_SORTING"] = " ".join(case["sorting_strategy"])
+    if case.get("match"):
+        environment["AGD_MATCH"] = case["match"]
+        environment["AGD_MATCH_KIND"] = case.get("match_kind", "tags")
     create = ["create", "--name", name]
     for key, value in environment.items():
         create.extend(["--env", f"{key}={value}"])

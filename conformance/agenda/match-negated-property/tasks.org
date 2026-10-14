@@ -1,0 +1,15 @@
+#+TODO: TODO WAIT | DONE
+* TODO Review the design doc
+:PROPERTIES:
+:STATUS:   review
+:END:
+* WAIT Waiting on review
+:PROPERTIES:
+:STATUS:   review
+:END:
+* TODO Urgent without status :urgent:
+* TODO Urgent in review :urgent:
+:PROPERTIES:
+:STATUS:   review
+:END:
+* TODO Plain
