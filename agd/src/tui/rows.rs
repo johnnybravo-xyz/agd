@@ -178,6 +178,27 @@ impl App {
                 let mut rows = Vec::new();
                 if let Some(view) = self.settings.view(key) {
                     for section in engine.view(view, self.day, self.today, self.log_mode)? {
+                        // A grouped block shows its groups instead of days,
+                        // as org-super-agenda does.
+                        if !section.groups.is_empty() {
+                            if !section.header.is_empty() {
+                                headers.push(section.header.clone());
+                            }
+                            for group in section.groups {
+                                headers.push(group.name.clone());
+                                rows.extend(group.entries.into_iter().map(|entry| DisplayRow {
+                                    section: group.name.clone(),
+                                    item: entry.item,
+                                    occurrence: Some(entry.occurrence),
+                                }));
+                                rows.extend(group.items.into_iter().map(|item| DisplayRow {
+                                    section: group.name.clone(),
+                                    item,
+                                    occurrence: None,
+                                }));
+                            }
+                            continue;
+                        }
                         // Agenda blocks list every day under their title, as
                         // an Emacs block agenda does; list blocks use theirs.
                         if let (Some(from), Some(to)) = (section.from, section.to) {

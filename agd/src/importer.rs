@@ -268,13 +268,21 @@ fn verify_import(
             });
             continue;
         }
-        let native = engine.view(view, start, today, false).map(|sections| {
-            let rows: String = sections
-                .iter()
-                .map(|section| agenda_csv(&section.entries) + &items_csv(&section.items))
-                .collect();
-            normalize_csv(&rows)
-        });
+        // The pinned Emacs has no org-super-agenda, so compare the rows
+        // before grouping.
+        let mut ungrouped = view.clone();
+        for block in &mut ungrouped.blocks {
+            block.groups.clear();
+        }
+        let native = engine
+            .view(&ungrouped, start, today, false)
+            .map(|sections| {
+                let rows: String = sections
+                    .iter()
+                    .map(|section| agenda_csv(&section.entries) + &items_csv(&section.items))
+                    .collect();
+                normalize_csv(&rows)
+            });
         results.push(compare_rows(key, &view.desc, editor_rows.get(key), native));
     }
     results

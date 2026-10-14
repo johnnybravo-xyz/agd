@@ -241,20 +241,28 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
     // Row index for each drawn line; headers map to None.
     let mut line_rows: Vec<Option<usize>> = Vec::new();
     let mut selected_line = None;
-    for header in &app.headers {
-        let mut rows = app
-            .rows
+    // Rows come in header order, and a name can repeat (each block's
+    // "Other items", the same day in two agenda blocks), so each row goes to
+    // the next header with its name.
+    let mut header_rows: Vec<Vec<usize>> = vec![Vec::new(); app.headers.len()];
+    let mut current = 0;
+    for (index, row) in app.rows.iter().enumerate() {
+        if let Some(offset) = app.headers[current..]
             .iter()
-            .enumerate()
-            .filter(|(_, row)| &row.section == header)
-            .peekable();
-        let empty = rows.peek().is_none();
-        if empty && app.screen == Screen::Today && !app.classic {
+            .position(|header| *header == row.section)
+        {
+            current += offset;
+            header_rows[current].push(index);
+        }
+    }
+    for (header, rows) in app.headers.iter().zip(header_rows) {
+        if rows.is_empty() && app.screen == Screen::Today && !app.classic {
             continue;
         }
         items.push(ListItem::new(section_header(app, header, width)));
         line_rows.push(None);
-        for (index, row) in rows {
+        for index in rows {
+            let row = &app.rows[index];
             if index == app.selected {
                 selected_line = Some(items.len());
             }

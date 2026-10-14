@@ -107,6 +107,35 @@ pub struct ViewBlock {
     pub span: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub header: Option<String>,
+    /// org-super-agenda style groups over the block's rows.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<ViewGroup>,
+}
+
+/// One group of a view block, as an org-super-agenda group: each row goes
+/// to the first group, in list order, whose match it passes; `discard`
+/// drops those rows; `by` makes one group per category, parent heading,
+/// TODO keyword or priority cookie. Groups are shown by `order`, then list
+/// order, and rows no group takes come last as "Other items".
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViewGroup {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Tags/TODO match, as for a tags block; without one the group takes
+    /// every remaining row.
+    #[serde(default, rename = "match", skip_serializing_if = "Option::is_none")]
+    pub match_expression: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub discard: bool,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub order: i64,
+}
+
+fn is_zero(value: &i64) -> bool {
+    *value == 0
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -169,6 +198,7 @@ pub const SORTING_KEYS: [&str; 15] = [
 ];
 
 pub const VIEW_BLOCK_KINDS: [&str; 5] = ["agenda", "todo", "alltodo", "tags", "tags-todo"];
+pub const VIEW_GROUP_BY: [&str; 4] = ["category", "parent", "todo", "priority"];
 
 #[derive(Clone, Debug)]
 pub struct LoadedSettings {
@@ -228,12 +258,14 @@ impl Default for Settings {
                         match_expression: None,
                         span: None,
                         header: None,
+                        groups: Vec::new(),
                     },
                     ViewBlock {
                         kind: "alltodo".to_string(),
                         match_expression: None,
                         span: None,
                         header: None,
+                        groups: Vec::new(),
                     },
                 ],
             }],
@@ -470,7 +502,15 @@ fn render_view(view: &ViewSettings) -> String {
                     fields.push(format!("{name} = {}", quote(value)));
                 }
             }
-            format!("  {{ {} }},\n", fields.join(", "))
+            if block.groups.is_empty() {
+                return format!("  {{ {} }},\n", fields.join(", "));
+            }
+            let groups: String = block
+                .groups
+                .iter()
+                .map(|group| format!("    {{ {} }},\n", render_group(group).join(", ")))
+                .collect();
+            format!("  {{ {}, groups = [\n{groups}  ] }},\n", fields.join(", "))
         })
         .collect();
     format!(
@@ -478,6 +518,27 @@ fn render_view(view: &ViewSettings) -> String {
         quote(&view.key),
         quote(&view.desc)
     )
+}
+
+fn render_group(group: &ViewGroup) -> Vec<String> {
+    let quote = |value: &str| toml::Value::String(value.to_string()).to_string();
+    let mut fields = Vec::new();
+    for (name, value) in [
+        ("name", &group.name),
+        ("match", &group.match_expression),
+        ("by", &group.by),
+    ] {
+        if let Some(value) = value {
+            fields.push(format!("{name} = {}", quote(value)));
+        }
+    }
+    if group.discard {
+        fields.push("discard = true".to_string());
+    }
+    if group.order != 0 {
+        fields.push(format!("order = {}", group.order));
+    }
+    fields
 }
 
 #[derive(Serialize)]
@@ -583,6 +644,23 @@ fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
             }
             crate::agenda_engine::validate_view_block(block)
                 .map_err(|error| config_error(format!("view '{}': {error}", view.key)))?;
+            for group in &block.groups {
+                if let Some(by) = &group.by {
+                    if !VIEW_GROUP_BY.contains(&by.as_str()) {
+                        return Err(config_error(format!(
+                            "view '{}' groups by '{by}'; use one of {}",
+                            view.key,
+                            VIEW_GROUP_BY.join(", ")
+                        )));
+                    }
+                    if group.match_expression.is_some() || group.discard {
+                        return Err(config_error(format!(
+                            "view '{}': a group with by takes no match or discard",
+                            view.key
+                        )));
+                    }
+                }
+            }
         }
     }
     if !settings.start_view.is_empty() && !view_keys.contains(settings.start_view.as_str()) {
@@ -710,6 +788,48 @@ mod tests {
         assert!(rendered.contains("deadline_warning_days = 5"), "{rendered}");
         assert!(!rendered.contains("agenda_span"), "{rendered}");
         assert!(!rendered.contains("[[view]]"), "{rendered}");
+        let parsed: Settings = toml::from_str(&rendered).unwrap();
+        assert_eq!(parsed, settings);
+    }
+
+    #[test]
+    fn rendered_view_groups_round_trip() {
+        let settings = Settings {
+            views: vec![ViewSettings {
+                key: "d".to_string(),
+                desc: "Day".to_string(),
+                blocks: vec![ViewBlock {
+                    kind: "alltodo".to_string(),
+                    match_expression: None,
+                    span: None,
+                    header: Some("Backlog".to_string()),
+                    groups: vec![
+                        ViewGroup {
+                            match_expression: Some("TODO=\"HOLD\"".to_string()),
+                            discard: true,
+                            ..ViewGroup::default()
+                        },
+                        ViewGroup {
+                            name: Some("Next".to_string()),
+                            match_expression: Some("/NEXT".to_string()),
+                            order: -1,
+                            ..ViewGroup::default()
+                        },
+                        ViewGroup {
+                            by: Some("category".to_string()),
+                            order: 9,
+                            ..ViewGroup::default()
+                        },
+                    ],
+                }],
+            }],
+            ..Settings::default()
+        };
+        let rendered = render_config(&settings, "groups").unwrap();
+        assert!(
+            rendered.contains("    { name = \"Next\", match = \"/NEXT\", order = -1 },\n"),
+            "{rendered}"
+        );
         let parsed: Settings = toml::from_str(&rendered).unwrap();
         assert_eq!(parsed, settings);
     }

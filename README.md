@@ -205,6 +205,11 @@ blocks = [
   { kind = "agenda", span = "day" },
   { kind = "tags-todo", match = "work/NEXT|WAIT", header = "Next and waiting" },
   { kind = "tags", match = 'TODO="DONE"+CLOSED>="<-1w>"', header = "Done this week" },
+  { kind = "alltodo", header = "Backlog", groups = [   # org-super-agenda groups
+    { match = "/HOLD", discard = true },
+    { name = "Overdue", match = 'DEADLINE<"<today>"' },
+    { by = "category" },
+  ] },
 ]
 ```
 

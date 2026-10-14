@@ -9,8 +9,8 @@ pub mod settings;
 pub mod write;
 
 pub use agenda_engine::{
-    AgendaEngine, AgendaQuery, AgendaSpan, ViewSection, agenda_csv, agenda_title, items_csv,
-    span_days,
+    AgendaEngine, AgendaQuery, AgendaSpan, ViewSection, ViewSectionGroup, agenda_csv, agenda_title,
+    items_csv, span_days,
 };
 pub use check::{
     CHECK_SCHEMA, CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError,
@@ -35,8 +35,8 @@ pub use model::{
 pub use paths::RootSet;
 pub use settings::{
     AgentProfile, CaptureTemplate, IdPolicy, LoadedSettings, SORTING_KEYS, Settings,
-    VIEW_BLOCK_KINDS, ViewBlock, ViewSettings, default_config_path, load_settings,
-    parse_config_file, render_config,
+    VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, default_config_path,
+    load_settings, parse_config_file, render_config,
 };
 pub use write::{
     Change, EditIntent, JournalRecord, JournalStatus, Patch, RefileResult, StoredPatch, UndoResult,

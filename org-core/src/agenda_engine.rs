@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::LazyLock;
 
 use chrono::{Datelike, Duration, Local, Months, NaiveDate, NaiveDateTime, NaiveTime};
@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, HeadlineSpan, Item, Occurrence, OccurrenceType,
-    PlanningTimestamp, Settings, ViewBlock, ViewSettings, WorkspaceIndex,
+    PlanningTimestamp, Settings, ViewBlock, ViewGroup, ViewSettings, WorkspaceIndex,
 };
 
 /// Checks a view block's match the way `AgendaEngine::view` will use it.
@@ -22,16 +22,33 @@ pub fn validate_view_block(block: &ViewBlock) -> Result<(), AgdError> {
     } else {
         expression.to_string()
     };
-    TagTodoMatcher::parse(&expression).map(|_| ())
+    TagTodoMatcher::parse(&expression)?;
+    for group in &block.groups {
+        if let Some(expression) = &group.match_expression {
+            TagTodoMatcher::parse(expression)?;
+        }
+    }
+    Ok(())
 }
 
 /// One block of a saved view: agenda rows for an agenda block, otherwise a
-/// list of items. `from`/`to` are set for agenda blocks only.
+/// list of items. `from`/`to` are set for agenda blocks only. A block with
+/// groups has its rows in `groups` and none in `entries` or `items`.
 #[derive(Clone, Debug, Serialize)]
 pub struct ViewSection {
     pub header: String,
     pub from: Option<NaiveDate>,
     pub to: Option<NaiveDate>,
+    pub entries: Vec<AgendaEntry>,
+    pub items: Vec<Item>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<ViewSectionGroup>,
+}
+
+/// A grouped block's rows under one group name, in display order.
+#[derive(Clone, Debug, Serialize)]
+pub struct ViewSectionGroup {
+    pub name: String,
     pub entries: Vec<AgendaEntry>,
     pub items: Vec<Item>,
 }
@@ -283,6 +300,7 @@ impl<'a> AgendaEngine<'a> {
                             log_mode,
                         })?,
                         items: Vec::new(),
+                        groups: Vec::new(),
                     }
                 }
                 kind => {
@@ -317,12 +335,60 @@ impl<'a> AgendaEngine<'a> {
                         to: None,
                         entries: Vec::new(),
                         items,
+                        groups: Vec::new(),
                     }
                 }
             };
-            sections.push(section);
+            sections.push(self.group_section(section, &block.groups, today)?);
         }
         Ok(sections)
+    }
+
+    /// Moves a block's rows into its groups, if it has any.
+    fn group_section(
+        &self,
+        mut section: ViewSection,
+        groups: &[ViewGroup],
+        today: NaiveDate,
+    ) -> Result<ViewSection, AgdError> {
+        if groups.is_empty() {
+            return Ok(section);
+        }
+        let headlines: HashMap<(&str, usize), &HeadlineSpan> = self
+            .headlines()
+            .map(|headline| ((headline.item.file.as_str(), headline.item.line), headline))
+            .collect();
+        let context = GroupContext {
+            headlines: &headlines,
+            now: matcher_now(today),
+            settings: self.index.settings(),
+        };
+        let entries = group_rows(
+            std::mem::take(&mut section.entries),
+            |entry| &entry.item,
+            groups,
+            &context,
+        )?;
+        let items = group_rows(
+            std::mem::take(&mut section.items),
+            |item| item,
+            groups,
+            &context,
+        )?;
+        section.groups = entries
+            .into_iter()
+            .map(|(name, entries)| ViewSectionGroup {
+                name,
+                entries,
+                items: Vec::new(),
+            })
+            .chain(items.into_iter().map(|(name, items)| ViewSectionGroup {
+                name,
+                entries: Vec::new(),
+                items,
+            }))
+            .collect();
+        Ok(section)
     }
 
     pub fn query(&self, expression: &str, today: NaiveDate) -> Result<Vec<Item>, AgdError> {
@@ -484,6 +550,105 @@ impl<'a> AgendaEngine<'a> {
             }
         }
         Ok(entries)
+    }
+}
+
+struct GroupContext<'a> {
+    headlines: &'a HashMap<(&'a str, usize), &'a HeadlineSpan>,
+    now: NaiveDateTime,
+    settings: &'a Settings,
+}
+
+const OTHER_ITEMS: &str = "Other items";
+
+/// org-super-agenda's grouping: each group takes the remaining rows it
+/// matches, in list order; groups show by order (equal non-zero orders by
+/// name), the rest last as "Other items" (order 99), empty groups not at
+/// all. Rows keep their order inside a group.
+fn group_rows<T>(
+    rows: Vec<T>,
+    item_of: impl Fn(&T) -> &Item,
+    groups: &[ViewGroup],
+    context: &GroupContext<'_>,
+) -> Result<Vec<(String, Vec<T>)>, AgdError> {
+    let mut remaining = rows;
+    let mut sections: Vec<(String, i64, Vec<T>)> = Vec::new();
+    for group in groups {
+        if let Some(by) = &group.by {
+            let mut keyed: BTreeMap<String, Vec<T>> = BTreeMap::new();
+            let mut rest = Vec::new();
+            for row in remaining {
+                match group_key(by, item_of(&row)) {
+                    Some(key) => keyed.entry(key).or_default().push(row),
+                    None => rest.push(row),
+                }
+            }
+            sections.extend(
+                keyed
+                    .into_iter()
+                    .map(|(name, rows)| (name, group.order, rows)),
+            );
+            remaining = rest;
+            continue;
+        }
+        let matcher = group
+            .match_expression
+            .as_deref()
+            .map(TagTodoMatcher::parse)
+            .transpose()?;
+        let (matching, rest): (Vec<T>, Vec<T>) = remaining.into_iter().partition(|row| {
+            let item = item_of(row);
+            matcher.as_ref().is_none_or(|matcher| {
+                context
+                    .headlines
+                    .get(&(item.file.as_str(), item.line))
+                    .is_some_and(|headline| {
+                        matcher.matches(headline, context.now, context.settings)
+                    })
+            })
+        });
+        remaining = rest;
+        if !group.discard {
+            let name = group
+                .name
+                .clone()
+                .or_else(|| group.match_expression.clone())
+                .unwrap_or_else(|| OTHER_ITEMS.to_string());
+            sections.push((name, group.order, matching));
+        }
+    }
+    sections.insert(0, (OTHER_ITEMS.to_string(), 99, remaining));
+    sections.sort_by(|left, right| {
+        left.1.cmp(&right.1).then_with(|| {
+            if left.1 == 0 {
+                Ordering::Equal
+            } else {
+                left.0.cmp(&right.0)
+            }
+        })
+    });
+    Ok(sections
+        .into_iter()
+        .filter(|(_, _, rows)| !rows.is_empty())
+        .map(|(name, _, rows)| (name, rows))
+        .collect())
+}
+
+/// The group header for a `by` group, as org-super-agenda's auto groups
+/// name them; None leaves the row for later groups.
+fn group_key(by: &str, item: &Item) -> Option<String> {
+    match by {
+        "category" => Some(format!("Category: {}", item.category)),
+        "todo" => item.todo.as_ref().map(|todo| format!("To-do: {todo}")),
+        "priority" => item
+            .priority
+            .as_ref()
+            .map(|priority| format!("Priority: {priority}")),
+        _ => item
+            .olpath
+            .len()
+            .checked_sub(2)
+            .map(|parent| item.olpath[parent].clone()),
     }
 }
 
@@ -1434,18 +1599,21 @@ mod tests {
                     match_expression: None,
                     span: Some("day".to_string()),
                     header: Some("Today".to_string()),
+                    groups: Vec::new(),
                 },
                 ViewBlock {
                     kind: "todo".to_string(),
                     match_expression: Some("NEXT|DONE".to_string()),
                     span: None,
                     header: None,
+                    groups: Vec::new(),
                 },
                 ViewBlock {
                     kind: "tags".to_string(),
                     match_expression: Some("work".to_string()),
                     span: None,
                     header: None,
+                    groups: Vec::new(),
                 },
             ],
         };
@@ -1468,6 +1636,72 @@ mod tests {
         );
         assert_eq!(titles(&sections[1]), ["Later", "Old"]);
         assert_eq!(titles(&sections[2]), ["Today", "Old", "Note"]);
+    }
+
+    #[test]
+    fn view_groups_take_rows_first_match_first_and_show_by_order() {
+        let (_temp, index) = fixture(
+            "#+TODO: TODO NEXT WAIT HOLD | DONE\n* TODO Alone :work:\n* NEXT Decided :home:\n* HOLD Parked\n* WAIT Waiting\n* Project\n** TODO Child\n** TODO Hot child :urgent:\n",
+        );
+        let group = |name: &str, expression: &str, order: i64| ViewGroup {
+            name: Some(name.to_string()),
+            match_expression: Some(expression.to_string()),
+            order,
+            ..ViewGroup::default()
+        };
+        let view = ViewSettings {
+            key: "g".to_string(),
+            desc: "Grouped".to_string(),
+            blocks: vec![ViewBlock {
+                kind: "alltodo".to_string(),
+                match_expression: None,
+                span: None,
+                header: Some("Backlog".to_string()),
+                groups: vec![
+                    ViewGroup {
+                        match_expression: Some("/HOLD".to_string()),
+                        discard: true,
+                        ..ViewGroup::default()
+                    },
+                    // Matched before the others, shown after them.
+                    group("Waiting", "/WAIT", 9),
+                    group("Next", "/NEXT", -1),
+                    group("Urgent", "urgent", 0),
+                    group("Nothing", "absent", 0),
+                    ViewGroup {
+                        by: Some("parent".to_string()),
+                        ..ViewGroup::default()
+                    },
+                ],
+            }],
+        };
+        let today = NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+        let sections = AgendaEngine::new(&index)
+            .view(&view, today, today, false)
+            .unwrap();
+        let groups: Vec<(String, Vec<String>)> = sections[0]
+            .groups
+            .iter()
+            .map(|group| {
+                let titles = group.items.iter().map(|item| item.title.clone()).collect();
+                (group.name.clone(), titles)
+            })
+            .collect();
+        let expected = [
+            ("Next", vec!["Decided"]),
+            ("Urgent", vec!["Hot child"]),
+            ("Project", vec!["Child"]),
+            ("Waiting", vec!["Waiting"]),
+            ("Other items", vec!["Alone"]),
+        ]
+        .map(|(name, titles)| {
+            (
+                name.to_string(),
+                titles.into_iter().map(str::to_string).collect::<Vec<_>>(),
+            )
+        });
+        assert_eq!(groups, expected);
+        assert!(sections[0].items.is_empty());
     }
 
     #[test]

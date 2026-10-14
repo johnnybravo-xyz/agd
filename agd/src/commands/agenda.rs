@@ -4,7 +4,7 @@ use anyhow::{Context, Result, anyhow};
 use chrono::{Datelike, Duration, Local, NaiveDate};
 use clap::{Args, ValueEnum};
 use org_core::{
-    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, JournalStatus, Settings, ViewSection,
+    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalStatus, Settings, ViewSection,
     WorkspaceIndex, WriteEngine, agenda_csv, agenda_title, items_csv, load_settings,
     parse_date_input,
 };
@@ -100,6 +100,9 @@ impl AgendaCommand {
                         agenda_csv(&section.entries),
                         items_csv(&section.items)
                     );
+                    for group in &section.groups {
+                        print!("{}{}", agenda_csv(&group.entries), items_csv(&group.items));
+                    }
                 }
             } else {
                 print!("{}", render_view(&sections, &settings));
@@ -205,7 +208,24 @@ fn render_view(sections: &[ViewSection], settings: &Settings) -> String {
     let mut blocks = Vec::new();
     for section in sections {
         let mut block = String::new();
-        if let (Some(from), Some(to)) = (section.from, section.to) {
+        if !section.groups.is_empty() {
+            // org-super-agenda: the block's groups replace its days or list,
+            // each under its own indented header.
+            if !section.header.is_empty() {
+                block.push_str(&format!("{}\n", section.header));
+            }
+            for group in &section.groups {
+                block.push_str(&format!(" {}\n", group.name));
+                for entry in &group.entries {
+                    block.push_str(&agenda_line(entry));
+                    block.push('\n');
+                }
+                for item in &group.items {
+                    block.push_str(&item_line(item));
+                    block.push('\n');
+                }
+            }
+        } else if let (Some(from), Some(to)) = (section.from, section.to) {
             if !section.header.is_empty() {
                 block.push_str(&format!("{}\n", section.header));
             }
@@ -214,24 +234,28 @@ fn render_view(sections: &[ViewSection], settings: &Settings) -> String {
         } else {
             block.push_str(&format!("{}\n", section.header));
             for item in &section.items {
-                let mut line = format!("  {:<12}", format!("{}:", item.category));
-                if let Some(todo) = &item.todo {
-                    line.push_str(&format!("{todo} "));
-                }
-                if let Some(priority) = &item.priority {
-                    line.push_str(&format!("[#{priority}] "));
-                }
-                line.push_str(&agenda_title(item));
-                if !item.tags.is_empty() {
-                    line.push_str(&format!("  :{}:", item.tags.join(":")));
-                }
-                block.push_str(&line);
+                block.push_str(&item_line(item));
                 block.push('\n');
             }
         }
         blocks.push(block);
     }
     blocks.join(&format!("{}\n", "=".repeat(78)))
+}
+
+fn item_line(item: &Item) -> String {
+    let mut line = format!("  {:<12}", format!("{}:", item.category));
+    if let Some(todo) = &item.todo {
+        line.push_str(&format!("{todo} "));
+    }
+    if let Some(priority) = &item.priority {
+        line.push_str(&format!("[#{priority}] "));
+    }
+    line.push_str(&agenda_title(item));
+    if !item.tags.is_empty() {
+        line.push_str(&format!("  :{}:", item.tags.join(":")));
+    }
+    line
 }
 
 fn span_for_bounds(from: NaiveDate, to: NaiveDate, settings: &Settings) -> AgendaSpan {

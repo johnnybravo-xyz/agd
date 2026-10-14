@@ -12,6 +12,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   own CANCELLED (or CANCELED) keyword.
 - `start_view = "KEY"` opens `agd` on that saved view, such as your
   dashboard, and makes it the first tab; number keys follow the tab order.
+- View blocks take org-super-agenda groups: each row goes to the first
+  group whose match it passes, `discard` drops rows, `by` groups by
+  category, parent, todo or priority, and `order` places groups, with the
+  rest under "Other items".
 - Saved views with property matches run and import, such as a dashboard's
   `TODO="DONE"+CLOSED>="<-3w>"` or `TODO="NEXT"+Effort<15`.
 - `nerd_font = true` rounds every pill and chip with Nerd Font caps; off by
@@ -34,6 +38,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A view whose blocks repeat a header, such as the same day in two agenda
+  blocks, no longer draws those rows under both.
 - `agd setup import --stdout` prints only the config, with the report on
   stderr, so it can be redirected to a file.
 - A lead that fills its six columns (`in 14d`, a rounded badge) keeps a

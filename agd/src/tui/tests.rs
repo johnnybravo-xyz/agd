@@ -84,6 +84,38 @@ fn today_groups_sections_in_the_order_you_act_on_them() {
 
 #[test]
 #[serial]
+fn grouped_view_shows_each_block_its_own_groups() {
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.settings.views = toml::from_str::<ViewsOnly>(
+            r#"[[view]]
+key = "g"
+desc = "Grouped"
+blocks = [
+  { kind = "alltodo", header = "First", groups = [{ name = "Next", match = "/NEXT" }] },
+  { kind = "alltodo", header = "Second", groups = [{ name = "Waiting", match = "/WAIT" }] },
+]"#,
+        )
+        .unwrap()
+        .view;
+        app.switch_screen(Screen::View("g".to_string())).unwrap();
+        let screen = render(&mut app, 100, 30).join("\n");
+        // Each block's "Other items" holds its own rows, drawn once.
+        assert_eq!(screen.matches("Other items").count(), 2, "{screen}");
+        assert_eq!(screen.matches("Migrate cron jobs").count(), 2, "{screen}");
+        assert_eq!(screen.matches("Vendor reply").count(), 2, "{screen}");
+        assert!(screen.contains("Waiting"), "{screen}");
+    });
+}
+
+#[derive(serde::Deserialize)]
+struct ViewsOnly {
+    view: Vec<org_core::ViewSettings>,
+}
+
+#[test]
+#[serial]
 fn pane_sorts_by_clock_time_and_keeps_done_rows_last() {
     with_home(|root| {
         fs::write(root.join("tasks.org"), TASKS).unwrap();

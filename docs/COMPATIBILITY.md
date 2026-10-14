@@ -29,6 +29,7 @@ without executing editor code.
 | Row order: urgency, priority, time, category, alpha, todo-state keys | Exact | All cases compare Emacs's own row order; `conformance/agenda/sorting` sets a custom strategy |
 | Custom agenda commands as views (agenda, todo, alltodo, tags, tags-todo blocks) | Exact rows | `agd setup import <emacs config> --verify` runs each view in Emacs and agd |
 | Tags/TODO match expressions, with property terms | Exact | `conformance/agenda/match-*`: `work`, `+a-b`, `a\|b`, `/!`, `/-WAIT`, and `TODO="DONE"`, `PRIORITY="A"`, `LEVEL=2`, `CATEGORY="home"`, `Effort<15`, `CLOSED>="<-3w>"`, `DEADLINE<="<+1w>"`, `-STATUS="review"` with Org's string, number and time comparisons; regexp terms (`{...}`) are rejected |
+| org-super-agenda groups in view blocks | Native | First matching group takes a row, `discard`, `order` (equal non-zero orders by name), `by` category, parent, todo or priority, "Other items" last at order 99, empty groups hidden; no oracle, since the pinned Emacs has no org-super-agenda |
 | org-ql `and`, `or`, `not`, `todo`, `tags`, `priority`, `category`, `text`, `deadline`, `scheduled`, `done` | Native subset | Unknown predicates fail explicitly |
 | Plain day/week/month lists and CSV | Native | CSV fields follow the Emacs oracle schema |
 | Effort totals | Native | Today sums `:Effort:`; no column view |
