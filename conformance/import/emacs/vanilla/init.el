@@ -24,7 +24,8 @@
       `(("t" "Todo" entry (file+headline ,(expand-file-name "tasks.org" (getenv "AGD_FIXTURE_DIR")) "Inbox") "* TODO %?\n:CREATED: %U")
         ("x" "Dynamic" entry (function ignore) "* TODO %(danger)")))
 (setq org-agenda-custom-commands
-      '(("w" "Work" tags-todo "+work/TODO|NEXT")
+      '(("x" . "Prefix key label, not a command")
+        ("w" "Work" tags-todo "+work/TODO|NEXT")
         ("b" "Home block" ((agenda "" ((org-agenda-span 'day)))
                            (tags "home" ((org-agenda-overriding-header "Home"))))
          ((org-agenda-files-ignored t)))

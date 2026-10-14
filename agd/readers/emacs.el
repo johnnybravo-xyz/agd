@@ -1,4 +1,5 @@
-;;; agd's Emacs config reader. Runs in `emacs -Q --batch -l` with
+;;; agd's Emacs config reader -*- lexical-binding: t; -*-
+;;; Runs in `emacs -Q --batch -l` with
 ;;; AGD_IMPORT_FILES (newline-separated) naming the config files to read.
 ;;;
 ;;; The files are read with Emacs's reader and never loaded: only assignments
@@ -555,10 +556,15 @@ NOTES) when they cannot be imported."
       (diagnostics . ,(vconcat (if supported (delete-dups (nreverse notes))
                                  '("custom command form is unsupported")))))))
 
+(defun agd--command-p (entry)
+  "Whether ENTRY of org-agenda-custom-commands is a command. A (KEY .
+DESCRIPTION) entry only labels a prefix key, and is skipped."
+  (and (proper-list-p entry) (> (length entry) 2)))
+
 (defun agd--commands ()
   (vconcat
    (mapcar #'agd--portable-command
-           (seq-filter (lambda (entry) (and (consp entry) (> (length entry) 2)))
+           (seq-filter #'agd--command-p
                        (or (and (boundp 'org-agenda-custom-commands)
                                 org-agenda-custom-commands)
                            '())))))
@@ -593,9 +599,8 @@ NOTES) when they cannot be imported."
       (dolist (entry (or (and (boundp 'org-agenda-custom-commands)
                               org-agenda-custom-commands)
                          '()))
-        (when (and (listp entry)
+        (when (and (agd--command-p entry)
                    (stringp (car entry))
-                   (> (length entry) 2)
                    (not (agd--contains-function-p entry)))
           (condition-case error
               (puthash (car entry)

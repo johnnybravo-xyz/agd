@@ -42,6 +42,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `agd setup import` no longer fails on a prefix-key entry in
+  `org-agenda-custom-commands`, such as `("g" . "Searches")`, and Emacs no
+  longer warns about a missing lexical-binding cookie in agd's reader.
 - A view whose blocks repeat a header, such as the same day in two agenda
   blocks, no longer draws those rows under both.
 - `agd setup import --stdout` prints only the config, with the report on
