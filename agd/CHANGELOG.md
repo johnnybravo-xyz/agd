@@ -22,6 +22,15 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `agd setup import <path>...` reads your Emacs or Neovim config files instead
+  of asking a running editor: a directory such as `~/.doom.d` or
+  `~/.config/nvim`, or files. Emacs files are read without being loaded and
+  only the org settings' values are evaluated in `emacs -Q`; Neovim files
+  that mention orgmode run in `nvim --clean` with a stand-in plugin. A first
+  import derives `roots` from `org-directory` or the agenda entries and keeps
+  globs and directories as patterns. Every setting is reported with its
+  file and line, and everything left out with the reason. `setup import
+  emacs|nvim`, `--server` and the editor profiles are removed.
 - `config.toml` is one flat table: every setting is a top-level key
   (`roots`, `agenda_files`, `todo_keywords`, `deadline_warning_days`,
   `editor = [program, args...]`, `theme`, ...), and capture templates, views

@@ -91,6 +91,12 @@ and do not contain telemetry exporters.
 
 The only runtime subprocesses are explicit actions: opening the editor from the TUI, editor import,
 and opt-in integration hooks. Commands and arguments are passed as argv arrays,
-never interpolated into a shell command. Imported agenda paths outside approved
-roots are disabled with a diagnostic. Imported snapshots cannot broaden roots
-or replace local editor/import commands.
+never interpolated into a shell command.
+
+`agd setup import` starts `emacs -Q` or `nvim --clean` with agd's reader. For
+Emacs it reads your config files without loading them and evaluates only the
+values of the org settings it imports, and the top-level variables they use.
+For Neovim it runs the files that mention orgmode, with stand-ins for plugins.
+That is your own code, run as you; agd adds no network access. A re-import
+keeps the roots you have, and agenda entries outside them are left out with a
+diagnostic.

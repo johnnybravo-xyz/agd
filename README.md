@@ -42,19 +42,22 @@ a Sigstore bundle for `SHA256SUMS`. The Arch recipe is in
 
 ## First run
 
-Bring in your editor's org settings, check the files, and open Today:
+Point agd at your editor config once, then start:
 
 ```bash
-agd setup import emacs                   # from a running daemon (--server NAME)
-agd setup import nvim                    # or from nvim-orgmode
+agd setup import ~/.doom.d               # or ~/.config/emacs, ~/.emacs.d, ~/.config/nvim
 agd setup check
 agd
 ```
 
-The import writes `~/.config/agd/config.toml` with your agenda files, TODO
-sequences, logging, priorities, capture templates and custom agenda
-commands, and lists anything it left out. Without an import, agd reads
-`~/org` with Org's defaults. See [`docs/IMPORTING.md`](docs/IMPORTING.md).
+The import reads your config files (it never runs your editor's startup) and
+writes `~/.config/agd/config.toml` with your org directory, agenda files, TODO
+keywords, logging, priorities, capture templates and custom agenda commands.
+It reports each setting with the file and line it came from, and anything it
+left out with the reason. From then on `config.toml` is yours to edit. New to
+Org? Skip the import: agd reads `~/org` with Org's defaults. See
+[`docs/IMPORTING.md`](docs/IMPORTING.md) for exactly what imports and what
+does not.
 
 ## The TUI
 
@@ -132,7 +135,7 @@ agd --pane          the narrow pane
 agd agenda          the agenda as org-agenda prints it, or --json / --csv
 agd capture         one line through a template, or the popup with -i
 agd mcp             stdio MCP server for coding agents
-agd setup import    Emacs or nvim-orgmode settings into a snapshot
+agd setup import    your Emacs or Neovim org settings into config.toml
 agd setup install   MCP server and skill for Claude Code, Codex, OpenCode
 agd setup check     parse drift, invalid UTF-8 and duplicate IDs
 ```

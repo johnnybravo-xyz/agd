@@ -73,8 +73,9 @@ to a count.
 
 ## Your setup keeps working
 
-agd asks your running Emacs or nvim-orgmode for its resolved settings once,
-then honours them. In-file syntax always wins.
+Point agd at your Emacs or Neovim config once; it reads the files, never your
+editor's startup, and writes one flat `config.toml`. In-file syntax always
+wins.
 
 - `#+TODO` and `#+SEQ_TODO` lines, logging markers like `WAIT(w@/!)`, and
   `#+STARTUP` log options
@@ -86,9 +87,11 @@ then honours them. In-file syntax always wins.
 - CLOSED, LAST_REPEAT and LOGBOOK lines written exactly as Emacs writes them
 
 ```sh
-agd setup import emacs --verify    # from a running daemon (--server NAME)
-agd setup import nvim --verify     # or from nvim-orgmode
+agd setup import ~/.doom.d         # or ~/.config/emacs, ~/.config/nvim
 ```
+
+Every imported setting is listed with the file and line it came from, and
+anything left out with the reason. See [importing](docs/importing/).
 
 Every agenda case runs through a pinned Emacs 30.2 with Org 9.7 and through
 agd, and the rows and their order must match. Every write is applied by both

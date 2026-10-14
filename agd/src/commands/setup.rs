@@ -12,7 +12,7 @@ pub struct SetupCommand {
 
 #[derive(Subcommand)]
 enum SetupAction {
-    /// Import resolved settings from Emacs or nvim-orgmode into a snapshot
+    /// Import your Emacs or Neovim org settings into config.toml
     Import(ImportCommand),
     /// Add the agd MCP server and skill to Claude Code, Codex or OpenCode
     Install(InstallCommand),

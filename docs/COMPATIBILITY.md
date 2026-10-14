@@ -3,8 +3,8 @@
 Compatibility claims are fixture-backed. The agenda suite runs the same Org
 files through pinned Emacs/Org and `agd`, normalizes only documented transport
 differences, and compares CSV rows. The write suite compares resulting bytes
-and untouched ranges. Editor imports compare cold native snapshots with values
-resolved inside the selected editor.
+and untouched ranges. The import suite reads fixture configs with agd's
+editor readers and compares their output.
 
 ## Agenda semantics
 
@@ -27,7 +27,7 @@ without executing editor code.
 | Done-item skip settings for planning/timestamps | Exact | `conformance/agenda/done-skipping` |
 | In-file `#+TODO` and `#+SEQ_TODO` workflows | Exact for parsing and writes | Round-trip and edit oracle fixtures |
 | Row order: urgency, priority, time, category, alpha, todo-state keys | Exact | All cases compare Emacs's own row order; `conformance/agenda/sorting` sets a custom strategy |
-| Custom agenda commands as views (agenda, todo, alltodo, tags, tags-todo blocks) | Exact rows | `agd setup import emacs --verify` runs each view in Emacs and agd |
+| Custom agenda commands as views (agenda, todo, alltodo, tags, tags-todo blocks) | Exact rows | `agd setup import <emacs config> --verify` runs each view in Emacs and agd |
 | Tags/TODO match expressions | Native | `work`, `+a-b`, `a&b`, `a\|b`, `/TODO\|NEXT`, `/-WAIT`, `/!`; property and regexp matches are rejected |
 | org-ql `and`, `or`, `not`, `todo`, `tags`, `priority`, `category`, `text`, `deadline`, `scheduled`, `done` | Native subset | Unknown predicates fail explicitly |
 | Plain day/week/month lists and CSV | Native | CSV fields follow the Emacs oracle schema |
@@ -62,28 +62,26 @@ ranges. Symlink writes remain intentionally unsupported.
 
 ## Import compatibility
 
-| Source | Imported exactly | Imported with a documented difference | Retained disabled/unsupported |
-| --- | --- | --- | --- |
-| Emacs/Org | Agenda files inside approved roots; TODO sequences; tags; priority bounds; warning and skip settings; sorting; logging; literal capture templates | Editor display-only settings are normalized to native fields | Hooks, advice, function targets, arbitrary Lisp, `%(sexp)`, diary sexps, faces, themes |
-| org-super-agenda | Declarative tag, priority, TODO, scheduled, deadline, time-grid, category, `and`, and `not` entries are retained in the snapshot | Retained as portable group records; the native agenda does not execute the package | Arbitrary predicates and executable forms |
-| Custom agenda commands (Emacs and nvim-orgmode) | agenda, todo, alltodo, tags and tags-todo blocks, including block agendas, with literal `org-agenda-span` and `org-agenda-overriding-header` | Become `[views.KEY]`, run by the TUI dispatcher and `agd agenda --view KEY`; other options are listed as not imported | Lambdas, function types, search/stuck views, property or regexp matches |
-| Installed nvim-orgmode | Agenda files, TODO keywords, tags, priorities, and declarative capture templates exposed by the running plugin | Org/Emacs-only settings use native defaults and are reported as differences | Lua callbacks, functions, a profile where setup was not called, or a plugin version missing the required runtime capabilities |
+`agd setup import` reads your editor config files; it never runs your
+editor's startup. [IMPORTING.md](IMPORTING.md) lists every setting and every
+case that does not import.
 
-Every imported entry receives `exact`, `difference`, or `unsupported` status in
-`--verify` output. Unsupported entries remain visible in the snapshot and
-report; they are not silently dropped or executed.
+| Source | Imported | Reported, not imported |
+| --- | --- | --- |
+| Emacs config files (`.el`, literate `config.org`) | Org settings assigned at the top level or in `after!`, `with-eval-after-load`, `use-package` and Spacemacs's user-config; their values evaluated in `emacs -Q` | Values that call your own or a package's functions; defaults set by Doom modules or packages; settings inside `let`, hooks or your own functions |
+| nvim-orgmode (`setup()` call or lazy.nvim spec) | Every option agd uses, with nvim-orgmode's defaults for the rest; agenda globs kept | No `setup()` in the files read; options built from other plugins' APIs |
+| Capture templates | `entry` templates with `file`, `file+headline`, `file+olp`, datetree or `id` targets | Other types, computed targets or bodies, `%(sexp)` |
+| Custom agenda commands | agenda, todo, alltodo, tags and tags-todo blocks with literal span and header; a bare `TODO="X"` match as `/X` | Lambdas, search/stuck views, property or regexp matches (the view is left out); other options |
+| org-super-agenda, org-ql | Nothing: agd does not group agenda rows | Each setting, as not used by agd |
 
 ## Tested editor paths
 
-- Vanilla Emacs batch profile using the fixed probe.
-- A selected Emacs daemon through `emacsclient`; no daemon is chosen
-  implicitly.
-- Explicit Doom/alternate Emacs argv profile.
-- Neovim 0.12 with nvim-orgmode 0.7.5 as the reproducible conformance oracle;
-  installed plugin versions are accepted when their required runtime
-  capabilities load and return supported values.
-- Explicit alternate Neovim command/argv profiles.
-- Setup-not-called and out-of-root failure fixtures.
+- Emacs configs in vanilla, use-package and Doom (`after!`) styles, read by the
+  reader in the pinned Emacs 30.2 image.
+- nvim-orgmode configured by a plain `setup()` call and by a lazy.nvim spec,
+  and a config without `setup()`, read in the pinned Neovim 0.12.6.
+- First imports deriving roots, re-imports keeping them, and entries outside
+  the roots.
 
 The scheduled conformance workflow runs current and previous pinned Org
 versions to expose upstream semantic drift before release.
