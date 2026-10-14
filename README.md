@@ -184,6 +184,7 @@ log_into_drawer = true            # log_redeadline; #+STARTUP options win per fi
 editor = ["emacsclient", "-n", "+{line}:{col}", "{file}"]  # run directly, no shell
 theme = "auto"                    # dark, light
 nerd_font = false                 # true rounds pills; needs a Nerd Font
+start_view = "w"                  # open on this [[view]]; empty opens Today
 agent_capture_to = "template"     # or "inbox"
 someday_tag = "someday"
 reschedule_nudge = 3
@@ -201,6 +202,7 @@ desc = "Work"
 blocks = [
   { kind = "agenda", span = "day" },
   { kind = "tags-todo", match = "work/NEXT|WAIT", header = "Next and waiting" },
+  { kind = "tags", match = 'TODO="DONE"+CLOSED>="<-1w>"', header = "Done this week" },
 ]
 ```
 

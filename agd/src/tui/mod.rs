@@ -312,6 +312,9 @@ fn run_mode(
     app.capture_only = capture_only;
     if capture_only {
         app.overlay = Overlay::Capture(capture::Draft::default());
+    } else if !pane && !app.settings.start_view.is_empty() {
+        // esc from the start view goes to Today, as from any view.
+        app.screen = Screen::View(app.settings.start_view.clone());
     }
     app.reload_rows()?;
     let skipped: Vec<String> = app

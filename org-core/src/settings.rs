@@ -62,6 +62,9 @@ pub struct Settings {
     /// Round pill and chip caps with Nerd Font glyphs; turn on when your
     /// terminal font has them (Ghostty, WezTerm and kitty bundle them).
     pub nerd_font: bool,
+    /// The `[[view]]` key `agd` opens on, such as your dashboard; empty
+    /// opens Today.
+    pub start_view: String,
     /// "template" captures through the agent's chosen template; "inbox" sends
     /// every agent capture through `agent_inbox_template` without dates.
     pub agent_capture_to: String,
@@ -208,6 +211,7 @@ impl Default for Settings {
             ],
             theme: "auto".to_string(),
             nerd_font: false,
+            start_view: String::new(),
             agent_capture_to: "template".to_string(),
             agent_inbox_template: "t".to_string(),
             someday_tag: "someday".to_string(),
@@ -381,7 +385,10 @@ const CONFIG_GROUPS: [(&str, &[&str]); 6] = [
             "log_into_drawer",
         ],
     ),
-    ("Editor and terminal", &["editor", "theme", "nerd_font"]),
+    (
+        "Editor and terminal",
+        &["editor", "theme", "nerd_font", "start_view"],
+    ),
     (
         "Agents and triage",
         &[
@@ -577,6 +584,12 @@ fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
             crate::agenda_engine::validate_view_block(block)
                 .map_err(|error| config_error(format!("view '{}': {error}", view.key)))?;
         }
+    }
+    if !settings.start_view.is_empty() && !view_keys.contains(settings.start_view.as_str()) {
+        return Err(config_error(format!(
+            "start_view '{}' is not a [[view]] key; use one of the view keys or leave it empty for Today",
+            settings.start_view
+        )));
     }
     let mut capture_keys = BTreeSet::new();
     for template in &settings.captures {
