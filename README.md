@@ -36,9 +36,15 @@ brew install johnnybravo-xyz/agd/agd
 nix run github:johnnybravo-xyz/agd
 ```
 
+On Arch, build the release with the recipe in
+[`packaging/aur`](packaging/aur) until the AUR package is published:
+
+```bash
+git clone https://github.com/johnnybravo-xyz/agd && cd agd/packaging/aur && makepkg -si
+```
+
 Tagged releases publish checksummed binaries for Linux, macOS and Windows with
-a Sigstore bundle for `SHA256SUMS`. The Arch recipe is in
-[`packaging/aur`](packaging/aur).
+a Sigstore bundle for `SHA256SUMS`.
 
 ## First run
 
