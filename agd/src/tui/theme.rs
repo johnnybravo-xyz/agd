@@ -17,6 +17,9 @@ pub(super) struct Theme {
     pub border: Color,
     pub surface: Color,
     pub selection: Color,
+    /// Named in COLOR_NAMES for keywords and view sections only.
+    yellow: Color,
+    dim_red: Color,
     agents: [Color; 5],
     /// NO_COLOR: no colours at all; state is carried by bold, dim,
     /// reversed and strike-through instead.
@@ -60,6 +63,8 @@ impl Theme {
             border: Color::Rgb(66, 74, 88),
             surface: Color::Rgb(32, 37, 46),
             selection: Color::Rgb(37, 52, 74),
+            yellow: Color::Rgb(236, 214, 120),
+            dim_red: Color::Rgb(176, 112, 118),
             agents: [
                 Color::Rgb(232, 121, 176),
                 Color::Rgb(94, 196, 160),
@@ -83,6 +88,8 @@ impl Theme {
             border: Color::Rgb(196, 201, 208),
             surface: Color::Rgb(238, 240, 243),
             selection: Color::Rgb(214, 226, 242),
+            yellow: Color::Rgb(150, 122, 0),
+            dim_red: Color::Rgb(184, 120, 120),
             agents: [
                 Color::Rgb(200, 60, 130),
                 Color::Rgb(20, 140, 100),
@@ -107,6 +114,8 @@ impl Theme {
             border: Color::DarkGray,
             surface: Color::Reset,
             selection: Color::DarkGray,
+            yellow: Color::LightYellow,
+            dim_red: Color::Red,
             agents: [
                 Color::Magenta,
                 Color::Cyan,
@@ -130,6 +139,8 @@ impl Theme {
             border: Color::Reset,
             surface: Color::Reset,
             selection: Color::Reset,
+            yellow: Color::Reset,
+            dim_red: Color::Reset,
             agents: [Color::Reset; 5],
             plain: true,
             rounded: false,
@@ -260,6 +271,22 @@ impl Theme {
             .border_type(BorderType::Rounded)
             .border_style(self.fg(if focused { self.accent } else { self.border }))
             .padding(Padding::horizontal(1))
+    }
+
+    /// A color name (org_core::COLOR_NAMES) in this palette.
+    pub(super) fn named(&self, name: &str) -> Color {
+        match name {
+            "orange" => self.due,
+            "yellow" => self.yellow,
+            "green" => self.done,
+            "red" => self.slipped,
+            "dim-red" => self.dim_red,
+            "pink" => self.agents[0],
+            "teal" => self.agents[1],
+            "purple" => self.agents[2],
+            "grey" => self.muted,
+            _ => self.accent,
+        }
     }
 
     /// The same agent always gets the same hue.

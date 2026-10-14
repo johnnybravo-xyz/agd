@@ -28,8 +28,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Sections stand apart as in the design: a view's blocks and groups, like
-  Today's sections, are uppercase in their color with a row count and a
-  blank line above; empty sections and days are muted. The Agenda name is a
+  Today's sections, are uppercase with a row count and a blank line above;
+  empty sections and days are muted. A view section takes the color its
+  rows' TODO keywords share, or the `color` set on its block or group.
+- `todo_keyword_colors`, like org-todo-keyword-faces, colors keywords by
+  name, such as `{ WAIT = "yellow", CANCELLED = "dim-red" }`; colors are
+  blue, green, yellow, orange, red, dim-red, purple, pink, teal and
+  grey. The Agenda name is a
   filled badge and the current tab bold and underlined, so they no longer
   look alike.
 - Capture opens on a list of templates with their keys and destinations

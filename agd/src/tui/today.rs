@@ -1,6 +1,6 @@
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Clear, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
@@ -256,17 +256,21 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
             header_rows[current].push(index);
         }
     }
-    // A section counts its own rows and those of the day lines under it.
-    let section_rows: Vec<usize> = (0..app.headers.len())
+    // A section holds its own rows and those of the day lines under it.
+    let section_rows: Vec<Vec<usize>> = (0..app.headers.len())
         .map(|index| {
-            header_rows[index].len()
-                + (index + 1..app.headers.len())
-                    .take_while(|next| app.headers[*next].day)
-                    .map(|next| header_rows[next].len())
-                    .sum::<usize>()
+            (index..app.headers.len())
+                .take_while(|next| *next == index || app.headers[*next].day)
+                .flat_map(|next| header_rows[next].iter().copied())
+                .collect()
         })
         .collect();
-    for ((header, rows), section_count) in app.headers.iter().zip(header_rows).zip(section_rows) {
+    for ((header, rows), held) in app
+        .headers
+        .iter()
+        .zip(header_rows.iter())
+        .zip(&section_rows)
+    {
         if rows.is_empty() && app.screen == Screen::Today && !app.classic {
             continue;
         }
@@ -275,14 +279,10 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
             items.push(ListItem::new(Line::default()));
             line_rows.push(None);
         }
-        let count = if header.day {
-            rows.len()
-        } else {
-            section_count
-        };
-        items.push(ListItem::new(section_header(app, header, count, width)));
+        let held = if header.day { rows } else { held };
+        items.push(ListItem::new(section_header(app, header, held, width)));
         line_rows.push(None);
-        for index in rows {
+        for &index in rows {
             let row = &app.rows[index];
             if index == app.selected {
                 selected_line = Some(items.len());
@@ -332,28 +332,30 @@ fn empty_message(app: &App) -> String {
 
 /// A section in its color, uppercase, with how many rows it holds; empty
 /// sections and days recede. Day lines carry no count, as in org-agenda.
-fn section_header(app: &App, header: &Header, rows: usize, width: usize) -> Line<'static> {
+fn section_header(app: &App, header: &Header, rows: &[usize], width: usize) -> Line<'static> {
     let theme = &app.theme;
     let section = header.text.as_str();
     if header.day {
-        let style = if rows == 0 {
+        let style = if rows.is_empty() {
             theme.muted()
         } else {
             theme.strong(theme.text)
         };
         return Line::from(Span::styled(section.to_string(), style));
     }
-    let color = match section {
-        SLIPPED => theme.slipped,
-        DUE => theme.due,
-        DOING => theme.done,
-        _ => theme.accent,
+    let color = match (header.color.as_deref(), section) {
+        (Some(name), _) => theme.named(name),
+        (None, SLIPPED) => theme.slipped,
+        (None, DUE) => theme.due,
+        (None, DOING) => theme.done,
+        (None, SCHEDULE | INBOX) => theme.accent,
+        (None, _) => shared_keyword_color(app, rows),
     };
     // SLIPPED counts every slipped item; it shows only the first rows.
     let count = if section == SLIPPED {
         app.counts.slipped
     } else {
-        rows
+        rows.len()
     };
     let style = if count == 0 {
         theme.muted().add_modifier(Modifier::BOLD)
@@ -374,6 +376,20 @@ fn section_header(app: &App, header: &Header, rows: usize, width: usize) -> Line
         spans.push(Span::styled(" triage", theme.muted()));
     }
     Line::from(spans)
+}
+
+/// The color the rows' TODO keywords share (done rows green, a sequence's
+/// first keyword orange), or the accent when they differ.
+fn shared_keyword_color(app: &App, rows: &[usize]) -> Color {
+    let color = |index: &usize| {
+        keyword_style(app, &app.rows[*index])
+            .fg
+            .unwrap_or(app.theme.accent)
+    };
+    match rows.first().map(color) {
+        Some(first) if rows.iter().all(|index| color(index) == first) => first,
+        _ => app.theme.accent,
+    }
 }
 
 /// One task line: lead cell (badge, time or countdown), TODO keyword,
@@ -526,8 +542,16 @@ fn lead_style(theme: &Theme, kind: OccurrenceType, extra: &str) -> Style {
 /// states (NEXT, WAIT, …) in accent.
 fn keyword_style(app: &App, row: &DisplayRow) -> Style {
     let theme = &app.theme;
-    if row.item.done {
-        return theme.fg(theme.done);
+    let configured = row
+        .item
+        .todo
+        .as_ref()
+        .and_then(|keyword| app.settings.todo_keyword_colors.get(keyword));
+    match (configured, row.item.done) {
+        (Some(name), true) => return theme.fg(theme.named(name)),
+        (Some(name), false) => return theme.strong(theme.named(name)),
+        (None, true) => return theme.fg(theme.done),
+        (None, false) => {}
     }
     let first = app
         .index

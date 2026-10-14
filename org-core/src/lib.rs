@@ -34,7 +34,7 @@ pub use model::{
 };
 pub use paths::RootSet;
 pub use settings::{
-    AgentProfile, CaptureTemplate, IdPolicy, LoadedSettings, SORTING_KEYS, Settings,
+    AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, SORTING_KEYS, Settings,
     VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, default_config_path,
     load_settings, parse_config_file, render_config,
 };

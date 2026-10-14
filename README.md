@@ -174,6 +174,7 @@ roots = ["~/org"]                 # the only directories agd reads or writes
 agenda_files = ["**/*.org"]       # files, or globs relative to the roots; empty = all
 
 todo_keywords = [["TODO(t)", "NEXT(n)", "WAIT(w@/!)", "|", "DONE(d!)", "CANCELLED(c@)"]]
+todo_keyword_colors = { WAIT = "yellow", CANCELLED = "dim-red" }  # org-todo-keyword-faces
 ids = "preserve"                  # "add-on-write" adds an org-id :ID: on first edit
 tags_column = -77                 # org-tags-column
 
@@ -203,7 +204,7 @@ key = "w"
 desc = "Work"
 blocks = [
   { kind = "agenda", span = "day" },
-  { kind = "tags-todo", match = "work/NEXT|WAIT", header = "Next and waiting" },
+  { kind = "tags-todo", match = "work/NEXT|WAIT", header = "Next and waiting", color = "orange" },
   { kind = "tags", match = 'TODO="DONE"+CLOSED>="<-1w>"', header = "Done this week" },
   { kind = "alltodo", header = "Backlog", groups = [   # org-super-agenda groups
     { match = "/HOLD", discard = true },

@@ -10,7 +10,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `ViewBlock::groups` (`ViewGroup`) groups a view block's rows as
   org-super-agenda does, including `:effort<`/`:effort>` as
-  `effort_max`/`effort_min`; `AgendaEngine::view` returns them in
+  `effort_max`/`effort_min`; blocks and groups take an optional `color`
+  (`COLOR_NAMES`) that `ViewSection` and `ViewSectionGroup` carry;
+  `Settings::todo_keyword_colors` names a color per TODO keyword; `AgendaEngine::view` returns them in
   `ViewSection::groups`.
 - Tags/TODO matches take property terms with Org's semantics, checked
   against Emacs: `TODO="DONE"`, `PRIORITY="A"` (the default priority when

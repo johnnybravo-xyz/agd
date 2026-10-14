@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -21,6 +21,9 @@ pub struct Settings {
 
     /// org-todo-keywords: one list per sequence, with exactly one "|".
     pub todo_keywords: Vec<Vec<String>>,
+    /// org-todo-keyword-faces for the TUI: a color name (COLOR_NAMES) per
+    /// keyword. A view section takes the color its rows' keywords share.
+    pub todo_keyword_colors: BTreeMap<String, String>,
     /// "preserve" leaves headings alone; "add-on-write" adds an org-id :ID:
     /// on a heading's first edit.
     pub ids: IdPolicy,
@@ -107,6 +110,10 @@ pub struct ViewBlock {
     pub span: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub header: Option<String>,
+    /// The header's color in the TUI, one of COLOR_NAMES; by default it
+    /// follows the rows' TODO keywords.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
     /// org-super-agenda style groups over the block's rows.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub groups: Vec<ViewGroup>,
@@ -139,6 +146,9 @@ pub struct ViewGroup {
     pub discard: bool,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub order: i64,
+    /// As for a block; a `by` group's color applies to each group it makes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 fn is_zero(value: &i64) -> bool {
@@ -206,6 +216,11 @@ pub const SORTING_KEYS: [&str; 15] = [
 
 pub const VIEW_BLOCK_KINDS: [&str; 5] = ["agenda", "todo", "alltodo", "tags", "tags-todo"];
 pub const VIEW_GROUP_BY: [&str; 4] = ["category", "parent", "todo", "priority"];
+/// Colors a keyword or view section may name; the TUI maps them onto its
+/// light or dark palette.
+pub const COLOR_NAMES: [&str; 10] = [
+    "blue", "green", "yellow", "orange", "red", "dim-red", "purple", "pink", "teal", "grey",
+];
 
 #[derive(Clone, Debug)]
 pub struct LoadedSettings {
@@ -219,6 +234,7 @@ impl Default for Settings {
             roots: vec!["~/org".to_string()],
             agenda_files: Vec::new(),
             todo_keywords: vec![strings(&["TODO", "NEXT", "WAIT", "|", "DONE", "CANCELLED"])],
+            todo_keyword_colors: BTreeMap::new(),
             ids: IdPolicy::Preserve,
             tag_alist: Vec::new(),
             persistent_tags: Vec::new(),
@@ -265,6 +281,7 @@ impl Default for Settings {
                         match_expression: None,
                         span: None,
                         header: None,
+                        color: None,
                         groups: Vec::new(),
                     },
                     ViewBlock {
@@ -272,6 +289,7 @@ impl Default for Settings {
                         match_expression: None,
                         span: None,
                         header: None,
+                        color: None,
                         groups: Vec::new(),
                     },
                 ],
@@ -391,6 +409,7 @@ const CONFIG_GROUPS: [(&str, &[&str]); 6] = [
         "Org syntax, as in your editor",
         &[
             "todo_keywords",
+            "todo_keyword_colors",
             "ids",
             "tag_alist",
             "persistent_tags",
@@ -504,6 +523,7 @@ fn render_view(view: &ViewSettings) -> String {
                 ("match", &block.match_expression),
                 ("span", &block.span),
                 ("header", &block.header),
+                ("color", &block.color),
             ] {
                 if let Some(value) = value {
                     fields.push(format!("{name} = {}", quote(value)));
@@ -536,6 +556,7 @@ fn render_group(group: &ViewGroup) -> Vec<String> {
         ("by", &group.by),
         ("effort_max", &group.effort_max),
         ("effort_min", &group.effort_min),
+        ("color", &group.color),
     ] {
         if let Some(value) = value {
             fields.push(format!("{name} = {}", quote(value)));
@@ -631,6 +652,14 @@ fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
             )));
         }
     }
+    for (keyword, color) in &settings.todo_keyword_colors {
+        if !COLOR_NAMES.contains(&color.as_str()) {
+            return Err(config_error(format!(
+                "todo_keyword_colors gives {keyword} '{color}'; use one of {}",
+                COLOR_NAMES.join(", ")
+            )));
+        }
+    }
     let mut view_keys = BTreeSet::new();
     for view in &settings.views {
         if !view_keys.insert(view.key.as_str()) {
@@ -653,6 +682,17 @@ fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
             }
             crate::agenda_engine::validate_view_block(block)
                 .map_err(|error| config_error(format!("view '{}': {error}", view.key)))?;
+            let colors =
+                std::iter::once(&block.color).chain(block.groups.iter().map(|group| &group.color));
+            for color in colors.flatten() {
+                if !COLOR_NAMES.contains(&color.as_str()) {
+                    return Err(config_error(format!(
+                        "view '{}' has color '{color}'; use one of {}",
+                        view.key,
+                        COLOR_NAMES.join(", ")
+                    )));
+                }
+            }
             for group in &block.groups {
                 if let Some(by) = &group.by {
                     if !VIEW_GROUP_BY.contains(&by.as_str()) {
@@ -791,6 +831,10 @@ mod tests {
         let settings = Settings {
             roots: strings(&["~/notes"]),
             deadline_warning_days: 5,
+            todo_keyword_colors: BTreeMap::from([
+                ("CANCELLED".to_string(), "dim-red".to_string()),
+                ("WAIT".to_string(), "yellow".to_string()),
+            ]),
             captures: vec![CaptureTemplate {
                 key: "j".to_string(),
                 desc: "Journal".to_string(),
@@ -807,6 +851,11 @@ mod tests {
         let rendered = render_config(&settings, "written by a test").unwrap();
         assert!(rendered.starts_with("# written by a test\n"), "{rendered}");
         assert!(rendered.contains("deadline_warning_days = 5"), "{rendered}");
+        assert!(
+            rendered
+                .contains("todo_keyword_colors = { CANCELLED = \"dim-red\", WAIT = \"yellow\" }\n"),
+            "{rendered}"
+        );
         assert!(!rendered.contains("agenda_span"), "{rendered}");
         assert!(!rendered.contains("[[view]]"), "{rendered}");
         let parsed: Settings = toml::from_str(&rendered).unwrap();
@@ -824,6 +873,7 @@ mod tests {
                     match_expression: None,
                     span: None,
                     header: Some("Backlog".to_string()),
+                    color: Some("orange".to_string()),
                     groups: vec![
                         ViewGroup {
                             match_expression: Some("TODO=\"HOLD\"".to_string()),
@@ -847,6 +897,18 @@ mod tests {
             ..Settings::default()
         };
         let rendered = render_config(&settings, "groups").unwrap();
+        assert!(
+            rendered.contains("color = \"orange\", groups = ["),
+            "{rendered}"
+        );
+        let mut unknown = settings.clone();
+        unknown.roots = vec![std::env::temp_dir().to_string_lossy().into_owned()];
+        unknown.views[0].blocks[0].groups[1].color = Some("crimson".to_string());
+        let error = validate_settings(&unknown).unwrap_err().to_string();
+        assert!(
+            error.contains("color 'crimson'; use one of blue"),
+            "{error}"
+        );
         assert!(
             rendered.contains("    { name = \"Next\", match = \"/NEXT\", order = -1 },\n"),
             "{rendered}"

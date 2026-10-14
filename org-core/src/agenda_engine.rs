@@ -43,6 +43,9 @@ pub struct ViewSection {
     pub items: Vec<Item>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub groups: Vec<ViewSectionGroup>,
+    /// The block's configured header color, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 /// A grouped block's rows under one group name, in display order.
@@ -51,6 +54,8 @@ pub struct ViewSectionGroup {
     pub name: String,
     pub entries: Vec<AgendaEntry>,
     pub items: Vec<Item>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 /// Agenda bounds for an org-agenda span: day, week, month, or a number of
@@ -301,6 +306,7 @@ impl<'a> AgendaEngine<'a> {
                         })?,
                         items: Vec::new(),
                         groups: Vec::new(),
+                        color: block.color.clone(),
                     }
                 }
                 kind => {
@@ -336,6 +342,7 @@ impl<'a> AgendaEngine<'a> {
                         entries: Vec::new(),
                         items,
                         groups: Vec::new(),
+                        color: block.color.clone(),
                     }
                 }
             };
@@ -377,15 +384,17 @@ impl<'a> AgendaEngine<'a> {
         )?;
         section.groups = entries
             .into_iter()
-            .map(|(name, entries)| ViewSectionGroup {
-                name,
-                entries,
+            .map(|group| ViewSectionGroup {
+                name: group.name,
+                entries: group.rows,
                 items: Vec::new(),
+                color: group.color,
             })
-            .chain(items.into_iter().map(|(name, items)| ViewSectionGroup {
-                name,
+            .chain(items.into_iter().map(|group| ViewSectionGroup {
+                name: group.name,
                 entries: Vec::new(),
-                items,
+                items: group.rows,
+                color: group.color,
             }))
             .collect();
         Ok(section)
@@ -570,9 +579,9 @@ fn group_rows<T>(
     item_of: impl Fn(&T) -> &Item,
     groups: &[ViewGroup],
     context: &GroupContext<'_>,
-) -> Result<Vec<(String, Vec<T>)>, AgdError> {
+) -> Result<Vec<RowGroup<T>>, AgdError> {
     let mut remaining = rows;
-    let mut sections: Vec<(String, i64, Vec<T>)> = Vec::new();
+    let mut sections: Vec<RowGroup<T>> = Vec::new();
     for group in groups {
         if let Some(by) = &group.by {
             let mut keyed: BTreeMap<String, Vec<T>> = BTreeMap::new();
@@ -583,11 +592,12 @@ fn group_rows<T>(
                     None => rest.push(row),
                 }
             }
-            sections.extend(
-                keyed
-                    .into_iter()
-                    .map(|(name, rows)| (name, group.order, rows)),
-            );
+            sections.extend(keyed.into_iter().map(|(name, rows)| RowGroup {
+                name,
+                order: group.order,
+                color: group.color.clone(),
+                rows,
+            }));
             remaining = rest;
             continue;
         }
@@ -633,24 +643,41 @@ fn group_rows<T>(
                 .clone()
                 .or_else(|| group.match_expression.clone())
                 .unwrap_or_else(|| OTHER_ITEMS.to_string());
-            sections.push((name, group.order, matching));
+            sections.push(RowGroup {
+                name,
+                order: group.order,
+                color: group.color.clone(),
+                rows: matching,
+            });
         }
     }
-    sections.insert(0, (OTHER_ITEMS.to_string(), 99, remaining));
+    sections.insert(
+        0,
+        RowGroup {
+            name: OTHER_ITEMS.to_string(),
+            order: 99,
+            color: None,
+            rows: remaining,
+        },
+    );
     sections.sort_by(|left, right| {
-        left.1.cmp(&right.1).then_with(|| {
-            if left.1 == 0 {
+        left.order.cmp(&right.order).then_with(|| {
+            if left.order == 0 {
                 Ordering::Equal
             } else {
-                left.0.cmp(&right.0)
+                left.name.cmp(&right.name)
             }
         })
     });
-    Ok(sections
-        .into_iter()
-        .filter(|(_, _, rows)| !rows.is_empty())
-        .map(|(name, _, rows)| (name, rows))
-        .collect())
+    sections.retain(|group| !group.rows.is_empty());
+    Ok(sections)
+}
+
+struct RowGroup<T> {
+    name: String,
+    order: i64,
+    color: Option<String>,
+    rows: Vec<T>,
 }
 
 static DURATION_NUMBER: LazyLock<Regex> =
@@ -1664,6 +1691,7 @@ mod tests {
                     match_expression: None,
                     span: Some("day".to_string()),
                     header: Some("Today".to_string()),
+                    color: None,
                     groups: Vec::new(),
                 },
                 ViewBlock {
@@ -1671,6 +1699,7 @@ mod tests {
                     match_expression: Some("NEXT|DONE".to_string()),
                     span: None,
                     header: None,
+                    color: None,
                     groups: Vec::new(),
                 },
                 ViewBlock {
@@ -1678,6 +1707,7 @@ mod tests {
                     match_expression: Some("work".to_string()),
                     span: None,
                     header: None,
+                    color: None,
                     groups: Vec::new(),
                 },
             ],
@@ -1738,6 +1768,7 @@ mod tests {
                 match_expression: None,
                 span: None,
                 header: None,
+                color: None,
                 groups: vec![
                     ViewGroup {
                         name: Some("Quick".to_string()),
@@ -1797,6 +1828,7 @@ mod tests {
                 match_expression: None,
                 span: None,
                 header: Some("Backlog".to_string()),
+                color: None,
                 groups: vec![
                     ViewGroup {
                         match_expression: Some("/HOLD".to_string()),

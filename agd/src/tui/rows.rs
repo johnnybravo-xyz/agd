@@ -184,10 +184,13 @@ impl App {
                         // as org-super-agenda does.
                         if !section.groups.is_empty() {
                             if !section.header.is_empty() {
-                                headers.push(Header::section(section.header.clone()));
+                                headers.push(Header::section(
+                                    section.header.clone(),
+                                    section.color.clone(),
+                                ));
                             }
                             for group in section.groups {
-                                headers.push(Header::section(group.name.clone()));
+                                headers.push(Header::section(group.name.clone(), group.color));
                                 rows.extend(group.entries.into_iter().map(|entry| DisplayRow {
                                     section: group.name.clone(),
                                     item: entry.item,
@@ -204,16 +207,20 @@ impl App {
                         // Agenda blocks list every day under their title, as
                         // an Emacs block agenda does; list blocks use theirs.
                         if let (Some(from), Some(to)) = (section.from, section.to) {
-                            headers.push(Header::section(if section.header.is_empty() {
+                            let title = if section.header.is_empty() {
                                 agenda_block_title(from, to)
                             } else {
                                 section.header.clone()
-                            }));
+                            };
+                            headers.push(Header::section(title, section.color.clone()));
                             headers.extend(day_labels(from, to));
                             rows.extend(day_grouped(section.entries));
                         }
                         if section.from.is_none() && !section.header.is_empty() {
-                            headers.push(Header::section(section.header.clone()));
+                            headers.push(Header::section(
+                                section.header.clone(),
+                                section.color.clone(),
+                            ));
                         }
                         rows.extend(section.items.into_iter().map(|item| DisplayRow {
                             section: section.header.clone(),
@@ -237,7 +244,7 @@ impl App {
         // Sections that only exist through their rows (Today, Inbox).
         for row in &rows {
             if !headers.iter().any(|header| header.text == row.section) {
-                headers.push(Header::section(row.section.clone()));
+                headers.push(Header::section(row.section.clone(), None));
             }
         }
         self.headers = headers;
@@ -425,6 +432,7 @@ fn day_labels(from: NaiveDate, to: NaiveDate) -> Vec<Header> {
         labels.push(Header {
             text: day_label(day),
             day: true,
+            color: None,
         });
         day += Duration::days(1);
     }

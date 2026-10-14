@@ -88,11 +88,17 @@ enum Overlay {
 struct Header {
     text: String,
     day: bool,
+    /// A view's configured color name (COLOR_NAMES); None follows the rows.
+    color: Option<String>,
 }
 
 impl Header {
-    fn section(text: String) -> Self {
-        Self { text, day: false }
+    fn section(text: String, color: Option<String>) -> Self {
+        Self {
+            text,
+            day: false,
+            color,
+        }
     }
 }
 
