@@ -11,7 +11,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `⏎` (or `e`) opens an edit popup for the selected entry: title, state,
   priority, tags, scheduled and deadline as fields, ←/→ to step state and
   priority, a preview of the exact Org change, and one guarded, undoable
-  write of only the fields that changed. `E` opens the entry in `$EDITOR`.
+  write of only the fields that changed. `ctrl-e` opens the entry in
+  `$EDITOR` from the lists, the pane, Agent review and both popups.
 - MCP `capture` takes `properties` (e.g. `REPO`, `BRANCH`, `SOURCE` as an org
   link) recorded in the heading's `:PROPERTIES:` drawer; peek shows them and
   the installed skill asks agents to use them.

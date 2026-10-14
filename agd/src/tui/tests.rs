@@ -225,7 +225,7 @@ fn renders_five_thousand_headings_under_budget() {
 }
 
 fn key(app: &mut App, code: crossterm::event::KeyCode) {
-    super::edit::handle_key(app, crossterm::event::KeyEvent::from(code)).unwrap();
+    assert!(!super::edit::handle_key(app, crossterm::event::KeyEvent::from(code)).unwrap());
 }
 
 #[test]
@@ -291,6 +291,29 @@ fn an_invalid_date_keeps_the_popup_open_with_the_reason() {
         }
         key(&mut app, KeyCode::Enter);
         assert!(matches!(app.overlay, Overlay::Edit(_)));
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    });
+}
+
+#[test]
+#[serial]
+fn ctrl_e_in_the_edit_popup_hands_over_to_the_editor_without_writing() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    with_home(|root| {
+        let path = root.join("work.org");
+        let original = "* TODO Draft report\nSCHEDULED: <2026-10-13 Tue>\n";
+        fs::write(&path, original).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.overlay = Overlay::Edit(Box::new(super::edit::EditForm::open(&app).unwrap()));
+        key(&mut app, KeyCode::Char('x'));
+        let open_editor = super::edit::handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL),
+        )
+        .unwrap();
+        assert!(open_editor);
+        assert!(matches!(app.overlay, Overlay::None));
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
     });
 }

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use anyhow::Result;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use org_core::{Change, EditIntent, PlanningTimestamp, WriteEngine, parse_date_input};
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -190,17 +190,22 @@ fn changed_lines(diff: &str) -> String {
         .join("\n")
 }
 
-pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
+/// Returns true when the caller should open the entry in $EDITOR (ctrl-e),
+/// which closes the popup without writing.
+pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<bool> {
     let Overlay::Edit(mut form) = std::mem::replace(&mut app.overlay, Overlay::None) else {
-        return Ok(());
+        return Ok(false);
     };
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('e') {
+        return Ok(true);
+    }
     match key.code {
-        KeyCode::Esc => return Ok(()),
+        KeyCode::Esc => return Ok(false),
         KeyCode::Enter => {
-            if form.unchanged() {
-                return Ok(());
+            if !form.unchanged() {
+                commit(app, form)?;
             }
-            return commit(app, form);
+            return Ok(false);
         }
         KeyCode::Tab | KeyCode::Down => form.field = (form.field + 1) % LABELS.len(),
         KeyCode::BackTab | KeyCode::Up => {
@@ -235,7 +240,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
     }
     form.refresh(app);
     app.overlay = Overlay::Edit(form);
-    Ok(())
+    Ok(false)
 }
 
 fn commit(app: &mut App, form: Box<EditForm>) -> Result<()> {
@@ -335,6 +340,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             theme.key_hint("⏎", "save"),
             theme.key_hint("tab", "next field"),
             theme.key_hint("esc", "cancel"),
+            theme.key_hint("ctrl-e", "open in $EDITOR"),
         ]
         .concat(),
     ));

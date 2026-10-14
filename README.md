@@ -77,8 +77,8 @@ Keys follow org-agenda wherever it has one, so muscle memory carries over:
 | Key | Action | org-agenda |
 | --- | --- | --- |
 | `j` / `k` | move | `n` / `p` |
-| `⏎` / `e` | edit title, state, priority, tags and dates in a popup that previews the exact change | `RET` |
-| `E` | open in `$EDITOR` at the heading, for the body and anything else | |
+| `⏎` / `e` | edit title, state, priority, tags and dates in a popup that previews the exact change | |
+| `ctrl-e` | open in `$EDITOR` at the heading, from the lists, the pane, Agent review and the popups | `RET` |
 | `t` / `x` | cycle TODO state / mark done | `t` |
 | `s` / `d` | schedule / deadline (`fri`, `+2d`, `2026-10-30 14:00`) | `C-c C-s` / `C-c C-d` |
 | `,` `+` `-` | priority | `,` `+` `-` |

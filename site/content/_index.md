@@ -107,7 +107,8 @@ Keys follow org-agenda wherever it has one: `t` state, `s` and `d` schedule
 and deadline, `,` `+` `-` priority, `:` tags, `r` refile, `f` `b` `.` to move
 in time, `<` and `/` to filter, `v` and `l` for classic and log mode, `u`
 undo. `⏎` edits an entry's title, state, priority, tags and dates in place,
-previewing the exact change; `E` opens it in `$EDITOR`. `?` lists them all
+previewing the exact change; `ctrl-e` opens it in `$EDITOR`, as `RET` does in
+org-agenda. `?` lists them all
 next to their org-agenda equivalents.
 
 ![Keys and their org-agenda equivalents](help.webp)

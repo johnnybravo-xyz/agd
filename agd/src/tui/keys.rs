@@ -21,7 +21,12 @@ pub(super) fn handle_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> R
     match &app.overlay {
         Overlay::None => {}
         Overlay::Capture(_) => return capture::handle_key(terminal, app, key),
-        Overlay::Edit(_) => return super::edit::handle_key(app, key),
+        Overlay::Edit(_) => {
+            if super::edit::handle_key(app, key)? {
+                open_selected(terminal, app)?;
+            }
+            return Ok(());
+        }
         _ => return handle_overlay(app, key),
     }
     if app.pane {
@@ -72,7 +77,16 @@ fn next_tab(app: &mut App, delta: isize) -> Result<()> {
 }
 
 /// Today, Week, Inbox and saved views.
+/// ctrl-e: open in $EDITOR, everywhere (lists, pane, Agent review, the edit
+/// and capture popups), as org-agenda's RET opens the entry's file.
+fn is_editor_key(key: KeyEvent) -> bool {
+    key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('e')
+}
+
 fn list_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
+    if is_editor_key(key) {
+        return open_selected(terminal, app);
+    }
     if common_key(app, key)? {
         return Ok(());
     }
@@ -101,7 +115,6 @@ fn list_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
                 app.overlay = Overlay::Edit(Box::new(form));
             }
         }
-        KeyCode::Char('E') => open_selected(terminal, app)?,
         KeyCode::Char(' ') => app.toggle_mark(),
         // Bulk actions on marked rows, as org-agenda's B menu.
         KeyCode::Char('.') if bulk => app.schedule("today")?,
@@ -231,6 +244,11 @@ fn triage_key(app: &mut App, key: KeyEvent) -> Result<()> {
 }
 
 fn review_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
+    let key = if is_editor_key(key) {
+        KeyEvent::from(KeyCode::Enter)
+    } else {
+        key
+    };
     if common_key(app, key)? {
         return Ok(());
     }
@@ -252,7 +270,7 @@ fn review_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('u') => app.undo_selected_change()?,
         KeyCode::Char('d') => app.review_diff = !app.review_diff,
         KeyCode::Char('f') => app.cycle_agent_filter()?,
-        KeyCode::Enter | KeyCode::Char('E') => {
+        KeyCode::Enter => {
             if let Some(record) = app.journals.get(app.selected) {
                 let file = record
                     .file
@@ -271,6 +289,9 @@ fn review_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
 
 /// The pane: glance, mark done, triage, capture, or open the full TUI.
 fn pane_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
+    if is_editor_key(key) {
+        return open_selected(terminal, app);
+    }
     match key.code {
         KeyCode::Char('j') | KeyCode::Down => app.move_selection(1),
         KeyCode::Char('k') | KeyCode::Up => app.move_selection(-1),
@@ -281,7 +302,6 @@ fn pane_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
             app.pane = false;
             start_triage(app)?;
         }
-        KeyCode::Char('E') => open_selected(terminal, app)?,
         KeyCode::Enter => {
             app.pane = false;
             app.reload_rows()?;
