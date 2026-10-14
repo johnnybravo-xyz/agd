@@ -51,7 +51,8 @@ def main() -> None:
     resolved = json.loads(payload)
     if not resolved["editor_version"].startswith("0.12."):
         raise RuntimeError(f"unexpected Neovim version: {resolved['editor_version']}")
-    if resolved["org_version"] != f"0.7.5@{COMMIT}":
+    # The probe identifies a git checkout of nvim-orgmode by its commit.
+    if resolved["org_version"] != f"git@{COMMIT}":
         raise RuntimeError(f"unexpected nvim-orgmode identity: {resolved['org_version']}")
     print(f"Neovim {resolved['editor_version']} with nvim-orgmode {resolved['org_version']}")
 

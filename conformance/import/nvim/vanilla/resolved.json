@@ -57,7 +57,7 @@
   "default_priority": "C",
   "diagnostics": [],
   "editor": "nvim",
-  "editor_version": "0.12.5",
+  "editor_version": "0.12.6",
   "groups": [],
   "highest_priority": "A",
   "log_done": "time",
