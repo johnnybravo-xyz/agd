@@ -1,0 +1,3 @@
+[submodule "site/themes/zola-quiet"]
+	path = site/themes/zola-quiet
+	url = https://github.com/johnnybravo-xyz/zola-quiet

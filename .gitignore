@@ -8,3 +8,11 @@
 /coverage
 result
 .omo
+
+# Copied in by site/collect.sh; written by zola build
+/site/content/docs/*.md
+!/site/content/docs/_index.md
+/site/content/posts/*.md
+!/site/content/posts/_index.md
+/site/content/agd.gif
+/site/public/

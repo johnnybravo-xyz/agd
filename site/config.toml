@@ -1,0 +1,31 @@
+# Zola site for https://johnnybravo-xyz.github.io/agd/ on the zola-quiet theme,
+# mirrored at https://johnnybravo.xyz/projects/agd/ (the canonical copy).
+# content/docs, content/posts and content/agd.gif are copied in from the
+# repository by collect.sh before each build; see .github/workflows/pages.yml.
+base_url = "https://johnnybravo-xyz.github.io/agd"
+title = "agd · org-agenda for terminals and coding agents"
+description = "agd reads the Org files and settings you already use with Emacs or nvim-orgmode, shows them in a keyboard-first terminal UI, and lets coding agents read and write the same tasks over MCP, checked against Emacs."
+default_language = "en"
+theme = "zola-quiet"
+compile_sass = false
+generate_feeds = true
+feed_filenames = ["atom.xml"]
+build_search_index = false
+
+[markdown]
+smart_punctuation = false
+
+[extra]
+canonical_base = "https://johnnybravo.xyz/projects/agd"
+author = "agd contributors"
+github = "johnnybravo-xyz"
+ascii_signature = """
+╭──────────────────────╮
+│                      │
+│  ▌ agd               │
+│    org-agenda for    │
+│    terminals and     │
+│    coding agents  _  │
+│                      │
+╰──────────────────────╯
+"""
