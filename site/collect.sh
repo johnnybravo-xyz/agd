@@ -3,9 +3,10 @@
 #   docs/{IMPORTING,COMPATIBILITY,SAFETY}.md -> site/content/docs/<name>.md
 #   docs/release/posts/*.md                  -> site/content/posts/*.md
 #   docs/release/agd.gif                     -> site/content/agd.gif
-# A file's leading "# Title" becomes its front matter. Posts are dated by the
-# commit that added them, so this needs full git history. The copies are
-# gitignored; run this before `zola build` in site/.
+# A file's leading "# Title" becomes its front matter title; docs also get
+# the one-line description listed below. Posts are dated by the commit that
+# added them, so this needs full git history. The copies are gitignored; run
+# this before `zola build` in site/.
 set -eu
 cd "$(dirname "$0")/.."
 content=site/content
@@ -20,12 +21,18 @@ page() { # page <source> <target> <extra front matter line>
   echo "collect.sh: $1 -> $2"
 }
 
+# name|description, in the order the site lists them
 weight=0
-for name in IMPORTING COMPATIBILITY SAFETY; do
+while IFS='|' read -r name description; do
   weight=$((weight + 1))
   lower=$(echo "$name" | tr '[:upper:]' '[:lower:]')
-  page "docs/$name.md" "$content/docs/$lower.md" "weight = $weight"
-done
+  page "docs/$name.md" "$content/docs/$lower.md" "weight = $weight
+description = \"$description\""
+done <<'EOF'
+IMPORTING|Bring settings over from a running Emacs or nvim-orgmode, and verify them
+COMPATIBILITY|What matches Emacs exactly, and what is reported instead
+SAFETY|Roots, locks, the journal, atomic writes and undo
+EOF
 
 for post in docs/release/posts/*.md; do
   date=$(git log --diff-filter=A --follow --format=%as -- "$post" | tail -n 1)
