@@ -1,0 +1,58 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/*.md"
+      - "docs/release/posts/**"
+      - "docs/release/agd.gif"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          submodules: true
+          # collect.sh dates posts by the commit that added them.
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@v31
+      - name: Collect docs, posts and the GIF
+        run: ./site/collect.sh
+      - id: pages
+        uses: actions/configure-pages@v6
+      # Zola 0.23 (Tera 2, which zola-quiet needs) from a pinned nixpkgs
+      # revision; the flake's own nixpkgs still has 0.22.
+      - name: Build
+        working-directory: site
+        env:
+          BASE_URL: ${{ steps.pages.outputs.base_url }}
+        run: nix shell github:NixOS/nixpkgs/7fd4004d0511991fff3a0524856a9be09e28c5f0#zola -c zola build --base-url "$BASE_URL"
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
