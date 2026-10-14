@@ -186,6 +186,18 @@ wildcards. When `config.toml` already exists, its `roots` stay, and entries
 outside them are left out with `✗ <entry> agenda entry left out: outside the
 roots`.
 
+When agenda files live outside `org-directory`, add their directories to
+`roots`, which is a list, and import again; the rerun keeps your `roots` and
+imports the entries inside them:
+
+```toml
+roots = ["~/org", "~/thesis"]
+```
+
+```bash
+agd setup import ~/.emacs.d --force
+```
+
 ## Running it again
 
 When `config.toml` exists, the import shows the diff and stops; rerun with
