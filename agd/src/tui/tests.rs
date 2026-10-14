@@ -102,10 +102,10 @@ blocks = [
         app.switch_screen(Screen::View("g".to_string())).unwrap();
         let screen = render(&mut app, 100, 30).join("\n");
         // Each block's "Other items" holds its own rows, drawn once.
-        assert_eq!(screen.matches("Other items").count(), 2, "{screen}");
+        assert_eq!(screen.matches("OTHER ITEMS").count(), 2, "{screen}");
         assert_eq!(screen.matches("Migrate cron jobs").count(), 2, "{screen}");
         assert_eq!(screen.matches("Vendor reply").count(), 2, "{screen}");
-        assert!(screen.contains("Waiting"), "{screen}");
+        assert!(screen.contains("WAITING  1"), "{screen}");
     });
 }
 

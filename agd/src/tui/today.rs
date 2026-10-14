@@ -11,8 +11,8 @@ use org_core::OccurrenceType;
 use super::rows::days_since;
 use super::theme::{Theme, centered};
 use super::{
-    App, DOING, DUE, DisplayRow, INBOX, Overlay, PromptKind, SCHEDULE, SLIPPED, Screen, peek,
-    review, triage,
+    App, DOING, DUE, DisplayRow, Header, INBOX, Overlay, PromptKind, SCHEDULE, SLIPPED, Screen,
+    peek, review, triage,
 };
 
 /// Width at which peek sits beside the list and tags get their column.
@@ -60,17 +60,18 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
 fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
+    // The name is a filled badge; the current tab is bold and underlined,
+    // so the two never look alike.
     let tab = |label: String, active: bool| -> Vec<Span<'static>> {
-        if active {
-            theme.pill(label, theme.accent)
+        let style = if active {
+            theme.strong(theme.text).add_modifier(Modifier::UNDERLINED)
         } else {
-            vec![Span::styled(format!(" {label} "), theme.muted())]
-        }
+            theme.muted()
+        };
+        vec![Span::raw(" "), Span::styled(label, style), Span::raw(" ")]
     };
-    let mut left = vec![
-        Span::styled(" Agenda ", theme.strong(theme.accent)),
-        Span::raw(" "),
-    ];
+    let mut left = theme.pill("Agenda", theme.accent);
+    left.push(Span::raw(" "));
     let view_desc = |key: &str| {
         app.settings
             .view(key)
@@ -249,17 +250,37 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
     for (index, row) in app.rows.iter().enumerate() {
         if let Some(offset) = app.headers[current..]
             .iter()
-            .position(|header| *header == row.section)
+            .position(|header| header.text == row.section)
         {
             current += offset;
             header_rows[current].push(index);
         }
     }
-    for (header, rows) in app.headers.iter().zip(header_rows) {
+    // A section counts its own rows and those of the day lines under it.
+    let section_rows: Vec<usize> = (0..app.headers.len())
+        .map(|index| {
+            header_rows[index].len()
+                + (index + 1..app.headers.len())
+                    .take_while(|next| app.headers[*next].day)
+                    .map(|next| header_rows[next].len())
+                    .sum::<usize>()
+        })
+        .collect();
+    for ((header, rows), section_count) in app.headers.iter().zip(header_rows).zip(section_rows) {
         if rows.is_empty() && app.screen == Screen::Today && !app.classic {
             continue;
         }
-        items.push(ListItem::new(section_header(app, header, width)));
+        // A blank line above each section, as in the design.
+        if !header.day && !items.is_empty() {
+            items.push(ListItem::new(Line::default()));
+            line_rows.push(None);
+        }
+        let count = if header.day {
+            rows.len()
+        } else {
+            section_count
+        };
+        items.push(ListItem::new(section_header(app, header, count, width)));
         line_rows.push(None);
         for index in rows {
             let row = &app.rows[index];
@@ -309,23 +330,38 @@ fn empty_message(app: &App) -> String {
     }
 }
 
-fn section_header(app: &App, section: &str, width: usize) -> Line<'static> {
+/// A section in its color, uppercase, with how many rows it holds; empty
+/// sections and days recede. Day lines carry no count, as in org-agenda.
+fn section_header(app: &App, header: &Header, rows: usize, width: usize) -> Line<'static> {
     let theme = &app.theme;
+    let section = header.text.as_str();
+    if header.day {
+        let style = if rows == 0 {
+            theme.muted()
+        } else {
+            theme.strong(theme.text)
+        };
+        return Line::from(Span::styled(section.to_string(), style));
+    }
     let color = match section {
         SLIPPED => theme.slipped,
         DUE => theme.due,
         DOING => theme.done,
-        SCHEDULE | INBOX => theme.accent,
-        _ => theme.text,
+        _ => theme.accent,
     };
-    let mut spans = vec![Span::styled(section.to_string(), theme.strong(color))];
-    // Today's sections show how many rows they hold; day headers do not,
-    // as in org-agenda.
-    if [SLIPPED, SCHEDULE, DUE, DOING, INBOX].contains(&section) {
-        let count = match section {
-            SLIPPED => app.counts.slipped,
-            _ => app.rows.iter().filter(|row| row.section == section).count(),
-        };
+    // SLIPPED counts every slipped item; it shows only the first rows.
+    let count = if section == SLIPPED {
+        app.counts.slipped
+    } else {
+        rows
+    };
+    let style = if count == 0 {
+        theme.muted().add_modifier(Modifier::BOLD)
+    } else {
+        theme.strong(color)
+    };
+    let mut spans = vec![Span::styled(section.to_uppercase(), style)];
+    if count > 0 {
         spans.push(Span::styled(format!("  {count}"), theme.muted()));
     }
     if section == SLIPPED {

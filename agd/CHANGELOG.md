@@ -27,6 +27,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Sections stand apart as in the design: a view's blocks and groups, like
+  Today's sections, are uppercase in their color with a row count and a
+  blank line above; empty sections and days are muted. The Agenda name is a
+  filled badge and the current tab bold and underlined, so they no longer
+  look alike.
 - Capture opens on a list of templates with their keys and destinations
   and what the line takes (`due:fri` deadline, `on:+2d` scheduled, `+work`
   tag, `#A` priority), picked by key or ↑/↓ and ⏎; the empty input shows

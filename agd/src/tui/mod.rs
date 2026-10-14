@@ -81,6 +81,21 @@ enum Overlay {
     },
 }
 
+/// A list header, matched to rows by `text`. Sections (Today's, a view's
+/// blocks and groups) stand out; day lines under them stay plain, as in
+/// org-agenda.
+#[derive(Clone, Debug)]
+struct Header {
+    text: String,
+    day: bool,
+}
+
+impl Header {
+    fn section(text: String) -> Self {
+        Self { text, day: false }
+    }
+}
+
 /// One selectable row. `section` groups rows under a header: a Today
 /// section (SLIPPED, SCHEDULE, …), a day in Week, or a view block title.
 #[derive(Clone, Debug)]
@@ -167,9 +182,9 @@ struct App {
     /// Where esc returns to from Triage, Review or a view.
     back: Screen,
     rows: Vec<DisplayRow>,
-    /// Section headers in display order, including days without rows, so
-    /// Week shows every day as org-agenda does.
-    headers: Vec<String>,
+    /// Headers in display order, including days without rows, so Week
+    /// shows every day as org-agenda does.
+    headers: Vec<Header>,
     journals: Vec<JournalRecord>,
     selected: usize,
     marks: BTreeSet<String>,

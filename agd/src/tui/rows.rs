@@ -7,7 +7,9 @@ use org_core::{
     OccurrenceType, WorkspaceIndex, WriteEngine,
 };
 
-use super::{App, DOING, DUE, DisplayRow, INBOX, SCHEDULE, SLIPPED, Screen, SelectionAnchor};
+use super::{
+    App, DOING, DUE, DisplayRow, Header, INBOX, SCHEDULE, SLIPPED, Screen, SelectionAnchor,
+};
 
 /// Rows shown under SLIPPED on Today; the rest wait in Triage.
 const SLIPPED_ON_TODAY: usize = 3;
@@ -141,7 +143,7 @@ impl App {
         let inbox = engine.inbox();
         self.counts.inbox = inbox.len();
 
-        let mut headers: Vec<String> = Vec::new();
+        let mut headers: Vec<Header> = Vec::new();
         let mut rows = match &self.screen {
             Screen::Review => {
                 self.journals = review_records(journals, self.agent_filter.as_deref());
@@ -182,10 +184,10 @@ impl App {
                         // as org-super-agenda does.
                         if !section.groups.is_empty() {
                             if !section.header.is_empty() {
-                                headers.push(section.header.clone());
+                                headers.push(Header::section(section.header.clone()));
                             }
                             for group in section.groups {
-                                headers.push(group.name.clone());
+                                headers.push(Header::section(group.name.clone()));
                                 rows.extend(group.entries.into_iter().map(|entry| DisplayRow {
                                     section: group.name.clone(),
                                     item: entry.item,
@@ -202,16 +204,16 @@ impl App {
                         // Agenda blocks list every day under their title, as
                         // an Emacs block agenda does; list blocks use theirs.
                         if let (Some(from), Some(to)) = (section.from, section.to) {
-                            headers.push(if section.header.is_empty() {
+                            headers.push(Header::section(if section.header.is_empty() {
                                 agenda_block_title(from, to)
                             } else {
                                 section.header.clone()
-                            });
+                            }));
                             headers.extend(day_labels(from, to));
                             rows.extend(day_grouped(section.entries));
                         }
                         if section.from.is_none() && !section.header.is_empty() {
-                            headers.push(section.header.clone());
+                            headers.push(Header::section(section.header.clone()));
                         }
                         rows.extend(section.items.into_iter().map(|item| DisplayRow {
                             section: section.header.clone(),
@@ -234,8 +236,8 @@ impl App {
         rows.retain(|row| self.visible(&row.item));
         // Sections that only exist through their rows (Today, Inbox).
         for row in &rows {
-            if !headers.contains(&row.section) {
-                headers.push(row.section.clone());
+            if !headers.iter().any(|header| header.text == row.section) {
+                headers.push(Header::section(row.section.clone()));
             }
         }
         self.headers = headers;
@@ -416,11 +418,14 @@ fn agenda_block_title(from: NaiveDate, to: NaiveDate) -> String {
     format!("{span}-agenda (W{:02}):", from.iso_week().week())
 }
 
-fn day_labels(from: NaiveDate, to: NaiveDate) -> Vec<String> {
+fn day_labels(from: NaiveDate, to: NaiveDate) -> Vec<Header> {
     let mut labels = Vec::new();
     let mut day = from;
     while day <= to {
-        labels.push(day_label(day));
+        labels.push(Header {
+            text: day_label(day),
+            day: true,
+        });
         day += Duration::days(1);
     }
     labels
