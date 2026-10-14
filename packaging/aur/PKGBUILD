@@ -1,6 +1,6 @@
 # Maintainer: johnnybravo-xyz
 pkgname=agd
-pkgver=0.0.1
+pkgver=0.1.0
 pkgrel=1
 pkgdesc="Local-first org-mode tools for terminals and coding agents"
 arch=('x86_64' 'aarch64')
@@ -8,31 +8,31 @@ url="https://github.com/johnnybravo-xyz/agd"
 license=('GPL-3.0-or-later')
 depends=('gcc-libs')
 makedepends=('cargo')
-source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/agd-v$pkgver.tar.gz")
-sha256sums=('cd6c40363c2912bd2af10c4777eaf049e800dbda48d69b2e75ca8aea02ef0623')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('0b49728c2916d52885fef698b409445b7ec369f4b6b3a8cb2e6e3efd62af3fa8')
 
 prepare() {
-  cd "$pkgname-agd-v$pkgver"
+  cd "$pkgname-$pkgver"
   export RUSTUP_TOOLCHAIN=stable
   cargo fetch --locked --target "$CARCH-unknown-linux-gnu"
 }
 
 build() {
-  cd "$pkgname-agd-v$pkgver"
+  cd "$pkgname-$pkgver"
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
   cargo build --frozen --release --package agd
 }
 
 check() {
-  cd "$pkgname-agd-v$pkgver"
+  cd "$pkgname-$pkgver"
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
   cargo test --frozen --workspace --all-targets
 }
 
 package() {
-  cd "$pkgname-agd-v$pkgver"
+  cd "$pkgname-$pkgver"
   install -Dm755 target/release/agd "$pkgdir/usr/bin/agd"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 }
