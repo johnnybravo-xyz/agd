@@ -64,6 +64,22 @@
               "order": 2
             },
             {
+              "effort_max": "0:15",
+              "name": "Quick",
+              "order": 3
+            },
+            {
+              "effort_max": "0:30",
+              "match": "TODO=\"NEXT\"",
+              "name": "Next and short",
+              "order": 4
+            },
+            {
+              "effort_min": "3:00",
+              "name": "Long",
+              "order": 5
+            },
+            {
               "by": "category",
               "order": 9
             }
@@ -120,6 +136,19 @@
           "kind": "alltodo"
         }
       ],
+      "description": "Mixed effort",
+      "diagnostics": [
+        "groups left out, rows ungrouped: an :effort< or :effort> ORed with other selectors is not supported"
+      ],
+      "enabled": true,
+      "key": "e"
+    },
+    {
+      "blocks": [
+        {
+          "kind": "alltodo"
+        }
+      ],
       "description": "Neglected",
       "diagnostics": [
         "groups left out, rows ungrouped: :pred is not supported"
@@ -143,7 +172,7 @@
     },
     {
       "key": "org-agenda-custom-commands",
-      "message": "init.el:23",
+      "message": "init.el:26",
       "status": "exact"
     },
     {

@@ -113,11 +113,14 @@ wins.
   selector becomes a match: `:todo "NEXT"` is `TODO="NEXT"`, `:deadline
   past` is `DEADLINE<"<today>"`, `:not` and `:and` combine them, and the
   `:auto-category`, `:auto-parent`, `:auto-todo` and `:auto-priority` groups
-  become `by`. Three differences are reported with `~ view KEY groups: ...`:
+  become `by`. `:effort<` and `:effort>` become `effort_max` and
+  `effort_min` when they are a group's only selector or sit in its `:and`;
+  ORed with other selectors they cannot be written and leave the block
+  ungrouped. Three differences are reported with `~ view KEY groups: ...`:
   tags compare case-sensitively, `:property` reads the heading's own
   drawer, and `:priority` with the default letter also takes headings
-  without a cookie. A group using `:pred`, `:time-grid`, `:effort<`,
-  `:log` or another selector agd cannot run leaves the block ungrouped:
+  without a cookie. A group using `:pred`, `:time-grid`, `:log`,
+  `:auto-property` or another selector agd cannot run leaves the block ungrouped:
   `~ view KEY groups left out, rows ungrouped: :pred is not supported`.
   `:face` and `:transformer` are dropped with a note.
 - **org-ql, prefix formats, skip functions**, a global

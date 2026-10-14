@@ -208,6 +208,7 @@ blocks = [
   { kind = "alltodo", header = "Backlog", groups = [   # org-super-agenda groups
     { match = "/HOLD", discard = true },
     { name = "Overdue", match = 'DEADLINE<"<today>"' },
+    { name = "Quick", effort_max = "0:15" },
     { by = "category" },
   ] },
 ]

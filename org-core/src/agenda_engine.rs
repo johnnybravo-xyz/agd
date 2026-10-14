@@ -596,16 +596,35 @@ fn group_rows<T>(
             .as_deref()
             .map(TagTodoMatcher::parse)
             .transpose()?;
+        let effort_bound = |bound: &Option<String>| -> Result<Option<f64>, AgdError> {
+            bound
+                .as_deref()
+                .map(|text| {
+                    duration_minutes(text).ok_or_else(|| {
+                        AgdError::new("invalid_view", format!("effort '{text}' is not a duration"))
+                    })
+                })
+                .transpose()
+        };
+        let effort_max = effort_bound(&group.effort_max)?;
+        let effort_min = effort_bound(&group.effort_min)?;
         let (matching, rest): (Vec<T>, Vec<T>) = remaining.into_iter().partition(|row| {
             let item = item_of(row);
-            matcher.as_ref().is_none_or(|matcher| {
-                context
-                    .headlines
-                    .get(&(item.file.as_str(), item.line))
-                    .is_some_and(|headline| {
-                        matcher.matches(headline, context.now, context.settings)
-                    })
-            })
+            let Some(headline) = context.headlines.get(&(item.file.as_str(), item.line)) else {
+                return matcher.is_none() && effort_max.is_none() && effort_min.is_none();
+            };
+            let effort = || {
+                headline
+                    .properties
+                    .iter()
+                    .find(|property| property.key.eq_ignore_ascii_case("Effort"))
+                    .and_then(|property| duration_minutes(&property.value))
+            };
+            matcher
+                .as_ref()
+                .is_none_or(|matcher| matcher.matches(headline, context.now, context.settings))
+                && effort_max.is_none_or(|max| effort().is_some_and(|effort| effort <= max))
+                && effort_min.is_none_or(|min| effort().is_some_and(|effort| effort >= min))
         });
         remaining = rest;
         if !group.discard {
@@ -632,6 +651,52 @@ fn group_rows<T>(
         .filter(|(_, _, rows)| !rows.is_empty())
         .map(|(name, _, rows)| (name, rows))
         .collect())
+}
+
+static DURATION_NUMBER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[0-9]+(?:\.[0-9]*)?$").unwrap());
+static DURATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^((?:[0-9]+(?:\.[0-9]*)?[ \t]*(?:min|h|d|w|m|y)[ \t]*)*)(?:([0-9]+):([0-9]{2})(?::([0-9]{2}))?)?$",
+    )
+    .unwrap()
+});
+static DURATION_UNIT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"([0-9]+(?:\.[0-9]*)?)[ \t]*(min|h|d|w|m|y)").unwrap());
+
+/// Minutes in an Org duration, as org-duration-to-minutes reads it: a
+/// number of minutes, `H:MM` or `H:MM:SS`, unit sums such as `1h 30min` or
+/// `2d` (`m` is a 30-day month, `y` 365.25 days), or units then `H:MM`.
+pub(crate) fn duration_minutes(text: &str) -> Option<f64> {
+    let text = text.trim();
+    if DURATION_NUMBER.is_match(text) {
+        return text.parse().ok();
+    }
+    let captures = DURATION.captures(text)?;
+    let units = captures.get(1).map_or("", |units| units.as_str());
+    if units.is_empty() && captures.get(2).is_none() {
+        return None;
+    }
+    let mut minutes = 0.0;
+    for unit in DURATION_UNIT.captures_iter(units) {
+        let count: f64 = unit[1].parse().ok()?;
+        minutes += count
+            * match &unit[2] {
+                "min" => 1.0,
+                "h" => 60.0,
+                "d" => 1_440.0,
+                "w" => 10_080.0,
+                "m" => 43_200.0,
+                _ => 525_960.0,
+            };
+    }
+    let clock = |index: usize| -> f64 {
+        captures
+            .get(index)
+            .and_then(|part| part.as_str().parse::<f64>().ok())
+            .unwrap_or(0.0)
+    };
+    Some(minutes + clock(2) * 60.0 + clock(3) + clock(4) / 60.0)
 }
 
 /// The group header for a `by` group, as org-super-agenda's auto groups
@@ -1636,6 +1701,81 @@ mod tests {
         );
         assert_eq!(titles(&sections[1]), ["Later", "Old"]);
         assert_eq!(titles(&sections[2]), ["Today", "Old", "Note"]);
+    }
+
+    #[test]
+    fn durations_read_as_org_duration_to_minutes_does() {
+        // Expected values printed by org-duration-to-minutes in Emacs 30.2.
+        for (text, minutes) in [
+            ("0:10", 10.0),
+            ("1:30", 90.0),
+            ("10", 10.0),
+            ("90", 90.0),
+            ("1h", 60.0),
+            ("1h 30min", 90.0),
+            ("2d", 2880.0),
+            ("1:05:30", 65.5),
+            (" 0:10 ", 10.0),
+            ("0.5", 0.5),
+            ("1.5h", 90.0),
+        ] {
+            assert_eq!(duration_minutes(text), Some(minutes), "{text}");
+        }
+        assert_eq!(duration_minutes("abc"), None);
+        assert_eq!(duration_minutes(""), None);
+    }
+
+    #[test]
+    fn effort_groups_compare_durations_inclusively() {
+        let (_temp, index) = fixture(
+            "* TODO Ten as a clock\n:PROPERTIES:\n:Effort:   0:10\n:END:\n* TODO Fifteen as minutes\n:PROPERTIES:\n:Effort:   15\n:END:\n* TODO Ninety as a clock\n:PROPERTIES:\n:Effort:   1:30\n:END:\n* TODO No estimate\n",
+        );
+        let view = ViewSettings {
+            key: "e".to_string(),
+            desc: "Effort".to_string(),
+            blocks: vec![ViewBlock {
+                kind: "alltodo".to_string(),
+                match_expression: None,
+                span: None,
+                header: None,
+                groups: vec![
+                    ViewGroup {
+                        name: Some("Quick".to_string()),
+                        effort_max: Some("0:15".to_string()),
+                        ..ViewGroup::default()
+                    },
+                    ViewGroup {
+                        name: Some("Long".to_string()),
+                        effort_min: Some("1h".to_string()),
+                        ..ViewGroup::default()
+                    },
+                ],
+            }],
+        };
+        let today = NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+        let sections = AgendaEngine::new(&index)
+            .view(&view, today, today, false)
+            .unwrap();
+        let groups: Vec<(String, Vec<String>)> = sections[0]
+            .groups
+            .iter()
+            .map(|group| {
+                let titles = group.items.iter().map(|item| item.title.clone()).collect();
+                (group.name.clone(), titles)
+            })
+            .collect();
+        let expected = [
+            ("Quick", vec!["Ten as a clock", "Fifteen as minutes"]),
+            ("Long", vec!["Ninety as a clock"]),
+            ("Other items", vec!["No estimate"]),
+        ]
+        .map(|(name, titles)| {
+            (
+                name.to_string(),
+                titles.into_iter().map(str::to_string).collect::<Vec<_>>(),
+            )
+        });
+        assert_eq!(groups, expected);
     }
 
     #[test]

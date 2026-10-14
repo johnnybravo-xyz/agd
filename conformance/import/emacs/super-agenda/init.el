@@ -18,6 +18,9 @@
     (:name "Inbox" :not (:todo t))
     (:name "Ready" :and (:todo "TODO" :scheduled nil) :order 1)
     (:name "Blocked" :property "BLOCKED_BY" :order 2)
+    (:name "Quick" :effort< "0:15" :order 3)
+    (:name "Next and short" :and (:todo "NEXT" :effort< "0:30") :order 4)
+    (:name "Long" :effort> "3:00" :order 5)
     (:auto-category t :order 9)))
 
 (setq org-agenda-custom-commands
@@ -31,6 +34,9 @@
          ((org-super-agenda-groups
            '((:name "Mine" :todo "NEXT" :face (:underline t))
              (:auto-parent t)))))
+        ("e" "Mixed effort" alltodo ""
+         ((org-super-agenda-groups
+           '((:name "Quick or urgent" :effort< "0:15" :tag "urgent")))))
         ("n" "Neglected" alltodo ""
          ((org-super-agenda-groups
            '((:name "Stale" :pred my-stale-p)

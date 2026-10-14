@@ -432,6 +432,18 @@ against org-directory as org-capture does."
                                       (cdr terms) "")))
                  alternatives "|"))))
 
+(defun agd--take-effort (plist result)
+  "PLIST without its :effort< and :effort> selectors, whose durations go
+into RESULT as effort_max and effort_min (both inclusive, as in
+org-super-agenda)."
+  (let (rest)
+    (cl-loop for (key value) on plist by #'cddr
+             do (pcase key
+                  (:effort< (puthash "effort_max" (agd--string (if (consp value) (car value) value)) result))
+                  (:effort> (puthash "effort_min" (agd--string (if (consp value) (car value) value)) result))
+                  (_ (setq rest (append rest (list key value))))))
+    rest))
+
 (defconst agd--auto-groups
   '((:auto-category . "category") (:auto-parent . "parent")
     (:auto-todo . "todo") (:auto-priority . "priority")))
@@ -455,8 +467,15 @@ against org-directory as org-capture does."
     (if (gethash "by" result)
         (when selectors
           (throw 'agd-group "an :auto- group with other selectors is not supported"))
-      (let ((match (agd--match (agd--selectors selectors))))
-        (when match (puthash "match" match result))))
+      ;; An effort bound holds with the match (AND): alone, or inside :and.
+      (let* ((only-and (and (eq (car selectors) :and) (= (length selectors) 2)))
+             (rest (agd--take-effort (if only-and (cadr selectors) selectors) result))
+             (effort (or (gethash "effort_max" result) (gethash "effort_min" result))))
+        (when (and effort rest (not only-and))
+          (throw 'agd-group "an :effort< or :effort> ORed with other selectors is not supported"))
+        (unless (and effort (null rest))
+          (let ((match (agd--match (agd--selectors (if only-and (list :and rest) rest)))))
+            (when match (puthash "match" match result))))))
     result))
 
 (defun agd--groups (form)

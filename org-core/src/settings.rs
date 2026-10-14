@@ -128,6 +128,13 @@ pub struct ViewGroup {
     pub match_expression: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
+    /// org-super-agenda's `:effort<` and `:effort>`: the heading's own
+    /// `:Effort:` is at most / at least this duration (`0:15`, `30`, `1h`).
+    /// A heading without an effort matches neither.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort_max: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort_min: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub discard: bool,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -527,6 +534,8 @@ fn render_group(group: &ViewGroup) -> Vec<String> {
         ("name", &group.name),
         ("match", &group.match_expression),
         ("by", &group.by),
+        ("effort_max", &group.effort_max),
+        ("effort_min", &group.effort_min),
     ] {
         if let Some(value) = value {
             fields.push(format!("{name} = {}", quote(value)));
@@ -653,9 +662,21 @@ fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
                             VIEW_GROUP_BY.join(", ")
                         )));
                     }
-                    if group.match_expression.is_some() || group.discard {
+                    if group.match_expression.is_some()
+                        || group.discard
+                        || group.effort_max.is_some()
+                        || group.effort_min.is_some()
+                    {
                         return Err(config_error(format!(
-                            "view '{}': a group with by takes no match or discard",
+                            "view '{}': a group with by takes no match, effort or discard",
+                            view.key
+                        )));
+                    }
+                }
+                for effort in [&group.effort_max, &group.effort_min].into_iter().flatten() {
+                    if crate::agenda_engine::duration_minutes(effort).is_none() {
+                        return Err(config_error(format!(
+                            "view '{}': effort '{effort}' is not a duration such as 0:15, 30 or 1h",
                             view.key
                         )));
                     }

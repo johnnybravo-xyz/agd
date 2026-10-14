@@ -90,7 +90,15 @@ fn emacs_super_agenda_groups_import_as_view_groups() {
         backlog[2].match_expression.as_deref(),
         Some("TODO=\"TODO\"+SCHEDULED=\"\"")
     );
-    assert_eq!(backlog[4].by.as_deref(), Some("category"));
+    assert_eq!(backlog[4].effort_max.as_deref(), Some("0:15"));
+    assert_eq!(
+        backlog[5].match_expression.as_deref(),
+        Some("TODO=\"NEXT\"")
+    );
+    assert_eq!(backlog[5].effort_max.as_deref(), Some("0:30"));
+    assert_eq!(backlog[6].effort_min.as_deref(), Some("3:00"));
+    assert_eq!(backlog[7].by.as_deref(), Some("category"));
+    assert!(reported(&result, "view e", "ORed with other selectors"));
     assert!(reported(&result, "view d", "org-super-agenda ignores case"));
     assert!(
         result.settings.view("w").unwrap().blocks[0]

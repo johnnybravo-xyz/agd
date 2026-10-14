@@ -9,7 +9,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `ViewBlock::groups` (`ViewGroup`) groups a view block's rows as
-  org-super-agenda does; `AgendaEngine::view` returns them in
+  org-super-agenda does, including `:effort<`/`:effort>` as
+  `effort_max`/`effort_min`; `AgendaEngine::view` returns them in
   `ViewSection::groups`.
 - Tags/TODO matches take property terms with Org's semantics, checked
   against Emacs: `TODO="DONE"`, `PRIORITY="A"` (the default priority when
