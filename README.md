@@ -183,6 +183,7 @@ log_into_drawer = true            # log_redeadline; #+STARTUP options win per fi
 
 editor = ["emacsclient", "-n", "+{line}:{col}", "{file}"]  # run directly, no shell
 theme = "auto"                    # dark, light
+nerd_font = false                 # true rounds pills; needs a Nerd Font
 agent_capture_to = "template"     # or "inbox"
 someday_tag = "someday"
 reschedule_nudge = 3

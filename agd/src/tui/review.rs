@@ -223,7 +223,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         frame.render_widget(
             Paragraph::new(lines)
                 .wrap(Wrap { trim: false })
-                .block(theme.panel("Raw diff · d close")),
+                .block(theme.popup("Raw diff · d closes")),
             popup,
         );
     }
@@ -276,10 +276,11 @@ fn card(theme: &Theme, record: &JournalRecord, width: usize, app: &App) -> Vec<L
         Span::styled(time, theme.muted()),
     ];
     let used: usize = head.iter().map(Span::width).sum();
+    let pill_width: usize = pill.iter().map(Span::width).sum();
     head.push(Span::raw(
-        " ".repeat(width.saturating_sub(used + pill.width())),
+        " ".repeat(width.saturating_sub(used + pill_width)),
     ));
-    head.push(pill);
+    head.extend(pill);
     let body_style = |style: Style| if reviewed { theme.muted() } else { style };
     let location = format!(
         "{:<14}",

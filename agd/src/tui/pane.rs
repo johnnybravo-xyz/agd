@@ -26,7 +26,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
     let mut top = Vec::new();
     if app.counts.slipped > 0 {
-        top.push(theme.pill(format!("{} slipped", app.counts.slipped), theme.slipped));
+        top.extend(theme.pill(format!("{} slipped", app.counts.slipped), theme.slipped));
         top.push(Span::raw("  "));
         top.extend(theme.key_hint("T", "triage"));
     }
@@ -95,18 +95,21 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
         .collect();
 
     frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            theme.pill(format!("inbox {}", app.counts.inbox), theme.muted),
-            Span::raw(" "),
-            theme.pill(
-                format!("agents {}", app.counts.agents),
-                if app.counts.agents > 0 {
-                    theme.accent
-                } else {
-                    theme.muted
-                },
-            ),
-        ])),
+        Paragraph::new(Line::from(
+            [
+                theme.pill(format!("inbox {}", app.counts.inbox), theme.muted),
+                vec![Span::raw(" ")],
+                theme.pill(
+                    format!("agents {}", app.counts.agents),
+                    if app.counts.agents > 0 {
+                        theme.accent
+                    } else {
+                        theme.muted
+                    },
+                ),
+            ]
+            .concat(),
+        )),
         parts[3],
     );
 }

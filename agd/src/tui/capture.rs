@@ -15,7 +15,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Clear, Paragraph, Wrap};
 
 use super::theme::{Theme, centered};
 use super::{App, Overlay, stop_terminal, write_context};
@@ -263,25 +263,35 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame
         .buffer_mut()
         .set_style(area, Style::default().add_modifier(Modifier::DIM));
-    let height = 14 + draft.prompts.len() as u16;
-    let popup = centered(area, 78, height);
-    frame.render_widget(Clear, popup);
     let template = draft
         .template
         .as_ref()
         .and_then(|key| app.settings.capture_template(key));
+    let preview = preview_lines(theme, &draft.preview);
+    let prompts = draft.prompts.len() as u16;
+    let prompt_rows = if prompts > 0 { prompts + 1 } else { 0 };
+    // border + top padding, input, gap, prompts, chips, gap, destination,
+    // preview inset, gap, footer, border
+    let height = 2 + 3 + 1 + prompt_rows + 1 + 1 + 1 + preview.len() as u16 + 2 + 1 + 1 + 1;
+    let popup = centered(area, area.width.saturating_sub(4).clamp(60, 84), height);
+    frame.render_widget(Clear, popup);
     let title = template.map_or("Capture".to_string(), |template| {
         format!("Capture · {}", template.desc)
     });
-    let block = theme.panel(title).border_style(theme.fg(theme.accent));
+    let block = theme.popup(title);
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
-    let mut constraints = vec![Constraint::Length(3)];
-    constraints.extend(draft.prompts.iter().map(|_| Constraint::Length(1)));
+    let mut constraints = vec![Constraint::Length(3), Constraint::Length(1)];
+    if prompts > 0 {
+        constraints.extend(draft.prompts.iter().map(|_| Constraint::Length(1)));
+        constraints.push(Constraint::Length(1));
+    }
     constraints.extend([
         Constraint::Length(1),
         Constraint::Length(1),
+        Constraint::Length(1),
         Constraint::Min(3),
+        Constraint::Length(1),
         Constraint::Length(1),
     ]);
     let parts = Layout::default()
@@ -306,29 +316,40 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         ])
     };
     frame.render_widget(
-        Paragraph::new(input_line).block(
-            Block::bordered()
-                .border_type(ratatui::widgets::BorderType::Rounded)
-                .border_style(theme.fg(if draft.field == 0 {
-                    theme.accent
-                } else {
-                    theme.border
-                })),
-        ),
+        Paragraph::new(input_line).block(theme.input(draft.field == 0)),
         parts[0],
     );
+    let label_width = draft
+        .prompts
+        .iter()
+        .map(|(prompt, _)| prompt.name.chars().count())
+        .max()
+        .unwrap_or(0)
+        + 2;
     for (index, (prompt, value)) in draft.prompts.iter().enumerate() {
-        let name = &prompt.name;
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(format!("  {name}: "), theme.muted()),
-                Span::raw(value.clone()),
-                cursor(draft.field == index + 1),
-            ])),
-            parts[1 + index],
-        );
+        let focused = draft.field == index + 1;
+        let mut spans = vec![
+            Span::styled(if focused { "› " } else { "  " }, theme.fg(theme.accent)),
+            Span::styled(
+                format!("{:<label_width$}", prompt.name),
+                if focused {
+                    theme.strong(theme.text)
+                } else {
+                    theme.muted()
+                },
+            ),
+            Span::raw(value.clone()),
+            cursor(focused),
+        ];
+        if value.is_empty() && prompt.date {
+            spans.push(Span::styled(
+                "fri · +2d · 2026-10-30, or due:/on: above",
+                theme.muted(),
+            ));
+        }
+        frame.render_widget(Paragraph::new(Line::from(spans)), parts[2 + index]);
     }
-    let next = 1 + draft.prompts.len();
+    let next = 2 + if prompts > 0 { prompts as usize + 1 } else { 0 };
     frame.render_widget(
         Paragraph::new(Line::from(chips(theme, draft.parsed(app).ok()))),
         parts[next],
@@ -348,18 +369,46 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         format!("→ {file} › {heading}")
     });
     frame.render_widget(
-        Paragraph::new(Line::from(vec![Span::styled(
-            destination,
-            theme.fg(theme.text),
-        )])),
-        parts[next + 1],
+        Paragraph::new(Span::styled(destination, theme.fg(theme.text))),
+        parts[next + 2],
     );
     frame.render_widget(
-        Paragraph::new(Line::from([theme.key_hint("tab", "change")].concat()))
+        Paragraph::new(Line::from(theme.key_hint("tab", "change")))
             .alignment(ratatui::layout::Alignment::Right),
-        parts[next + 1],
+        parts[next + 2],
     );
-    let preview = match &draft.preview {
+    frame.render_widget(
+        Paragraph::new(preview)
+            .wrap(Wrap { trim: false })
+            .block(theme.inset()),
+        parts[next + 3],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(
+            [
+                theme.key_hint("⏎", "save"),
+                theme.key_hint("ctrl-e", "editor"),
+                theme.key_hint("esc", "cancel"),
+            ]
+            .concat(),
+        )),
+        parts[next + 5],
+    );
+    let templates: Vec<String> = app
+        .settings
+        .captures
+        .iter()
+        .map(|template| format!("{} {}", template.key, template.desc.to_lowercase()))
+        .collect();
+    frame.render_widget(
+        Paragraph::new(Span::styled(templates.join(" · "), theme.muted()))
+            .alignment(ratatui::layout::Alignment::Right),
+        parts[next + 5],
+    );
+}
+
+fn preview_lines(theme: &Theme, preview: &Result<String, String>) -> Vec<Line<'static>> {
+    match preview {
         Ok(text) if text.is_empty() => vec![Line::from(Span::styled(
             "the exact org text appears here",
             theme.muted(),
@@ -369,33 +418,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             error.clone(),
             theme.fg(theme.slipped),
         ))],
-    };
-    let preview_style = if theme.plain {
-        Style::default()
-    } else {
-        Style::default().bg(theme.surface)
-    };
-    frame.render_widget(
-        Paragraph::new(preview)
-            .style(preview_style)
-            .wrap(Wrap { trim: false })
-            .block(Block::default().padding(ratatui::widgets::Padding::horizontal(1))),
-        parts[next + 2],
-    );
-    let mut footer = [
-        theme.key_hint("⏎", "save"),
-        theme.key_hint("ctrl-e", "editor"),
-        theme.key_hint("esc", "cancel"),
-    ]
-    .concat();
-    let templates: Vec<String> = app
-        .settings
-        .captures
-        .iter()
-        .map(|template| format!("{} {}", template.key, template.desc.to_lowercase()))
-        .collect();
-    footer.push(Span::styled(templates.join(" · "), theme.muted()));
-    frame.render_widget(Paragraph::new(Line::from(footer)), parts[next + 3]);
+    }
 }
 
 /// Parsed tokens shown as chips before anything is written.
@@ -411,19 +434,19 @@ fn chips(theme: &Theme, draft: Option<CaptureDraft>) -> Vec<Span<'static>> {
             .unwrap_or_else(|_| value.to_string())
     };
     if let Some(deadline) = &draft.deadline {
-        spans.push(theme.pill(format!("deadline {}", date(&deadline.date)), theme.due));
-        spans.push(Span::raw(" "));
+        spans.extend(theme.pill(format!("deadline {}", date(&deadline.date)), theme.due));
+        spans.push(Span::raw("  "));
     }
     if let Some(scheduled) = &draft.scheduled {
-        spans.push(theme.pill(format!("scheduled {}", date(&scheduled.date)), theme.accent));
-        spans.push(Span::raw(" "));
+        spans.extend(theme.pill(format!("scheduled {}", date(&scheduled.date)), theme.accent));
+        spans.push(Span::raw("  "));
     }
     for tag in &draft.tags {
-        spans.push(theme.pill(format!("+{tag}"), theme.muted));
-        spans.push(Span::raw(" "));
+        spans.extend(theme.pill(format!("+{tag}"), theme.muted));
+        spans.push(Span::raw("  "));
     }
     if let Some(priority) = &draft.priority {
-        spans.push(theme.pill(format!("#{priority}"), theme.due));
+        spans.extend(theme.pill(format!("#{priority}"), theme.due));
     }
     spans
 }
@@ -437,9 +460,19 @@ fn org_line(theme: &Theme, line: &str) -> Line<'static> {
             .take_while(|character| *character == '*')
             .count();
         let mut spans = vec![Span::styled("*".repeat(stars), theme.strong(theme.accent))];
+        // Only the first word can be the TODO keyword; capitals later in
+        // the title are ordinary text.
+        let mut first = true;
         for word in line[stars..].split_inclusive(' ') {
             let trimmed = word.trim();
-            let style = if trimmed.chars().all(|c| c.is_ascii_uppercase()) && trimmed.len() > 1 {
+            let keyword = first
+                && !trimmed.is_empty()
+                && trimmed.chars().all(|c| c.is_ascii_uppercase())
+                && trimmed.len() > 1;
+            if !trimmed.is_empty() {
+                first = false;
+            }
+            let style = if keyword {
                 theme.strong(theme.due)
             } else if trimmed.starts_with("[#") {
                 theme.fg(theme.due)

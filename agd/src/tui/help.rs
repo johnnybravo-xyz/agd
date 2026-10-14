@@ -56,9 +56,10 @@ const SECTIONS: &[(&str, &[Key])] = &[
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
-    let popup = centered(area, 150, 15);
+    // The longest column plus border and the popup's padding.
+    let popup = centered(area, 154, 2 + 1 + 13);
     frame.render_widget(Clear, popup);
-    let block = theme.panel("Keys").border_style(theme.fg(theme.accent));
+    let block = theme.popup("Keys · ? or esc closes");
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
     // Three columns when they fit; org-agenda equivalents only with room.

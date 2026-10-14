@@ -317,3 +317,33 @@ fn ctrl_e_in_the_edit_popup_hands_over_to_the_editor_without_writing() {
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
     });
 }
+
+#[test]
+#[serial]
+fn nerd_font_rounds_pills_and_the_default_does_not() {
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* TODO Draft\nSCHEDULED: <2026-10-13 Tue>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        // with_home sets NO_COLOR, which never rounds; build colour themes.
+        let colour = || {
+            temp_env::with_var("NO_COLOR", None::<&str>, || {
+                super::theme::Theme::detect("dark")
+            })
+        };
+        app.theme = colour();
+        let square = render(&mut app, 100, 10).join("\n");
+        assert!(!square.contains('\u{e0b6}'), "{square}");
+
+        app.theme = colour().rounded_pills(true);
+        let round = render(&mut app, 100, 10).join("\n");
+        assert!(
+            round.contains('\u{e0b6}') && round.contains('\u{e0b4}'),
+            "{round}"
+        );
+    });
+}

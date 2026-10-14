@@ -59,6 +59,9 @@ pub struct Settings {
     pub editor: Vec<String>,
     /// auto (follow the terminal background), dark or light.
     pub theme: String,
+    /// Round pill and chip caps with Nerd Font glyphs; turn on when your
+    /// terminal font has them (Ghostty, WezTerm and kitty bundle them).
+    pub nerd_font: bool,
     /// "template" captures through the agent's chosen template; "inbox" sends
     /// every agent capture through `agent_inbox_template` without dates.
     pub agent_capture_to: String,
@@ -204,6 +207,7 @@ impl Default for Settings {
                 "{file}".to_string(),
             ],
             theme: "auto".to_string(),
+            nerd_font: false,
             agent_capture_to: "template".to_string(),
             agent_inbox_template: "t".to_string(),
             someday_tag: "someday".to_string(),
@@ -377,7 +381,7 @@ const CONFIG_GROUPS: [(&str, &[&str]); 6] = [
             "log_into_drawer",
         ],
     ),
-    ("Editor and terminal", &["editor", "theme"]),
+    ("Editor and terminal", &["editor", "theme", "nerd_font"]),
     (
         "Agents and triage",
         &[

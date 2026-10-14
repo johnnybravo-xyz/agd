@@ -60,52 +60,50 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
 fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
-    let tab = |label: String, active: bool| -> Span<'static> {
+    let tab = |label: String, active: bool| -> Vec<Span<'static>> {
         if active {
             theme.pill(label, theme.accent)
         } else {
-            Span::styled(format!(" {label} "), theme.muted())
+            vec![Span::styled(format!(" {label} "), theme.muted())]
         }
     };
     let mut left = vec![
         Span::styled(" Agenda ", theme.strong(theme.accent)),
         Span::raw(" "),
-        tab("Today".to_string(), app.screen == Screen::Today),
-        tab("Week".to_string(), app.screen == Screen::Week),
-        tab(
-            format!("Inbox {}", app.counts.inbox),
-            app.screen == Screen::Inbox,
-        ),
     ];
+    left.extend(tab("Today".to_string(), app.screen == Screen::Today));
+    left.extend(tab("Week".to_string(), app.screen == Screen::Week));
+    left.extend(tab(
+        format!("Inbox {}", app.counts.inbox),
+        app.screen == Screen::Inbox,
+    ));
     let agents = if app.counts.agents > 0 {
         format!("Agents ● {}", app.counts.agents)
     } else {
         "Agents".to_string()
     };
-    left.push(tab(agents, app.screen == Screen::Review));
+    left.extend(tab(agents, app.screen == Screen::Review));
     if let Screen::View(key) = &app.screen {
         let desc = app
             .settings
             .view(key)
             .map_or(key.as_str(), |view| view.desc.as_str());
-        left.push(tab(format!("{key} {desc}"), true));
+        left.extend(tab(format!("{key} {desc}"), true));
     }
     if app.screen == Screen::Triage {
-        left = vec![
-            theme.pill("TRIAGE", theme.due),
-            Span::styled("  overdue, then inbox", theme.muted()),
-        ];
+        left = theme.pill("TRIAGE", theme.due);
+        left.push(Span::styled("  overdue, then inbox", theme.muted()));
     }
     let mut right = vec![];
     if app.log_mode {
-        right.push(theme.pill("log", theme.done));
+        right.extend(theme.pill("log", theme.done));
         right.push(Span::raw(" "));
     }
     if !app.filter.is_empty() {
-        right.push(theme.pill(format!("/{}", app.filter), theme.accent));
+        right.extend(theme.pill(format!("/{}", app.filter), theme.accent));
         right.push(Span::raw(" "));
     }
-    right.push(theme.pill(
+    right.extend(theme.pill(
         format!("ctx {}", app.context.as_deref().unwrap_or("all")),
         theme.muted,
     ));
@@ -130,7 +128,8 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Screen::Triage => "TRIAGE",
         Screen::Review => "AGENTS",
     };
-    let mut spans = vec![theme.pill(mode, theme.accent), Span::raw("  ")];
+    let mut spans = theme.pill(mode, theme.accent);
+    spans.push(Span::raw("  "));
     if let Some(status) = &app.status {
         let color = if status.error {
             theme.slipped
@@ -144,10 +143,8 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     if let Some(row) = app.selected_row()
         && !matches!(app.screen, Screen::Review)
     {
-        spans.push(Span::styled(
-            format!("{:<22}", app.short_location(&row.item)),
-            theme.muted(),
-        ));
+        spans.push(Span::styled(app.short_location(&row.item), theme.muted()));
+        spans.push(Span::styled("  │  ", theme.fg(theme.border)));
     }
     // Only the most-used keys; ? lists the rest.
     let keys: &[(&str, &str)] = match app.screen {
@@ -363,7 +360,7 @@ fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'stat
             ));
         }
     } else {
-        spans.push(lead_cell(app, row));
+        spans.extend(lead_cell(app, row));
     }
     if let Some(todo) = &item.todo {
         spans.push(Span::styled(format!("{todo} "), keyword_style(app, row)));
@@ -376,7 +373,7 @@ fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'stat
     spans.push(Span::styled(peek::display_title(item), title_style));
     if let Some(priority) = &item.priority {
         spans.push(Span::raw(" "));
-        spans.push(theme.pill(priority.clone(), theme.due));
+        spans.extend(theme.pill(priority.clone(), theme.due));
     }
     if wide && !item.tags.is_empty() {
         spans.push(Span::styled(
@@ -401,15 +398,18 @@ fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'stat
 
 /// Six-character lead: slipped days as a red badge, clock time, a
 /// deadline countdown, or how long a WAIT has waited.
-fn lead_cell(app: &App, row: &DisplayRow) -> Span<'static> {
+fn lead_cell(app: &App, row: &DisplayRow) -> Vec<Span<'static>> {
     let theme = &app.theme;
     let Some(occurrence) = &row.occurrence else {
         if row.section == DOING
             && let Some(age) = state_age(app, row)
         {
-            return Span::styled(format!("{:<6}", format!("{age}d")), theme.muted());
+            return vec![Span::styled(
+                format!("{:<6}", format!("{age}d")),
+                theme.muted(),
+            )];
         }
-        return Span::raw(" ".repeat(6));
+        return vec![Span::raw(" ".repeat(6))];
     };
     match occurrence.kind {
         OccurrenceType::PastScheduled => {
@@ -432,9 +432,15 @@ fn lead_cell(app: &App, row: &DisplayRow) -> Span<'static> {
                 .split_whitespace()
                 .next()
                 .unwrap_or("?");
-            Span::styled(format!("{:<6}", format!("in {days}d")), theme.fg(theme.due))
+            vec![Span::styled(
+                format!("{:<6}", format!("in {days}d")),
+                theme.fg(theme.due),
+            )]
         }
-        OccurrenceType::Deadline => Span::styled(format!("{:<6}", "due"), theme.strong(theme.due)),
+        OccurrenceType::Deadline => vec![Span::styled(
+            format!("{:<6}", "due"),
+            theme.strong(theme.due),
+        )],
         _ => match &occurrence.time {
             Some(time) => {
                 let style = if row.item.done {
@@ -442,18 +448,17 @@ fn lead_cell(app: &App, row: &DisplayRow) -> Span<'static> {
                 } else {
                     theme.strong(theme.accent)
                 };
-                Span::styled(format!("{time:<6}"), style)
+                vec![Span::styled(format!("{time:<6}"), style)]
             }
-            None => Span::raw(" ".repeat(6)),
+            None => vec![Span::raw(" ".repeat(6))],
         },
     }
 }
 
-/// A red slipped badge padded to the 7-column lead cell.
-fn badge(theme: &Theme, text: String) -> Span<'static> {
-    let mut badge = theme.pill(text, theme.slipped);
-    badge.content = format!("{:<6}", badge.content).into();
-    badge
+/// A red slipped badge filling the 6-column lead cell: a 4-column label
+/// between its caps or padding.
+fn badge(theme: &Theme, text: String) -> Vec<Span<'static>> {
+    theme.pill(format!("{text:<4}"), theme.slipped)
 }
 
 fn lead_style(theme: &Theme, kind: OccurrenceType, extra: &str) -> Style {
@@ -542,6 +547,24 @@ fn state_age(app: &App, row: &DisplayRow) -> Option<i64> {
 /// Prompts, the refile picker and the views dispatcher.
 pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
+    frame
+        .buffer_mut()
+        .set_style(area, Style::default().add_modifier(Modifier::DIM));
+    let input_line = |text: &str| {
+        Line::from(vec![
+            Span::styled("› ", theme.strong(theme.accent)),
+            Span::raw(text.to_string()),
+            Span::styled("▏", theme.fg(theme.accent)),
+        ])
+    };
+    let footer = |hints: &[(&str, &str)]| {
+        Line::from(
+            hints
+                .iter()
+                .flat_map(|(key, action)| theme.key_hint(key, action))
+                .collect::<Vec<_>>(),
+        )
+    };
     match &app.overlay {
         Overlay::Prompt { kind, input } => {
             let (title, hint) = match kind {
@@ -551,58 +574,95 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 PromptKind::Tags => ("Tags", "+tag -tag"),
                 PromptKind::Filter => ("Filter", "text or tag; empty clears"),
             };
-            let popup = centered(area, 56, 4);
+            // border + top padding, input, gap, hint, gap, footer, border
+            let popup = centered(area, 60, 2 + 3 + 1 + 1 + 1 + 1 + 1);
             frame.render_widget(Clear, popup);
+            let block = theme.popup(title);
+            let inner = block.inner(popup);
+            frame.render_widget(block, popup);
+            let parts = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([3, 1, 1, 1, 1].map(Constraint::Length))
+                .split(inner);
             frame.render_widget(
-                Paragraph::new(vec![
-                    Line::from(vec![
-                        Span::styled("› ", theme.strong(theme.accent)),
-                        Span::raw(input.clone()),
-                        Span::styled("▏", theme.fg(theme.accent)),
-                    ]),
-                    Line::from(Span::styled(hint, theme.muted())),
-                ])
-                .block(theme.panel(title)),
-                popup,
+                Paragraph::new(input_line(input)).block(theme.input(true)),
+                parts[0],
+            );
+            frame.render_widget(Paragraph::new(Span::styled(hint, theme.muted())), parts[2]);
+            frame.render_widget(
+                Paragraph::new(footer(&[("⏎", "apply"), ("esc", "cancel")])),
+                parts[4],
             );
         }
         Overlay::Refile(picker) => {
-            let popup = centered(area, 80, area.height.saturating_sub(6).max(8));
+            let popup = centered(area, 84, area.height.saturating_sub(6).max(12));
             frame.render_widget(Clear, popup);
-            let matches = picker.matches();
-            let items: Vec<ListItem<'_>> = matches
+            let block = theme.popup("Refile to");
+            let inner = block.inner(popup);
+            frame.render_widget(block, popup);
+            let parts = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Length(1),
+                    Constraint::Min(1),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                ])
+                .split(inner);
+            frame.render_widget(
+                Paragraph::new(input_line(&picker.input)).block(theme.input(true)),
+                parts[0],
+            );
+            let items: Vec<ListItem<'_>> = picker
+                .matches()
                 .iter()
                 .map(|(_, label)| ListItem::new(label.clone()))
                 .collect();
             let mut state = ListState::default().with_selected(Some(picker.selected));
             frame.render_stateful_widget(
                 List::new(items)
-                    .block(theme.panel(format!("Refile to › {}", picker.input)))
                     .highlight_symbol(Span::styled("▌", theme.fg(theme.accent)))
+                    .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
                     .highlight_style(theme.selected()),
-                popup,
+                parts[2],
                 &mut state,
+            );
+            frame.render_widget(
+                Paragraph::new(footer(&[
+                    ("⏎", "refile"),
+                    ("↑↓", "choose"),
+                    ("esc", "cancel"),
+                ])),
+                parts[4],
             );
         }
         Overlay::Views { selected } => {
-            let views: Vec<(&String, &org_core::ViewSettings)> = app
-                .settings
-                .views
-                .iter()
-                .map(|view| (&view.key, view))
-                .collect();
-            let popup = centered(area, 60, views.len() as u16 + 4);
+            let views = &app.settings.views;
+            // border + top padding, views, gap, footer, border
+            let popup = centered(area, 64, 2 + views.len() as u16 + 1 + 1 + 1);
             frame.render_widget(Clear, popup);
+            let block = theme.popup("Views");
+            let inner = block.inner(popup);
+            frame.render_widget(block, popup);
+            let parts = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Min(1),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                ])
+                .split(inner);
             let items: Vec<ListItem<'_>> = views
                 .iter()
-                .map(|(key, view)| {
+                .map(|view| {
                     let kinds: Vec<&str> = view
                         .blocks
                         .iter()
                         .map(|block| block.kind.as_str())
                         .collect();
                     ListItem::new(Line::from(vec![
-                        Span::styled(format!(" {key:<3}"), theme.strong(theme.accent)),
+                        Span::styled(format!("{:<3}", view.key), theme.strong(theme.accent)),
                         Span::raw(view.desc.clone()),
                         Span::styled(format!("  {}", kinds.join(" + ")), theme.muted()),
                     ]))
@@ -611,10 +671,15 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
             let mut state = ListState::default().with_selected(Some(*selected));
             frame.render_stateful_widget(
                 List::new(items)
-                    .block(theme.panel("Views · key or ⏎"))
+                    .highlight_symbol(Span::styled("▌", theme.fg(theme.accent)))
+                    .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
                     .highlight_style(theme.selected()),
-                popup,
+                parts[0],
                 &mut state,
+            );
+            frame.render_widget(
+                Paragraph::new(footer(&[("key", "open"), ("⏎", "open"), ("esc", "close")])),
+                parts[2],
             );
         }
         _ => {}

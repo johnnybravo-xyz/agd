@@ -68,7 +68,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let chips = |pairs: &[(&str, &str)]| {
         let mut spans = vec![Span::raw(" ".repeat(indent))];
         for (key, action) in pairs {
-            spans.push(theme.pill(key.to_string(), theme.accent));
+            spans.extend(theme.pill(key.to_string(), theme.accent));
             spans.push(Span::styled(format!(" {action:<12}"), theme.fg(theme.text)));
         }
         Line::from(spans)
@@ -138,7 +138,7 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
     ));
     if let Some(priority) = &item.priority {
         heading.push(Span::raw(" "));
-        heading.push(theme.pill(priority.clone(), theme.due));
+        heading.extend(theme.pill(priority.clone(), theme.due));
     }
     let tags = item
         .tags
@@ -172,26 +172,24 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
 
     let reschedules = app.reschedules.get(&item.item_ref).copied().unwrap_or(0);
     let nudge = reschedules >= app.settings.reschedule_nudge;
-    let mut chips = vec![
-        theme.pill(
-            item.planning
-                .scheduled
-                .as_ref()
-                .map_or("not scheduled".to_string(), |scheduled| {
-                    format!("scheduled {}", short_date(scheduled))
-                }),
-            theme.muted,
-        ),
-        Span::raw("  "),
-    ];
+    let mut chips = theme.pill(
+        item.planning
+            .scheduled
+            .as_ref()
+            .map_or("not scheduled".to_string(), |scheduled| {
+                format!("scheduled {}", short_date(scheduled))
+            }),
+        theme.muted,
+    );
+    chips.push(Span::raw("  "));
     if reschedules > 0 {
-        chips.push(theme.pill(
+        chips.extend(theme.pill(
             format!("rescheduled {reschedules}x"),
             if nudge { theme.slipped } else { theme.muted },
         ));
         chips.push(Span::raw("  "));
     }
-    chips.push(
+    chips.extend(
         theme.pill(
             item.planning
                 .deadline
@@ -221,13 +219,15 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
     }
     // The nudge is earned: after enough reschedules, suggest Someday.
     if nudge {
-        lines.push(Line::from(vec![
-            Span::styled(
+        lines.push(Line::from(
+            vec![Span::styled(
                 format!(" ↳ Rescheduled {reschedules} times. Someday? "),
                 theme.fg(theme.accent),
-            ),
-            theme.pill("s", theme.accent),
-        ]));
+            )]
+            .into_iter()
+            .chain(theme.pill("s", theme.accent))
+            .collect::<Vec<_>>(),
+        ));
     }
     frame.render_widget(
         Paragraph::new(lines)

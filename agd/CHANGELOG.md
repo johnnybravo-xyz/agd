@@ -6,6 +6,20 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `nerd_font = true` rounds every pill and chip with Nerd Font caps; off by
+  default, since terminals without such a font show missing-glyph boxes.
+
+### Changed
+
+- Every popup (capture, edit, the schedule/deadline/priority/tags/filter
+  prompts, refile, views, keys, peek and the raw diff) shares one design: a
+  rounded accent frame with its title in the accent, two columns of
+  padding, a blank row between sections, input in a rounded box, Org text
+  in a rounded inset, and key hints as the last row. Chips are spaced
+  apart, and the footer separates the location from the keys.
+
 ### Fixed
 
 - Capture templates with `DEADLINE: %^{deadline}t` no longer write a second,

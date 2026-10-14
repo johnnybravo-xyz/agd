@@ -204,7 +204,7 @@ struct App {
 
 impl App {
     fn new(settings: Settings, index: WorkspaceIndex, today: NaiveDate) -> Self {
-        let theme = Theme::detect(&settings.theme);
+        let theme = Theme::detect(&settings.theme).rounded_pills(settings.nerd_font);
         Self {
             settings,
             index,

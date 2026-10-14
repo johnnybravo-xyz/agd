@@ -121,7 +121,11 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     if overlay {
         frame.render_widget(Clear, area);
     }
-    let block = theme.panel("Peek");
+    let block = if overlay {
+        theme.popup("Peek")
+    } else {
+        theme.panel("Peek")
+    };
     let Some(row) = app.selected_row() else {
         frame.render_widget(
             Paragraph::new(Span::styled("Nothing selected", theme.muted())).block(block),

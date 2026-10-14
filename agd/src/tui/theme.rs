@@ -1,7 +1,7 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
-use ratatui::widgets::{Block, BorderType, Borders};
+use ratatui::widgets::{Block, BorderType, Borders, Padding};
 
 /// The few colour roles the design allows: accent for focus and keys, red
 /// for slipped, amber for due and priority, green for done, one hue per
@@ -21,6 +21,8 @@ pub(super) struct Theme {
     /// NO_COLOR: no colours at all; state is carried by bold, dim,
     /// reversed and strike-through instead.
     pub plain: bool,
+    /// Pills get round caps from Nerd Font glyphs (`nerd_font = true`).
+    pub rounded: bool,
 }
 
 impl Theme {
@@ -66,6 +68,7 @@ impl Theme {
                 Color::Rgb(100, 190, 230),
             ],
             plain: false,
+            rounded: false,
         }
     }
 
@@ -88,6 +91,7 @@ impl Theme {
                 Color::Rgb(20, 120, 170),
             ],
             plain: false,
+            rounded: false,
         }
     }
 
@@ -111,6 +115,7 @@ impl Theme {
                 Color::LightCyan,
             ],
             plain: false,
+            rounded: false,
         }
     }
 
@@ -127,6 +132,7 @@ impl Theme {
             selection: Color::Reset,
             agents: [Color::Reset; 5],
             plain: true,
+            rounded: false,
         }
     }
 
@@ -167,17 +173,38 @@ impl Theme {
     }
 
     /// A rounded badge such as `12x`, `A` or `agents 2`.
-    pub(super) fn pill(&self, text: impl Into<String>, color: Color) -> Span<'static> {
-        let text = format!(" {} ", text.into());
+    /// Round pill caps need these Nerd Font glyphs; without one they would
+    /// render as missing-glyph boxes, so they are opt-in.
+    pub(super) fn rounded_pills(mut self, on: bool) -> Self {
+        self.rounded = on && !self.plain;
+        self
+    }
+
+    /// A pill: the label on a tinted background, with round caps when
+    /// `rounded`.
+    pub(super) fn pill(&self, text: impl Into<String>, color: Color) -> Vec<Span<'static>> {
+        let text = text.into();
         if self.plain {
-            return Span::styled(text, Style::default().add_modifier(Modifier::REVERSED));
+            return vec![Span::styled(
+                format!(" {text} "),
+                Style::default().add_modifier(Modifier::REVERSED),
+            )];
         }
-        let style = if self.surface == Color::Reset {
-            Style::default().fg(Color::Black).bg(color)
+        let (label, fill) = if self.surface == Color::Reset {
+            (Style::default().fg(Color::Black).bg(color), color)
         } else {
-            Style::default().fg(color).bg(self.surface)
+            (Style::default().fg(color).bg(self.surface), self.surface)
         };
-        Span::styled(text, style.add_modifier(Modifier::BOLD))
+        let label = label.add_modifier(Modifier::BOLD);
+        if self.rounded {
+            vec![
+                Span::styled("\u{e0b6}", Style::default().fg(fill)),
+                Span::styled(text, label),
+                Span::styled("\u{e0b4}", Style::default().fg(fill)),
+            ]
+        } else {
+            vec![Span::styled(format!(" {text} "), label)]
+        }
     }
 
     /// A key hint: the key in accent bold, its action muted.
@@ -198,6 +225,41 @@ impl Theme {
                 format!(" {} ", title.into()),
                 self.strong(self.text),
             ))
+    }
+
+    /// A popup's frame, as in the capture design: accent border, two
+    /// columns of padding each side and a blank first row. Sections inside
+    /// are separated by one blank row; key hints form the last row.
+    pub(super) fn popup(&self, title: impl Into<String>) -> Block<'static> {
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(self.fg(self.accent))
+            .title(Span::styled(
+                format!(" {} ", title.into()),
+                self.strong(self.accent),
+            ))
+            .padding(Padding::new(2, 2, 1, 0))
+    }
+
+    /// An inset inside a popup for Org text (previews, diffs): a rounded,
+    /// subtle border with two columns of padding. Terminals cannot round a
+    /// filled background, so the inset is outlined, not shaded.
+    pub(super) fn inset(&self) -> Block<'static> {
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(self.fg(self.border))
+            .padding(Padding::horizontal(2))
+    }
+
+    /// A one-line input box: rounded, accent while focused.
+    pub(super) fn input(&self, focused: bool) -> Block<'static> {
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(self.fg(if focused { self.accent } else { self.border }))
+            .padding(Padding::horizontal(1))
     }
 
     /// The same agent always gets the same hue.

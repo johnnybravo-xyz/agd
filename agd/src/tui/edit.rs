@@ -5,7 +5,7 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use org_core::{Change, EditIntent, PlanningTimestamp, WriteEngine, parse_date_input};
 use ratatui::Frame;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Wrap};
@@ -267,22 +267,47 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame
         .buffer_mut()
         .set_style(area, Style::default().add_modifier(Modifier::DIM));
-    let preview_lines: Vec<&str> = match &form.preview {
-        Ok(text) => text.lines().collect(),
-        Err(_) => Vec::new(),
+    let preview: Vec<Line<'static>> = match &form.preview {
+        Ok(text) if text.is_empty() => {
+            vec![Line::from(Span::styled("no changes yet", theme.muted()))]
+        }
+        Ok(text) => text
+            .lines()
+            .map(|line| {
+                let color = if line.starts_with('+') {
+                    theme.done
+                } else {
+                    theme.slipped
+                };
+                Line::from(Span::styled(line.to_string(), theme.fg(color)))
+            })
+            .collect(),
+        Err(error) => vec![Line::from(Span::styled(
+            error.clone(),
+            theme.fg(theme.slipped),
+        ))],
     };
-    let height = (LABELS.len() + preview_lines.len().max(1) + 6) as u16;
+    // border + top padding, fields, gap, preview inset, gap, footer, border
+    let height = 2 + LABELS.len() as u16 + 1 + preview.len() as u16 + 2 + 1 + 1 + 1;
     // Wide enough for a headline with tags aligned at org-tags-column plus
     // the diff marker, when the terminal allows.
-    let popup = centered(area, area.width.saturating_sub(4).clamp(60, 100), height);
+    let popup = centered(area, area.width.saturating_sub(4).clamp(60, 104), height);
     frame.render_widget(Clear, popup);
-    let block = theme
-        .panel(format!("Edit · {}", form.location))
-        .border_style(theme.fg(theme.accent));
+    let block = theme.popup(format!("Edit · {}", form.location));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
+    let parts = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(LABELS.len() as u16),
+            Constraint::Length(1),
+            Constraint::Min(3),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
 
-    let mut lines = Vec::new();
+    let mut fields = Vec::new();
     for (field, label) in LABELS.iter().enumerate() {
         let focused = field == form.field;
         let value = &form.values[field];
@@ -294,10 +319,11 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             Span::raw(value.clone())
         };
         let mut spans = vec![
+            Span::styled(if focused { "› " } else { "  " }, theme.fg(theme.accent)),
             Span::styled(
-                format!("{} {label:<10}", if focused { "›" } else { " " }),
+                format!("{label:<11}"),
                 if focused {
-                    theme.fg(theme.accent)
+                    theme.strong(theme.text)
                 } else {
                     theme.muted()
                 },
@@ -312,37 +338,25 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         if form.changed(field).is_some() {
             spans.push(Span::styled("  •", theme.fg(theme.due)));
         }
-        lines.push(Line::from(spans));
+        fields.push(Line::from(spans));
     }
-    lines.push(Line::default());
-    match &form.preview {
-        Ok(text) if text.is_empty() => {
-            lines.push(Line::from(Span::styled("no changes yet", theme.muted())));
-        }
-        Ok(_) => {
-            for line in &preview_lines {
-                let style = if line.starts_with('+') {
-                    theme.fg(theme.done)
-                } else {
-                    theme.fg(theme.slipped)
-                };
-                lines.push(Line::from(Span::styled(line.to_string(), style)));
-            }
-        }
-        Err(error) => lines.push(Line::from(Span::styled(
-            error.clone(),
-            theme.fg(theme.slipped),
-        ))),
-    }
-    lines.push(Line::default());
-    lines.push(Line::from(
-        [
-            theme.key_hint("⏎", "save"),
-            theme.key_hint("tab", "next field"),
-            theme.key_hint("esc", "cancel"),
-            theme.key_hint("ctrl-e", "open in $EDITOR"),
-        ]
-        .concat(),
-    ));
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+    frame.render_widget(Paragraph::new(fields), parts[0]);
+    frame.render_widget(
+        Paragraph::new(preview)
+            .wrap(Wrap { trim: false })
+            .block(theme.inset()),
+        parts[2],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(
+            [
+                theme.key_hint("⏎", "save"),
+                theme.key_hint("tab", "next field"),
+                theme.key_hint("esc", "cancel"),
+                theme.key_hint("ctrl-e", "open in $EDITOR"),
+            ]
+            .concat(),
+        )),
+        parts[4],
+    );
 }
