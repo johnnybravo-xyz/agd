@@ -395,9 +395,7 @@ impl Default for TriageSettings {
 }
 
 pub fn default_config_path() -> Result<PathBuf, AgdError> {
-    let base = dirs::config_dir()
-        .ok_or_else(|| config_error("cannot determine the platform configuration directory"))?;
-    Ok(base.join("agd").join("config.toml"))
+    Ok(crate::paths::config_dir()?.join("config.toml"))
 }
 
 pub fn load_settings(

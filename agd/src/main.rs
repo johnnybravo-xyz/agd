@@ -15,7 +15,7 @@ use mcp::McpCommand;
 #[derive(Parser)]
 #[command(name = "agd", version)]
 struct Cli {
-    /// Configuration file (default: the platform config dir + agd/config.toml)
+    /// Configuration file (default: ~/.config/agd/config.toml, or $XDG_CONFIG_HOME/agd)
     #[arg(short, long, global = true)]
     config: Option<String>,
 

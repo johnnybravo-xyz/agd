@@ -8,6 +8,12 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `default_config_path` and `WriteEngine::with_default_journal` follow the XDG
+  base directories on every Unix, macOS included: `$XDG_CONFIG_HOME/agd` or
+  `~/.config/agd`, and `$XDG_DATA_HOME/agd` or `~/.local/share/agd`. Windows
+  keeps its platform directories. `paths::config_dir` and `paths::data_dir`
+  expose them.
+
 - Undo reverts its own bytes even when the file changed elsewhere: journaled
   patches keep their surrounding lines and are relocated by them; a change to
   the edited lines is still `undo_conflict`. Older entries keep the

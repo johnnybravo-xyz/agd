@@ -161,3 +161,61 @@ fn help_lists_only_the_five_surfaces() {
         );
     }
 }
+
+/// A home with `<config>/agd/config.toml` capturing into `org/inbox.org`.
+#[cfg(not(target_os = "windows"))]
+fn xdg_home(config: &str) -> tempfile::TempDir {
+    let home = tempfile::tempdir().expect("home directory");
+    let org = home.path().join("org");
+    fs::create_dir(&org).expect("org directory");
+    fs::write(org.join("inbox.org"), "* Inbox\n").expect("inbox");
+    let config_dir = home.path().join(config).join("agd");
+    fs::create_dir_all(&config_dir).expect("config directory");
+    fs::write(
+        config_dir.join("config.toml"),
+        format!(
+            concat!(
+                "[files]\n",
+                "roots = [{org:?}]\n\n",
+                "[capture.t]\n",
+                "desc = \"Todo\"\n",
+                "file = \"inbox.org\"\n",
+                "heading = \"Inbox\"\n",
+                "template = \"* TODO %?\"\n",
+            ),
+            org = org.to_string_lossy(),
+        ),
+    )
+    .expect("config");
+    home
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn default_paths_follow_xdg_on_every_unix() {
+    // Without XDG variables: ~/.config/agd/config.toml and ~/.local/share/agd.
+    let home = xdg_home(".config");
+    cargo::cargo_bin_cmd!("agd")
+        .env("HOME", home.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .args(["capture", "t", "Water plants"])
+        .assert()
+        .success();
+    let inbox = fs::read_to_string(home.path().join("org/inbox.org")).expect("inbox");
+    assert!(inbox.contains("** TODO Water plants"), "{inbox}");
+    assert!(home.path().join(".local/share/agd/journal.jsonl").is_file());
+
+    // XDG_CONFIG_HOME and XDG_DATA_HOME win when they are absolute.
+    let home = xdg_home("xdg-config");
+    cargo::cargo_bin_cmd!("agd")
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join("xdg-config"))
+        .env("XDG_DATA_HOME", home.path().join("xdg-data"))
+        .args(["capture", "t", "Stretch"])
+        .assert()
+        .success();
+    let inbox = fs::read_to_string(home.path().join("org/inbox.org")).expect("inbox");
+    assert!(inbox.contains("** TODO Stretch"), "{inbox}");
+    assert!(home.path().join("xdg-data/agd/journal.jsonl").is_file());
+}

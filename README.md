@@ -155,9 +155,10 @@ file, line hint and content digest. Errors use stable codes such as
 
 ## Configuration
 
-`~/.config/agd/config.toml` on Linux, the platform configuration directory
-elsewhere; `--config` picks another file. Settings in this file override the
-imported snapshot; unknown keys are errors.
+`~/.config/agd/config.toml` (or `$XDG_CONFIG_HOME/agd`) on Linux and macOS
+alike; `--config` picks another file. The journal lives in
+`~/.local/share/agd` (or `$XDG_DATA_HOME/agd`). Settings in this file override
+the imported snapshot; unknown keys are errors.
 
 ```toml
 [files]

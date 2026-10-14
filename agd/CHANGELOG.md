@@ -62,6 +62,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- macOS reads `~/.config/agd/config.toml` and keeps the journal in
+  `~/.local/share/agd`, honouring `XDG_CONFIG_HOME` and `XDG_DATA_HOME`, as on
+  Linux; it used `~/Library/Application Support`, so the documented config
+  file was silently ignored.
 - Show links in titles as their description, untitled agenda blocks as
   `Week-agenda (W42):`, and leave inbox-file section headings out of Inbox.
 - Keep the TUI running when a write is refused (`stale_ref`, `editor_dirty`,

@@ -21,29 +21,15 @@ fn binary() -> std::path::PathBuf {
         })
 }
 
-#[cfg(target_os = "macos")]
-fn journal_data_directory(directory: &tempfile::TempDir) -> std::path::PathBuf {
-    directory
-        .path()
-        .join("home")
-        .join("Library")
-        .join("Application Support")
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(target_os = "windows"))]
 fn journal_data_directory(directory: &tempfile::TempDir) -> std::path::PathBuf {
     directory.path().join("data")
-}
-
-#[cfg(target_os = "macos")]
-fn configure_data_directory(command: &mut tokio::process::Command, directory: &tempfile::TempDir) {
-    command.env("HOME", directory.path().join("home"));
 }
 
 #[cfg(target_os = "windows")]
 fn configure_data_directory(_: &mut tokio::process::Command, _: &tempfile::TempDir) {}
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(target_os = "windows"))]
 fn configure_data_directory(command: &mut tokio::process::Command, directory: &tempfile::TempDir) {
     command.env("XDG_DATA_HOME", journal_data_directory(directory));
 }
