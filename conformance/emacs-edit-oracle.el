@@ -20,7 +20,10 @@
         org-log-reschedule (agd--setting "AGD_LOG_RESCHEDULE")
         org-log-redeadline (agd--setting "AGD_LOG_REDEADLINE")
         org-log-into-drawer (agd--setting "AGD_LOG_INTO_DRAWER"))
-  (cl-letf (((symbol-function 'current-time) (lambda () now)))
+  ;; org-today reads the clock through the time-since primitive, which a
+  ;; current-time override does not reach, so freeze both.
+  (cl-letf (((symbol-function 'current-time) (lambda () now))
+            ((symbol-function 'org-today) (lambda () (time-to-days now))))
     (find-file "/root/input.org")
     (goto-char (point-min))
     (unless (re-search-forward "^[ \t]*:ID:[ \t]+task-id[ \t]*$" nil t)

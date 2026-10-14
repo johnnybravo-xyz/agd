@@ -30,5 +30,8 @@
   (when (getenv "AGD_SORTING")
     (setq org-agenda-sorting-strategy
           `((agenda ,@(mapcar #'intern (split-string (getenv "AGD_SORTING")))))))
-  (cl-letf (((symbol-function 'current-time) (lambda () fixed-time)))
+  ;; org-today reads the clock through the time-since primitive, which a
+  ;; current-time override does not reach, so freeze both.
+  (cl-letf (((symbol-function 'current-time) (lambda () fixed-time))
+            ((symbol-function 'org-today) (lambda () (time-to-days fixed-time))))
     (org-batch-agenda-csv "a")))
