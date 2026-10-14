@@ -5,6 +5,7 @@
 
 mod actions;
 mod capture;
+mod edit;
 mod help;
 mod keys;
 mod pane;
@@ -68,6 +69,7 @@ enum Overlay {
     None,
     Help,
     Capture(capture::Draft),
+    Edit(Box<edit::EditForm>),
     Prompt {
         kind: PromptKind,
         input: String,
@@ -421,6 +423,7 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
         Overlay::None => {}
         Overlay::Help => help::draw(frame, app, area),
         Overlay::Capture(_) => capture::draw(frame, app, area),
+        Overlay::Edit(_) => edit::draw(frame, app, area),
         Overlay::Prompt { .. } | Overlay::Refile(_) | Overlay::Views { .. } => {
             today::draw_overlay(frame, app, area)
         }

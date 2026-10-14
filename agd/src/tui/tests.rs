@@ -223,3 +223,74 @@ fn renders_five_thousand_headings_under_budget() {
     let elapsed = started.elapsed();
     assert!(elapsed < StdDuration::from_millis(100), "{elapsed:?}");
 }
+
+fn key(app: &mut App, code: crossterm::event::KeyCode) {
+    super::edit::handle_key(app, crossterm::event::KeyEvent::from(code)).unwrap();
+}
+
+#[test]
+#[serial]
+fn enter_edits_title_and_state_in_place_and_keeps_untouched_dates() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(
+            &path,
+            "* TODO Draft report\nSCHEDULED: <2026-10-13 Tue +1w>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.overlay = Overlay::Edit(Box::new(super::edit::EditForm::open(&app).unwrap()));
+        for _ in "Draft report".chars() {
+            key(&mut app, KeyCode::Backspace);
+        }
+        for character in "Final report".chars() {
+            key(&mut app, KeyCode::Char(character));
+        }
+        key(&mut app, KeyCode::Tab);
+        key(&mut app, KeyCode::Right);
+
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("-* TODO Draft report"), "{screen}");
+        assert!(screen.contains("+* NEXT Final report"), "{screen}");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "* TODO Draft report\nSCHEDULED: <2026-10-13 Tue +1w>\n",
+            "the preview must not write"
+        );
+
+        key(&mut app, KeyCode::Enter);
+        assert!(matches!(app.overlay, Overlay::None));
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "* NEXT Final report\nSCHEDULED: <2026-10-13 Tue +1w>\n"
+        );
+    });
+}
+
+#[test]
+#[serial]
+fn an_invalid_date_keeps_the_popup_open_with_the_reason() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        let original = "* TODO Draft report\nSCHEDULED: <2026-10-13 Tue>\n";
+        fs::write(&path, original).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.overlay = Overlay::Edit(Box::new(super::edit::EditForm::open(&app).unwrap()));
+        for _ in 0..4 {
+            key(&mut app, KeyCode::Tab);
+        }
+        for _ in "2026-10-13".chars() {
+            key(&mut app, KeyCode::Backspace);
+        }
+        for character in "someday".chars() {
+            key(&mut app, KeyCode::Char(character));
+        }
+        key(&mut app, KeyCode::Enter);
+        assert!(matches!(app.overlay, Overlay::Edit(_)));
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    });
+}

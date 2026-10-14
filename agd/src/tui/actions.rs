@@ -130,7 +130,7 @@ impl App {
     }
 
     /// (keyword, done) for the selected row's TODO sequence in its file.
-    fn selected_keywords(&self) -> Vec<(String, bool)> {
+    pub(super) fn selected_keywords(&self) -> Vec<(String, bool)> {
         let Some(row) = self.selected_row() else {
             return Vec::new();
         };

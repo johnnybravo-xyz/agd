@@ -21,6 +21,7 @@ pub(super) fn handle_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> R
     match &app.overlay {
         Overlay::None => {}
         Overlay::Capture(_) => return capture::handle_key(terminal, app, key),
+        Overlay::Edit(_) => return super::edit::handle_key(app, key),
         _ => return handle_overlay(app, key),
     }
     if app.pane {
@@ -95,7 +96,12 @@ fn list_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
                 })?;
             }
         }
-        KeyCode::Enter | KeyCode::Char('e') => open_selected(terminal, app)?,
+        KeyCode::Enter | KeyCode::Char('e') => {
+            if let Some(form) = super::edit::EditForm::open(app) {
+                app.overlay = Overlay::Edit(Box::new(form));
+            }
+        }
+        KeyCode::Char('E') => open_selected(terminal, app)?,
         KeyCode::Char(' ') => app.toggle_mark(),
         // Bulk actions on marked rows, as org-agenda's B menu.
         KeyCode::Char('.') if bulk => app.schedule("today")?,
@@ -246,7 +252,7 @@ fn review_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('u') => app.undo_selected_change()?,
         KeyCode::Char('d') => app.review_diff = !app.review_diff,
         KeyCode::Char('f') => app.cycle_agent_filter()?,
-        KeyCode::Enter | KeyCode::Char('e') => {
+        KeyCode::Enter | KeyCode::Char('E') => {
             if let Some(record) = app.journals.get(app.selected) {
                 let file = record
                     .file
@@ -275,7 +281,7 @@ fn pane_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
             app.pane = false;
             start_triage(app)?;
         }
-        KeyCode::Char('e') => open_selected(terminal, app)?,
+        KeyCode::Char('E') => open_selected(terminal, app)?,
         KeyCode::Enter => {
             app.pane = false;
             app.reload_rows()?;
@@ -345,7 +351,7 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
                 _ => {}
             }
         }
-        Overlay::None | Overlay::Capture(_) => {}
+        Overlay::None | Overlay::Capture(_) | Overlay::Edit(_) => {}
     }
     Ok(())
 }

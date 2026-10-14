@@ -251,7 +251,8 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     }
     let footer = Line::from(
         [
-            theme.key_hint("e", "edit"),
+            theme.key_hint("⏎", "edit"),
+            theme.key_hint("E", "$EDITOR"),
             theme.key_hint("y", "copy link"),
         ]
         .concat(),
