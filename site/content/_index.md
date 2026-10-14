@@ -1,18 +1,16 @@
 +++
 title = "agd"
 template = "project.html"
-description = "org-agenda for terminals and coding agents: your Org files and editor settings in a keyboard-first TUI, and the same tasks for agents over MCP."
+description = "org-agenda for terminals and coding agents"
 +++
 
 <!-- Links and images are relative so the same content also serves from
      https://johnnybravo.xyz/projects/agd/. collect.sh copies agd.gif in. -->
 
-# agd
-
-**org-agenda for terminals and coding agents.** agd reads the Org files and
-settings you already use with Emacs or nvim-orgmode, shows them in a
-keyboard-first terminal UI, and lets coding agents read and write the same
-tasks over MCP, without changing a byte it was not asked to change.
+agd reads the Org files and settings you already use with Emacs or
+nvim-orgmode, shows them in a keyboard-first terminal UI, and lets coding
+agents read and write the same tasks over MCP, without changing a byte it was
+not asked to change.
 
 ![agd: Today, Week, Agent review, Triage, Capture and saved views](agd.gif)
 
