@@ -13,6 +13,8 @@ use similar::TextDiff;
 
 const EMACS_PROBE: &str = include_str!("../probes/emacs.el");
 const NVIM_PROBE: &str = include_str!("../probes/nvim.lua");
+const NVIM_RUN_PROBE: &str = "lua local ok, err = pcall(dofile, vim.env.AGD_NVIM_PROBE) \
+     if not ok then io.stderr:write(tostring(err) .. '\\n') vim.cmd('cquit 1') end";
 
 #[derive(Clone, Debug)]
 pub struct VerificationResult {
@@ -90,8 +92,17 @@ pub fn import_nvim(
             },
         },
     };
+    // `nvim -l` skips the user's config unless `-u` is given, so the probe
+    // runs after normal startup instead: plugin managers load and resolve
+    // `require('orgmode')`. `-i NONE` leaves the user's shada untouched, and a
+    // probe error exits 1 with its message, as `-l` would.
     let mut command = Command::new(&profile.command);
-    command.args(&profile.args).arg("-l").arg(probe.path());
+    command
+        .args(&profile.args)
+        .args(["-i", "NONE", "-c"])
+        .arg(NVIM_RUN_PROBE)
+        .args(["-c", "qa!"]);
+    command.env("AGD_NVIM_PROBE", probe.path());
     command.env("AGD_IMPORT_SOURCE", profile_name.unwrap_or("default"));
     let output = run(&mut command, "Neovim import probe")?;
     let resolved = parse_process_json(&output, "Neovim")?;

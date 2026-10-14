@@ -82,7 +82,10 @@ command = "nvim"
 args = ["--headless", "-u", "/home/me/.config/nvim/init.lua"]
 ```
 
-`-u` must point to the Neovim entrypoint that loads the plugin manager, normally
+The default runs your normal Neovim startup, so a plugin manager such as
+Lazy.nvim loads nvim-orgmode as it would in the editor; `-i NONE` keeps the
+probe away from your shada. A profile is only needed for a different config:
+`-u` must point to a Neovim entrypoint that loads the plugin manager, such as
 `~/.config/nvim/init.lua`. A Lazy.nvim plugin specification such as
 `lua/plugins/orgmode.lua` returns configuration data to Lazy.nvim and is not a
 standalone Neovim init file.

@@ -62,6 +62,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `agd setup import nvim` loads the user's Neovim config. The probe ran with
+  `nvim -l`, which skips it unless `-u` is given, so the default import always
+  failed with "require('orgmode') failed"; it now runs after normal startup.
 - macOS reads `~/.config/agd/config.toml` and keeps the journal in
   `~/.local/share/agd`, honouring `XDG_CONFIG_HOME` and `XDG_DATA_HOME`, as on
   Linux; it used `~/Library/Application Support`, so the documented config
