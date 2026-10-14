@@ -1,8 +1,17 @@
 name: Sign release checksums
 
 on:
-  release:
-    types: [published]
+  # cargo-dist publishes the release with GITHUB_TOKEN, and events made with
+  # that token start no workflows, so `release: published` never fires. Sign
+  # when the Release workflow for a tag finishes, or on demand for a tag.
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to sign, e.g. v0.1.0
+        required: true
 
 permissions:
   contents: write
@@ -10,14 +19,21 @@ permissions:
 
 jobs:
   sign-checksums:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-latest
+    env:
+      # For a tag push, the Release run's head_branch is the tag.
+      TAG: ${{ github.event.inputs.tag || github.event.workflow_run.head_branch }}
     steps:
       - name: Install cosign
         uses: sigstore/cosign-installer@v4.0.0
       - name: Download release artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
         run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir artifacts
       - name: Create and sign aggregate checksums
         working-directory: artifacts
@@ -37,5 +53,4 @@ jobs:
       - name: Upload signed checksums
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
         run: gh release upload "$TAG" artifacts/SHA256SUMS artifacts/SHA256SUMS.sigstore.json --repo "$GITHUB_REPOSITORY" --clobber
