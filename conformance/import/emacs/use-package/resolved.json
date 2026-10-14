@@ -23,10 +23,40 @@
   ],
   "deadline_warning_days": 9,
   "default_priority": "B",
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "key": "org-agenda-files",
+      "message": "init.el:3",
+      "status": "exact"
+    },
+    {
+      "key": "org-todo-keywords",
+      "message": "init.el:5",
+      "status": "exact"
+    },
+    {
+      "key": "org-deadline-warning-days",
+      "message": "init.el:6",
+      "status": "exact"
+    },
+    {
+      "key": "org-log-done",
+      "message": "init.el:7",
+      "status": "exact"
+    },
+    {
+      "key": "org-capture-templates",
+      "message": "not set in these files; Org's default applies",
+      "status": "difference"
+    },
+    {
+      "key": "org-agenda-custom-commands",
+      "message": "not set in these files; Org's default applies",
+      "status": "difference"
+    }
+  ],
   "editor": "emacs",
   "editor_version": "30.2",
-  "groups": [],
   "highest_priority": "A",
   "log_done": "note",
   "log_into_drawer": false,
@@ -34,7 +64,7 @@
   "log_repeat": "time",
   "log_reschedule": "nil",
   "lowest_priority": "C",
-  "org_version": "9.7.11",
+  "org_directory": null,
   "persistent_tags": [],
   "skip_deadline_if_done": false,
   "skip_scheduled_if_done": false,
@@ -45,7 +75,6 @@
     "urgency-down",
     "category-keep"
   ],
-  "source": "batch-profile",
   "tag_alist": [],
   "tag_inheritance_exclusions": [],
   "tags_column": -77,

@@ -425,7 +425,6 @@ pub fn render_config(settings: &Settings, header: &str) -> Result<String, AgdErr
     let defaults = Settings::default();
     let records = Records {
         capture: (settings.captures != defaults.captures).then_some(&settings.captures),
-        view: (settings.views != defaults.views).then_some(&settings.views),
         agent_profile: (!settings.agent_profiles.is_empty()).then_some(&settings.agent_profiles),
     };
     let records = toml::to_string_pretty(&records)
@@ -434,15 +433,46 @@ pub fn render_config(settings: &Settings, header: &str) -> Result<String, AgdErr
         output.push('\n');
         output.push_str(&records);
     }
+    if settings.views != defaults.views {
+        for view in &settings.views {
+            output.push_str(&render_view(view));
+        }
+    }
     Ok(output)
+}
+
+/// A `[[view]]` record with its blocks as one inline table per line, so the
+/// file has no nested `[[view.blocks]]` tables.
+fn render_view(view: &ViewSettings) -> String {
+    let quote = |value: &str| toml::Value::String(value.to_string()).to_string();
+    let blocks: String = view
+        .blocks
+        .iter()
+        .map(|block| {
+            let mut fields = vec![format!("kind = {}", quote(&block.kind))];
+            for (name, value) in [
+                ("match", &block.match_expression),
+                ("span", &block.span),
+                ("header", &block.header),
+            ] {
+                if let Some(value) = value {
+                    fields.push(format!("{name} = {}", quote(value)));
+                }
+            }
+            format!("  {{ {} }},\n", fields.join(", "))
+        })
+        .collect();
+    format!(
+        "\n[[view]]\nkey = {}\ndesc = {}\nblocks = [\n{blocks}]\n",
+        quote(&view.key),
+        quote(&view.desc)
+    )
 }
 
 #[derive(Serialize)]
 struct Records<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     capture: Option<&'a Vec<CaptureTemplate>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    view: Option<&'a Vec<ViewSettings>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     agent_profile: Option<&'a Vec<AgentProfile>>,
 }

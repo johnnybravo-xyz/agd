@@ -1,1 +1,1 @@
-setup has not completed
+E5113: Lua chunk: agd nvim import: no require('orgmode').setup() call found in init.lua

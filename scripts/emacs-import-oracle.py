@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Runs agd's Emacs config reader on each conformance/import/emacs case in
+the pinned Emacs and compares its payload with the case's resolved.json.
+
+The reader reads the case's init.el without loading it, as `agd setup
+import` does. Use --update to rewrite the expected files."""
 import argparse
 import json
 import pathlib
@@ -19,17 +24,13 @@ def resolved(case: pathlib.Path) -> dict:
         "--env",
         "AGD_FIXTURE_DIR=/fixture",
         "--env",
-        "AGD_IMPORT_SOURCE=batch-profile",
-        "--env",
-        "AGD_PROBE_STDOUT=1",
+        "AGD_IMPORT_FILES=/fixture/init.el",
         IMAGE,
         "emacs",
         "-Q",
         "--batch",
         "-l",
-        "/fixture/init.el",
-        "-l",
-        "/probe.el",
+        "/reader.el",
     ]
     try:
         subprocess.run(command, check=True, stdout=subprocess.DEVNULL)
@@ -39,7 +40,7 @@ def resolved(case: pathlib.Path) -> dict:
             stdout=subprocess.DEVNULL,
         )
         subprocess.run(
-            ["docker", "cp", str(ROOT / "agd/probes/emacs.el"), f"{name}:/probe.el"],
+            ["docker", "cp", str(ROOT / "agd/readers/emacs.el"), f"{name}:/reader.el"],
             check=True,
             stdout=subprocess.DEVNULL,
         )
@@ -58,7 +59,7 @@ def resolved(case: pathlib.Path) -> dict:
     marker = "AGD_JSON:"
     payload = next((line[len(marker):] for line in output.splitlines() if line.startswith(marker)), None)
     if payload is None:
-        raise RuntimeError(f"probe marker missing for {case}")
+        raise RuntimeError(f"reader marker missing for {case}")
     return json.loads(payload)
 
 

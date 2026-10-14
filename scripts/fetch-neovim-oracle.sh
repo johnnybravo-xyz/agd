@@ -16,10 +16,4 @@ else
     tar -xzf "$archive" -C "$root" --strip-components=1
 fi
 
-plugin_root=${2:-target/nvim-orgmode-0.7.5}
-plugin_commit=359538284a21c1edac20cb8a0b6b772ca098098e
-if [ ! -d "$plugin_root/.git" ]; then
-    git clone --depth=1 --branch 0.7.5 https://github.com/nvim-orgmode/orgmode.git "$plugin_root"
-fi
-test "$(git -C "$plugin_root" rev-parse HEAD)" = "$plugin_commit"
-printf '%s\n%s\n' "$root/bin/nvim" "$plugin_root"
+printf '%s\n' "$root/bin/nvim"

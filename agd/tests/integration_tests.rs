@@ -217,3 +217,16 @@ fn default_paths_follow_xdg_on_every_unix() {
     assert!(inbox.contains("** TODO Stretch"), "{inbox}");
     assert!(home.path().join("xdg-data/agd/journal.jsonl").is_file());
 }
+
+#[test]
+fn import_without_a_path_asks_for_the_editor_config() {
+    let home = tempfile::tempdir().expect("home directory");
+    fs::create_dir_all(home.path().join(".config/nvim")).expect("nvim config");
+    cargo::cargo_bin_cmd!("agd")
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join(".config"))
+        .args(["setup", "import"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("agd setup import ~/.config/nvim"));
+}

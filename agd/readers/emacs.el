@@ -1,0 +1,472 @@
+;;; agd's Emacs config reader. Runs in `emacs -Q --batch -l` with
+;;; AGD_IMPORT_FILES (newline-separated) naming the config files to read.
+;;;
+;;; The files are read with Emacs's reader and never loaded: only assignments
+;;; to the org settings agd uses are collected, from the top level and from
+;;; after!, with-eval-after-load, use-package (:custom, :init, :config),
+;;; progn/when/unless and Spacemacs's user-config. Their values, plus the
+;;; top-level variables those values use, are then evaluated in this clean
+;;; Emacs: top-level forms first, then deferred bodies, each in file order.
+;;; Prints AGD_JSON:<payload> on stdout.
+
+(require 'cl-lib)
+(require 'seq)
+(require 'subr-x)
+(require 'json)
+(require 'org)
+(require 'org-agenda)
+(require 'org-capture nil t)
+
+(defconst agd--imported
+  '(org-directory org-default-notes-file org-agenda-files org-todo-keywords
+    org-tag-alist org-tag-persistent-alist org-tags-column
+    org-tags-exclude-from-inheritance
+    org-highest-priority org-lowest-priority org-default-priority
+    org-priority-highest org-priority-lowest org-priority-default
+    org-deadline-warning-days org-agenda-span org-agenda-start-day
+    org-agenda-start-on-weekday org-agenda-skip-scheduled-if-done
+    org-agenda-skip-deadline-if-done org-agenda-skip-timestamp-if-done
+    org-agenda-sorting-strategy org-log-done org-log-repeat
+    org-log-reschedule org-log-redeadline org-log-into-drawer
+    org-capture-templates org-agenda-custom-commands)
+  "The org settings agd imports.")
+
+(defconst agd--unused-prefixes
+  '("org-agenda-" "org-super-agenda-" "org-ql-" "org-capture-")
+  "Settings with these prefixes that agd does not import are reported as unused.")
+
+(defvar agd--assignments nil
+  "Collected (KIND SYMBOL VALUE PHASE FILE LINE), newest first. KIND is set,
+default, add, append or push; PHASE 0 is top level, 1 deferred.")
+(defvar agd--diagnostics nil)
+(defvar agd--origins (make-hash-table) "Imported SYMBOL -> \"file:line\".")
+(defvar agd--file nil)
+(defvar agd--form-start nil)
+(defvar agd--form-end nil)
+(defvar agd-import-verify nil)
+
+(defun agd--diagnostic (status key message)
+  (push `((status . ,status) (key . ,key) (message . ,message)) agd--diagnostics))
+
+(defun agd--line (symbol)
+  "Line of SYMBOL's first mention in code (not a comment or string) in the
+form being walked."
+  (save-excursion
+    (goto-char agd--form-start)
+    (let ((pattern (concat "\\_<" (regexp-quote (symbol-name symbol)) "\\_>"))
+          found)
+      (while (and (not found) (re-search-forward pattern agd--form-end t))
+        (unless (nth 8 (syntax-ppss))
+          (setq found (line-number-at-pos))))
+      (or found (line-number-at-pos agd--form-start)))))
+
+(defun agd--note (kind symbol value phase)
+  (when (and symbol (symbolp symbol))
+    (push (list kind symbol value phase agd--file (agd--line symbol)) agd--assignments)))
+
+(defun agd--quoted (form)
+  "The symbol or list in (quote X) or (function X), else nil."
+  (and (consp form) (memq (car form) '(quote function)) (cadr form)))
+
+(defun agd--walk (form phase)
+  (when (consp form)
+    (pcase (car form)
+      ((or 'setq 'setq-default 'setq! 'setopt 'csetq)
+       (let ((args (cdr form)))
+         (while (and (consp args) (symbolp (car args)))
+           (agd--note 'set (car args) (cadr args) phase)
+           (setq args (cddr args)))))
+      ((or 'customize-set-variable 'set-default 'custom-set-default)
+       (agd--note 'set (agd--quoted (nth 1 form)) (nth 2 form) phase))
+      ('custom-set-variables
+       (dolist (entry (cdr form))
+         (let ((spec (agd--quoted entry)))
+           (when (consp spec)
+             (agd--note 'set (car spec) (cadr spec) phase)))))
+      ('add-to-list
+       (agd--note (if (nth 3 form) 'append 'add) (agd--quoted (nth 1 form)) (nth 2 form) phase))
+      ('push
+       (when (symbolp (nth 2 form))
+         (agd--note 'push (nth 2 form) (nth 1 form) phase)))
+      ('defconst (agd--note 'set (nth 1 form) (nth 2 form) phase))
+      ((or 'defvar 'defcustom)
+       (when (> (length form) 2)
+         (agd--note 'default (nth 1 form) (nth 2 form) phase)))
+      ('progn (dolist (sub (cdr form)) (agd--walk sub phase)))
+      ((or 'when 'unless) (dolist (sub (cddr form)) (agd--walk sub phase)))
+      ((or 'after! 'with-eval-after-load)
+       (dolist (sub (cddr form)) (agd--walk sub 1)))
+      ('eval-after-load
+       (agd--walk (or (agd--quoted (nth 2 form)) (nth 2 form)) 1))
+      ((or 'use-package 'use-package!)
+       (agd--walk-use-package (cddr form) phase))
+      ('defun
+       (when (memq (nth 1 form) '(dotspacemacs/user-config dotspacemacs/user-init))
+         (dolist (sub (nthcdr 3 form)) (agd--walk sub phase)))))))
+
+(defun agd--walk-use-package (args phase)
+  (let (keyword)
+    (dolist (arg args)
+      (if (keywordp arg)
+          (setq keyword arg)
+        (pcase keyword
+          (:custom
+           (if (and (consp arg) (symbolp (car arg)))
+               (agd--note 'set (car arg) (cadr arg) phase)
+             (dolist (entry arg)
+               (when (consp entry) (agd--note 'set (car entry) (cadr entry) phase)))))
+          (:init (agd--walk arg phase))
+          (:config (agd--walk arg 1)))))))
+
+(defun agd--src-block-regions ()
+  "Regions of the emacs-lisp source blocks in this Org buffer, except :tangle no."
+  (let ((case-fold-search t) regions)
+    (goto-char (point-min))
+    (while (re-search-forward "^[ \t]*#\\+begin_src[ \t]+\\(?:emacs-lisp\\|elisp\\)\\(.*\\)$" nil t)
+      (let ((arguments (match-string 1))
+            (start (1+ (line-end-position))))
+        (when (re-search-forward "^[ \t]*#\\+end_src" nil t)
+          (unless (string-match-p ":tangle[ \t]+no" arguments)
+            (push (cons start (line-beginning-position)) regions)))))
+    (nreverse regions)))
+
+(defun agd--read-file (file)
+  "Walk every form in FILE (its emacs-lisp blocks, for an Org file)."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (emacs-lisp-mode)
+    (let ((agd--file (file-name-nondirectory file))
+          (regions (if (string-suffix-p ".org" file)
+                       (agd--src-block-regions)
+                     (list (cons (point-min) (point-max))))))
+      (dolist (region regions)
+        (save-restriction
+          (narrow-to-region (car region) (cdr region))
+          (goto-char (point-min))
+          (condition-case error
+              (while (progn (forward-comment (buffer-size)) (not (eobp)))
+                (let* ((agd--form-start (point))
+                       (form (read (current-buffer)))
+                       (agd--form-end (point)))
+                  (agd--walk form 0)))
+            (error
+             (agd--diagnostic "unsupported" agd--file
+                              (format "stopped reading at line %d: %s"
+                                      (line-number-at-pos)
+                                      (error-message-string error))))))))))
+
+(defun agd--symbols (form)
+  "Symbols mentioned anywhere in FORM."
+  (cond ((and form (symbolp form)) (list form))
+        ((consp form) (append (agd--symbols (car form)) (agd--symbols (cdr form))))
+        (t nil)))
+
+(defun agd--selected ()
+  "Assignments to evaluate, in order: imported settings plus the top-level
+assignments of variables their values use, to a fixpoint; top level first,
+then deferred, each in file order."
+  (let* ((all (reverse agd--assignments))
+         (selected (seq-filter (lambda (entry) (memq (nth 1 entry) agd--imported)) all))
+         (grew t))
+    (while grew
+      (setq grew nil)
+      (let ((used (delete-dups (apply #'append (mapcar (lambda (entry) (agd--symbols (nth 2 entry))) selected)))))
+        (dolist (entry all)
+          (when (and (= (nth 3 entry) 0)
+                     (memq (nth 1 entry) used)
+                     (not (memq entry selected)))
+            (push entry selected)
+            (setq grew t)))))
+    (append (seq-filter (lambda (entry) (= (nth 3 entry) 0)) (seq-filter (lambda (entry) (memq entry selected)) all))
+            (seq-filter (lambda (entry) (= (nth 3 entry) 1)) (seq-filter (lambda (entry) (memq entry selected)) all)))))
+
+(defun agd--evaluate ()
+  (dolist (entry (agd--selected))
+    (pcase-let ((`(,kind ,symbol ,value ,_phase ,file ,line) entry))
+      (let ((location (format "%s:%d" file line)))
+        (condition-case error
+            (let ((result (eval value t)))
+              (pcase kind
+                ('set (set-default symbol result))
+                ('default (unless (default-boundp symbol) (set-default symbol result)))
+                ('add (add-to-list symbol result))
+                ('append (add-to-list symbol result t))
+                ('push (set-default symbol (cons result (default-value symbol)))))
+              (when (memq symbol agd--imported)
+                (puthash symbol location agd--origins)))
+          (error
+           (when (memq symbol agd--imported)
+             (agd--diagnostic "unsupported" (symbol-name symbol)
+                              (format "%s: %s; set it in config.toml"
+                                      location (error-message-string error))))))))))
+
+(defun agd--report ()
+  "Where each imported setting came from, and settings agd does not use."
+  (maphash (lambda (symbol location)
+             (agd--diagnostic "exact" (symbol-name symbol) location))
+           agd--origins)
+  (dolist (symbol '(org-agenda-files org-todo-keywords org-capture-templates
+                    org-agenda-custom-commands))
+    (unless (gethash symbol agd--origins)
+      (agd--diagnostic "difference" (symbol-name symbol)
+                       "not set in these files; Org's default applies")))
+  (let ((unused (make-hash-table)))
+    (dolist (entry (reverse agd--assignments))
+      (let ((symbol (nth 1 entry)))
+        (when (and (not (memq symbol agd--imported))
+                   (not (gethash symbol unused))
+                   (seq-some (lambda (prefix) (string-prefix-p prefix (symbol-name symbol)))
+                             agd--unused-prefixes))
+          (puthash symbol t unused)
+          (agd--diagnostic "difference" (symbol-name symbol)
+                           (format "%s:%d: not used by agd" (nth 4 entry) (nth 5 entry))))))))
+
+(defun agd--string (value)
+  (cond ((null value) "nil")
+        ((stringp value) value)
+        ((symbolp value) (symbol-name value))
+        ((characterp value) (char-to-string value))
+        (t (format "%S" value))))
+
+(defun agd--strings (values)
+  (vconcat (mapcar (lambda (value) (agd--string (if (consp value) (car value) value)))
+                   (seq-filter (lambda (value) (not (keywordp (if (consp value) (car value) value))))
+                               (or values '())))))
+
+(defun agd--todo-sequences ()
+  (vconcat
+   (mapcar (lambda (sequence)
+             (vconcat (mapcar #'agd--string (cdr sequence))))
+           org-todo-keywords)))
+
+(defun agd--target-file (value)
+  "A capture target file: a string, or a variable holding one, resolved
+against org-directory as org-capture does."
+  (let ((file (cond ((stringp value) value)
+                    ((and (symbolp value) (boundp value) (stringp (symbol-value value)))
+                     (symbol-value value)))))
+    (and file (expand-file-name file org-directory))))
+
+(defun agd--capture-template (entry)
+  (let* ((key (nth 0 entry))
+         (description (nth 1 entry))
+         (kind (nth 2 entry))
+         (target (nth 3 entry))
+         (body (nth 4 entry))
+         (enabled (eq kind 'entry))
+         (diagnostics (unless (eq kind 'entry)
+                        (list (format "%s templates are unsupported; only entry" kind))))
+         (file (and (consp target) (agd--target-file (cadr target))))
+         (value (make-hash-table :test 'equal)))
+    (puthash "desc" description value)
+    (puthash "datetree" :json-false value)
+    (cond
+     ((stringp body)
+      (puthash "template" body value)
+      (when (string-match-p "%[(]" body)
+        (setq enabled nil diagnostics (cons "%(sexp) template forms are disabled" diagnostics))))
+     ((and (consp body) (eq (car body) 'file) (agd--target-file (cadr body)))
+      (puthash "template" "" value)
+      (puthash "template_file" (agd--target-file (cadr body)) value))
+     (t
+      (puthash "template" "" value)
+      (setq enabled nil diagnostics (cons "a computed template body is unsupported" diagnostics))))
+    (pcase (car-safe target)
+      ((guard (null file))
+       (unless (eq (car-safe target) 'id)
+         (setq enabled nil diagnostics (cons "a computed capture target is unsupported" diagnostics))))
+      ('file (puthash "file" file value))
+      ((guard (and (eq (car target) 'file+headline) (stringp (nth 2 target))))
+       (puthash "file" file value)
+       (puthash "heading" (nth 2 target) value))
+      ('file+olp
+       (puthash "file" file value)
+       (puthash "outline_path" (vconcat (cddr target)) value))
+      ((or 'file+datetree 'file+olp+datetree)
+       (puthash "file" file value)
+       (puthash "datetree" t value))
+      (_ (setq enabled nil diagnostics
+               (cons (format "capture target %s is unsupported" (car target)) diagnostics))))
+    (when (and (eq (car-safe target) 'id) (stringp (cadr target)))
+      (setq enabled (eq kind 'entry))
+      (puthash "id" (cadr target) value))
+    (puthash "enabled" (if enabled t :json-false) value)
+    (puthash "diagnostics" (vconcat (nreverse diagnostics)) value)
+    (cons key value)))
+
+(defun agd--captures ()
+  (let ((result (make-hash-table :test 'equal)))
+    (dolist (entry (or (and (boundp 'org-capture-templates) org-capture-templates) '()))
+      (when (and (listp entry) (>= (length entry) 5))
+        (let ((normalized (agd--capture-template entry)))
+          (puthash (car normalized) (cdr normalized) result))))
+    result))
+
+;; Lambdas, #'symbol forms and compiled functions; a bare symbol such as
+;; `org-agenda-files' in an option value is data, not code.
+(defun agd--contains-function-p (value)
+  (cond
+   ((and (consp value) (memq (car value) '(lambda function closure))) t)
+   ((consp value)
+    (or (agd--contains-function-p (car value))
+        (agd--contains-function-p (cdr value))))
+   ((and value (not (symbolp value)) (functionp value)) t)
+   (t nil)))
+
+;; org-agenda-custom-commands -> views. Only literal option values are read.
+(defconst agd--view-kinds
+  '((agenda . "agenda") (todo . "todo") (alltodo . "alltodo")
+    (tags . "tags") (tags-todo . "tags-todo")))
+
+(defun agd--literal (form)
+  (cond ((and (consp form) (eq (car form) 'quote)) (cadr form))
+        ((or (stringp form) (numberp form) (symbolp form)) form)
+        (t :agd-dynamic)))
+
+(defun agd--view-block (kind match options notes)
+  "Return (BLOCK . NOTES) for one block, or nil when KIND is unsupported."
+  (let ((name (cdr (assq kind agd--view-kinds)))
+        (block (make-hash-table :test 'equal)))
+    (when name
+      (puthash "kind" name block)
+      (when (and (stringp match) (not (string-empty-p match)))
+        (puthash "match" match block))
+      (dolist (option options)
+        (let ((symbol (car-safe option))
+              (value (agd--literal (car-safe (cdr-safe option)))))
+          (cond
+           ((and (eq symbol 'org-agenda-span)
+                 (memq value '(day week month)))
+            (puthash "span" (symbol-name value) block))
+           ((and (eq symbol 'org-agenda-span) (integerp value))
+            (puthash "span" (number-to-string value) block))
+           ((and (eq symbol 'org-agenda-overriding-header) (stringp value))
+            (puthash "header" value block))
+           (t (push (format "option %s is not imported" symbol) notes)))))
+      (cons block notes))))
+
+;; The description is optional: (KEY TYPE MATCH ...) is also valid.
+(defun agd--portable-command (entry)
+  (when (not (stringp (nth 1 entry)))
+    (setq entry (append (list (car entry) nil) (cdr entry))))
+  (let* ((key (agd--string (nth 0 entry)))
+         (description (or (nth 1 entry) key))
+         (third (nth 2 entry))
+         (blocks '())
+         (notes '())
+         (supported (not (agd--contains-function-p entry))))
+    (if (and (consp third) (consp (car third)))
+        ;; Block agenda: (KEY DESC ((TYPE MATCH OPTIONS) ...) OPTIONS FILES)
+        (dolist (spec third)
+          (let ((result (agd--view-block (nth 0 spec) (nth 1 spec)
+                                         (append (nth 2 spec) (nth 3 entry))
+                                         notes)))
+            (if result
+                (progn (push (car result) blocks) (setq notes (cdr result)))
+              (setq supported nil))))
+      ;; Single command: (KEY DESC TYPE MATCH OPTIONS FILES)
+      (let ((result (agd--view-block third (nth 3 entry) (nth 4 entry) notes)))
+        (if result
+            (progn (push (car result) blocks) (setq notes (cdr result)))
+          (setq supported nil))))
+    `((key . ,key)
+      (description . ,description)
+      (enabled . ,(if (and supported blocks) t :json-false))
+      (blocks . ,(vconcat (nreverse blocks)))
+      (diagnostics . ,(vconcat (if supported (delete-dups (nreverse notes))
+                                 '("custom command form is unsupported")))))))
+
+(defun agd--commands ()
+  (vconcat
+   (mapcar #'agd--portable-command
+           (seq-filter (lambda (entry) (and (consp entry) (> (length entry) 2)))
+                       (or (and (boundp 'org-agenda-custom-commands)
+                                org-agenda-custom-commands)
+                           '())))))
+
+;; The agenda part of org-agenda-sorting-strategy. Before Org 9.7 the
+;; priority-* keys sorted by what 9.7 renamed urgency.
+(defun agd--sorting-strategy ()
+  (let* ((value org-agenda-sorting-strategy)
+         (agenda (if (assq 'agenda value) (cdr (assq 'agenda value)) value)))
+    (vconcat
+     (mapcar (lambda (key)
+               (let ((name (agd--string key)))
+                 (if (version< (org-version) "9.7")
+                     (replace-regexp-in-string "\\`priority-" "urgency-" name)
+                   name)))
+             agenda))))
+
+(defun agd--agenda-files ()
+  "org-agenda-files as written, made absolute against org-directory."
+  (cond
+   ((stringp org-agenda-files)
+    (agd--diagnostic "unsupported" "org-agenda-files"
+                     "names a file that lists the agenda files; list them in agenda_files")
+    [])
+   (t (vconcat (mapcar (lambda (entry) (expand-file-name entry org-directory))
+                       org-agenda-files)))))
+
+(defun agd--verification-rows ()
+  (let ((result (make-hash-table :test 'equal)))
+    (when (or agd-import-verify (equal (getenv "AGD_IMPORT_VERIFY") "1"))
+      (puthash "a" (with-output-to-string (org-batch-agenda-csv "a")) result)
+      (dolist (entry (or (and (boundp 'org-agenda-custom-commands)
+                              org-agenda-custom-commands)
+                         '()))
+        (when (and (listp entry)
+                   (stringp (car entry))
+                   (> (length entry) 2)
+                   (not (agd--contains-function-p entry)))
+          (condition-case error
+              (puthash (car entry)
+                       (with-output-to-string
+                         (org-batch-agenda-csv (car entry)))
+                       result)
+            (error
+             (puthash (car entry)
+                      (format "AGD_VERIFY_ERROR:%s"
+                              (error-message-string error))
+                      result))))))
+    result))
+
+(defun agd-import-read ()
+  (dolist (file (split-string (or (getenv "AGD_IMPORT_FILES") "") "\n" t))
+    (agd--read-file file))
+  (agd--evaluate)
+  (agd--report)
+  (let ((agenda-files (agd--agenda-files)))
+    (json-encode
+     `((editor . "emacs")
+       (editor_version . ,emacs-version)
+       (org_directory . ,(and (gethash 'org-directory agd--origins) org-directory))
+       (agenda_files . ,agenda-files)
+       (todo_sequences . ,(agd--todo-sequences))
+       (tag_alist . ,(agd--strings org-tag-alist))
+       (persistent_tags . ,(agd--strings org-tag-persistent-alist))
+       (tags_column . ,org-tags-column)
+       (tag_inheritance_exclusions . ,(agd--strings org-tags-exclude-from-inheritance))
+       (highest_priority . ,(char-to-string org-priority-highest))
+       (lowest_priority . ,(char-to-string org-priority-lowest))
+       (default_priority . ,(char-to-string org-priority-default))
+       (deadline_warning_days . ,org-deadline-warning-days)
+       (agenda_span . ,(agd--string org-agenda-span))
+       (agenda_start_day . ,org-agenda-start-day)
+       (week_start . ,(if (eql org-agenda-start-on-weekday 0) "sunday" "monday"))
+       (skip_scheduled_if_done . ,(if org-agenda-skip-scheduled-if-done t :json-false))
+       (skip_deadline_if_done . ,(if org-agenda-skip-deadline-if-done t :json-false))
+       (skip_timestamp_if_done . ,(if org-agenda-skip-timestamp-if-done t :json-false))
+       (sorting_strategy . ,(agd--sorting-strategy))
+       (log_done . ,(agd--string org-log-done))
+       (log_repeat . ,(agd--string org-log-repeat))
+       (log_reschedule . ,(agd--string org-log-reschedule))
+       (log_redeadline . ,(agd--string org-log-redeadline))
+       (log_into_drawer . ,(if org-log-into-drawer t :json-false))
+       (capture . ,(agd--captures))
+       (commands . ,(agd--commands))
+       (verification . ,(agd--verification-rows))
+       (diagnostics . ,(vconcat (nreverse agd--diagnostics)))))))
+
+(princ "AGD_JSON:")
+(princ (agd-import-read))
+(terpri)

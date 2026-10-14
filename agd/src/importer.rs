@@ -1,20 +1,19 @@
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{Duration, Local, NaiveDate};
 use org_core::{
-    AgendaEngine, AgendaQuery, AgendaSpan, ImportResult, ImportStatus, ResolvedEditorConfig,
-    Settings, WorkspaceIndex, agenda_csv, apply_import, items_csv, parse_date_input, render_config,
+    AgendaEngine, AgendaQuery, AgendaSpan, ConfigEditor, ConfigSources, ImportResult, ImportStatus,
+    ResolvedEditorConfig, Settings, WorkspaceIndex, agenda_csv, apply_import, find_config_sources,
+    items_csv, parse_date_input, render_config,
 };
 use similar::TextDiff;
 
-const EMACS_PROBE: &str = include_str!("../probes/emacs.el");
-const NVIM_PROBE: &str = include_str!("../probes/nvim.lua");
-const NVIM_RUN_PROBE: &str = "lua local ok, err = pcall(dofile, vim.env.AGD_NVIM_PROBE) \
-     if not ok then io.stderr:write(tostring(err) .. '\\n') vim.cmd('cquit 1') end";
+const EMACS_READER: &str = include_str!("../readers/emacs.el");
+const NEOVIM_READER: &str = include_str!("../readers/nvim.lua");
 
 #[derive(Clone, Debug)]
 pub struct VerificationResult {
@@ -23,80 +22,85 @@ pub struct VerificationResult {
     pub description: String,
     pub detail: String,
 }
+
 #[derive(Clone, Debug)]
 pub struct ImportExecution {
+    pub sources: ConfigSources,
     pub result: ImportResult,
     pub toml: String,
     pub diff: String,
     pub verification: Vec<VerificationResult>,
 }
 
-pub fn import_emacs(
+/// Reads the editor config under `paths` and applies it over `base`. The
+/// files are read by a clean editor (`emacs -Q`, `nvim --clean`) running
+/// agd's reader, never by the user's own startup.
+pub fn import_config(
+    paths: &[PathBuf],
     base: &Settings,
-    server: Option<&str>,
+    derive_roots: bool,
     destination: &Path,
     write: bool,
     verify: bool,
 ) -> Result<ImportExecution> {
-    let probe = probe_file("emacs.el", EMACS_PROBE)?;
-    let resolved = run_emacs_daemon(server, probe.path(), verify)
-        .context("no usable Emacs daemon; start one, or name it with --server")?;
-    finish_import(resolved, base, destination, write, verify)
-}
-
-pub fn import_nvim(
-    base: &Settings,
-    destination: &Path,
-    write: bool,
-    verify: bool,
-) -> Result<ImportExecution> {
-    let probe = probe_file("nvim.lua", NVIM_PROBE)?;
-    // `nvim -l` skips the user's config unless `-u` is given, so the probe
-    // runs after normal startup instead: plugin managers load and resolve
-    // `require('orgmode')`. `-i NONE` leaves the user's shada untouched, and a
-    // probe error exits 1 with its message, as `-l` would.
-    let mut command = Command::new("nvim");
-    command
-        .args(["--headless", "-i", "NONE", "-c"])
-        .arg(NVIM_RUN_PROBE)
-        .args(["-c", "qa!"]);
-    command.env("AGD_NVIM_PROBE", probe.path());
-    command.env("AGD_IMPORT_SOURCE", "default");
-    let output = run(&mut command, "Neovim import probe")?;
-    let resolved = parse_process_json(&output, "Neovim")?;
-    finish_import(resolved, base, destination, write, verify)
-}
-
-fn run_emacs_daemon(
-    server: Option<&str>,
-    probe: &Path,
-    verify: bool,
-) -> Result<ResolvedEditorConfig> {
-    let mut command = Command::new("emacsclient");
-    if let Some(server) = server {
-        command.arg("--socket-name").arg(server);
-    }
-    let quoted_path = serde_json::to_string(&probe.to_string_lossy().as_ref())?;
-    let verify_form = if verify {
-        "(setq agd-import-verify t) "
-    } else {
-        ""
+    let sources = find_config_sources(paths)?;
+    let files = sources
+        .files
+        .iter()
+        .map(|file| file.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut command = match sources.editor {
+        ConfigEditor::Emacs => {
+            let reader = reader_file("emacs.el", EMACS_READER)?;
+            let mut command = Command::new("emacs");
+            command.args(["-Q", "--batch", "-l"]).arg(reader.path());
+            if verify {
+                command.env("AGD_IMPORT_VERIFY", "1");
+            }
+            (command, reader)
+        }
+        ConfigEditor::Neovim => {
+            let reader = reader_file("nvim.lua", NEOVIM_READER)?;
+            let mut command = Command::new("nvim");
+            command
+                .args(["--clean", "--headless", "-l"])
+                .arg(reader.path());
+            command.env("AGD_IMPORT_ROOT", neovim_config_root(&sources.files[0]));
+            (command, reader)
+        }
     };
-    let expression =
-        format!("(progn (load {quoted_path} nil nil t) {verify_form}(agd-import-probe))");
-    command.arg("--eval").arg(expression);
-    command.env("AGD_IMPORT_SOURCE", "daemon");
-    let output = run(&mut command, "Emacs daemon probe")?;
-    let json: String = serde_json::from_slice(&output.stdout)
-        .context("Emacs daemon returned a non-string probe result")?;
-    serde_json::from_str(&json).context("Emacs daemon returned an invalid probe payload")
+    command.0.env("AGD_IMPORT_FILES", files);
+    let label = format!("{} config reader", sources.editor.name());
+    let output = run(&mut command.0, &label)?;
+    let resolved = parse_process_json(&output, sources.editor.name())?;
+    finish_import(
+        sources,
+        resolved,
+        base,
+        derive_roots,
+        destination,
+        write,
+        verify,
+    )
+}
+
+/// The Neovim config directory a file belongs to, so `require("x")` finds
+/// `lua/x.lua`: the directory above `lua/`, or the file's own directory.
+fn neovim_config_root(file: &Path) -> PathBuf {
+    file.ancestors()
+        .find(|ancestor| ancestor.file_name().is_some_and(|name| name == "lua"))
+        .and_then(Path::parent)
+        .or_else(|| file.parent())
+        .map(Path::to_path_buf)
+        .unwrap_or_default()
 }
 
 fn run(command: &mut Command, label: &str) -> Result<Output> {
-    tracing::info!(?command, "starting editor configuration probe");
+    tracing::info!(?command, "starting editor config reader");
     let output = command
         .output()
-        .with_context(|| format!("cannot start {label}"))?;
+        .with_context(|| format!("cannot start {label}; is the editor on PATH?"))?;
     if !output.status.success() {
         bail!(
             "{label} failed with {}: {}",
@@ -113,29 +117,36 @@ fn parse_process_json(output: &Output, editor: &str) -> Result<ResolvedEditorCon
 
 fn parse_marked_json(bytes: &[u8], editor: &str) -> Result<ResolvedEditorConfig> {
     let output = String::from_utf8(bytes.to_vec())
-        .with_context(|| format!("{editor} probe output is not UTF-8"))?;
+        .with_context(|| format!("{editor} reader output is not UTF-8"))?;
     let marker = "AGD_JSON:";
     let payload = output
         .lines()
         .find_map(|line| line.strip_prefix(marker))
-        .ok_or_else(|| anyhow!("{editor} probe produced no {marker} payload"))?;
+        .ok_or_else(|| anyhow!("{editor} reader produced no {marker} payload"))?;
     serde_json::from_str(payload)
-        .with_context(|| format!("{editor} probe returned an unsupported payload shape"))
+        .with_context(|| format!("{editor} reader returned an unsupported payload shape"))
 }
 
 fn finish_import(
+    sources: ConfigSources,
     mut resolved: ResolvedEditorConfig,
     base: &Settings,
+    derive_roots: bool,
     destination: &Path,
     write: bool,
     verify: bool,
 ) -> Result<ImportExecution> {
     let editor_rows = std::mem::take(&mut resolved.verification);
-    let result = apply_import(&resolved, base)?;
+    let result = apply_import(&resolved, base, derive_roots)?;
     let verification = verify_import(&result, &resolved.editor, &editor_rows, verify);
+    let read: Vec<String> = sources
+        .files
+        .iter()
+        .map(|file| file.to_string_lossy().into_owned())
+        .collect();
     let header = format!(
-        "agd configuration. Imported from {} {} by `agd setup import`;\nedit freely. See https://github.com/johnnybravo-xyz/agd#configuration",
-        resolved.editor, resolved.editor_version
+        "agd configuration, imported by `agd setup import` from:\n  {}\nEdit freely; rerun the import to start over. Keys are described at\nhttps://github.com/johnnybravo-xyz/agd#configuration",
+        read.join("\n  ")
     );
     let toml = render_config(&result.settings, &header)?;
     let previous = fs::read_to_string(destination).unwrap_or_default();
@@ -150,6 +161,7 @@ fn finish_import(
         write_config(destination, &toml)?;
     }
     Ok(ImportExecution {
+        sources,
         result,
         toml,
         diff,
@@ -429,19 +441,21 @@ fn verification_start(settings: &Settings, today: NaiveDate) -> NaiveDate {
     }
 }
 
-fn probe_file(name: &str, contents: &str) -> Result<tempfile::NamedTempFile> {
+fn reader_file(name: &str, contents: &str) -> Result<tempfile::NamedTempFile> {
     let suffix = Path::new(name)
         .extension()
         .and_then(|value| value.to_str())
-        .unwrap_or("probe");
-    let mut probe = tempfile::Builder::new()
+        .unwrap_or("reader");
+    let mut reader = tempfile::Builder::new()
         .prefix("agd-import-")
         .suffix(&format!(".{suffix}"))
         .tempfile()
-        .context("cannot create editor probe file")?;
-    probe
+        .context("cannot create the editor config reader")?;
+    reader
         .write_all(contents.as_bytes())
-        .context("cannot write editor probe file")?;
-    probe.flush().context("cannot flush editor probe file")?;
-    Ok(probe)
+        .context("cannot write the editor config reader")?;
+    reader
+        .flush()
+        .context("cannot write the editor config reader")?;
+    Ok(reader)
 }

@@ -25,8 +25,8 @@ pub use document::{
     SourceLine, TimestampSpan, TodoKeyword, WorkspaceIndex, parse_timestamp,
 };
 pub use imports::{
-    ImportDiagnostic, ImportResult, ImportStatus, ImportedCapture, ImportedCommand, PortableEntry,
-    ResolvedEditorConfig, apply_import,
+    ConfigEditor, ConfigSources, ImportDiagnostic, ImportResult, ImportStatus, ImportedCapture,
+    ImportedCommand, ResolvedEditorConfig, apply_import, find_config_sources,
 };
 pub use model::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ERROR_SCHEMA, ErrorResponse, ITEM_SCHEMA, Item,

@@ -1,42 +1,27 @@
 use std::path::PathBuf;
 
 use anyhow::{Result, bail};
-use clap::{Args, Subcommand};
+use clap::Args;
 use org_core::{ImportStatus, Settings, default_config_path, parse_config_file};
 
-use crate::importer::{ImportExecution, import_emacs, import_nvim};
+use crate::importer::{ImportExecution, import_config};
+
+/// Where Emacs and Neovim configs usually live; offered when no path is given.
+const USUAL_LOCATIONS: [&str; 7] = [
+    "~/.config/nvim",
+    "~/.doom.d",
+    "~/.config/doom",
+    "~/.emacs.d",
+    "~/.config/emacs",
+    "~/.emacs",
+    "~/.spacemacs",
+];
 
 #[derive(Args, Debug)]
 pub struct ImportCommand {
-    #[command(subcommand)]
-    editor: ImportEditor,
-}
-
-#[derive(Subcommand, Debug)]
-enum ImportEditor {
-    /// Import org settings from a running Emacs daemon
-    Emacs(EmacsImport),
-    /// Import org settings from nvim-orgmode
-    Nvim(NvimImport),
-}
-
-#[derive(Args, Debug)]
-struct EmacsImport {
-    /// Emacs server (socket) name to ask
-    #[arg(long)]
-    server: Option<String>,
-    #[command(flatten)]
-    output: ImportOutput,
-}
-
-#[derive(Args, Debug)]
-struct NvimImport {
-    #[command(flatten)]
-    output: ImportOutput,
-}
-
-#[derive(Args, Debug)]
-struct ImportOutput {
+    /// Your Emacs or Neovim config: a directory (~/.doom.d, ~/.config/nvim)
+    /// or files (init.el, lua/plugins/orgmode.lua)
+    paths: Vec<PathBuf>,
     /// Show the config diff without writing it
     #[arg(long)]
     dry_run: bool,
@@ -46,40 +31,51 @@ struct ImportOutput {
     /// Replace an existing config file
     #[arg(long)]
     force: bool,
-    /// Compare imported views with the editor's own agenda rows
+    /// Emacs only: compare each imported view's rows with Emacs's own agenda
     #[arg(long)]
     verify: bool,
 }
 
 impl ImportCommand {
     pub fn execute(self, config: Option<String>, _root_directory: Option<String>) -> Result<()> {
+        if self.paths.is_empty() {
+            let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+            let found: Vec<&str> = USUAL_LOCATIONS
+                .iter()
+                .copied()
+                .filter(|location| home.join(&location[2..]).exists())
+                .collect();
+            if found.is_empty() {
+                bail!("name your Emacs or Neovim config: agd setup import ~/.config/nvim");
+            }
+            bail!(
+                "name the config to import, for example: agd setup import {}\nfound: {}",
+                found[0],
+                found.join(", ")
+            );
+        }
         let destination = match config {
             Some(path) => PathBuf::from(path),
             None => default_config_path()?,
         };
-        let base = if destination.exists() {
+        let exists = destination.exists();
+        let base = if exists {
             parse_config_file(&destination)?
         } else {
             Settings::default()
         };
-        let output = match &self.editor {
-            ImportEditor::Emacs(command) => &command.output,
-            ImportEditor::Nvim(command) => &command.output,
-        };
-        let preview = output.dry_run || output.stdout;
-        let write = !preview && (!destination.exists() || output.force);
-        let result = match &self.editor {
-            ImportEditor::Emacs(command) => import_emacs(
-                &base,
-                command.server.as_deref(),
-                &destination,
-                write,
-                output.verify,
-            )?,
-            ImportEditor::Nvim(_) => import_nvim(&base, &destination, write, output.verify)?,
-        };
-        print_result(&result, output);
-        if !preview && !write && !result.diff.is_empty() {
+        let preview = self.dry_run || self.stdout;
+        let write = !preview && (!exists || self.force);
+        let execution = import_config(
+            &self.paths,
+            &base,
+            !exists,
+            &destination,
+            write,
+            self.verify,
+        )?;
+        self.print(&execution);
+        if !preview && !write && !execution.diff.is_empty() {
             bail!(
                 "{} exists; review the diff above and rerun with --force to replace it",
                 destination.display()
@@ -90,37 +86,50 @@ impl ImportCommand {
         }
         Ok(())
     }
-}
 
-fn print_result(execution: &ImportExecution, output: &ImportOutput) {
-    if output.stdout {
-        print!("{}", execution.toml);
-    } else if !execution.diff.is_empty() {
-        print!("{}", execution.diff);
-    }
-    let settings = &execution.result.settings;
-    println!(
-        "imported  {} agenda files, {} views, {} capture templates",
-        settings.agenda_files.len(),
-        settings.views.len(),
-        settings.captures.len()
-    );
-    for result in &execution.verification {
+    fn print(&self, execution: &ImportExecution) {
+        if self.stdout {
+            print!("{}", execution.toml);
+        } else if !execution.diff.is_empty() {
+            print!("{}", execution.diff);
+        }
+        let sources = &execution.sources;
         println!(
-            "  {} {}  {}  {}",
-            mark(&result.status),
-            result.key,
-            result.description,
-            result.detail
+            "read {} {} file(s):",
+            sources.editor.name(),
+            sources.files.len()
         );
-    }
-    for diagnostic in &execution.result.diagnostics {
+        for file in &sources.files {
+            println!("  {}", file.display());
+        }
+        for note in &sources.notes {
+            println!("  {note}");
+        }
+        let settings = &execution.result.settings;
         println!(
-            "  {} {}  {}",
-            mark(&diagnostic.status),
-            diagnostic.key,
-            diagnostic.message
+            "imported  roots {}, {} agenda entries, {} capture templates, {} views",
+            settings.roots.join(", "),
+            settings.agenda_files.len(),
+            settings.captures.len(),
+            settings.views.len()
         );
+        for diagnostic in &execution.result.diagnostics {
+            println!(
+                "  {} {}  {}",
+                mark(&diagnostic.status),
+                diagnostic.key,
+                diagnostic.message
+            );
+        }
+        for result in &execution.verification {
+            println!(
+                "  {} view {}  {}  {}",
+                mark(&result.status),
+                result.key,
+                result.description,
+                result.detail
+            );
+        }
     }
 }
 

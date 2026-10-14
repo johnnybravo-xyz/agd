@@ -1,0 +1,55 @@
+{
+  "agenda_files": [
+    "/fixture/**/*.org"
+  ],
+  "agenda_span": "week",
+  "capture": {
+    "n": {
+      "desc": "Note",
+      "diagnostics": [],
+      "enabled": true,
+      "file": "/fixture/inbox.org",
+      "heading": "Notes",
+      "template": "* %?\n%U"
+    }
+  },
+  "commands": [],
+  "deadline_warning_days": 14,
+  "default_priority": "B",
+  "diagnostics": [
+    {
+      "key": "setup",
+      "message": "orgmode.lua",
+      "status": "exact"
+    }
+  ],
+  "editor": "nvim",
+  "highest_priority": "A",
+  "log_done": "time",
+  "log_into_drawer": false,
+  "log_redeadline": "nil",
+  "log_repeat": "time",
+  "log_reschedule": "nil",
+  "lowest_priority": "C",
+  "persistent_tags": [],
+  "skip_deadline_if_done": false,
+  "skip_scheduled_if_done": false,
+  "skip_timestamp_if_done": false,
+  "sorting_strategy": [
+    "time-up",
+    "priority-down",
+    "category-keep"
+  ],
+  "tag_alist": [],
+  "tag_inheritance_exclusions": [],
+  "tags_column": -80,
+  "todo_sequences": [
+    [
+      "TODO",
+      "WAIT",
+      "|",
+      "DONE"
+    ]
+  ],
+  "week_start": "monday"
+}

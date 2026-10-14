@@ -18,8 +18,8 @@
       "datetree": false,
       "desc": "Dynamic",
       "diagnostics": [
-        "dynamic capture target is unsupported",
-        "%(sexp) template forms are disabled"
+        "%(sexp) template forms are disabled",
+        "a computed capture target is unsupported"
       ],
       "enabled": false,
       "template": "* TODO %(danger)"
@@ -73,10 +73,115 @@
   ],
   "deadline_warning_days": 5,
   "default_priority": "C",
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "key": "org-agenda-files",
+      "message": "init.el:2",
+      "status": "exact"
+    },
+    {
+      "key": "org-todo-keywords",
+      "message": "init.el:4",
+      "status": "exact"
+    },
+    {
+      "key": "org-tag-alist",
+      "message": "init.el:6",
+      "status": "exact"
+    },
+    {
+      "key": "org-tag-persistent-alist",
+      "message": "init.el:7",
+      "status": "exact"
+    },
+    {
+      "key": "org-tags-exclude-from-inheritance",
+      "message": "init.el:8",
+      "status": "exact"
+    },
+    {
+      "key": "org-highest-priority",
+      "message": "init.el:9",
+      "status": "exact"
+    },
+    {
+      "key": "org-lowest-priority",
+      "message": "init.el:10",
+      "status": "exact"
+    },
+    {
+      "key": "org-default-priority",
+      "message": "init.el:11",
+      "status": "exact"
+    },
+    {
+      "key": "org-deadline-warning-days",
+      "message": "init.el:12",
+      "status": "exact"
+    },
+    {
+      "key": "org-agenda-span",
+      "message": "init.el:13",
+      "status": "exact"
+    },
+    {
+      "key": "org-agenda-start-day",
+      "message": "init.el:14",
+      "status": "exact"
+    },
+    {
+      "key": "org-agenda-start-on-weekday",
+      "message": "init.el:15",
+      "status": "exact"
+    },
+    {
+      "key": "org-agenda-skip-scheduled-if-done",
+      "message": "init.el:16",
+      "status": "exact"
+    },
+    {
+      "key": "org-agenda-skip-deadline-if-done",
+      "message": "init.el:17",
+      "status": "exact"
+    },
+    {
+      "key": "org-agenda-skip-timestamp-if-done",
+      "message": "init.el:18",
+      "status": "exact"
+    },
+    {
+      "key": "org-agenda-sorting-strategy",
+      "message": "init.el:19",
+      "status": "exact"
+    },
+    {
+      "key": "org-log-done",
+      "message": "init.el:20",
+      "status": "exact"
+    },
+    {
+      "key": "org-log-repeat",
+      "message": "init.el:21",
+      "status": "exact"
+    },
+    {
+      "key": "org-log-into-drawer",
+      "message": "init.el:22",
+      "status": "exact"
+    },
+    {
+      "key": "org-capture-templates",
+      "message": "init.el:23",
+      "status": "exact"
+    },
+    {
+      "key": "org-agenda-custom-commands",
+      "message": "init.el:26",
+      "status": "exact"
+    }
+  ],
   "editor": "emacs",
   "editor_version": "30.2",
-  "groups": [],
   "highest_priority": "A",
   "log_done": "time",
   "log_into_drawer": true,
@@ -84,9 +189,9 @@
   "log_repeat": "note",
   "log_reschedule": "nil",
   "lowest_priority": "D",
-  "org_version": "9.7.11",
+  "org_directory": null,
   "persistent_tags": [
-    "(\"important\" . 105)"
+    "important"
   ],
   "skip_deadline_if_done": true,
   "skip_scheduled_if_done": true,
@@ -96,10 +201,9 @@
     "time-up",
     "category-keep"
   ],
-  "source": "batch-profile",
   "tag_alist": [
-    "(\"work\" . 119)",
-    "(\"home\" . 104)"
+    "work",
+    "home"
   ],
   "tag_inheritance_exclusions": [
     "noinherit"

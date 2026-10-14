@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "agd/probes/**"
+      - "agd/readers/**"
       - "conformance/**"
       - "org-core/src/**"
       - "org-core/tests/conformance_*.rs"
@@ -13,7 +13,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "agd/probes/**"
+      - "agd/readers/**"
       - "conformance/**"
       - "org-core/src/**"
       - "org-core/tests/conformance_*.rs"
@@ -36,7 +36,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.89.0"
-      - name: Fetch pinned Neovim and nvim-orgmode
+      - name: Fetch pinned Neovim
         run: ./scripts/fetch-neovim-oracle.sh
       - name: Check editor oracles
         env:
@@ -45,9 +45,7 @@ jobs:
           ./scripts/emacs-agenda-oracle.py
           ./scripts/emacs-edit-oracle.py
           ./scripts/emacs-import-oracle.py
-          ./scripts/emacs-daemon-oracle.py
           ./scripts/nvim-import-oracle.py
-          ./scripts/nvim-orgmode-oracle.py
       - name: Fetch scheduled external corpus
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: ./scripts/fetch-conformance-corpus.sh
