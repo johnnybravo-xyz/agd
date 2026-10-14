@@ -67,8 +67,10 @@ does not.
 
 ## The TUI
 
-`agd` opens **Today**. Tabs switch to **Week**, **Inbox** and **Agents**
-(`tab` or `1`–`4`); `a` opens your saved views like `C-c a`.
+`agd` opens **Today**, or the saved view named by `start_view`, which then
+sits first in the tabs. Tabs switch to **Week**, **Inbox** and **Agents**
+(`tab`, or `1`, `2`, … in tab order); `a` opens your saved views like
+`C-c a`.
 
 | Screen | What it is for |
 | --- | --- |

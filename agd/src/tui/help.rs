@@ -15,7 +15,7 @@ const SECTIONS: &[(&str, &[Key])] = &[
         "MOVE",
         &[
             ("j / k", "move", "n / p"),
-            ("tab · 1–4", "Today Week Inbox Agents", ""),
+            ("tab · 1–9", "tabs, left to right", ""),
             ("f / b / .", "next, previous, today", "f / b / ."),
             ("⏎ / e", "edit title, state, dates", ""),
             ("ctrl-e", "open in $EDITOR", "RET"),

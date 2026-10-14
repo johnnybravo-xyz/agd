@@ -57,10 +57,16 @@ fn common_key(app: &mut App, key: KeyEvent) -> Result<bool> {
         }
         KeyCode::Tab => next_tab(app, 1)?,
         KeyCode::BackTab => next_tab(app, -1)?,
-        KeyCode::Char('1') => app.switch_screen(Screen::Today)?,
-        KeyCode::Char('2') => app.switch_screen(Screen::Week)?,
-        KeyCode::Char('3') => app.switch_screen(Screen::Inbox)?,
-        KeyCode::Char('4') | KeyCode::Char('A') => {
+        KeyCode::Char(digit @ '1'..='9') => {
+            let index = digit as usize - '1' as usize;
+            if let Some(screen) = app.tabs().get(index).cloned() {
+                if screen == Screen::Review {
+                    app.review_diff = false;
+                }
+                app.switch_screen(screen)?;
+            }
+        }
+        KeyCode::Char('A') => {
             app.review_diff = false;
             app.switch_screen(Screen::Review)?;
         }
@@ -70,7 +76,7 @@ fn common_key(app: &mut App, key: KeyEvent) -> Result<bool> {
 }
 
 fn next_tab(app: &mut App, delta: isize) -> Result<()> {
-    let tabs = [Screen::Today, Screen::Week, Screen::Inbox, Screen::Review];
+    let tabs = app.tabs();
     let current = tabs.iter().position(|tab| *tab == app.screen).unwrap_or(0) as isize;
     let next = (current + delta).rem_euclid(tabs.len() as isize) as usize;
     app.switch_screen(tabs[next].clone())

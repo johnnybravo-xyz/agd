@@ -71,24 +71,28 @@ fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Span::styled(" Agenda ", theme.strong(theme.accent)),
         Span::raw(" "),
     ];
-    left.extend(tab("Today".to_string(), app.screen == Screen::Today));
-    left.extend(tab("Week".to_string(), app.screen == Screen::Week));
-    left.extend(tab(
-        format!("Inbox {}", app.counts.inbox),
-        app.screen == Screen::Inbox,
-    ));
-    let agents = if app.counts.agents > 0 {
-        format!("Agents ● {}", app.counts.agents)
-    } else {
-        "Agents".to_string()
-    };
-    left.extend(tab(agents, app.screen == Screen::Review));
-    if let Screen::View(key) = &app.screen {
-        let desc = app
-            .settings
+    let view_desc = |key: &str| {
+        app.settings
             .view(key)
-            .map_or(key.as_str(), |view| view.desc.as_str());
-        left.extend(tab(format!("{key} {desc}"), true));
+            .map_or_else(|| key.to_string(), |view| view.desc.clone())
+    };
+    let tabs = app.tabs();
+    for screen in &tabs {
+        let label = match screen {
+            Screen::View(key) => view_desc(key),
+            Screen::Week => "Week".to_string(),
+            Screen::Inbox => format!("Inbox {}", app.counts.inbox),
+            Screen::Review if app.counts.agents > 0 => format!("Agents ● {}", app.counts.agents),
+            Screen::Review => "Agents".to_string(),
+            _ => "Today".to_string(),
+        };
+        left.extend(tab(label, app.screen == *screen));
+    }
+    // Another saved view shows as an extra tab while it is open.
+    if let Screen::View(key) = &app.screen
+        && !tabs.contains(&app.screen)
+    {
+        left.extend(tab(format!("{key} {}", view_desc(key)), true));
     }
     if app.screen == Screen::Triage {
         left = theme.pill("TRIAGE", theme.due);

@@ -31,9 +31,23 @@ impl App {
         Ok(())
     }
 
-    /// Changes screen with the cursor on the first row; esc comes back.
+    /// The header tabs in order: the start view first when one is set.
+    pub(super) fn tabs(&self) -> Vec<Screen> {
+        let mut tabs = Vec::new();
+        if !self.settings.start_view.is_empty() {
+            tabs.push(Screen::View(self.settings.start_view.clone()));
+        }
+        tabs.extend([Screen::Today, Screen::Week, Screen::Inbox, Screen::Review]);
+        tabs
+    }
+
+    /// Changes screen with the cursor on the first row; esc comes back from
+    /// Triage, Agents and saved views other than the start view, which is a
+    /// tab.
     pub(super) fn switch_screen(&mut self, screen: Screen) -> Result<()> {
+        let tab_view = matches!(&screen, Screen::View(key) if *key == self.settings.start_view);
         if matches!(screen, Screen::Triage | Screen::Review | Screen::View(_))
+            && !tab_view
             && !matches!(self.screen, Screen::Triage | Screen::Review)
         {
             self.back = self.screen.clone();
