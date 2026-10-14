@@ -266,29 +266,61 @@ fn add_properties(
 
 /// One `%^{...}` field a template asks for. A date prompt (`%^{name}t`,
 /// `%^t`, ...) takes the same input as `due:` and may be left empty.
+/// `planning` names the keyword (`DEADLINE`, `SCHEDULED`) when the prompt
+/// is that keyword's date on the template's planning line: `due:` or `on:`
+/// then answers it, so the prompt need not be asked.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CapturePrompt {
     pub name: String,
     pub date: bool,
+    pub planning: Option<String>,
+}
+
+impl CapturePrompt {
+    /// True when the capture line's own `due:`/`on:` already gives this
+    /// prompt's date.
+    pub fn answered_by(&self, draft: &CaptureDraft) -> bool {
+        match self.planning.as_deref() {
+            Some("DEADLINE") => draft.deadline.is_some(),
+            Some("SCHEDULED") => draft.scheduled.is_some(),
+            _ => false,
+        }
+    }
 }
 
 /// The `%^{prompt}` fields a template asks for, in order and without
 /// duplicates; `%^g` asks for "tags" and a bare `%^t` for "date".
 pub fn capture_prompts(template: &CaptureTemplate) -> Vec<CapturePrompt> {
+    let text = &template.template;
     let mut prompts: Vec<CapturePrompt> = Vec::new();
-    for captures in ESCAPE_RE.captures_iter(&template.template) {
+    for captures in ESCAPE_RE.captures_iter(text) {
+        let start = captures.get(0).expect("escape match").start();
+        let line_start = text[..start].rfind('\n').map_or(0, |index| index + 1);
+        let before = &text[line_start..start];
+        // The planning keyword closest before the prompt on its line.
+        let planning = ["DEADLINE:", "SCHEDULED:"]
+            .iter()
+            .filter_map(|keyword| before.rfind(keyword).map(|at| (at, *keyword)))
+            .max()
+            .map(|(_, keyword)| keyword.trim_end_matches(':').to_string());
         let prompt = match (&captures[1], captures.get(2), captures.get(4)) {
             ("^g", _, _) => CapturePrompt {
                 name: "tags".to_string(),
                 date: false,
+                planning: None,
             },
-            (_, Some(name), _) => CapturePrompt {
-                name: name.as_str().to_string(),
-                date: captures.get(3).is_some(),
-            },
+            (_, Some(name), _) => {
+                let date = captures.get(3).is_some();
+                CapturePrompt {
+                    name: name.as_str().to_string(),
+                    date,
+                    planning: if date { planning } else { None },
+                }
+            }
             (_, None, Some(_)) => CapturePrompt {
                 name: "date".to_string(),
                 date: true,
+                planning,
             },
             _ => continue,
         };
@@ -601,7 +633,8 @@ mod tests {
             capture_prompts(&deadline_template()),
             vec![CapturePrompt {
                 name: "deadline".to_string(),
-                date: true
+                date: true,
+                planning: Some("DEADLINE".to_string()),
             }]
         );
         let draft = CaptureDraft {

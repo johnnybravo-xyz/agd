@@ -364,3 +364,41 @@ fn a_full_width_lead_keeps_a_space_before_the_keyword() {
         assert!(screen.contains("in 14d TODO File taxes"), "{screen}");
     });
 }
+
+#[test]
+#[serial]
+fn capture_opens_on_a_list_of_templates_with_their_destinations() {
+    with_home(|root| {
+        let mut app = test_app(root);
+        app.overlay = Overlay::Capture(capture::Draft::default());
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("choose a template"), "{screen}");
+        assert!(screen.contains("t  Todo"), "{screen}");
+        assert!(screen.contains("→ inbox.org › Inbox"), "{screen}");
+        assert!(screen.contains("esc cancel"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn due_answers_a_deadline_prompt_so_it_is_not_asked() {
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        app.settings.captures[0].template = "* TODO %?\nDEADLINE: %^{deadline}t".to_string();
+        app.overlay = Overlay::Capture(capture::Draft::default());
+        for key in "tRenew passport".chars() {
+            capture::type_key(&mut app, key);
+        }
+        let asking = render(&mut app, 100, 30).join("\n");
+        assert!(asking.contains("or due: above"), "{asking}");
+
+        for key in " due:fri".chars() {
+            capture::type_key(&mut app, key);
+        }
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(!screen.contains("or due: above"), "{screen}");
+        assert!(screen.contains("DEADLINE: <2026-10-16 Fri>"), "{screen}");
+    });
+}

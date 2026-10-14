@@ -30,6 +30,8 @@ pub(super) struct Draft {
     field: usize,
     body: String,
     preview: Result<String, String>,
+    /// The highlighted row of the template list, before one is chosen.
+    selected: usize,
 }
 
 impl Default for Draft {
@@ -39,6 +41,7 @@ impl Default for Draft {
             input: String::new(),
             prompts: Vec::new(),
             field: 0,
+            selected: 0,
             body: String::new(),
             preview: Ok(String::new()),
         }
@@ -63,6 +66,35 @@ impl Draft {
             0 => &mut self.input,
             index => &mut self.prompts[index - 1].1,
         }
+    }
+
+    /// Field numbers (1-based) of the prompts still to ask: a date prompt
+    /// the capture line already answers with `due:` or `on:` is skipped.
+    fn open_fields(&self, app: &App) -> Vec<usize> {
+        let parsed = self.parsed(app).ok();
+        self.prompts
+            .iter()
+            .enumerate()
+            .filter(|(_, (prompt, _))| {
+                !parsed
+                    .as_ref()
+                    .is_some_and(|draft| prompt.answered_by(draft))
+            })
+            .map(|(index, _)| index + 1)
+            .collect()
+    }
+
+    fn next_field(&self, app: &App) -> Option<usize> {
+        self.open_fields(app)
+            .into_iter()
+            .find(|field| *field > self.field)
+    }
+
+    fn previous_field(&self, app: &App) -> usize {
+        self.open_fields(app)
+            .into_iter()
+            .rfind(|field| *field < self.field)
+            .unwrap_or(0)
     }
 
     fn parsed(&self, app: &App) -> Result<CaptureDraft, String> {
@@ -162,8 +194,26 @@ pub(super) fn handle_key(
                 draft.choose(app, key);
             }
         }
-        KeyCode::Down if draft.field < draft.prompts.len() => draft.field += 1,
-        KeyCode::Up => draft.field = draft.field.saturating_sub(1),
+        // Before a template is chosen, ↑/↓ and ⏎ pick one from the list.
+        KeyCode::Down if draft.template.is_none() => {
+            draft.selected =
+                (draft.selected + 1).min(app.settings.captures.len().saturating_sub(1));
+        }
+        KeyCode::Up if draft.template.is_none() => {
+            draft.selected = draft.selected.saturating_sub(1);
+        }
+        KeyCode::Enter if draft.template.is_none() => {
+            if let Some(template) = app.settings.captures.get(draft.selected) {
+                let key = template.key.clone();
+                draft.choose(app, &key);
+            }
+        }
+        KeyCode::Down => {
+            if let Some(field) = draft.next_field(app) {
+                draft.field = field;
+            }
+        }
+        KeyCode::Up => draft.field = draft.previous_field(app),
         KeyCode::Backspace => {
             if draft.field == 0 && draft.input.is_empty() {
                 draft.template = None;
@@ -174,10 +224,9 @@ pub(super) fn handle_key(
         }
         KeyCode::Enter => {
             if draft.template.is_some() && !draft.input.trim().is_empty() {
-                if draft.field < draft.prompts.len() {
-                    draft.field += 1;
-                } else {
-                    return commit(app, draft);
+                match draft.next_field(app) {
+                    Some(field) => draft.field = field,
+                    None => return commit(app, draft),
                 }
             }
         }
@@ -263,12 +312,17 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame
         .buffer_mut()
         .set_style(area, Style::default().add_modifier(Modifier::DIM));
-    let template = draft
+    let Some(template) = draft
         .template
         .as_ref()
-        .and_then(|key| app.settings.capture_template(key));
+        .and_then(|key| app.settings.capture_template(key))
+    else {
+        return draw_chooser(frame, app, draft, area);
+    };
+    let template = Some(template);
     let preview = preview_lines(theme, &draft.preview);
-    let prompts = draft.prompts.len() as u16;
+    let open = draft.open_fields(app);
+    let prompts = open.len() as u16;
     let prompt_rows = if prompts > 0 { prompts + 1 } else { 0 };
     // border + top padding, input, gap, prompts, chips, gap, destination,
     // preview inset, gap, footer, border
@@ -283,7 +337,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(block, popup);
     let mut constraints = vec![Constraint::Length(3), Constraint::Length(1)];
     if prompts > 0 {
-        constraints.extend(draft.prompts.iter().map(|_| Constraint::Length(1)));
+        constraints.extend(open.iter().map(|_| Constraint::Length(1)));
         constraints.push(Constraint::Length(1));
     }
     constraints.extend([
@@ -306,8 +360,12 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             Span::raw("")
         }
     };
-    let input_line = if draft.template.is_none() {
-        Line::from(Span::styled("type a template key", theme.muted()))
+    let input_line = if draft.input.is_empty() {
+        Line::from(vec![
+            Span::styled("› ", theme.strong(theme.accent)),
+            cursor(draft.field == 0),
+            Span::styled(placeholder(), theme.muted()),
+        ])
     } else {
         Line::from(vec![
             Span::styled("› ", theme.strong(theme.accent)),
@@ -326,8 +384,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .max()
         .unwrap_or(0)
         + 2;
-    for (index, (prompt, value)) in draft.prompts.iter().enumerate() {
-        let focused = draft.field == index + 1;
+    for (row, field) in open.iter().enumerate() {
+        let (prompt, value) = &draft.prompts[field - 1];
+        let focused = draft.field == *field;
         let mut spans = vec![
             Span::styled(if focused { "› " } else { "  " }, theme.fg(theme.accent)),
             Span::styled(
@@ -342,32 +401,21 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             cursor(focused),
         ];
         if value.is_empty() && prompt.date {
-            spans.push(Span::styled(
-                "fri · +2d · 2026-10-30, or due:/on: above",
-                theme.muted(),
-            ));
+            let token = match prompt.planning.as_deref() {
+                Some("DEADLINE") => "fri · +2d · 2026-10-30, or due: above",
+                Some("SCHEDULED") => "fri · +2d · 2026-10-30, or on: above",
+                _ => "fri · +2d · 2026-10-30",
+            };
+            spans.push(Span::styled(token, theme.muted()));
         }
-        frame.render_widget(Paragraph::new(Line::from(spans)), parts[2 + index]);
+        frame.render_widget(Paragraph::new(Line::from(spans)), parts[2 + row]);
     }
     let next = 2 + if prompts > 0 { prompts as usize + 1 } else { 0 };
     frame.render_widget(
         Paragraph::new(Line::from(chips(theme, draft.parsed(app).ok()))),
         parts[next],
     );
-    let destination = template.map_or(String::new(), |template| {
-        let file = template
-            .file
-            .as_deref()
-            .and_then(|file| Path::new(file).file_name())
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let heading = template
-            .heading
-            .clone()
-            .or_else(|| template.outline_path.as_ref().map(|path| path.join(" › ")))
-            .unwrap_or_default();
-        format!("→ {file} › {heading}")
-    });
+    let destination = template.map_or(String::new(), destination);
     frame.render_widget(
         Paragraph::new(Span::styled(destination, theme.fg(theme.text))),
         parts[next + 2],
@@ -394,17 +442,127 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         )),
         parts[next + 5],
     );
-    let templates: Vec<String> = app
-        .settings
-        .captures
+}
+
+/// The tokens a capture line takes after the task, with what each does.
+const TOKENS: [(&str, &str); 4] = [
+    ("due:fri", "deadline"),
+    ("on:+2d", "scheduled"),
+    ("+work", "tag"),
+    ("#A", "priority"),
+];
+
+/// The empty field's placeholder: the task, then the tokens.
+fn placeholder() -> String {
+    let tokens: Vec<&str> = TOKENS.iter().map(|(token, _)| *token).collect();
+    format!("type a task  {}", tokens.join("  "))
+}
+
+/// Before a template is chosen: every template with its key and where it
+/// files, like org-capture's menu, and how a capture line works.
+fn draw_chooser(frame: &mut Frame<'_>, app: &App, draft: &Draft, area: Rect) {
+    let theme = &app.theme;
+    let templates = &app.settings.captures;
+    // border + top padding, templates, gap, two help lines, gap, footer, border
+    let height = 2 + templates.len() as u16 + 1 + 2 + 1 + 1 + 1;
+    let popup = centered(area, area.width.saturating_sub(4).clamp(60, 84), height);
+    frame.render_widget(Clear, popup);
+    let block = theme.popup("Capture · choose a template");
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let parts = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(templates.len() as u16),
+            Constraint::Length(1),
+            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+    let width = templates
         .iter()
-        .map(|template| format!("{} {}", template.key, template.desc.to_lowercase()))
+        .map(|template| template.desc.chars().count())
+        .max()
+        .unwrap_or(0)
+        + 2;
+    let rows: Vec<Line<'_>> = templates
+        .iter()
+        .enumerate()
+        .map(|(index, template)| {
+            let focused = index == draft.selected;
+            let line = Line::from(vec![
+                Span::styled(if focused { "› " } else { "  " }, theme.fg(theme.accent)),
+                Span::styled(format!("{:<3}", template.key), theme.strong(theme.accent)),
+                Span::styled(
+                    format!("{:<width$}", template.desc),
+                    if focused {
+                        theme.strong(theme.text)
+                    } else {
+                        theme.fg(theme.text)
+                    },
+                ),
+                Span::styled(destination(template), theme.muted()),
+            ]);
+            if focused {
+                line.style(theme.selected())
+            } else {
+                line
+            }
+        })
         .collect();
+    frame.render_widget(Paragraph::new(rows), parts[0]);
     frame.render_widget(
-        Paragraph::new(Span::styled(templates.join(" · "), theme.muted()))
-            .alignment(ratatui::layout::Alignment::Right),
-        parts[next + 5],
+        Paragraph::new(vec![
+            Line::from(Span::styled(
+                "Then type a task, with any of:",
+                theme.muted(),
+            )),
+            Line::from(
+                TOKENS
+                    .iter()
+                    .flat_map(|(token, meaning)| {
+                        [
+                            Span::styled(format!("  {token} "), theme.fg(theme.text)),
+                            Span::styled(meaning.to_string(), theme.muted()),
+                        ]
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+        ]),
+        parts[2],
     );
+    frame.render_widget(
+        Paragraph::new(Line::from(
+            [
+                theme.key_hint("key", "choose"),
+                theme.key_hint("↑↓ ⏎", "pick"),
+                theme.key_hint("esc", "cancel"),
+            ]
+            .concat(),
+        )),
+        parts[4],
+    );
+}
+
+/// `→ inbox.org › Tasks`: the file name and heading a template files under.
+fn destination(template: &org_core::CaptureTemplate) -> String {
+    let file = template
+        .file
+        .as_deref()
+        .and_then(|file| Path::new(file).file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let heading = template
+        .heading
+        .clone()
+        .or_else(|| template.outline_path.as_ref().map(|path| path.join(" › ")))
+        .unwrap_or_default();
+    if heading.is_empty() {
+        format!("→ {file}")
+    } else {
+        format!("→ {file} › {heading}")
+    }
 }
 
 fn preview_lines(theme: &Theme, preview: &Result<String, String>) -> Vec<Line<'static>> {

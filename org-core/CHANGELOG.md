@@ -6,6 +6,12 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `CapturePrompt::planning` names the planning keyword a date prompt fills,
+  and `answered_by` tells whether a capture line's `due:`/`on:` already
+  gives it.
+
 ### Fixed
 
 - Capture templates support Org's date prompts (`%^{name}t`, `T`, `u`, `U`
