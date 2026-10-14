@@ -323,6 +323,161 @@ against org-directory as org-capture does."
         ((or (stringp form) (numberp form) (symbolp form)) form)
         (t :agd-dynamic)))
 
+;; org-super-agenda groups -> agd groups. Each selector becomes a tags/TODO
+;; match held as alternatives of terms (joined by | and +), so :and, :not
+;; and a group's implicit OR of its selectors translate exactly.
+(defvar agd--group-notes nil "Differences found while translating groups.")
+
+(defun agd--and (left right)
+  "Alternatives matching both LEFT and RIGHT."
+  (let (result)
+    (dolist (a left)
+      (dolist (b right)
+        (push (append a b) result)))
+    (nreverse result)))
+
+(defun agd--not (alternatives)
+  "Alternatives matching none of ALTERNATIVES."
+  (let ((result '(())))
+    (dolist (terms alternatives)
+      (setq result
+            (agd--and result
+                      (mapcar (lambda (term)
+                                (list (if (string-prefix-p "-" term)
+                                          (substring term 1)
+                                        (concat "-" term))))
+                              terms))))
+    result))
+
+(defun agd--match-word (value)
+  (let ((word (agd--string value)))
+    (unless (string-match-p "\\`[[:alnum:]_@#%]+\\'" word)
+      (throw 'agd-group (format "%S cannot be written in a match" word)))
+    word))
+
+(defun agd--match-string (value)
+  (let ((text (agd--string value)))
+    (when (string-match-p "\"" text)
+      (throw 'agd-group (format "%S cannot be written in a match" text)))
+    (format "\"%s\"" text)))
+
+(defun agd--each (values fn)
+  "One alternative per value, each a single term from FN."
+  (mapcar (lambda (value) (list (funcall fn value)))
+          (if (listp values) values (list values))))
+
+(defun agd--date-selector (name args)
+  (pcase (if (listp args) (car args) args)
+    ('t `((,(format "%s<>\"\"" name))))
+    ('nil `((,(format "%s=\"\"" name))))
+    ('past `((,(format "%s<\"<today>\"" name))))
+    ('today `((,(format "%s>=\"<today>\"" name) ,(format "%s<\"<tomorrow>\"" name))))
+    ('future `((,(format "%s>=\"<tomorrow>\"" name))))
+    (_ (throw 'agd-group (format ":%s %S is not supported" (downcase name) args)))))
+
+(defun agd--selector (selector args)
+  "Alternatives for one org-super-agenda SELECTOR."
+  (pcase selector
+    (:todo (pcase (if (listp args) (car args) args)
+             ('t '(("TODO<>\"\"")))
+             ('nil '(("TODO=\"\"")))
+             (_ (agd--each args (lambda (keyword) (concat "TODO=" (agd--match-string keyword)))))))
+    (:tag
+     (push "tags compare case-sensitively; org-super-agenda ignores case" agd--group-notes)
+     (agd--each args #'agd--match-word))
+    (:category (agd--each args (lambda (category) (concat "CATEGORY=" (agd--match-string category)))))
+    (:priority
+     (when (member (char-to-string org-priority-default)
+                   (mapcar #'agd--string (if (listp args) args (list args))))
+       (push (format "headings without a priority cookie count as %c; org-super-agenda leaves them out"
+                     org-priority-default)
+             agd--group-notes))
+     (agd--each args (lambda (priority) (concat "PRIORITY=" (agd--match-string priority)))))
+    (:deadline (agd--date-selector "DEADLINE" args))
+    (:scheduled (agd--date-selector "SCHEDULED" args))
+    (:property
+     (push "properties are read from the heading only; org-super-agenda also reads ancestors"
+           agd--group-notes)
+     (let ((values (if (listp args) args (list args))))
+       (unless (and (stringp (car values)) (or (null (cdr values)) (stringp (cadr values))))
+         (throw 'agd-group (format ":property %S is not supported" args)))
+       (let ((name (agd--match-word (car values))))
+         (if (cdr values)
+             `((,(concat name "=" (agd--match-string (cadr values)))))
+           `((,(concat name "<>\"\"")))))))
+    (:anything '(()))
+    (:and (let ((result '(())))
+            (cl-loop for (key value) on args by #'cddr
+                     do (setq result (agd--and result (agd--selector key value))))
+            result))
+    (:not (agd--not (agd--selectors args)))
+    (_ (throw 'agd-group (format "%s is not supported" selector)))))
+
+(defun agd--selectors (plist)
+  "Alternatives for a plist of selectors, which org-super-agenda ORs."
+  (let (result)
+    (cl-loop for (selector args) on plist by #'cddr
+             do (setq result (append result (agd--selector selector args))))
+    result))
+
+(defun agd--match (alternatives)
+  "ALTERNATIVES as a match; nil when one of them matches every row."
+  (cond
+   ((null alternatives) (throw 'agd-group "a group matches nothing"))
+   ((member nil alternatives) nil)
+   (t (mapconcat (lambda (terms)
+                   (concat (car terms)
+                           (mapconcat (lambda (term)
+                                        (if (string-prefix-p "-" term) term (concat "+" term)))
+                                      (cdr terms) "")))
+                 alternatives "|"))))
+
+(defconst agd--auto-groups
+  '((:auto-category . "category") (:auto-parent . "parent")
+    (:auto-todo . "todo") (:auto-priority . "priority")))
+
+(defun agd--group (group)
+  "One agd group for an org-super-agenda GROUP plist."
+  (let ((result (make-hash-table :test 'equal))
+        (selectors nil))
+    (cl-loop for (key value) on group by #'cddr
+             do (cond
+                 ((eq key :name) (puthash "name" (agd--string value) result))
+                 ((eq key :order) (puthash "order" value result))
+                 ((memq key '(:face :transformer))
+                  (push (format "%s is not imported" key) agd--group-notes))
+                 ((eq key :discard)
+                  (puthash "discard" t result)
+                  (setq selectors (append selectors value)))
+                 ((assq key agd--auto-groups)
+                  (puthash "by" (cdr (assq key agd--auto-groups)) result))
+                 (t (setq selectors (append selectors (list key value))))))
+    (if (gethash "by" result)
+        (when selectors
+          (throw 'agd-group "an :auto- group with other selectors is not supported"))
+      (let ((match (agd--match (agd--selectors selectors))))
+        (when match (puthash "match" match result))))
+    result))
+
+(defun agd--groups (form)
+  "(GROUPS . NOTES) for an org-super-agenda-groups option FORM, or (nil .
+NOTES) when they cannot be imported."
+  (let* ((agd--group-notes nil)
+         (value (agd--literal form))
+         (value (if (and value (symbolp value) (not (keywordp value)))
+                    (if (boundp value) (symbol-value value) :agd-unbound)
+                  value))
+         (groups (cond
+                  ((eq value :agd-dynamic) "the value is computed")
+                  ((eq value :agd-unbound) (format "%s is not set in these files" form))
+                  ((not (listp value)) (format "%S is not a list of groups" value))
+                  (t (catch 'agd-group (vconcat (mapcar #'agd--group value)))))))
+    (if (stringp groups)
+        (cons nil (list (format "groups left out, rows ungrouped: %s" groups)))
+      (cons groups
+            (mapcar (lambda (note) (concat "groups: " note))
+                    (delete-dups (reverse agd--group-notes)))))))
+
 (defun agd--view-block (kind match options notes)
   "Return (BLOCK . NOTES) for one block, or nil when KIND is unsupported."
   (let ((name (cdr (assq kind agd--view-kinds)))
@@ -342,6 +497,11 @@ against org-directory as org-capture does."
             (puthash "span" (number-to-string value) block))
            ((and (eq symbol 'org-agenda-overriding-header) (stringp value))
             (puthash "header" value block))
+           ((eq symbol 'org-super-agenda-groups)
+            (let ((result (agd--groups (car-safe (cdr-safe option)))))
+              (when (car result)
+                (puthash "groups" (car result) block))
+              (setq notes (append (reverse (cdr result)) notes))))
            (t (push (format "option %s is not imported" symbol) notes)))))
       (cons block notes))))
 

@@ -1,0 +1,191 @@
+{
+  "agenda_files": [
+    "/fixture/tasks.org"
+  ],
+  "agenda_span": "week",
+  "agenda_start_day": null,
+  "capture": {},
+  "commands": [
+    {
+      "blocks": [
+        {
+          "groups": [
+            {
+              "match": "TODO=\"HOLD\"",
+              "name": "Parked",
+              "order": 9
+            },
+            {
+              "match": "TODO=\"NEXT\"",
+              "name": "Next",
+              "order": -1
+            },
+            {
+              "match": "DEADLINE<\"<today>\"",
+              "name": "Overdue"
+            },
+            {
+              "match": "DEADLINE>=\"<today>\"+DEADLINE<\"<tomorrow>\"",
+              "name": "Due today",
+              "order": 1
+            },
+            {
+              "match": "DEADLINE>=\"<tomorrow>\"",
+              "name": "Due soon",
+              "order": 7
+            },
+            {
+              "match": "errand|shop|PRIORITY=\"A\"",
+              "name": "Errands",
+              "order": 2
+            }
+          ],
+          "kind": "agenda",
+          "span": "1"
+        },
+        {
+          "groups": [
+            {
+              "discard": true,
+              "match": "TODO=\"HOLD\""
+            },
+            {
+              "match": "-TODO<>\"\"",
+              "name": "Inbox"
+            },
+            {
+              "match": "TODO=\"TODO\"+SCHEDULED=\"\"",
+              "name": "Ready",
+              "order": 1
+            },
+            {
+              "match": "BLOCKED_BY<>\"\"",
+              "name": "Blocked",
+              "order": 2
+            },
+            {
+              "by": "category",
+              "order": 9
+            }
+          ],
+          "header": "Backlog",
+          "kind": "alltodo"
+        }
+      ],
+      "description": "Day",
+      "diagnostics": [
+        "groups: tags compare case-sensitively; org-super-agenda ignores case",
+        "groups: properties are read from the heading only; org-super-agenda also reads ancestors"
+      ],
+      "enabled": true,
+      "key": "d"
+    },
+    {
+      "blocks": [
+        {
+          "groups": [],
+          "kind": "agenda"
+        }
+      ],
+      "description": "Week",
+      "diagnostics": [],
+      "enabled": true,
+      "key": "w"
+    },
+    {
+      "blocks": [
+        {
+          "groups": [
+            {
+              "match": "TODO=\"NEXT\"",
+              "name": "Mine"
+            },
+            {
+              "by": "parent"
+            }
+          ],
+          "kind": "alltodo"
+        }
+      ],
+      "description": "Inline",
+      "diagnostics": [
+        "groups: :face is not imported"
+      ],
+      "enabled": true,
+      "key": "i"
+    },
+    {
+      "blocks": [
+        {
+          "kind": "alltodo"
+        }
+      ],
+      "description": "Neglected",
+      "diagnostics": [
+        "groups left out, rows ungrouped: :pred is not supported"
+      ],
+      "enabled": true,
+      "key": "n"
+    }
+  ],
+  "deadline_warning_days": 14,
+  "default_priority": "B",
+  "diagnostics": [
+    {
+      "key": "org-agenda-files",
+      "message": "init.el:2",
+      "status": "exact"
+    },
+    {
+      "key": "org-todo-keywords",
+      "message": "init.el:4",
+      "status": "exact"
+    },
+    {
+      "key": "org-agenda-custom-commands",
+      "message": "init.el:23",
+      "status": "exact"
+    },
+    {
+      "key": "org-capture-templates",
+      "message": "not set in these files; Org's default applies",
+      "status": "difference"
+    }
+  ],
+  "editor": "emacs",
+  "editor_version": "30.2",
+  "highest_priority": "A",
+  "log_done": "nil",
+  "log_into_drawer": false,
+  "log_redeadline": "nil",
+  "log_repeat": "time",
+  "log_reschedule": "nil",
+  "lowest_priority": "C",
+  "org_directory": null,
+  "persistent_tags": [],
+  "skip_deadline_if_done": false,
+  "skip_scheduled_if_done": false,
+  "skip_timestamp_if_done": false,
+  "sorting_strategy": [
+    "habit-down",
+    "time-up",
+    "urgency-down",
+    "category-keep"
+  ],
+  "tag_alist": [],
+  "tag_inheritance_exclusions": [],
+  "tags_column": -77,
+  "todo_sequences": [
+    [
+      "TODO",
+      "NEXT",
+      "PROG",
+      "WAIT",
+      "HOLD",
+      "|",
+      "DONE"
+    ]
+  ],
+  "verification": {},
+  "week_start": "monday"
+}

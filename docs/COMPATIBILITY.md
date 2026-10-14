@@ -73,7 +73,8 @@ case that does not import.
 | nvim-orgmode (`setup()` call or lazy.nvim spec) | Every option agd uses, with nvim-orgmode's defaults for the rest; agenda globs kept | No `setup()` in the files read; options built from other plugins' APIs |
 | Capture templates | `entry` templates with `file`, `file+headline`, `file+olp`, datetree or `id` targets | Other types, computed targets or bodies, `%(sexp)` |
 | Custom agenda commands | agenda, todo, alltodo, tags and tags-todo blocks with literal span and header, including property matches | Lambdas, search/stuck views, regexp matches (the view is left out); other options |
-| org-super-agenda, org-ql | Nothing: agd does not group agenda rows | Each setting, as not used by agd |
+| org-super-agenda groups (a block's `org-super-agenda-groups`, literal or a variable) | `:name`, `:order`, `:discard`, `:todo`, `:tag`, `:category`, `:priority`, `:deadline`/`:scheduled` `t`/`nil`/`past`/`today`/`future`, `:property`, `:anything`, `:and`, `:not`, `:auto-category`/`-parent`/`-todo`/`-priority` | `:pred`, `:time-grid`, `:effort<`/`>`, `:log`, `:habit`, `:regexp`, other `:auto-*` (the block imports ungrouped); `:face`, `:transformer`; a global `org-super-agenda-groups` |
+| org-ql | Nothing | Each setting, as not used by agd |
 
 ## Tested editor paths
 

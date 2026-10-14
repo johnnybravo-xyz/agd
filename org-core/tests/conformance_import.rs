@@ -63,6 +63,56 @@ fn emacs_vanilla_keeps_what_agd_runs_and_reports_the_rest() {
 }
 
 #[test]
+fn emacs_super_agenda_groups_import_as_view_groups() {
+    let (_temp, result) = import_fixture("emacs/super-agenda");
+    let day = &result.settings.view("d").unwrap().blocks;
+    let matches: Vec<Option<&str>> = day[0]
+        .groups
+        .iter()
+        .map(|group| group.match_expression.as_deref())
+        .collect();
+    assert_eq!(
+        matches,
+        [
+            Some("TODO=\"HOLD\""),
+            Some("TODO=\"NEXT\""),
+            Some("DEADLINE<\"<today>\""),
+            Some("DEADLINE>=\"<today>\"+DEADLINE<\"<tomorrow>\""),
+            Some("DEADLINE>=\"<tomorrow>\""),
+            Some("errand|shop|PRIORITY=\"A\""),
+        ]
+    );
+    assert_eq!(day[0].groups[0].order, 9);
+    let backlog = &day[1].groups;
+    assert!(backlog[0].discard);
+    assert_eq!(backlog[1].match_expression.as_deref(), Some("-TODO<>\"\""));
+    assert_eq!(
+        backlog[2].match_expression.as_deref(),
+        Some("TODO=\"TODO\"+SCHEDULED=\"\"")
+    );
+    assert_eq!(backlog[4].by.as_deref(), Some("category"));
+    assert!(reported(&result, "view d", "org-super-agenda ignores case"));
+    assert!(
+        result.settings.view("w").unwrap().blocks[0]
+            .groups
+            .is_empty()
+    );
+    assert_eq!(
+        result.settings.view("i").unwrap().blocks[0].groups[1]
+            .by
+            .as_deref(),
+        Some("parent")
+    );
+    // A selector agd cannot run leaves the block ungrouped, not dropped.
+    assert!(
+        result.settings.view("n").unwrap().blocks[0]
+            .groups
+            .is_empty()
+    );
+    assert!(reported(&result, "view n", ":pred is not supported"));
+}
+
+#[test]
 fn emacs_deferred_settings_win_over_top_level_ones() {
     // use-package/init.el sets org-agenda-files to nil at top level, then
     // to tasks.org in with-eval-after-load 'org.
