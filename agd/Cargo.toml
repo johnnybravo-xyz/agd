@@ -5,7 +5,7 @@ clap = { workspace = true, features = ["derive"] }
 crossterm.workspace = true
 csv.workspace = true
 notify.workspace = true
-org-core = { package = "agd-core", version = "0.0.2", path = "../org-core" }
+org-core = { package = "agd-core", version = "0.1.0", path = "../org-core" }
 rmcp.workspace = true
 ratatui.workspace = true
 serde = { workspace = true, features = ["derive"] }
@@ -33,7 +33,7 @@ edition = "2024"
 rust-version = "1.89"
 authors.workspace = true
 license.workspace = true
-version = "0.0.2"
+version = "0.1.0"
 readme.workspace = true
 homepage.workspace = true
 documentation.workspace = true

@@ -6,128 +6,53 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
+## [0.1.0] - 2026-10-14
 
-- `⏎` (or `e`) opens an edit popup for the selected entry: title, state,
-  priority, tags, scheduled and deadline as fields, ←/→ to step state and
-  priority, a preview of the exact Org change, and one guarded, undoable
-  write of only the fields that changed. `ctrl-e` opens the entry in
-  `$EDITOR` from the lists, the pane, Agent review and both popups.
-- MCP `capture` takes `properties` (e.g. `REPO`, `BRANCH`, `SOURCE` as an org
-  link) recorded in the heading's `:PROPERTIES:` drawer; peek shows them and
-  the installed skill asks agents to use them.
-- `agd agenda --status` prints `3 slipped · 7 today · 4 inbox · 2 agents` for
-  a tmux or herdr status bar.
-- `agd agenda --view KEY` runs a saved view, like an org-agenda dispatcher
-  key; block views print `=` rules between blocks.
-- `agd agenda --log` lists CLOSED entries, like org-agenda log mode.
-- `agd import emacs --server NAME` selects a running daemon by socket name.
-- `agd import emacs --batch-profile` prints the command it runs before
-  executing your Emacs configuration.
+First public release: an org-agenda for the terminal and for coding agents,
+reading the Org files you already use with Emacs or nvim-orgmode.
 
-### Changed
+### Terminal UI
 
-- `agd setup import <path>...` reads your Emacs or Neovim config files instead
-  of asking a running editor: a directory such as `~/.doom.d` or
-  `~/.config/nvim`, or files. Emacs files are read without being loaded and
-  only the org settings' values are evaluated in `emacs -Q`; Neovim files
-  that mention orgmode run in `nvim --clean` with a stand-in plugin. A first
-  import derives `roots` from `org-directory` or the agenda entries and keeps
-  globs and directories as patterns. Every setting is reported with its
-  file and line, and everything left out with the reason. `setup import
-  emacs|nvim`, `--server` and the editor profiles are removed.
-- `config.toml` is one flat table: every setting is a top-level key
-  (`roots`, `agenda_files`, `todo_keywords`, `deadline_warning_days`,
-  `editor = [program, args...]`, `theme`, ...), and capture templates, views
-  and agent profiles are `[[capture]]`, `[[view]]` and `[[agent_profile]]`
-  records with a `key` or `name`. Nested sections such as `[files]` or
-  `[capture.t]` are errors. Import writes into this file; the separate
-  `imports/*.toml` snapshots and `[imports.*]` profiles are gone.
-- Rewrite the README around the TUI, tmux and herdr use, agents and
-  compatibility, with a demo GIF recorded from `docs/demo`.
-- Rebuild the TUI to the design: a theme with light, dark, 16-colour and
-  `NO_COLOR` variants; tabs for Today, Week, Inbox and Agents; a footer with
-  the most-used keys and Emacs-style write confirmations.
-- Today groups SLIPPED (capped at three, with badges), SCHEDULE, DUE SOON,
-  DOING (with WAIT age) and INBOX (with who captured it), shows effort
-  totals, and keeps section headers unselectable. `v` gives the classic
-  org-agenda day list; Week shows every day as org-agenda does.
-- Peek shows dates with the next repeat, effort, LOGBOOK count, why the row
-  is listed, the body with link text and links; `y` copies a link through
-  the terminal (OSC 52, tmux-safe).
-- Triage is a card per item with age, reschedule count from LOGBOOK or the
-  journal, the earned Someday nudge, key chips and a summary; Someday also
-  clears an overdue deadline and skips already-demoted tasks.
-- Capture shows parsed chips, the destination, the exact org preview and
-  fields for `%^{prompt}`; `tab` changes template.
-- Agent review shows cards per change (capture, state, date, refile),
-  reviewed changes dimmed, `f` to filter by agent and `d` for the raw diff.
-- The pane sorts by clock time with ▸ on the next item, collapses overdue
-  to a count, and takes over automatically under 60 columns.
-- New keys: `a` saved views, `tab`/`1`–`4` tabs, `+`/`-` priority, `l` log
-  mode, `g` refresh, `y` copy link, `r` refile outside triage.
-- Trim the CLI to `agd` (Today; `--pane`), `agenda`, `capture`, `mcp` and
-  `setup import|install|check`. People write through the TUI and agents
-  through MCP; `todo`, `q`, `state`, `schedule`, `deadline`, `edit`, `open`,
-  `refile`, `undo`, `config`, `tui`, `pane`, `list`, `read`, `outline`,
-  `heading`, `element-by-id` and `search` are gone.
-- `agd agenda` prints an org-agenda style buffer and takes `--match`.
-- `agd capture <key> "<text>"` parses the TUI tokens (`due:`, `on:`, `+tag`,
-  `#A`) instead of separate date, tag and priority flags.
-- Rename the product from agendum to Agenda. Identifiers use `agd`: the
-  config and data directories (`~/.config/agd`, `~/.local/share/agd`), JSON
-  schemas (`agd.item/v1` and siblings), the installed `agd` skill, and
-  `AGD_*` environment variables.
-- Replace the oversized keyboard-help overlay with a compact, structured panel
-  and higher-contrast selection styling.
+- `agd` opens Today: SLIPPED (three rows, the rest wait in Triage),
+  SCHEDULE, DUE SOON, DOING with WAIT ages, and INBOX with who captured each
+  item. `v` swaps in the classic org-agenda day list; Week, Inbox and Agents
+  are tabs, and `a` runs saved views like `C-c a`.
+- Triage (`T`) takes overdue items, then the inbox, one card at a time, with
+  how long each slipped and how often it was rescheduled; `u` undoes a step
+  or the whole pass.
+- Capture (`c`) takes one line with `due:fri on:+2d +tag #A` through your
+  templates and previews the exact Org text before writing.
+- `⏎` edits an entry's title, state, priority, tags and dates in a popup that
+  previews the exact change; `ctrl-e` opens the entry in `$EDITOR` from
+  anywhere.
+- Agent review (`A`) lists every agent write with who made it and from which
+  project, to accept or undo.
+- `agd --pane` is a 32-column glance for a tmux or herdr split.
+- Keys follow org-agenda; the theme follows the terminal's light or dark
+  background, falls back to 16 colours, and honours `NO_COLOR`. Files are
+  watched, so edits from your editor or an agent show up as they happen.
 
-### Fixed
+### Command line and agents
 
-- `agd setup import nvim` loads the user's Neovim config. The probe ran with
-  `nvim -l`, which skips it unless `-u` is given, so the default import always
-  failed with "require('orgmode') failed"; it now runs after normal startup.
-- macOS reads `~/.config/agd/config.toml` and keeps the journal in
-  `~/.local/share/agd`, honouring `XDG_CONFIG_HOME` and `XDG_DATA_HOME`, as on
-  Linux; it used `~/Library/Application Support`, so the documented config
-  file was silently ignored.
-- Show links in titles as their description, untitled agenda blocks as
-  `Week-agenda (W42):`, and leave inbox-file section headings out of Inbox.
-- Keep the TUI running when a write is refused (`stale_ref`, `editor_dirty`,
-  a bad date) and show the reason on the status line.
-- Keep the cursor on the same heading when files change or a write
-  reorders rows; switching screens starts at the top.
-- Substitute `{col}` in `editor.args` for `agd open` and the TUI.
-- Keep CLI reads working when an agenda file is not UTF-8 and warn about the
-  skipped file on stderr.
-- Keep the selected task in view when cycling its TODO state, including when
-  the updated state reorders agenda rows.
-- Probe the installed nvim-orgmode version by capability instead of rejecting
-  every release except 0.7.5.
+- `agd agenda` prints the agenda as org-agenda does, or as `--json` or
+  `--csv`; `--view KEY` runs a saved view, `--match` a tags/TODO match,
+  `--log` closed items, and `--status` a one-line summary for status bars.
+- `agd capture KEY "text"` captures one line, or opens the popup with `-i`.
+- `agd mcp` is a stdio MCP server with six tools and an `agenda://today`
+  resource; every agent write is journaled with its client and project.
+- `agd setup import <path>` reads your Emacs or Neovim config files once and
+  writes `config.toml`, reporting each setting with its file and line and
+  everything it leaves out with the reason.
+- `agd setup install` adds the MCP server and skill to Claude Code, Codex or
+  OpenCode; `agd setup check` reports parse drift, invalid UTF-8 and
+  duplicate IDs.
 
-## [0.0.2] - 2026-10-13
+### Configuration and packaging
 
-### Added
-
-- `agd check` with human and JSON reports for unreadable input, invalid UTF-8,
-  parser byte drift and duplicate heading IDs.
-- Native day/week/month agenda, TODO matcher, org-ql subset and
-  Emacs-compatible CSV output.
-- Transactional capture, state, planning, edit, refile and guarded undo with
-  exact dry-run diffs and stable JSON errors.
-- Today, triage, capture, Agent review and pane terminal workflows with file
-  watching and `NO_COLOR` support.
-- Versioned Emacs and nvim-orgmode imports with explicit profiles and
-  verification reports.
-- Claude Code, Codex and OpenCode installers that add no session hook by
-  default.
-- cargo-dist release binaries, Homebrew and AUR packaging, signed checksums
-  and dependency policy gates.
-
-### Changed
-
-- The stdio MCP server ships inside `agd` as `agd mcp`, with six write-aware
-  tools and one Today resource; every write journals client and project.
-- `agd config init` writes the strict native schema shared by every surface.
+- One flat `~/.config/agd/config.toml` (or `$XDG_CONFIG_HOME/agd`) on Linux
+  and macOS; the journal lives in `~/.local/share/agd`.
+- Release binaries for Linux and macOS (x86_64 and aarch64) and Windows
+  (x86_64) with signed checksums, a Homebrew tap, and a Nix flake.
 
 ## [0.0.1] - 2026-10-13
 
