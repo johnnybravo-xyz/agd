@@ -43,6 +43,8 @@ pub(super) struct EditForm {
     values: [String; 6],
     field: usize,
     preview: Result<String, String>,
+    /// The preview is out of date; it is rebuilt once before the next draw.
+    stale: bool,
 }
 
 impl EditForm {
@@ -81,6 +83,7 @@ impl EditForm {
             original,
             field: TITLE,
             preview: Ok(String::new()),
+            stale: false,
         })
     }
 
@@ -238,9 +241,22 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<bool> {
         }
         _ => {}
     }
-    form.refresh(app);
+    form.stale = true;
     app.overlay = Overlay::Edit(form);
     Ok(false)
+}
+
+/// Rebuilds a stale preview with one dry run, as for capture.
+pub(super) fn refresh_stale(app: &mut App) {
+    // Every other overlay goes back untouched.
+    app.overlay = match std::mem::replace(&mut app.overlay, Overlay::None) {
+        Overlay::Edit(mut form) if form.stale => {
+            form.refresh(app);
+            form.stale = false;
+            Overlay::Edit(form)
+        }
+        other => other,
+    };
 }
 
 fn commit(app: &mut App, form: Box<EditForm>) -> Result<()> {

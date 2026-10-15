@@ -400,39 +400,52 @@ fn event_loop(
         if !event::poll(StdDuration::from_millis(200))? {
             continue;
         }
-        match event::read()? {
-            Event::Key(key) => {
-                // A refused write (stale_ref, editor_dirty, a bad date) is
-                // reported in place; only terminal failures end the TUI.
-                if let Err(error) = keys::handle_key(terminal, app, key) {
-                    app.set_error(&error);
-                }
-            }
-            Event::Mouse(mouse) => match mouse.kind {
-                MouseEventKind::ScrollDown => app.move_selection(1),
-                MouseEventKind::ScrollUp => app.move_selection(-1),
-                MouseEventKind::Down(_) => {
-                    if let Some(index) = app.row_at(mouse.column, mouse.row) {
-                        let already = index == app.selected;
-                        app.selected = index;
-                        // Clicking the selected pane row opens the full TUI there.
-                        if app.pane && already {
-                            app.pane = false;
-                            if let Err(error) = app.reload_rows() {
-                                app.set_error(&error);
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            },
-            _ => {}
+        // Handle every event already waiting before drawing again, so a
+        // pasted line or fast typing costs one redraw, not one per key.
+        handle_event(terminal, app, event::read()?);
+        while !app.quit && event::poll(StdDuration::ZERO)? {
+            handle_event(terminal, app, event::read()?);
         }
     }
     Ok(())
 }
 
+fn handle_event(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App, event: Event) {
+    match event {
+        Event::Key(key) => {
+            // A refused write (stale_ref, editor_dirty, a bad date) is
+            // reported in place; only terminal failures end the TUI.
+            if let Err(error) = keys::handle_key(terminal, app, key) {
+                app.set_error(&error);
+            }
+        }
+        Event::Mouse(mouse) => match mouse.kind {
+            MouseEventKind::ScrollDown => app.move_selection(1),
+            MouseEventKind::ScrollUp => app.move_selection(-1),
+            MouseEventKind::Down(_) => {
+                if let Some(index) = app.row_at(mouse.column, mouse.row) {
+                    let already = index == app.selected;
+                    app.selected = index;
+                    // Clicking the selected pane row opens the full TUI there.
+                    if app.pane && already {
+                        app.pane = false;
+                        if let Err(error) = app.reload_rows() {
+                            app.set_error(&error);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        },
+        _ => {}
+    }
+}
+
 fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
+    // A popup's preview is a dry-run write: build it once per draw, not
+    // once per key.
+    capture::refresh_stale(app);
+    edit::refresh_stale(app);
     let area = frame.area();
     if app.capture_only {
         capture::draw(frame, app, area);

@@ -53,6 +53,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Pasting or typing fast into capture or the edit popup no longer lags:
+  waiting keys are handled together, and the preview's dry run runs once
+  per redraw instead of once per key.
 - `agd setup import` no longer fails on a prefix-key entry in
   `org-agenda-custom-commands`, such as `("g" . "Searches")`, and Emacs no
   longer warns about a missing lexical-binding cookie in agd's reader.

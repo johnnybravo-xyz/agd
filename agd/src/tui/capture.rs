@@ -31,6 +31,8 @@ pub(super) struct Draft {
     field: usize,
     body: String,
     preview: Result<String, String>,
+    /// The preview is out of date; it is rebuilt once before the next draw.
+    stale: bool,
     /// The highlighted row of the template list, before one is chosen.
     selected: usize,
 }
@@ -45,6 +47,7 @@ impl Default for Draft {
             selected: 0,
             body: String::new(),
             preview: Ok(String::new()),
+            stale: false,
         }
     }
 }
@@ -130,6 +133,20 @@ impl Draft {
                 .map_err(|error| error.to_string())
         });
     }
+}
+
+/// Rebuilds a stale preview with one dry run, so keys that arrive together
+/// (a paste, fast typing) cost one dry run and not one each.
+pub(super) fn refresh_stale(app: &mut App) {
+    // Every other overlay goes back untouched.
+    app.overlay = match std::mem::replace(&mut app.overlay, Overlay::None) {
+        Overlay::Capture(mut draft) if draft.stale => {
+            draft.refresh(app);
+            draft.stale = false;
+            Overlay::Capture(draft)
+        }
+        other => other,
+    };
 }
 
 fn prompt_answers(prompts: &[(CapturePrompt, String)]) -> BTreeMap<String, String> {
@@ -245,7 +262,7 @@ pub(super) fn handle_key(
         }
         _ => {}
     }
-    draft.refresh(app);
+    draft.stale = true;
     app.overlay = Overlay::Capture(draft);
     Ok(())
 }
