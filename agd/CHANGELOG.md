@@ -42,7 +42,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tag, `#A` priority), picked by key or ↑/↓ and ⏎; the empty input shows
   the same tokens, and the footer keeps its key hints (esc cancel
   included) instead of the template list. A date prompt the line already answers
-  with due: or on: is not asked.
+  with due: or on: is not asked. The parsed dates show their month, and
+  their year when it is not this one: `deadline Thu 5 Nov`.
 - Every popup (capture, edit, the schedule/deadline/priority/tags/filter
   prompts, refile, views, keys, peek and the raw diff) shares one design: a
   rounded accent frame with its title in the accent, two columns of

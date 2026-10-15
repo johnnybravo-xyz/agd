@@ -5,6 +5,7 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result};
+use chrono::{Datelike, NaiveDate};
 use crossterm::event::{EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, enable_raw_mode};
@@ -412,7 +413,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     }
     let next = 2 + if prompts > 0 { prompts as usize + 1 } else { 0 };
     frame.render_widget(
-        Paragraph::new(Line::from(chips(theme, draft.parsed(app).ok()))),
+        Paragraph::new(Line::from(chips(theme, draft.parsed(app).ok(), app.today))),
         parts[next],
     );
     let destination = template.map_or(String::new(), destination);
@@ -579,16 +580,24 @@ fn preview_lines(theme: &Theme, preview: &Result<String, String>) -> Vec<Line<'s
     }
 }
 
-/// Parsed tokens shown as chips before anything is written.
-fn chips(theme: &Theme, draft: Option<CaptureDraft>) -> Vec<Span<'static>> {
+/// Parsed tokens shown as chips before anything is written. Dates carry
+/// their month, and their year when it is not this one.
+fn chips(theme: &Theme, draft: Option<CaptureDraft>, today: NaiveDate) -> Vec<Span<'static>> {
     let Some(draft) = draft else {
         return Vec::new();
     };
     let mut spans = Vec::new();
     let date = |value: &str| {
         value
-            .parse::<chrono::NaiveDate>()
-            .map(|date| date.format("%a %-d").to_string())
+            .parse::<NaiveDate>()
+            .map(|date| {
+                let format = if date.year() == today.year() {
+                    "%a %-d %b"
+                } else {
+                    "%a %-d %b %Y"
+                };
+                date.format(format).to_string()
+            })
             .unwrap_or_else(|_| value.to_string())
     };
     if let Some(deadline) = &draft.deadline {

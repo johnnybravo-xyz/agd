@@ -199,7 +199,7 @@ fn capture_preview_is_the_exact_text_that_will_be_written() {
         app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
         app.overlay = Overlay::Capture(capture::Draft::default());
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
-        for key in "tRenew passport due:fri +personal #A".chars() {
+        for key in "tRenew passport due:fri on:2027-01-04 +personal #A".chars() {
             capture::type_key(&mut app, key);
         }
         terminal.draw(|frame| draw(frame, &mut app)).unwrap();
@@ -215,6 +215,9 @@ fn capture_preview_is_the_exact_text_that_will_be_written() {
             "{screen}"
         );
         assert!(screen.contains("DEADLINE: <2026-10-16 Fri>"), "{screen}");
+        // Chips name the month, and the year when it is not this one.
+        assert!(screen.contains("deadline Fri 16 Oct"), "{screen}");
+        assert!(screen.contains("scheduled Mon 4 Jan 2027"), "{screen}");
         assert_eq!(
             fs::read_to_string(root.join("inbox.org")).unwrap(),
             "* Inbox\n"
