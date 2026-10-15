@@ -2,12 +2,12 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{Args, Subcommand};
 use serde_json::{Map, Value, json};
 
 /// The one copy of the skill, shared with the Claude Code plugin.
-const SKILL: &str = include_str!("../../claude-plugin/skills/org-agenda/SKILL.md");
+const SKILL: &str = include_str!("../../claude-plugin/skills/agenda/SKILL.md");
 
 #[derive(Args, Debug)]
 pub struct InstallCommand {
@@ -40,6 +40,8 @@ impl InstallCommand {
 }
 
 fn install_codex(directory: &Path) -> Result<()> {
+    let skill_path = directory.join(SKILL_PATH);
+    check_skill(&skill_path)?;
     let config_path = directory.join(".codex/config.toml");
     let source = fs::read_to_string(&config_path).unwrap_or_default();
     let mut config: toml::Value = if source.trim().is_empty() {
@@ -69,12 +71,14 @@ fn install_codex(directory: &Path) -> Result<()> {
         &config_path,
         format!("{}\n", toml::to_string_pretty(&config)?).as_bytes(),
     )?;
-    write_skill(directory.join(".agents/skills/org-agenda/SKILL.md"))?;
+    write_skill(skill_path)?;
     println!("installed Codex integration in {}", directory.display());
     Ok(())
 }
 
 fn install_opencode(directory: &Path) -> Result<()> {
+    let skill_path = directory.join(SKILL_PATH);
+    check_skill(&skill_path)?;
     let config_path = directory.join("opencode.json");
     let mut config = read_json_object(&config_path)?;
     object_at(&mut config, "mcp")?.insert(
@@ -82,7 +86,7 @@ fn install_opencode(directory: &Path) -> Result<()> {
         json!({"type": "local", "command": ["agd", "mcp"], "enabled": true}),
     );
     write_json(&config_path, &config)?;
-    write_skill(directory.join(".agents/skills/org-agenda/SKILL.md"))?;
+    write_skill(skill_path)?;
     println!("installed OpenCode integration in {}", directory.display());
     Ok(())
 }
@@ -135,6 +139,24 @@ fn write_json(path: &Path, object: &Map<String, Value>) -> Result<()> {
     atomic_write(path, &bytes)
 }
 
+/// Where Codex and OpenCode both read the skill.
+const SKILL_PATH: &str = ".agents/skills/agenda/SKILL.md";
+
+/// `agenda` is a common name, so a skill already there is replaced only when
+/// it is agd's own (any version says it works through "the agd MCP server");
+/// anyone else's is left alone, before anything is written.
+fn check_skill(path: &Path) -> Result<()> {
+    match fs::read_to_string(path) {
+        Ok(existing) if existing.contains("the agd MCP server") => Ok(()),
+        Ok(_) => bail!(
+            "{} is another skill named agenda; move it aside, then install again",
+            path.display()
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("cannot read {}", path.display())),
+    }
+}
+
 fn write_skill(path: PathBuf) -> Result<()> {
     atomic_write(&path, SKILL.as_bytes())
 }
@@ -172,4 +194,43 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         let _ = fs::remove_file(&temporary);
     }
     result.with_context(|| format!("cannot write {}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn installs_the_skill_and_replaces_only_agds_own() {
+        let directory = tempfile::tempdir().unwrap();
+        install_codex(directory.path()).unwrap();
+        let skill = directory.path().join(SKILL_PATH);
+        assert_eq!(fs::read_to_string(&skill).unwrap(), SKILL);
+
+        // An older agd skill is replaced.
+        fs::write(
+            &skill,
+            "---\nname: agenda\ndescription: through the agd MCP server.\n---\n",
+        )
+        .unwrap();
+        install_opencode(directory.path()).unwrap();
+        assert_eq!(fs::read_to_string(&skill).unwrap(), SKILL);
+    }
+
+    #[test]
+    fn refuses_someone_elses_agenda_skill_before_writing_anything() {
+        let directory = tempfile::tempdir().unwrap();
+        let skill = directory.path().join(SKILL_PATH);
+        fs::create_dir_all(skill.parent().unwrap()).unwrap();
+        let theirs = "---\nname: agenda\ndescription: My meeting agendas.\n---\n";
+        fs::write(&skill, theirs).unwrap();
+
+        let error = install_codex(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("is another skill named agenda"), "{error}");
+        assert_eq!(fs::read_to_string(&skill).unwrap(), theirs);
+        assert!(!directory.path().join(".codex/config.toml").exists());
+
+        assert!(install_opencode(directory.path()).is_err());
+        assert!(!directory.path().join("opencode.json").exists());
+    }
 }

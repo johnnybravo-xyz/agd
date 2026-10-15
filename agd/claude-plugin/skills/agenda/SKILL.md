@@ -1,5 +1,5 @@
 ---
-name: org-agenda
+name: agenda
 description: Read and safely update local org-mode agendas through the agd MCP server.
 user-invocable: false
 ---
