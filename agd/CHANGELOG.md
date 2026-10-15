@@ -57,6 +57,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reads prefix-key entries in `org-agenda-custom-commands`, such as
   `("g" . "Searches")`, and `--stdout` prints only the config, with the
   report on stderr.
+- `p` on the Agents tab peeks at the task the selected change touched.
+- MCP writes are journaled under the agent's own name, such as
+  `mcp:claude-code`, so the Agents tab says which agent made each change.
 - Pasting or typing fast into capture or the edit popup keeps up: waiting
   keys are handled together, and the preview is built once per redraw.
 - A view whose blocks repeat a header, such as the same day in two agenda

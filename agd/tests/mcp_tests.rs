@@ -132,7 +132,8 @@ async fn writes_return_mutations_and_failures_return_error_schemas()
         let journal =
             fs::read_to_string(journal_data_directory(&directory).join("agd/journal.jsonl"))?;
         let record: Value = serde_json::from_str(journal.lines().next().expect("journal record"))?;
-        assert!(record["actor"].as_str().expect("actor").starts_with("mcp:"));
+        // The client's own name: rmcp's test client calls itself "rmcp".
+        assert_eq!(record["actor"], "mcp:rmcp");
         assert_eq!(
             record["project"],
             directory.path().to_string_lossy().as_ref()
@@ -150,5 +151,64 @@ async fn writes_return_mutations_and_failures_return_error_schemas()
     assert!(encoded.contains("agd.error/v1"));
     assert!(encoded.contains("stale_ref"));
     service.cancel().await?;
+    Ok(())
+}
+
+/// Claude Code speaks the 2026-07-28 protocol: `server/discover` first, no
+/// `initialize`, and its name in every request's metadata. The journal must
+/// still name it.
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn writes_from_a_client_without_initialize_are_journaled_under_its_name()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::io::{BufRead, BufReader, Write};
+
+    let directory = fixture();
+    let mut child = std::process::Command::new(binary())
+        .args([
+            "--root-directory",
+            directory.path().to_str().expect("UTF-8 path"),
+            "mcp",
+        ])
+        .env("XDG_DATA_HOME", journal_data_directory(&directory))
+        .env("XDG_CONFIG_HOME", directory.path().join("config"))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    let meta = json!({
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": {"name": "claude-code", "version": "2.1.296"},
+        "io.modelcontextprotocol/clientCapabilities": {}
+    });
+    let mut stdin = child.stdin.take().expect("stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
+    let mut send = |request: Value| -> Result<String, Box<dyn std::error::Error>> {
+        writeln!(stdin, "{request}")?;
+        let mut response = String::new();
+        stdout.read_line(&mut response)?;
+        Ok(response)
+    };
+    let discovered = send(json!({
+        "jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": meta}
+    }))?;
+    assert!(discovered.contains("\"result\""), "{discovered}");
+    let written = send(json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "set_state",
+            "arguments": {"ref": "today-task", "state": "DONE"},
+            "_meta": meta
+        }
+    }))?;
+    assert!(written.contains("agd.mutation/v1"), "{written}");
+    drop(stdin);
+    child.wait()?;
+
+    let journal = fs::read_to_string(journal_data_directory(&directory).join("agd/journal.jsonl"))?;
+    let record: Value = serde_json::from_str(journal.lines().next().expect("journal record"))?;
+    assert_eq!(record["actor"], "mcp:claude-code");
     Ok(())
 }

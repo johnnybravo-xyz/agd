@@ -1,9 +1,9 @@
 use chrono::Local;
 use org_core::{AgendaEngine, AgendaQuery, WorkspaceIndex};
 use rmcp::model::{
-    Implementation, InitializeRequestParams, InitializeResult, ListResourcesResult,
-    PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult,
-    Resource, ResourceContents, ServerCapabilities, ServerConfig,
+    Implementation, ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams,
+    ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ServerCapabilities,
+    ServerConfig,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler, tool_handler};
@@ -66,11 +66,6 @@ impl ServerHandler for OrgModeRouter {
         Ok(ReadResourceResult::new(vec![ResourceContents::text(payload, uri)]).into())
     }
 
-    async fn initialize(
-        &self,
-        _request: InitializeRequestParams,
-        _context: RequestContext<RoleServer>,
-    ) -> Result<InitializeResult, McpError> {
-        Ok(self.get_info())
-    }
+    // rmcp's own `initialize` records the client's name, which journals each
+    // agent write as `mcp:<client>`; do not override it.
 }

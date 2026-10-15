@@ -6,10 +6,12 @@ use org_core::{
     PlanningTimestamp, WorkspaceIndex, WriteContext, WriteEngine, parse_date_input,
 };
 use rmcp::{
-    ErrorData as McpError, Peer, RoleServer,
+    ErrorData as McpError, RoleServer,
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ContentBlock, ErrorCode},
-    schemars, tool, tool_router,
+    schemars,
+    service::RequestContext,
+    tool, tool_router,
 };
 use serde::Serialize;
 
@@ -137,7 +139,7 @@ impl OrgModeRouter {
     async fn capture(
         &self,
         Parameters(request): Parameters<CaptureRequest>,
-        client: Peer<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let result = (|| {
             let today = Local::now().date_naive();
@@ -155,7 +157,7 @@ impl OrgModeRouter {
                 &request.body,
                 &request.prompts,
                 false,
-                &write_context(&client, &self.project),
+                &write_context(&context, &self.project),
             )
         })();
         schema_result(result)
@@ -168,7 +170,7 @@ impl OrgModeRouter {
     async fn set_state(
         &self,
         Parameters(request): Parameters<SetStateRequest>,
-        client: Peer<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let intent = EditIntent {
             state: Change::Set(request.state),
@@ -179,7 +181,7 @@ impl OrgModeRouter {
             &self.settings,
             &request.item_ref,
             intent,
-            &client,
+            &context,
             &self.project,
         ))
     }
@@ -191,7 +193,7 @@ impl OrgModeRouter {
     async fn plan(
         &self,
         Parameters(request): Parameters<PlanRequest>,
-        client: Peer<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let result = (|| {
             if request.scheduled.is_none() && request.deadline.is_none() {
@@ -221,7 +223,7 @@ impl OrgModeRouter {
                 &self.settings,
                 &request.item_ref,
                 intent,
-                &client,
+                &context,
                 &self.project,
             )
         })();
@@ -235,7 +237,7 @@ impl OrgModeRouter {
     async fn edit(
         &self,
         Parameters(request): Parameters<EditRequest>,
-        client: Peer<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let intent = EditIntent {
             title: request.title.map(Change::Set).unwrap_or_default(),
@@ -250,7 +252,7 @@ impl OrgModeRouter {
             &self.settings,
             &request.item_ref,
             intent,
-            &client,
+            &context,
             &self.project,
         ))
     }
@@ -274,14 +276,14 @@ fn edit(
     settings: &org_core::Settings,
     item_ref: &str,
     intent: EditIntent,
-    client: &Peer<RoleServer>,
+    context: &RequestContext<RoleServer>,
     project: &str,
 ) -> Result<org_core::Mutation, AgdError> {
     WriteEngine::with_default_journal(settings.clone())?.edit(
         item_ref,
         &intent,
         false,
-        &write_context(client, project),
+        &write_context(context, project),
     )
 }
 
@@ -314,11 +316,14 @@ fn parse_day(value: &str, today: NaiveDate) -> Result<NaiveDate, AgdError> {
         .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {value}")))
 }
 
-fn write_context(client: &Peer<RoleServer>, project: &str) -> WriteContext {
+/// Journals the write under the agent's own name. A client on the 2026-07-28
+/// protocol (Claude Code) sends its name with every request rather than in an
+/// `initialize` handshake; `RequestContext::client_info` covers both.
+fn write_context(context: &RequestContext<RoleServer>, project: &str) -> WriteContext {
     WriteContext {
-        actor: client
-            .peer_info()
-            .map(|info| format!("mcp:{}", info.client_info.name))
+        actor: context
+            .client_info()
+            .map(|info| format!("mcp:{}", info.name))
             .unwrap_or_else(|| "mcp:unknown".to_string()),
         project: project.to_string(),
         now: None,
