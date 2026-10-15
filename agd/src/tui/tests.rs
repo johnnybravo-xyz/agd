@@ -109,6 +109,35 @@ blocks = [
     });
 }
 
+#[test]
+#[serial]
+fn peek_on_the_agents_tab_shows_the_task_an_agent_wrote() {
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        let draft = org_core::parse_capture_line("Agent task #A", today()).unwrap();
+        let context = org_core::WriteContext {
+            actor: "mcp:test-agent".to_string(),
+            project: root.to_string_lossy().into_owned(),
+            now: None,
+        };
+        org_core::WriteEngine::with_default_journal(app.settings.clone())
+            .unwrap()
+            .capture("t", &draft, "", &Default::default(), false, &context)
+            .unwrap();
+        app.index.refresh_path(&root.join("inbox.org")).unwrap();
+        app.switch_screen(Screen::Review).unwrap();
+        app.peek = true;
+        let screen = render(&mut app, 120, 30).join("\n");
+        assert!(screen.contains("Peek"), "{screen}");
+        assert!(screen.contains("p peek"), "{screen}");
+        // The peek panel names the task and where it lives.
+        assert!(screen.matches("Agent task").count() >= 2, "{screen}");
+        assert!(screen.contains("inbox.org"), "{screen}");
+    });
+}
+
 #[derive(serde::Deserialize)]
 struct ViewsOnly {
     view: Vec<org_core::ViewSettings>,

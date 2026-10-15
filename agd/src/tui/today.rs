@@ -31,7 +31,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
         .split(area);
     draw_header(frame, app, parts[0]);
     let wide = area.width >= WIDE;
-    let split = app.peek && wide && !matches!(app.screen, Screen::Review | Screen::Triage);
+    let split = app.peek && wide && app.screen != Screen::Triage;
     let body = if split {
         Layout::default()
             .direction(Direction::Horizontal)
@@ -49,10 +49,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     }
     if split {
         peek::draw(frame, app, body[1], false);
-    } else if app.peek
-        && matches!(app.overlay, Overlay::None)
-        && !matches!(app.screen, Screen::Review | Screen::Triage)
-    {
+    } else if app.peek && matches!(app.overlay, Overlay::None) && app.screen != Screen::Triage {
         peek::draw_overlay(frame, app, parts[1]);
     }
     draw_footer(frame, app, parts[2]);
@@ -158,6 +155,7 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
             ("a", "accept"),
             ("u", "undo"),
             ("d", "diff"),
+            ("p", "peek"),
             ("A", "accept all"),
             ("f", "filter by agent"),
             ("esc", "back"),

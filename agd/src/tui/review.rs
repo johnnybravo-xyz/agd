@@ -4,7 +4,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
 
-use org_core::{JournalRecord, JournalStatus};
+use org_core::{Item, JournalRecord, JournalStatus};
 
 use super::App;
 use super::theme::{Theme, centered};
@@ -140,6 +140,26 @@ fn title_after_keyword(headline: &str) -> String {
 }
 
 /// Line of the change in its file, for opening the editor there.
+/// The task a change touched, as the file reads now: the heading whose
+/// section holds the first patch's start. None once the change is undone
+/// or nothing is left at that place.
+pub(super) fn touched_item(app: &App, record: &JournalRecord) -> Option<Item> {
+    if matches!(
+        record.status,
+        JournalStatus::Undone | JournalStatus::Unapplied
+    ) {
+        return None;
+    }
+    let start = record.patches.first()?.start;
+    let file = record.file.split(',').next()?;
+    app.index
+        .document(std::path::Path::new(file))?
+        .headlines()
+        .iter()
+        .find(|headline| headline.section_span.start <= start && start < headline.section_span.end)
+        .map(|headline| headline.item.clone())
+}
+
 pub(super) fn changed_line(record: &JournalRecord) -> usize {
     record
         .diff

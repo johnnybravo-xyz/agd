@@ -263,6 +263,8 @@ fn review_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Esc | KeyCode::Char('q') => {
             if app.review_diff {
                 app.review_diff = false;
+            } else if app.peek {
+                app.peek = false;
             } else {
                 let back = app.back.clone();
                 app.switch_screen(if back == Screen::Review {
@@ -276,6 +278,7 @@ fn review_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('A') => app.accept_all()?,
         KeyCode::Char('u') => app.undo_selected_change()?,
         KeyCode::Char('d') => app.review_diff = !app.review_diff,
+        KeyCode::Char('p') => app.peek = !app.peek,
         KeyCode::Char('f') => app.cycle_agent_filter()?,
         KeyCode::Enter => {
             if let Some(record) = app.journals.get(app.selected) {

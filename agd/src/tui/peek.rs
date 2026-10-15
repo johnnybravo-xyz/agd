@@ -5,10 +5,10 @@ use ratatui::widgets::{Clear, Paragraph, Wrap};
 
 use org_core::{Item, OccurrenceType, WorkspaceIndex};
 
-use super::App;
 use super::actions::short_date;
 use super::rows::next_repeat;
 use super::theme::centered;
+use super::{App, Screen};
 
 /// The entry's own text: everything after the headline up to the first
 /// child, including planning and drawers.
@@ -126,14 +126,24 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     } else {
         theme.panel("Peek")
     };
-    let Some(row) = app.selected_row() else {
+    // On the Agents tab the subject is the task the selected change touched.
+    let subject = if app.screen == Screen::Review {
+        app.journals
+            .get(app.selected)
+            .and_then(|record| super::review::touched_item(app, record))
+            .map(|item| (item, None))
+    } else {
+        app.selected_row()
+            .map(|row| (row.item.clone(), row.occurrence.clone()))
+    };
+    let Some((item, occurrence)) = subject else {
         frame.render_widget(
-            Paragraph::new(Span::styled("Nothing selected", theme.muted())).block(block),
+            Paragraph::new(Span::styled("Nothing to peek", theme.muted())).block(block),
             area,
         );
         return;
     };
-    let item = &row.item;
+    let item = &item;
     let text = entry_text(&app.index, item);
     let label = |name: &str| Span::styled(format!("{name:<11}"), theme.muted());
     let mut lines = vec![
@@ -220,7 +230,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
         ]));
     }
     if let Some(reason) = why_listed(
-        row.occurrence
+        occurrence
             .as_ref()
             .map(|occurrence| (occurrence.kind, occurrence.extra.as_str())),
     ) {
