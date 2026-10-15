@@ -120,10 +120,26 @@ click it again to open the full TUI there.
 
 `agd mcp` is a stdio MCP server with six tools (`agenda`, `query`, `capture`,
 `set_state`, `plan`, `edit`) and an `agenda://today` resource. It never opens
-a network port. Install it with the `agd` skill for your agent:
+a network port.
+
+In Claude Code, install agd as a plugin. It brings the MCP server and the
+`agd` skill, and a mod (Claude Code 2.1.287 or later) that adds `/agd`, a pane
+beside the transcript with your `start_view` (or today's agenda), `/capture
+KEY text`, which files a task at once without a Claude turn, and a line above
+the prompt with the day's counts. It runs the `agd` on your `PATH`.
 
 ```bash
-agd setup install --directory . claude      # or codex, opencode
+claude plugin marketplace add johnnybravo-xyz/agd
+claude plugin install agd@johnnybravo-xyz
+```
+
+For one project instead, or for Codex and OpenCode, install the MCP server and
+skill there (the skill goes to `.agents/skills/agd/`, which both read). Use
+the plugin or `agd setup install claude`, not both, or Claude sees the tools
+twice.
+
+```bash
+agd setup install --directory . codex       # or opencode, claude
 agd setup install --directory . claude --with-session-agenda work
 ```
 
@@ -131,7 +147,7 @@ agd setup install --directory . claude --with-session-agenda work
   up in Agent review until you accept or undo it.
 - Agents pass `properties` such as `REPO`, `BRANCH` and `SOURCE` (an Org link
   back to the file and line) with a capture, so a task says where it came from.
-- `agents.capture_to = "inbox"` sends every agent capture to your inbox
+- `agent_capture_to = "inbox"` sends every agent capture to your inbox
   without dates, so agents can add work but not plan your day.
 - Session agenda is off by default; `--with-session-agenda` needs a named,
   filtered profile.

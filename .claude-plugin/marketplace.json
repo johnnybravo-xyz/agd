@@ -1,0 +1,14 @@
+{
+  "name": "johnnybravo-xyz",
+  "description": "agd, an org-mode agenda for terminals and coding agents",
+  "owner": {
+    "name": "johnnybravo-xyz"
+  },
+  "plugins": [
+    {
+      "name": "agd",
+      "source": "./agd/claude-plugin",
+      "description": "Your org-mode agenda in Claude Code: a pane, /capture, and the agd MCP tools"
+    }
+  ]
+}

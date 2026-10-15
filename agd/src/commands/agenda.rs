@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use chrono::{Datelike, Duration, Local, NaiveDate};
 use clap::{Args, ValueEnum};
 use org_core::{
@@ -27,8 +27,15 @@ pub struct AgendaCommand {
     /// Emacs tags/todo match, e.g. 'work-someday/NEXT|TODO'
     #[arg(long = "match")]
     match_expression: Option<String>,
-    /// Run a saved view, like org-agenda's dispatcher keys (n, or a [[view]] key)
-    #[arg(long, conflicts_with_all = ["span", "match_expression"])]
+    /// Run a saved view, like org-agenda's dispatcher keys (n, or a [[view]]
+    /// key); without a key, the configured start_view
+    #[arg(
+        long,
+        num_args = 0..=1,
+        default_missing_value = "",
+        value_name = "KEY",
+        conflicts_with_all = ["span", "match_expression"]
+    )]
     view: Option<String>,
     /// Use the files and match of a configured agents.profiles entry
     #[arg(long)]
@@ -79,6 +86,14 @@ impl AgendaCommand {
             None => default_start(&settings, today)?,
         };
         if let Some(key) = self.view.as_deref() {
+            let key = if key.is_empty() {
+                if settings.start_view.is_empty() {
+                    bail!("--view without a key runs start_view, which is not set");
+                }
+                settings.start_view.as_str()
+            } else {
+                key
+            };
             let view = settings.view(key).ok_or_else(|| {
                 let keys: Vec<&str> = settings
                     .views

@@ -8,6 +8,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A Claude Code plugin (`claude plugin marketplace add johnnybravo-xyz/agd`,
+  then `claude plugin install agd@johnnybravo-xyz`) with the MCP server, the
+  skill and a mod: `/agd` opens a pane with your `start_view` or today's
+  agenda, `/capture KEY text` files a task without a Claude turn, and a line
+  above the prompt shows the day's counts. The mod only runs `agd`; it needs
+  Claude Code 2.1.287 or later.
+- `agd agenda --view` without a key runs `start_view`.
 - `X` cancels the selected task in the lists and the pane, with the file's
   own CANCELLED (or CANCELED) keyword.
 - `start_view = "KEY"` opens `agd` on that saved view, such as your
@@ -27,6 +34,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `agd setup install codex` and `opencode` write the skill to
+  `.agents/skills/agd/`, where Codex documents it and OpenCode reads it too;
+  remove an old `.codex/skills/agd` or `.opencode/skills/agd` by hand.
 - Import keeps capture templates in the order an Emacs config lists them;
   nvim-orgmode's, which a Lua table keeps in no order, come by key. The
   capture list shows them in `config.toml` order, so reordering the

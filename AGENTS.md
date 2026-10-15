@@ -84,6 +84,8 @@ failure without partial mutation.
 - Keep `orgize` exactly pinned until source-preserving conformance proves an
   upgrade safe.
 - Keep the Nix default package aligned with the single `agd` executable.
+- Keep `agd/claude-plugin/.claude-plugin/plugin.json`'s `version` equal to the
+  `agd` crate version; Claude Code updates installed plugins by it.
 
 ## Git
 

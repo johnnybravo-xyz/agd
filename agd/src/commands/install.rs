@@ -7,15 +7,8 @@ use clap::{Args, Subcommand};
 use org_core::load_settings;
 use serde_json::{Map, Value, json};
 
-const SKILL: &str = r#"---
-name: agd
-description: Read and safely update local org-mode agendas through the agd MCP server.
----
-
-Use `agenda` or `query` before changing an item. Keep the returned `ref`; every write revalidates it. If a write returns `stale_ref`, read the item again and decide from the current state instead of blindly retrying.
-
-Use `capture` for a new task and `set_state`, `plan`, or `edit` for an existing ref. Capture bodies are literal text. When a task comes from your work in a repository, pass `properties` such as `REPO`, `BRANCH` and `SOURCE` (an org link like `[[file:/path/to/file::42]]`) so the person can see where it came from. Never expose agenda data outside the local MCP session.
-"#;
+/// The one copy of the skill, shared with the Claude Code plugin.
+const SKILL: &str = include_str!("../../claude-plugin/skills/agd/SKILL.md");
 
 #[derive(Args, Debug)]
 pub struct InstallCommand {
@@ -136,7 +129,7 @@ fn install_codex(directory: &Path) -> Result<()> {
         &config_path,
         format!("{}\n", toml::to_string_pretty(&config)?).as_bytes(),
     )?;
-    write_skill(directory.join(".codex/skills/agd/SKILL.md"))?;
+    write_skill(directory.join(".agents/skills/agd/SKILL.md"))?;
     println!("installed Codex integration in {}", directory.display());
     println!("session agenda disabled");
     Ok(())
@@ -150,7 +143,7 @@ fn install_opencode(directory: &Path) -> Result<()> {
         json!({"type": "local", "command": ["agd", "mcp"], "enabled": true}),
     );
     write_json(&config_path, &config)?;
-    write_skill(directory.join(".opencode/skills/agd/SKILL.md"))?;
+    write_skill(directory.join(".agents/skills/agd/SKILL.md"))?;
     println!("installed OpenCode integration in {}", directory.display());
     println!("session agenda disabled");
     Ok(())

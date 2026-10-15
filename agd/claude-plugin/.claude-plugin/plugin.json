@@ -1,0 +1,9 @@
+{
+  "name": "agd",
+  "version": "0.1.0",
+  "description": "Your org-mode agenda in Claude Code: /agd opens your saved view in a pane, /capture files a task without a Claude turn, and the agd MCP tools let Claude read and safely update it",
+  "author": { "name": "johnnybravo-xyz" },
+  "homepage": "https://github.com/johnnybravo-xyz/agd",
+  "repository": "https://github.com/johnnybravo-xyz/agd",
+  "license": "GPL-3.0-or-later"
+}
