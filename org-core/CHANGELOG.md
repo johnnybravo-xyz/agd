@@ -6,44 +6,27 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
-
-- `keyword_color` names a TODO keyword's color as agd draws it, and every
-  `ViewSection` and `ViewSectionGroup` carries its resolved `color`: the
-  configured one, or the color its rows' keywords share.
-- `ViewBlock::groups` (`ViewGroup`) groups a view block's rows as
-  org-super-agenda does, including `:effort<`/`:effort>` as
-  `effort_max`/`effort_min`; blocks and groups take an optional `color`
-  (`COLOR_NAMES`) that `ViewSection` and `ViewSectionGroup` carry;
-  `Settings::todo_keyword_colors` names a color per TODO keyword; `AgendaEngine::view` returns them in
-  `ViewSection::groups`.
 - Tags/TODO matches take property terms with Org's semantics, checked
-  against Emacs: `TODO="DONE"`, `PRIORITY="A"` (the default priority when
-  a heading has none), `LEVEL`, `CATEGORY`, planning dates and drawer
+  against Emacs: `TODO="DONE"`, `PRIORITY="A"` (the default priority when a
+  heading has none), `LEVEL`, `CATEGORY`, planning dates and drawer
   properties; string, number (`Effort<15`) and time (`CLOSED>="<-3w>"`,
   `DEADLINE<="<+1w>"`) comparisons, `-` negation and `OP*`. Regexp terms
-  are still rejected with `invalid_match`.
-
-### Changed
-
-- `ResolvedEditorConfig::capture` is a list in the editor's order, each
-  `ImportedCapture` with its `key`, instead of a map sorted by key.
-- `AgendaEngine::todo` and `AgendaEngine::tags` take the agenda day, which
-  relative times in a match count from.
-- Import keeps `TODO="X"` matches as written instead of rewriting them to
-  `/X`.
-
-- `CapturePrompt::planning` names the planning keyword a date prompt fills,
-  and `answered_by` tells whether a capture line's `due:`/`on:` already
-  gives it.
-
-### Fixed
-
+  fail with `invalid_match`. `AgendaEngine::todo` and `AgendaEngine::tags`
+  take the agenda day, which relative times count from.
+- `ViewBlock::groups` (`ViewGroup`) groups a view block's rows as
+  org-super-agenda does, including `effort_max`/`effort_min`, and
+  `AgendaEngine::view` returns them in `ViewSection::groups`.
+- `keyword_color` names a TODO keyword's color as agd draws it, from
+  `Settings::todo_keyword_colors` or its state, and every `ViewSection` and
+  `ViewSectionGroup` carries its resolved `color` (`COLOR_NAMES`).
 - Capture templates support Org's date prompts (`%^{name}t`, `T`, `u`, `U`
-  and a bare `%^t`): the answer takes the same input as `due:` and renders
-  as a timestamp. A template's own planning line, such as
-  `DEADLINE: %^{deadline}t`, merges with the `due:`/`on:` dates instead of
-  producing a second planning line and a literal `t`.
+  and a bare `%^t`): the answer takes the same input as `due:` and renders as
+  a timestamp, and a template's own planning line, such as
+  `DEADLINE: %^{deadline}t`, merges with the `due:`/`on:` dates.
+  `CapturePrompt::planning` names the keyword a prompt fills, and
+  `answered_by` tells whether a capture line's `due:`/`on:` gives it.
+- `ResolvedEditorConfig::capture` is a list in the editor's order, each
+  `ImportedCapture` with its `key`.
 
 ## [0.1.0] - 2026-10-14
 

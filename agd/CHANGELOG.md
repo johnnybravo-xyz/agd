@@ -6,90 +6,60 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
-
 - A Claude Code plugin (`claude plugin marketplace add johnnybravo-xyz/agd`,
   then `claude plugin install agd@johnnybravo-xyz`) with the MCP server, the
-  skill and a mod: `/agd` opens a pane with your `start_view` or today's
-  agenda, `/capture KEY text` files a task without a Claude turn, and a line
-  above the prompt shows the day's counts. The mod only runs `agd`; it needs
-  Claude Code 2.1.287 or later.
-- `agd agenda --view` without a key runs `start_view`.
-- `X` cancels the selected task in the lists and the pane, with the file's
-  own CANCELLED (or CANCELED) keyword.
+  `agenda` skill and a mod: `/agd` opens a pane with your `start_view` or
+  today's agenda, `/capture KEY text` files a task without a Claude turn, and
+  a line above the prompt shows the day's counts. The mod only runs `agd`; it
+  needs Claude Code 2.1.287 or later.
+- `agd setup install` covers Codex and OpenCode, writing their MCP entry and
+  the `agenda` skill to `.agents/skills/agenda/`, and leaves another skill of
+  that name untouched.
 - `start_view = "KEY"` opens `agd` on that saved view, such as your
-  dashboard, and makes it the first tab; number keys follow the tab order.
-- View blocks take org-super-agenda groups: each row goes to the first
-  group whose match it passes, `discard` drops rows, `by` groups by
-  category, parent, todo or priority, `effort_max`/`effort_min` compare
-  `:Effort:` as a duration (`0:10` is ten minutes, unlike Org's
-  `Effort<15`), and `order` places groups, with the rest under "Other
-  items".
-- Import reads a block's org-super-agenda groups into its `groups`,
-  translating the declarative selectors and reporting the rest.
-- Saved views with property matches run and import, such as a dashboard's
+  dashboard, as the first tab; number keys follow the tab order.
+  `agd agenda --view` without a key runs it.
+- View blocks take org-super-agenda groups: each row goes to the first group
+  whose match it passes, `discard` drops rows, `by` groups by category,
+  parent, todo or priority, `effort_max`/`effort_min` compare `:Effort:` as a
+  duration (`0:10` is ten minutes, unlike Org's `Effort<15`), and `order`
+  places groups, with the rest under "Other items". Import reads a block's
+  org-super-agenda groups and reports the selectors it cannot translate.
+- Saved views run and import property matches, such as a dashboard's
   `TODO="DONE"+CLOSED>="<-3w>"` or `TODO="NEXT"+Effort<15`.
-- `nerd_font = true` rounds every pill and chip with Nerd Font caps; off by
-  default, since terminals without such a font show missing-glyph boxes.
-
-### Changed
-
-- The skill is `org-agenda`, which leaves `/agd` to the plugin's command, and
-  `agd setup install codex` and `opencode` write it to
-  `.agents/skills/org-agenda/`, where Codex documents it and OpenCode reads it
-  too; remove an old `.codex/skills/agd` or `.opencode/skills/agd` by hand.
-- Import keeps capture templates in the order an Emacs config lists them;
-  nvim-orgmode's, which a Lua table keeps in no order, come by key. The
-  capture list shows them in `config.toml` order, so reordering the
-  `[[capture]]` records reorders the list.
+- `todo_keyword_colors`, like org-todo-keyword-faces, colors keywords by name,
+  such as `{ WAIT = "yellow", CANCELLED = "dim-red" }`; the colors are blue,
+  green, yellow, orange, red, dim-red, purple, pink, teal and grey. A view
+  section takes the color its rows share, or the `color` on its block or
+  group.
 - Sections stand apart as in the design: a view's blocks and groups, like
-  Today's sections, are uppercase with a row count and a blank line above;
-  empty sections and days are muted. A view section takes the color its
-  rows' TODO keywords share, or the `color` set on its block or group.
-- `todo_keyword_colors`, like org-todo-keyword-faces, colors keywords by
-  name, such as `{ WAIT = "yellow", CANCELLED = "dim-red" }`; colors are
-  blue, green, yellow, orange, red, dim-red, purple, pink, teal and
-  grey. The Agenda name is a
-  filled badge and the current tab bold and underlined, so they no longer
-  look alike.
-- Capture opens on a list of templates with their keys and destinations
-  and what the line takes (`due:fri` deadline, `on:+2d` scheduled, `+work`
-  tag, `#A` priority), picked by key or ↑/↓ and ⏎; the empty input shows
-  the same tokens, and the footer keeps its key hints (esc cancel
-  included) instead of the template list. A date prompt the line already answers
-  with due: or on: is not asked. The parsed dates show their month, and
-  their year when it is not this one: `deadline Thu 5 Nov`.
+  Today's sections, are uppercase with a row count and a blank line above,
+  and empty sections and days are muted. The Agenda name is a filled badge
+  and the current tab is bold and underlined.
+- Capture opens on a list of templates with their keys, destinations and
+  what a line takes (`due:fri` deadline, `on:+2d` scheduled, `+work` tag,
+  `#A` priority), picked by key or ↑/↓ and ⏎. A date prompt the line answers
+  with `due:` or `on:` is not asked, template date prompts take dates and
+  merge into one planning line, and parsed dates show their month, and their
+  year when it is not this one: `deadline Thu 5 Nov`.
 - Every popup (capture, edit, the schedule/deadline/priority/tags/filter
   prompts, refile, views, keys, peek and the raw diff) shares one design: a
-  rounded accent frame with its title in the accent, two columns of
-  padding, a blank row between sections, input in a rounded box, Org text
-  in a rounded inset, and key hints as the last row. Chips are spaced
-  apart, and the footer separates the location from the keys.
-
-### Removed
-
-- `agd setup install claude` and its `--with-session-agenda` hook: the Claude
-  Code plugin brings the MCP server and the skill. Remove the `agd` entry from
-  a project's `.mcp.json`, its `.claude/skills/agd`, and any `agd agenda`
-  SessionStart hook in `.claude/settings.json` by hand.
-
-### Fixed
-
-- Pasting or typing fast into capture or the edit popup no longer lags:
-  waiting keys are handled together, and the preview's dry run runs once
-  per redraw instead of once per key.
-- `agd setup import` no longer fails on a prefix-key entry in
-  `org-agenda-custom-commands`, such as `("g" . "Searches")`, and Emacs no
-  longer warns about a missing lexical-binding cookie in agd's reader.
+  rounded accent frame with its title in the accent, two columns of padding,
+  a blank row between sections, input in a rounded box, Org text in a
+  rounded inset, and key hints as the last row.
+- `X` cancels the selected task in the lists and the pane, with the file's
+  own CANCELLED (or CANCELED) keyword.
+- `nerd_font = true` rounds every pill and chip with Nerd Font caps; off by
+  default, since terminals without such a font show missing-glyph boxes.
+- Import keeps capture templates in the order an Emacs config lists them;
+  nvim-orgmode's, which a Lua table keeps in no order, come by key. It also
+  reads prefix-key entries in `org-agenda-custom-commands`, such as
+  `("g" . "Searches")`, and `--stdout` prints only the config, with the
+  report on stderr.
+- Pasting or typing fast into capture or the edit popup keeps up: waiting
+  keys are handled together, and the preview is built once per redraw.
 - A view whose blocks repeat a header, such as the same day in two agenda
-  blocks, no longer draws those rows under both.
-- `agd setup import --stdout` prints only the config, with the report on
-  stderr, so it can be redirected to a file.
-- A lead that fills its six columns (`in 14d`, a rounded badge) keeps a
-  space before the TODO keyword.
-- Capture templates with `DEADLINE: %^{deadline}t` no longer write a second,
-  broken `DEADLINE: t` line: date prompts take dates, and `due:`/`on:` merge
-  into the template's planning line.
+  blocks, draws each row once, and a lead that fills its six columns
+  (`in 14d`) keeps a space before the TODO keyword.
 
 ## [0.1.0] - 2026-10-14
 
