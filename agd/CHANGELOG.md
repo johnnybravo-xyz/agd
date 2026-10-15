@@ -34,9 +34,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- `agd setup install codex` and `opencode` write the skill to
-  `.agents/skills/agd/`, where Codex documents it and OpenCode reads it too;
-  remove an old `.codex/skills/agd` or `.opencode/skills/agd` by hand.
+- The skill is `org-agenda`, which leaves `/agd` to the plugin's command, and
+  `agd setup install codex` and `opencode` write it to
+  `.agents/skills/org-agenda/`, where Codex documents it and OpenCode reads it
+  too; remove an old `.codex/skills/agd` or `.opencode/skills/agd` by hand.
 - Import keeps capture templates in the order an Emacs config lists them;
   nvim-orgmode's, which a Lua table keeps in no order, come by key. The
   capture list shows them in `config.toml` order, so reordering the

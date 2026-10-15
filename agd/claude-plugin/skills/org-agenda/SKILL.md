@@ -1,6 +1,7 @@
 ---
-name: agd
+name: org-agenda
 description: Read and safely update local org-mode agendas through the agd MCP server.
+user-invocable: false
 ---
 
 Use `agenda` or `query` before changing an item. Keep the returned `ref`; every write revalidates it. If a write returns `stale_ref`, read the item again and decide from the current state instead of blindly retrying.

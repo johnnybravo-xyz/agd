@@ -71,6 +71,13 @@ cargo test --workspace --all-targets --all-features
 nix flake check
 ```
 
+For the Claude Code plugin in `agd/claude-plugin/`, also run:
+
+```bash
+claude plugin validate --strict ./agd/claude-plugin
+claude plugin test ./agd/claude-plugin
+```
+
 For CLI work, also run the affected command against a temporary org directory.
 For write behavior, cover exact preservation, stale or ambiguous targets, and
 failure without partial mutation.

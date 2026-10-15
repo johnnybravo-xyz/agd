@@ -28,11 +28,20 @@ async function agd($, args) {
 // The configured start_view, or today's agenda when there is none.
 async function readSections($) {
   const view = await agd($, ['agenda', '--view', '--json'])
-  if (!view.error) return { sections: JSON.parse(view.stdout) }
+  if (!view.error) return parsed(view.stdout, (sections) => sections)
   if (!view.error.includes('start_view')) return { error: view.error }
   const day = await agd($, ['agenda', '--span', 'day', '--json'])
   if (day.error) return { error: day.error }
-  return { sections: [{ header: 'Today', entries: JSON.parse(day.stdout), items: [], groups: [] }] }
+  return parsed(day.stdout, (entries) => [{ header: 'Today', entries, items: [], groups: [] }])
+}
+
+// agd's JSON as { sections }, or { error } when it does not parse.
+function parsed(stdout, toSections) {
+  try {
+    return { sections: toSections(JSON.parse(stdout)) }
+  } catch (error) {
+    return { error: 'agd printed JSON that does not parse: ' + error.message }
+  }
 }
 
 async function refresh($) {
@@ -51,8 +60,10 @@ function colorProps(name) {
   switch (name) {
     case 'grey':
       return { dimColor: true }
+    // dimColor would turn red grey in Claude Code, so a muted red instead,
+    // the TUI's own dim-red.
     case 'dim-red':
-      return { color: 'red', dimColor: true }
+      return { color: '#b07076' }
     case 'teal':
       return { color: 'cyan' }
     case 'purple':
@@ -167,29 +178,31 @@ async function capture($, args) {
   const match = args.trim().match(/^(\S+)\s+(.+)$/)
   if (!match) return { text: 'usage: /capture KEY text, such as /capture t buy milk due:fri' }
   const result = await agd($, ['capture', match[1], match[2]])
-  if (result.error) return { text: 'agd: ' + result.error }
+  // Claude Code prefixes the plugin's name, so the text starts with agd's own.
+  if (result.error) return { text: result.error }
   await refresh($)
   // agd prints the new item's ref, "<file>:<line>#sha256:…".
   const location = result.stdout.trim().split('#')[0].split('/').pop()
   return { text: 'captured to ' + location }
 }
 
+// Literal names, so `claude plugin validate` sees each command.run hook
+// answer only its own command. A name another plugin took is logged, not fatal.
 async function registerCommands($) {
-  const commands = [
-    { name: 'agd', description: 'Open or close your agd agenda pane', immediate: true },
-    {
+  try {
+    await $.command.register({ name: 'agd', description: 'Open or close your agd agenda pane', immediate: true })
+  } catch (error) {
+    $.ui.log('/agd not added: ' + error.message)
+  }
+  try {
+    await $.command.register({
       name: 'capture',
       description: 'File a task through an agd capture template',
       argumentHint: 'KEY text  due:fri on:+2d +tag #A',
       immediate: true,
-    },
-  ]
-  for (const command of commands) {
-    try {
-      await $.command.register(command)
-    } catch (error) {
-      $.ui.log('agd: /' + command.name + ' not added: ' + error.message)
-    }
+    })
+  } catch (error) {
+    $.ui.log('/capture not added: ' + error.message)
   }
 }
 
@@ -215,17 +228,19 @@ export function register(on) {
 
   on('command.run', { command: 'capture' }, async ($, e) => capture($, e.args))
 
+  // Observers: a failure here must never stop a close or a tool call, so
+  // each .catch passes the event on as it was.
   on('ui.close', async (_, e, next) => {
     if (e.id === PANE) paneOpen = false
     return next(e)
-  })
+  }).catch((_, e, next) => next(e))
 
   // After Claude uses an agd tool, show what it changed.
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
     if (/^mcp__(plugin_agd_)?agd__/.test(e.tool)) await refresh($)
     return result
-  })
+  }).catch((_, e, next) => next(e))
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
@@ -233,7 +248,8 @@ export function register(on) {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (!status) return next(e)
+    // Stay out of the way of Claude Code's own survey in the band.
+    if (!status || e.props.hasSurvey) return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const theirs = await next(e)
     const line = Text({ dimColor: true, wrap: 'truncate-end', children: ['agd · ' + status] })

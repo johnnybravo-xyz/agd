@@ -7,7 +7,7 @@ use clap::{Args, Subcommand};
 use serde_json::{Map, Value, json};
 
 /// The one copy of the skill, shared with the Claude Code plugin.
-const SKILL: &str = include_str!("../../claude-plugin/skills/agd/SKILL.md");
+const SKILL: &str = include_str!("../../claude-plugin/skills/org-agenda/SKILL.md");
 
 #[derive(Args, Debug)]
 pub struct InstallCommand {
@@ -69,7 +69,7 @@ fn install_codex(directory: &Path) -> Result<()> {
         &config_path,
         format!("{}\n", toml::to_string_pretty(&config)?).as_bytes(),
     )?;
-    write_skill(directory.join(".agents/skills/agd/SKILL.md"))?;
+    write_skill(directory.join(".agents/skills/org-agenda/SKILL.md"))?;
     println!("installed Codex integration in {}", directory.display());
     Ok(())
 }
@@ -82,7 +82,7 @@ fn install_opencode(directory: &Path) -> Result<()> {
         json!({"type": "local", "command": ["agd", "mcp"], "enabled": true}),
     );
     write_json(&config_path, &config)?;
-    write_skill(directory.join(".agents/skills/agd/SKILL.md"))?;
+    write_skill(directory.join(".agents/skills/org-agenda/SKILL.md"))?;
     println!("installed OpenCode integration in {}", directory.display());
     Ok(())
 }
