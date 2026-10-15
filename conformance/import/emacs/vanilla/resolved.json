@@ -4,17 +4,18 @@
   ],
   "agenda_span": "week",
   "agenda_start_day": "-1d",
-  "capture": {
-    "t": {
+  "capture": [
+    {
       "datetree": false,
       "desc": "Todo",
       "diagnostics": [],
       "enabled": true,
       "file": "/fixture/tasks.org",
       "heading": "Inbox",
+      "key": "t",
       "template": "* TODO %?\n:CREATED: %U"
     },
-    "x": {
+    {
       "datetree": false,
       "desc": "Dynamic",
       "diagnostics": [
@@ -22,9 +23,19 @@
         "a computed capture target is unsupported"
       ],
       "enabled": false,
+      "key": "x",
       "template": "* TODO %(danger)"
+    },
+    {
+      "datetree": false,
+      "desc": "Appointment",
+      "diagnostics": [],
+      "enabled": true,
+      "file": "/fixture/tasks.org",
+      "key": "a",
+      "template": "* %?"
     }
-  },
+  ],
   "commands": [
     {
       "blocks": [
@@ -176,7 +187,7 @@
     },
     {
       "key": "org-agenda-custom-commands",
-      "message": "init.el:26",
+      "message": "init.el:27",
       "status": "exact"
     }
   ],

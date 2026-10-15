@@ -4,23 +4,33 @@
   ],
   "agenda_span": "week",
   "agenda_start_day": "-1d",
-  "capture": {
-    "t": {
+  "capture": [
+    {
+      "desc": "Note",
+      "diagnostics": [],
+      "enabled": true,
+      "file": "/fixture/tasks.org",
+      "key": "n",
+      "template": "* %?"
+    },
+    {
       "desc": "Todo",
       "diagnostics": [],
       "enabled": true,
       "file": "/fixture/tasks.org",
+      "key": "t",
       "template": "* TODO %?"
     },
-    "x": {
+    {
       "desc": "Dynamic",
       "diagnostics": [
         "a computed capture target is unsupported"
       ],
       "enabled": false,
+      "key": "x",
       "template": "* TODO %?"
     }
-  },
+  ],
   "commands": [
     {
       "blocks": [

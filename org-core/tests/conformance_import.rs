@@ -50,6 +50,14 @@ fn emacs_vanilla_keeps_what_agd_runs_and_reports_the_rest() {
     assert!(result.settings.capture_template("t").is_some());
     assert!(result.settings.capture_template("x").is_none());
     assert!(reported(&result, "capture x", "computed capture target"));
+    // Templates keep the order they are written in, not key order.
+    let keys: Vec<&str> = result
+        .settings
+        .captures
+        .iter()
+        .map(|template| template.key.as_str())
+        .collect();
+    assert_eq!(keys, ["t", "a"]);
     assert_eq!(
         result.settings.view("w").unwrap().blocks[0].kind,
         "tags-todo"
@@ -137,6 +145,14 @@ fn neovim_setup_call_imports_options_and_property_matches() {
     assert_eq!(result.settings.lowest_priority, "D");
     assert!(result.settings.log_into_drawer);
     assert!(result.settings.capture_template("x").is_none());
+    // A Lua table keeps no written order, so nvim templates come by key.
+    let keys: Vec<&str> = result
+        .settings
+        .captures
+        .iter()
+        .map(|template| template.key.as_str())
+        .collect();
+    assert_eq!(keys, ["n", "t"]);
     assert_eq!(
         result.settings.view("n").unwrap().blocks[0]
             .match_expression

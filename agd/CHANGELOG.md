@@ -27,6 +27,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Import keeps capture templates in the order an Emacs config lists them;
+  nvim-orgmode's, which a Lua table keeps in no order, come by key. The
+  capture list shows them in `config.toml` order, so reordering the
+  `[[capture]]` records reorders the list.
 - Sections stand apart as in the design: a view's blocks and groups, like
   Today's sections, are uppercase with a row count and a blank line above;
   empty sections and days are muted. A view section takes the color its

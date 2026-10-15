@@ -22,7 +22,8 @@
       org-log-into-drawer t)
 (setq org-capture-templates
       `(("t" "Todo" entry (file+headline ,(expand-file-name "tasks.org" (getenv "AGD_FIXTURE_DIR")) "Inbox") "* TODO %?\n:CREATED: %U")
-        ("x" "Dynamic" entry (function ignore) "* TODO %(danger)")))
+        ("x" "Dynamic" entry (function ignore) "* TODO %(danger)")
+        ("a" "Appointment" entry (file ,(expand-file-name "tasks.org" (getenv "AGD_FIXTURE_DIR"))) "* %?")))
 (setq org-agenda-custom-commands
       '(("x" . "Prefix key label, not a command")
         ("w" "Work" tags-todo "+work/TODO|NEXT")

@@ -23,6 +23,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `ResolvedEditorConfig::capture` is a list in the editor's order, each
+  `ImportedCapture` with its `key`, instead of a map sorted by key.
 - `AgendaEngine::todo` and `AgendaEngine::tags` take the agenda day, which
   relative times in a match count from.
 - Import keeps `TODO="X"` matches as written instead of rewriting them to

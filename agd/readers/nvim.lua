@@ -189,7 +189,17 @@ end
 local function capture_templates(values)
   local result = {}
   local notes_file = expand(captured.org_default_notes_file)
-  for key, template in pairs(values or {}) do
+  -- A Lua table keyed by template key keeps no written order, so templates
+  -- are listed by key; config.toml then holds that order for the user to change.
+  local keys = {}
+  for key in pairs(values or {}) do
+    keys[#keys + 1] = key
+  end
+  table.sort(keys, function(left, right)
+    return tostring(left) < tostring(right)
+  end)
+  for _, key in ipairs(keys) do
+    local template = values[key]
     if type(template) == "table" then
       local body = template.template or ""
       local target = template.target or notes_file
@@ -212,7 +222,8 @@ local function capture_templates(values)
         enabled = false
         reasons[#reasons + 1] = "datetree targets are not imported"
       end
-      result[tostring(key)] = {
+      result[#result + 1] = {
+        key = tostring(key),
         desc = tostring(template.description or key),
         file = type(target) == "string" and expand(target) or nil,
         heading = type(template.headline) == "string" and template.headline or nil,

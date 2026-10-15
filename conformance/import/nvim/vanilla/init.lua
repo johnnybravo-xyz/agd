@@ -22,6 +22,7 @@ require('orgmode').setup({
   org_capture_templates = {
     t = { description = 'Todo', template = '* TODO %?' },
     x = { description = 'Dynamic', target = function() end, template = '* TODO %?' },
+    n = { description = 'Note', template = '* %?' },
   },
   org_agenda_custom_commands = {
     w = { description = 'Work', types = { { type = 'tags_todo', match = '+work/TODO|NEXT' } } },

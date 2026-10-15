@@ -296,12 +296,17 @@ against org-directory as org-capture does."
     (cons key value)))
 
 (defun agd--captures ()
-  (let ((result (make-hash-table :test 'equal)))
+  "The templates in the order written; for a repeated key the first wins, as
+org-capture's menu picks it."
+  (let ((seen nil) (result nil))
     (dolist (entry (or (and (boundp 'org-capture-templates) org-capture-templates) '()))
-      (when (and (listp entry) (>= (length entry) 5))
+      (when (and (proper-list-p entry) (>= (length entry) 5))
         (let ((normalized (agd--capture-template entry)))
-          (puthash (car normalized) (cdr normalized) result))))
-    result))
+          (unless (member (car normalized) seen)
+            (push (car normalized) seen)
+            (puthash "key" (car normalized) (cdr normalized))
+            (push (cdr normalized) result)))))
+    (vconcat (nreverse result))))
 
 ;; Lambdas, #'symbol forms and compiled functions; a bare symbol such as
 ;; `org-agenda-files' in an option value is data, not code.

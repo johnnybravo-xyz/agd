@@ -4,7 +4,7 @@
   ],
   "agenda_span": "day",
   "agenda_start_day": null,
-  "capture": {},
+  "capture": [],
   "commands": [
     {
       "blocks": [

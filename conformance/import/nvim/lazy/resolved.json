@@ -3,16 +3,17 @@
     "/fixture/**/*.org"
   ],
   "agenda_span": "week",
-  "capture": {
-    "n": {
+  "capture": [
+    {
       "desc": "Note",
       "diagnostics": [],
       "enabled": true,
       "file": "/fixture/inbox.org",
       "heading": "Notes",
+      "key": "n",
       "template": "* %?\n%U"
     }
-  },
+  ],
   "commands": [],
   "deadline_warning_days": 14,
   "default_priority": "B",

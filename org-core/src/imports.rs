@@ -24,6 +24,7 @@ pub struct ImportDiagnostic {
 /// reported, not imported.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ImportedCapture {
+    pub key: String,
     pub desc: String,
     pub file: Option<String>,
     pub heading: Option<String>,
@@ -86,8 +87,10 @@ pub struct ResolvedEditorConfig {
     pub log_reschedule: String,
     pub log_redeadline: String,
     pub log_into_drawer: bool,
+    /// In the editor's order: as written for Emacs; by key for nvim-orgmode,
+    /// whose Lua table keeps no order. config.toml keeps this order.
     #[serde(default)]
-    pub capture: BTreeMap<String, ImportedCapture>,
+    pub capture: Vec<ImportedCapture>,
     #[serde(default)]
     pub commands: Vec<ImportedCommand>,
     #[serde(default)]
@@ -356,17 +359,17 @@ pub fn apply_import(
     settings.log_into_drawer = resolved.log_into_drawer;
 
     settings.captures.clear();
-    for (key, capture) in &resolved.capture {
+    for capture in &resolved.capture {
         if !capture.enabled {
             diagnostics.push(ImportDiagnostic {
                 status: ImportStatus::Unsupported,
-                key: format!("capture {key}"),
+                key: format!("capture {}", capture.key),
                 message: capture.diagnostics.join("; "),
             });
             continue;
         }
         settings.captures.push(CaptureTemplate {
-            key: key.clone(),
+            key: capture.key.clone(),
             desc: capture.desc.clone(),
             file: capture.file.clone(),
             heading: capture.heading.clone(),
