@@ -133,14 +133,11 @@ claude plugin marketplace add johnnybravo-xyz/agd
 claude plugin install agd@johnnybravo-xyz
 ```
 
-For one project instead, or for Codex and OpenCode, install the MCP server and
-skill there (the skill goes to `.agents/skills/agd/`, which both read). Use
-the plugin or `agd setup install claude`, not both, or Claude sees the tools
-twice.
+For Codex and OpenCode, install the MCP server and skill in a project (the
+skill goes to `.agents/skills/agd/`, which both read):
 
 ```bash
-agd setup install --directory . codex       # or opencode, claude
-agd setup install --directory . claude --with-session-agenda work
+agd setup install --directory . codex       # or opencode
 ```
 
 - Every agent write is journaled with the client's name and project, and shows
@@ -149,8 +146,8 @@ agd setup install --directory . claude --with-session-agenda work
   back to the file and line) with a capture, so a task says where it came from.
 - `agent_capture_to = "inbox"` sends every agent capture to your inbox
   without dates, so agents can add work but not plan your day.
-- Session agenda is off by default; `--with-session-agenda` needs a named,
-  filtered profile.
+- Your agenda reaches a model only when it calls a tool; nothing is added to
+  its context at session start.
 
 ## Command line
 
@@ -161,7 +158,7 @@ agd agenda          the agenda as org-agenda prints it, or --json / --csv
 agd capture         one line through a template, or the popup with -i
 agd mcp             stdio MCP server for coding agents
 agd setup import    your Emacs or Neovim org settings into config.toml
-agd setup install   MCP server and skill for Claude Code, Codex, OpenCode
+agd setup install   MCP server and skill for Codex, OpenCode
 agd setup check     parse drift, invalid UTF-8 and duplicate IDs
 ```
 

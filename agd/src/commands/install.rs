@@ -2,9 +2,8 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use clap::{Args, Subcommand};
-use org_core::load_settings;
 use serde_json::{Map, Value, json};
 
 /// The one copy of the skill, shared with the Claude Code plugin.
@@ -19,84 +18,25 @@ pub struct InstallCommand {
     target: InstallTarget,
 }
 
+/// Claude Code gets agd from its plugin (`claude plugin install
+/// agd@johnnybravo-xyz`), so there is no Claude target here.
 #[derive(Subcommand, Debug)]
 enum InstallTarget {
-    /// Install the Claude Code MCP server and skill.
-    Claude(SessionInstall),
     /// Install the Codex MCP server and skill.
     Codex,
     /// Install the OpenCode MCP server and skill.
     Opencode,
 }
 
-#[derive(Args, Debug)]
-struct SessionInstall {
-    /// Opt in to a filtered daily agenda in Claude's SessionStart context.
-    #[arg(long, value_name = "PROFILE")]
-    with_session_agenda: Option<String>,
-}
-
 impl InstallCommand {
-    pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<()> {
+    pub fn execute(self) -> Result<()> {
         let directory = absolute_directory(&self.directory)?;
         match self.target {
-            InstallTarget::Claude(options) => {
-                if let Some(profile) = options.with_session_agenda.as_deref() {
-                    validate_profile(profile, config.as_deref(), root.as_deref())?;
-                }
-                install_claude(&directory, options.with_session_agenda.as_deref())?;
-            }
             InstallTarget::Codex => install_codex(&directory)?,
             InstallTarget::Opencode => install_opencode(&directory)?,
         }
         Ok(())
     }
-}
-
-fn install_claude(directory: &Path, session_profile: Option<&str>) -> Result<()> {
-    let mcp_path = directory.join(".mcp.json");
-    let mut mcp = read_json_object(&mcp_path)?;
-    object_at(&mut mcp, "mcpServers")?.insert(
-        "agd".to_string(),
-        json!({"type": "stdio", "command": "agd", "args": ["mcp"]}),
-    );
-    write_json(&mcp_path, &mcp)?;
-    write_skill(directory.join(".claude/skills/agd/SKILL.md"))?;
-
-    if let Some(profile) = session_profile {
-        let settings_path = directory.join(".claude/settings.json");
-        let mut settings = read_json_object(&settings_path)?;
-        let hooks = object_at(&mut settings, "hooks")?;
-        let session = hooks
-            .entry("SessionStart")
-            .or_insert_with(|| Value::Array(Vec::new()))
-            .as_array_mut()
-            .ok_or_else(|| {
-                anyhow!(
-                    "{}.hooks.SessionStart must be an array",
-                    settings_path.display()
-                )
-            })?;
-        let command = format!("agd agenda --span day --brief --profile {profile}");
-        if !session.iter().any(|entry| {
-            entry.pointer("/hooks/0/command").and_then(Value::as_str) == Some(command.as_str())
-        }) {
-            session.push(json!({
-                "matcher": "startup|resume|clear|compact",
-                "hooks": [{"type": "command", "command": command}]
-            }));
-        }
-        write_json(&settings_path, &settings)?;
-    }
-
-    println!(
-        "installed Claude Code integration in {}",
-        directory.display()
-    );
-    if session_profile.is_none() {
-        println!("session agenda disabled; use --with-session-agenda PROFILE to opt in");
-    }
-    Ok(())
 }
 
 fn install_codex(directory: &Path) -> Result<()> {
@@ -131,7 +71,6 @@ fn install_codex(directory: &Path) -> Result<()> {
     )?;
     write_skill(directory.join(".agents/skills/agd/SKILL.md"))?;
     println!("installed Codex integration in {}", directory.display());
-    println!("session agenda disabled");
     Ok(())
 }
 
@@ -145,22 +84,6 @@ fn install_opencode(directory: &Path) -> Result<()> {
     write_json(&config_path, &config)?;
     write_skill(directory.join(".agents/skills/agd/SKILL.md"))?;
     println!("installed OpenCode integration in {}", directory.display());
-    println!("session agenda disabled");
-    Ok(())
-}
-
-fn validate_profile(profile: &str, config: Option<&str>, root: Option<&str>) -> Result<()> {
-    if profile.is_empty()
-        || !profile
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-    {
-        bail!("session agenda profile names may contain only letters, digits, '.', '_', and '-'");
-    }
-    let loaded = load_settings(config.map(Path::new), root.map(Path::new))?;
-    if loaded.settings.agent_profile(profile).is_none() {
-        bail!("unknown agent agenda profile: {profile}");
-    }
     Ok(())
 }
 

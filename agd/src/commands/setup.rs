@@ -14,7 +14,7 @@ pub struct SetupCommand {
 enum SetupAction {
     /// Import your Emacs or Neovim org settings into config.toml
     Import(ImportCommand),
-    /// Add the agd MCP server and skill to Claude Code, Codex or OpenCode
+    /// Add the agd MCP server and skill to Codex or OpenCode (Claude Code: the plugin)
     Install(InstallCommand),
     /// Check org files for parse drift, invalid UTF-8 and duplicate IDs
     Check(CheckCommand),
@@ -25,7 +25,7 @@ impl SetupCommand {
     pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<bool> {
         match self.action {
             SetupAction::Import(command) => command.execute(config, root).map(|()| false),
-            SetupAction::Install(command) => command.execute(config, root).map(|()| false),
+            SetupAction::Install(command) => command.execute().map(|()| false),
             SetupAction::Check(command) => command.execute(config, root),
         }
     }

@@ -65,6 +65,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in a rounded inset, and key hints as the last row. Chips are spaced
   apart, and the footer separates the location from the keys.
 
+### Removed
+
+- `agd setup install claude` and its `--with-session-agenda` hook: the Claude
+  Code plugin brings the MCP server and the skill. Remove the `agd` entry from
+  a project's `.mcp.json`, its `.claude/skills/agd`, and any `agd agenda`
+  SessionStart hook in `.claude/settings.json` by hand.
+
 ### Fixed
 
 - Pasting or typing fast into capture or the edit popup no longer lags:
