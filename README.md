@@ -74,11 +74,11 @@ sits first in the tabs. Tabs switch to **Week**, **Inbox** and **Agents**
 
 | Screen | What it is for |
 | --- | --- |
-| Today | Sections in the order you act: SLIPPED (three rows; the rest wait in Triage), SCHEDULE by clock time, DUE SOON with countdowns, DOING with WAIT ages, INBOX with who captured each item. `v` swaps in the classic org-agenda day list; `p` peeks at the item. |
-| Triage (`T`) | Overdue, then inbox, one card at a time: `.` today, `m` tomorrow, `w` next week, `p` pick a date, `x` done, `n` NEXT, `s` someday, `k` cancel, `r` refile. Cards show how long an item slipped and how often it was rescheduled, and suggest Someday after three. `u` undoes a step, or the whole pass at the end. |
+| Today | Sections in the order you act: OVERDUE (three rows; the rest wait in Triage), SCHEDULE by clock time, DUE SOON with countdowns, DOING with WAIT ages, INBOX with who captured each item. `v` swaps in the classic org-agenda day list; `p` peeks at the item. |
+| Triage (`T`) | Overdue, then inbox, one card at a time: `.` today, `m` tomorrow, `w` next week, `p` pick a date, `x` done, `n` NEXT, `s` someday, `k` cancel, `r` refile. Cards show how long an item has been overdue and how often it was rescheduled, and suggest Someday after three. `u` undoes a step, or the whole pass at the end. |
 | Capture (`c`) | One line with `due:fri on:+2d +tag #A`; the first letter picks a template, `%^{prompt}` fields get their own line, and the preview is the exact Org text that will be written. `ctrl-e` writes the body in `$EDITOR`. |
 | Agent review (`A`) | Every agent write with who made it, from which project, and its smallest meaningful diff. `a` accepts (writes nothing), `u` undoes it if those bytes are unchanged, `d` shows the raw diff, `f` filters by agent. |
-| Pane (`--pane`) | A 32-column glance: slipped collapsed to a count, timed items by clock with `▸` on the next one, done items dimmed, inbox and agent counts. It also takes over automatically under 60 columns. |
+| Pane (`--pane`) | A 32-column glance: overdue collapsed to a count, timed items by clock with `▸` on the next one, done items dimmed, inbox and agent counts. It also takes over automatically under 60 columns. |
 
 Keys follow org-agenda wherever it has one, so muscle memory carries over:
 
@@ -99,7 +99,7 @@ Keys follow org-agenda wherever it has one, so muscle memory carries over:
 | `y` | copy the item's link (OSC 52) | |
 | `?` | all keys | `?` |
 
-Colours carry state only (slipped, due, done, focus, one hue per agent). The
+Colours carry state only (overdue, due, done, focus, one hue per agent). The
 theme follows the terminal's light or dark background (`[tui] theme` overrides
 it), falls back to 16 colours, and honours `NO_COLOR`.
 
@@ -108,7 +108,7 @@ it), falls back to 16 colours, and honours `NO_COLOR`.
 ```bash
 tmux split-window -h -l 36 'agd --pane'                 # a glance beside your agent
 tmux bind c display-popup -E -w 80 -h 22 'agd capture -i' # capture from anywhere
-set -g status-right '#(agd agenda --status)'            # 3 slipped · 7 today · 2 agents
+set -g status-right '#(agd agenda --status)'            # 3 overdue · 7 today · 2 agents
 set -g set-clipboard on                                 # lets `y` reach your clipboard
 ```
 

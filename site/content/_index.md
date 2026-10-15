@@ -32,11 +32,11 @@ nix run github:johnnybravo-xyz/agd
 
 ## Five screens, one for each moment
 
-You glance at today, plan the morning, sweep what slipped, capture mid-flow,
+You glance at today, plan the morning, sweep what is overdue, capture mid-flow,
 and now check what agents changed. Each has a screen, one key from Today.
 
-**Today** puts sections in the order you act on them: what slipped, what is
-timed, what is due, what is in progress, what is new. Slipped stops at three
+**Today** puts sections in the order you act on them: what is overdue, what is
+timed, what is due, what is in progress, what is new. Overdue stops at three
 rows, so the front page never becomes a guilt list. Org's own leaders stay
 (`Sched.12x`, countdowns, repeat intervals); `p` peeks at an item and says why
 it is listed; `v` swaps in the classic org-agenda day list.
@@ -45,7 +45,7 @@ it is listed; `v` swaps in the classic org-agenda day list.
 
 **Triage** (`T`) is the end-of-day sweep: overdue first, then the inbox, one
 card at a time and one key per decision: `.` today, `m` tomorrow, `w` next
-week, `s` someday, `x` done, `r` refile. Cards show how long an item slipped
+week, `s` someday, `x` done, `r` refile. Cards show how long an item has been overdue
 and how often it was rescheduled, and suggest Someday after three. `u` undoes
 a step, or the whole pass.
 
@@ -66,7 +66,7 @@ unchanged.
 ![Agent review](review.webp)
 
 **The pane** (`agd --pane`) is a 32-column glance beside your agent: timed
-items by clock with `▸` on the next one, done items dimmed, slipped collapsed
+items by clock with `▸` on the next one, done items dimmed, overdue collapsed
 to a count.
 
 ![The pane](pane.webp)
@@ -134,7 +134,7 @@ agd setup install --directory . claude    # or codex, opencode
 ```sh
 tmux split-window -h -l 36 'agd --pane'                   # a glance beside your agent
 tmux bind c display-popup -E -w 80 -h 22 'agd capture -i' # capture from anywhere
-set -g status-right '#(agd agenda --status)'              # 3 slipped · 7 today · 2 agents
+set -g status-right '#(agd agenda --status)'              # 3 overdue · 7 today · 2 agents
 ```
 
 Files are watched, so edits from Emacs, nvim or an agent show up as they

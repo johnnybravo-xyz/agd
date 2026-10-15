@@ -115,7 +115,7 @@ fn status_line_counts_today_for_a_status_bar() {
         .args(["agenda", "--status"])
         .assert()
         .success()
-        .stdout("1 slipped · 1 today · 1 inbox\n");
+        .stdout("1 overdue · 1 today · 1 inbox\n");
 }
 
 #[test]

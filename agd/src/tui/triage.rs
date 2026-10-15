@@ -118,9 +118,9 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
             None => "Inbox".to_string(),
         }
     } else {
-        format!("Slipped · {} days", slipped_days(row, app.today))
+        format!("Overdue · {} days", overdue_days(row, app.today))
     };
-    let color = if inbox { theme.accent } else { theme.slipped };
+    let color = if inbox { theme.accent } else { theme.overdue };
     let block = theme
         .panel(title)
         .border_style(theme.fg(color))
@@ -185,7 +185,7 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
     if reschedules > 0 {
         chips.extend(theme.pill(
             format!("rescheduled {reschedules}x"),
-            if nudge { theme.slipped } else { theme.muted },
+            if nudge { theme.overdue } else { theme.muted },
         ));
         chips.push(Span::raw("  "));
     }
@@ -237,9 +237,9 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
     );
 }
 
-/// Days since the item slipped: from org's `Sched.12x:` or `3 d. ago:`
+/// Days the item has been overdue: from org's `Sched.12x:` or `3 d. ago:`
 /// leader, else from its SCHEDULED date.
-fn slipped_days(row: &DisplayRow, today: chrono::NaiveDate) -> i64 {
+fn overdue_days(row: &DisplayRow, today: chrono::NaiveDate) -> i64 {
     if let Some(occurrence) = &row.occurrence {
         let digits: String = occurrence
             .extra

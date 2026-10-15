@@ -233,7 +233,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 let style = if line.starts_with('+') {
                     theme.fg(theme.done)
                 } else if line.starts_with('-') {
-                    theme.fg(theme.slipped)
+                    theme.fg(theme.overdue)
                 } else {
                     theme.muted()
                 };

@@ -18,7 +18,7 @@ Type "docs/demo/demo.sh" Enter
 Sleep 3s
 Show
 
-# Today: sections you act on, slipped collapsed, inbox with provenance.
+# Today: sections you act on, overdue collapsed, inbox with provenance.
 Sleep 3s
 Down Down Down Down Down Down Down Sleep 700ms
 Type "p" Sleep 3s

@@ -4,12 +4,12 @@ use ratatui::text::Span;
 use ratatui::widgets::{Block, BorderType, Borders, Padding};
 
 /// The few colour roles the design allows: accent for focus and keys, red
-/// for slipped, amber for due and priority, green for done, one hue per
+/// for overdue, amber for due and priority, green for done, one hue per
 /// agent. Built once at startup from the terminal and the `theme` setting.
 #[derive(Clone, Debug)]
 pub(super) struct Theme {
     pub accent: Color,
-    pub slipped: Color,
+    pub overdue: Color,
     pub due: Color,
     pub done: Color,
     pub text: Color,
@@ -55,7 +55,7 @@ impl Theme {
     fn dark() -> Self {
         Self {
             accent: Color::Rgb(110, 168, 254),
-            slipped: Color::Rgb(240, 113, 120),
+            overdue: Color::Rgb(240, 113, 120),
             due: Color::Rgb(229, 181, 103),
             done: Color::Rgb(126, 198, 143),
             text: Color::Rgb(222, 226, 232),
@@ -80,7 +80,7 @@ impl Theme {
     fn light() -> Self {
         Self {
             accent: Color::Rgb(37, 99, 196),
-            slipped: Color::Rgb(197, 48, 48),
+            overdue: Color::Rgb(197, 48, 48),
             due: Color::Rgb(176, 111, 0),
             done: Color::Rgb(36, 135, 72),
             text: Color::Rgb(31, 35, 41),
@@ -106,7 +106,7 @@ impl Theme {
     fn basic() -> Self {
         Self {
             accent: Color::LightBlue,
-            slipped: Color::Red,
+            overdue: Color::Red,
             due: Color::Yellow,
             done: Color::Green,
             text: Color::Reset,
@@ -131,7 +131,7 @@ impl Theme {
     fn plain() -> Self {
         Self {
             accent: Color::Reset,
-            slipped: Color::Reset,
+            overdue: Color::Reset,
             due: Color::Reset,
             done: Color::Reset,
             text: Color::Reset,
@@ -279,7 +279,7 @@ impl Theme {
             "orange" => self.due,
             "yellow" => self.yellow,
             "green" => self.done,
-            "red" => self.slipped,
+            "red" => self.overdue,
             "dim-red" => self.dim_red,
             "pink" => self.agents[0],
             "teal" => self.agents[1],

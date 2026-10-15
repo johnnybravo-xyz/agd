@@ -592,7 +592,7 @@ fn preview_lines(theme: &Theme, preview: &Result<String, String>) -> Vec<Line<'s
         Ok(text) => text.lines().map(|line| org_line(theme, line)).collect(),
         Err(error) => vec![Line::from(Span::styled(
             error.clone(),
-            theme.fg(theme.slipped),
+            theme.fg(theme.overdue),
         ))],
     }
 }

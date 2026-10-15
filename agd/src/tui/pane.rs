@@ -25,8 +25,8 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
         .split(inner);
 
     let mut top = Vec::new();
-    if app.counts.slipped > 0 {
-        top.extend(theme.pill(format!("{} slipped", app.counts.slipped), theme.slipped));
+    if app.counts.overdue > 0 {
+        top.extend(theme.pill(format!("{} overdue", app.counts.overdue), theme.overdue));
         top.push(Span::raw("  "));
         top.extend(theme.key_hint("T", "triage"));
     }

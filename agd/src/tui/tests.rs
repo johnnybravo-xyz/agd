@@ -71,11 +71,11 @@ fn today_groups_sections_in_the_order_you_act_on_them() {
         assert_eq!(
             sections,
             [
-                "SLIPPED", "SCHEDULE", "SCHEDULE", "DUE SOON", "DOING", "INBOX"
+                "OVERDUE", "SCHEDULE", "SCHEDULE", "DUE SOON", "DOING", "INBOX"
             ]
         );
         let screen = render(&mut app, 120, 30).join("\n");
-        assert!(screen.contains("SLIPPED"), "{screen}");
+        assert!(screen.contains("OVERDUE"), "{screen}");
         assert!(screen.contains("12x"), "{screen}");
         assert!(screen.contains("in 3d"), "{screen}");
         assert!(screen.contains("Compare jiff and chrono"), "{screen}");
@@ -157,7 +157,7 @@ fn pane_sorts_by_clock_time_and_keeps_done_rows_last() {
             ["Review ingestion PR", "Quarterly report", "Call with bank"]
         );
         let screen = render(&mut app, 35, 12).join("\n");
-        assert!(screen.contains("1 slipped"), "{screen}");
+        assert!(screen.contains("1 overdue"), "{screen}");
         assert!(screen.contains("inbox 1"), "{screen}");
     });
 }

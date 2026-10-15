@@ -8,11 +8,11 @@ use org_core::{
 };
 
 use super::{
-    App, DOING, DUE, DisplayRow, Header, INBOX, SCHEDULE, SLIPPED, Screen, SelectionAnchor,
+    App, DOING, DUE, DisplayRow, Header, INBOX, OVERDUE, SCHEDULE, Screen, SelectionAnchor,
 };
 
-/// Rows shown under SLIPPED on Today; the rest wait in Triage.
-const SLIPPED_ON_TODAY: usize = 3;
+/// Rows shown under OVERDUE on Today; the rest wait in Triage.
+const OVERDUE_ON_TODAY: usize = 3;
 /// Agent review shows this many recent changes.
 const REVIEW_LIMIT: usize = 200;
 
@@ -136,9 +136,9 @@ impl App {
             .count();
         let engine = AgendaEngine::new(&self.index);
         let today_entries = engine.agenda(&self.query(self.today, self.today))?;
-        self.counts.slipped = today_entries
+        self.counts.overdue = today_entries
             .iter()
-            .filter(|entry| is_slipped(entry))
+            .filter(|entry| is_overdue(entry))
             .count();
         let inbox = engine.inbox();
         self.counts.inbox = inbox.len();
@@ -286,7 +286,7 @@ impl App {
     }
 }
 
-/// Today's sections in the order you act on them. SLIPPED shows only the
+/// Today's sections in the order you act on them. OVERDUE shows only the
 /// first few; DOING lists in-progress TODOs without a date today.
 fn today_rows(
     entries: Vec<AgendaEntry>,
@@ -295,7 +295,7 @@ fn today_rows(
     index: &WorkspaceIndex,
 ) -> Vec<DisplayRow> {
     let mut sections: [(&str, Vec<DisplayRow>); 5] = [
-        (SLIPPED, Vec::new()),
+        (OVERDUE, Vec::new()),
         (SCHEDULE, Vec::new()),
         (DUE, Vec::new()),
         (DOING, Vec::new()),
@@ -303,7 +303,7 @@ fn today_rows(
     ];
     let mut shown = BTreeSet::new();
     for entry in entries {
-        let slot = if is_slipped(&entry) {
+        let slot = if is_overdue(&entry) {
             0
         } else if matches!(
             entry.occurrence.kind,
@@ -320,7 +320,7 @@ fn today_rows(
             occurrence: Some(entry.occurrence),
         });
     }
-    sections[0].1.truncate(SLIPPED_ON_TODAY);
+    sections[0].1.truncate(OVERDUE_ON_TODAY);
     for item in todos {
         if !shown.contains(&item.item_ref) && is_in_progress(item, index) {
             shown.insert(item.item_ref.clone());
@@ -348,7 +348,7 @@ fn today_rows(
 fn pane_rows(entries: Vec<AgendaEntry>) -> Vec<DisplayRow> {
     let mut rows: Vec<DisplayRow> = entries
         .into_iter()
-        .filter(|entry| !is_slipped(entry))
+        .filter(|entry| !is_overdue(entry))
         .map(|entry| DisplayRow {
             section: SCHEDULE.to_string(),
             item: entry.item,
@@ -465,10 +465,10 @@ fn triage_rows(entries: Vec<AgendaEntry>, inbox: Vec<Item>) -> Vec<DisplayRow> {
     let mut seen = BTreeSet::new();
     let mut rows: Vec<DisplayRow> = entries
         .into_iter()
-        .filter(|entry| is_slipped(entry) && !entry.item.done)
+        .filter(|entry| is_overdue(entry) && !entry.item.done)
         .filter(|entry| seen.insert(entry.item.item_ref.clone()))
         .map(|entry| DisplayRow {
-            section: SLIPPED.to_string(),
+            section: OVERDUE.to_string(),
             item: entry.item,
             occurrence: Some(entry.occurrence),
         })
@@ -487,7 +487,7 @@ fn triage_rows(entries: Vec<AgendaEntry>, inbox: Vec<Item>) -> Vec<DisplayRow> {
 }
 
 /// Past-scheduled reminders and overdue deadlines.
-pub(super) fn is_slipped(entry: &AgendaEntry) -> bool {
+pub(super) fn is_overdue(entry: &AgendaEntry) -> bool {
     match entry.occurrence.kind {
         OccurrenceType::PastScheduled => true,
         OccurrenceType::Deadline => entry.occurrence.extra.ends_with("ago:"),

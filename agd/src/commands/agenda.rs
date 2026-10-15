@@ -317,7 +317,7 @@ fn span_for_bounds(from: NaiveDate, to: NaiveDate, settings: &Settings) -> Agend
     }
 }
 
-/// `3 slipped · 7 today · 4 inbox · 2 agents`, zero counts left out.
+/// `3 overdue · 7 today · 4 inbox · 2 agents`, zero counts left out.
 fn status_line(index: &WorkspaceIndex, settings: &Settings, today: NaiveDate) -> Result<String> {
     let engine = AgendaEngine::new(index);
     let entries = engine.agenda(&AgendaQuery {
@@ -327,15 +327,15 @@ fn status_line(index: &WorkspaceIndex, settings: &Settings, today: NaiveDate) ->
         match_expression: None,
         log_mode: false,
     })?;
-    let slipped_kind = |entry: &AgendaEntry| {
+    let overdue_kind = |entry: &AgendaEntry| {
         entry.occurrence.kind == org_core::OccurrenceType::PastScheduled
             || entry.occurrence.extra.ends_with("ago:")
     };
-    let mut slipped = std::collections::BTreeSet::new();
+    let mut overdue = std::collections::BTreeSet::new();
     let mut open = std::collections::BTreeSet::new();
     for entry in entries.iter().filter(|entry| !entry.item.done) {
-        if slipped_kind(entry) {
-            slipped.insert(&entry.item.item_ref);
+        if overdue_kind(entry) {
+            overdue.insert(&entry.item.item_ref);
         } else {
             open.insert(&entry.item.item_ref);
         }
@@ -348,7 +348,7 @@ fn status_line(index: &WorkspaceIndex, settings: &Settings, today: NaiveDate) ->
         })
         .count();
     let counts = [
-        (slipped.len(), "slipped"),
+        (overdue.len(), "overdue"),
         (open.len(), "today"),
         (engine.inbox().len(), "inbox"),
         (agents, "agents"),

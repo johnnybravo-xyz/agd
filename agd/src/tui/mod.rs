@@ -103,7 +103,7 @@ impl Header {
 }
 
 /// One selectable row. `section` groups rows under a header: a Today
-/// section (SLIPPED, SCHEDULE, …), a day in Week, or a view block title.
+/// section (OVERDUE, SCHEDULE, …), a day in Week, or a view block title.
 #[derive(Clone, Debug)]
 struct DisplayRow {
     section: String,
@@ -111,7 +111,7 @@ struct DisplayRow {
     occurrence: Option<Occurrence>,
 }
 
-const SLIPPED: &str = "SLIPPED";
+const OVERDUE: &str = "OVERDUE";
 const SCHEDULE: &str = "SCHEDULE";
 const DUE: &str = "DUE SOON";
 const DOING: &str = "DOING";
@@ -164,7 +164,7 @@ struct Status {
 /// Cross-screen signals shown in tabs, the footer and the pane.
 #[derive(Debug, Default)]
 struct Counts {
-    slipped: usize,
+    overdue: usize,
     inbox: usize,
     agents: usize,
 }

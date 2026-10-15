@@ -293,14 +293,14 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 let color = if line.starts_with('+') {
                     theme.done
                 } else {
-                    theme.slipped
+                    theme.overdue
                 };
                 Line::from(Span::styled(line.to_string(), theme.fg(color)))
             })
             .collect(),
         Err(error) => vec![Line::from(Span::styled(
             error.clone(),
-            theme.fg(theme.slipped),
+            theme.fg(theme.overdue),
         ))],
     };
     // border + top padding, fields, gap, preview inset, gap, footer, border

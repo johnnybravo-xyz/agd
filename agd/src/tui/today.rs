@@ -11,7 +11,7 @@ use org_core::{OccurrenceType, keyword_color};
 use super::rows::days_since;
 use super::theme::{Theme, centered};
 use super::{
-    App, DOING, DUE, DisplayRow, Header, INBOX, Overlay, PromptKind, SCHEDULE, SLIPPED, Screen,
+    App, DOING, DUE, DisplayRow, Header, INBOX, OVERDUE, Overlay, PromptKind, SCHEDULE, Screen,
     peek, review, triage,
 };
 
@@ -134,7 +134,7 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     spans.push(Span::raw("  "));
     if let Some(status) = &app.status {
         let color = if status.error {
-            theme.slipped
+            theme.overdue
         } else {
             theme.done
         };
@@ -343,14 +343,14 @@ fn section_header(app: &App, header: &Header, rows: &[usize], width: usize) -> L
     }
     let color = match (header.color.as_deref(), section) {
         (Some(name), _) => theme.named(name),
-        (None, SLIPPED) => theme.slipped,
+        (None, OVERDUE) => theme.overdue,
         (None, DUE) => theme.due,
         (None, DOING) => theme.done,
         (None, _) => theme.accent,
     };
-    // SLIPPED counts every slipped item; it shows only the first rows.
-    let count = if section == SLIPPED {
-        app.counts.slipped
+    // OVERDUE counts every overdue item; it shows only the first rows.
+    let count = if section == OVERDUE {
+        app.counts.overdue
     } else {
         rows.len()
     };
@@ -363,7 +363,7 @@ fn section_header(app: &App, header: &Header, rows: &[usize], width: usize) -> L
     if count > 0 {
         spans.push(Span::styled(format!("  {count}"), theme.muted()));
     }
-    if section == SLIPPED {
+    if section == OVERDUE {
         let used: usize = spans.iter().map(Span::width).sum();
         let hint = "T triage ";
         spans.push(Span::raw(
@@ -386,7 +386,7 @@ fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'stat
     }
     let classic = !matches!(
         row.section.as_str(),
-        SLIPPED | SCHEDULE | DUE | DOING | INBOX
+        OVERDUE | SCHEDULE | DUE | DOING | INBOX
     ) && row.occurrence.is_some();
     if classic {
         // The org-agenda prefix: "category:  Sched. 2x:  TODO title".
@@ -447,7 +447,7 @@ fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'stat
     }
 }
 
-/// Six-character lead: slipped days as a red badge, clock time, a
+/// Six-character lead: overdue days as a red badge, clock time, a
 /// deadline countdown, or how long a WAIT has waited.
 fn lead_cell(app: &App, row: &DisplayRow) -> Vec<Span<'static>> {
     let theme = &app.theme;
@@ -506,16 +506,16 @@ fn lead_cell(app: &App, row: &DisplayRow) -> Vec<Span<'static>> {
     }
 }
 
-/// A red slipped badge filling the 6-column lead cell: a 4-column label
+/// A red overdue badge filling the 6-column lead cell: a 4-column label
 /// between its caps or padding.
 fn badge(theme: &Theme, text: String) -> Vec<Span<'static>> {
-    theme.pill(format!("{text:<4}"), theme.slipped)
+    theme.pill(format!("{text:<4}"), theme.overdue)
 }
 
 fn lead_style(theme: &Theme, kind: OccurrenceType, extra: &str) -> Style {
     match kind {
-        OccurrenceType::PastScheduled => theme.fg(theme.slipped),
-        OccurrenceType::Deadline if extra.ends_with("ago:") => theme.fg(theme.slipped),
+        OccurrenceType::PastScheduled => theme.fg(theme.overdue),
+        OccurrenceType::Deadline if extra.ends_with("ago:") => theme.fg(theme.overdue),
         OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline => theme.fg(theme.due),
         _ => theme.muted(),
     }
@@ -534,7 +534,7 @@ fn keyword_style(app: &App, row: &DisplayRow) -> Style {
     }
 }
 
-/// Category for slipped rows, ✓ for done, the repeat interval for repeating
+/// Category for overdue rows, ✓ for done, the repeat interval for repeating
 /// tasks, and who captured an inbox item.
 fn right_cell(app: &App, row: &DisplayRow) -> Span<'static> {
     let theme = &app.theme;
@@ -564,7 +564,7 @@ fn right_cell(app: &App, row: &DisplayRow) -> Span<'static> {
             theme.muted(),
         );
     }
-    if row.section == SLIPPED || row.section == DOING {
+    if row.section == OVERDUE || row.section == DOING {
         let mut text = item.category.clone();
         text.truncate(RIGHT);
         return Span::styled(format!("{text} "), theme.muted());

@@ -48,6 +48,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rounded accent frame with its title in the accent, two columns of padding,
   a blank row between sections, input in a rounded box, Org text in a
   rounded inset, and key hints as the last row.
+- Past-due work is OVERDUE everywhere: Today's first section, the pane's
+  badge, Triage's cards and `agd agenda --status` (`3 overdue · 7 today`).
 - `X` cancels the selected task in the lists and the pane, with the file's
   own CANCELLED (or CANCELED) keyword.
 - `nerd_font = true` rounds every pill and chip with Nerd Font caps; off by
