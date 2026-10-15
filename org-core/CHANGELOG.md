@@ -8,6 +8,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `keyword_color` names a TODO keyword's color as agd draws it, and every
+  `ViewSection` and `ViewSectionGroup` carries its resolved `color`: the
+  configured one, or the color its rows' keywords share.
 - `ViewBlock::groups` (`ViewGroup`) groups a view block's rows as
   org-super-agenda does, including `:effort<`/`:effort>` as
   `effort_max`/`effort_min`; blocks and groups take an optional `color`

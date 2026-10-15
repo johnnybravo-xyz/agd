@@ -43,9 +43,9 @@ pub struct ViewSection {
     pub items: Vec<Item>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub groups: Vec<ViewSectionGroup>,
-    /// The block's configured header color, if any.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub color: Option<String>,
+    /// The header's color name (COLOR_NAMES): the block's configured color,
+    /// or the one its rows' keywords share (see `keyword_color`).
+    pub color: String,
 }
 
 /// A grouped block's rows under one group name, in display order.
@@ -54,8 +54,36 @@ pub struct ViewSectionGroup {
     pub name: String,
     pub entries: Vec<AgendaEntry>,
     pub items: Vec<Item>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub color: Option<String>,
+    /// As for a section: the group's configured color, or its rows' shared one.
+    pub color: String,
+}
+
+/// A TODO keyword's color name (COLOR_NAMES) wherever agd draws it: the
+/// configured `todo_keyword_colors` entry, else green when done, orange for
+/// the first keyword of its sequence (TODO), and blue for the rest and for
+/// headings without a keyword.
+pub fn keyword_color(index: &WorkspaceIndex, item: &Item) -> String {
+    if let Some(color) = item
+        .todo
+        .as_ref()
+        .and_then(|keyword| index.settings().todo_keyword_colors.get(keyword))
+    {
+        return color.clone();
+    }
+    if item.done {
+        return "green".to_string();
+    }
+    let first = index
+        .document(std::path::Path::new(&item.file))
+        .and_then(|document| {
+            let keyword = document.todo_keyword(item.todo.as_deref()?)?;
+            document
+                .todo_keywords()
+                .iter()
+                .find(|candidate| candidate.sequence == keyword.sequence)
+        })
+        .is_some_and(|head| Some(head.name.as_str()) == item.todo.as_deref());
+    if first { "orange" } else { "blue" }.to_string()
 }
 
 /// Agenda bounds for an org-agenda span: day, week, month, or a number of
@@ -306,7 +334,7 @@ impl<'a> AgendaEngine<'a> {
                         })?,
                         items: Vec::new(),
                         groups: Vec::new(),
-                        color: block.color.clone(),
+                        color: String::new(),
                     }
                 }
                 kind => {
@@ -342,13 +370,44 @@ impl<'a> AgendaEngine<'a> {
                         entries: Vec::new(),
                         items,
                         groups: Vec::new(),
-                        color: block.color.clone(),
+                        color: String::new(),
                     }
                 }
             };
-            sections.push(self.group_section(section, &block.groups, today)?);
+            let mut section = self.group_section(section, &block.groups, today)?;
+            section.color = match &block.color {
+                Some(color) => color.clone(),
+                None => {
+                    let grouped = section.groups.iter().flat_map(|group| {
+                        group
+                            .entries
+                            .iter()
+                            .map(|entry| &entry.item)
+                            .chain(&group.items)
+                    });
+                    self.shared_color(
+                        section
+                            .entries
+                            .iter()
+                            .map(|entry| &entry.item)
+                            .chain(&section.items)
+                            .chain(grouped),
+                    )
+                }
+            };
+            sections.push(section);
         }
         Ok(sections)
+    }
+
+    /// The color the items' keywords share, or blue when they differ or
+    /// there are none.
+    fn shared_color<'b>(&self, items: impl Iterator<Item = &'b Item>) -> String {
+        let mut colors = items.map(|item| keyword_color(self.index, item));
+        match colors.next() {
+            Some(first) if colors.all(|color| color == first) => first,
+            _ => "blue".to_string(),
+        }
     }
 
     /// Moves a block's rows into its groups, if it has any.
@@ -385,16 +444,22 @@ impl<'a> AgendaEngine<'a> {
         section.groups = entries
             .into_iter()
             .map(|group| ViewSectionGroup {
+                color: group.color.unwrap_or_else(|| {
+                    self.shared_color(group.rows.iter().map(|entry| &entry.item))
+                }),
                 name: group.name,
                 entries: group.rows,
                 items: Vec::new(),
-                color: group.color,
             })
-            .chain(items.into_iter().map(|group| ViewSectionGroup {
-                name: group.name,
-                entries: Vec::new(),
-                items: group.rows,
-                color: group.color,
+            .chain(items.into_iter().map(|group| {
+                ViewSectionGroup {
+                    color: group
+                        .color
+                        .unwrap_or_else(|| self.shared_color(group.rows.iter())),
+                    name: group.name,
+                    entries: Vec::new(),
+                    items: group.rows,
+                }
             }))
             .collect();
         Ok(section)

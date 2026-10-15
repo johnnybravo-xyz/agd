@@ -1,12 +1,12 @@
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Clear, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
 };
 
-use org_core::OccurrenceType;
+use org_core::{OccurrenceType, keyword_color};
 
 use super::rows::days_since;
 use super::theme::{Theme, centered};
@@ -348,8 +348,7 @@ fn section_header(app: &App, header: &Header, rows: &[usize], width: usize) -> L
         (None, SLIPPED) => theme.slipped,
         (None, DUE) => theme.due,
         (None, DOING) => theme.done,
-        (None, SCHEDULE | INBOX) => theme.accent,
-        (None, _) => shared_keyword_color(app, rows),
+        (None, _) => theme.accent,
     };
     // SLIPPED counts every slipped item; it shows only the first rows.
     let count = if section == SLIPPED {
@@ -376,20 +375,6 @@ fn section_header(app: &App, header: &Header, rows: &[usize], width: usize) -> L
         spans.push(Span::styled(" triage", theme.muted()));
     }
     Line::from(spans)
-}
-
-/// The color the rows' TODO keywords share (done rows green, a sequence's
-/// first keyword orange), or the accent when they differ.
-fn shared_keyword_color(app: &App, rows: &[usize]) -> Color {
-    let color = |index: &usize| {
-        keyword_style(app, &app.rows[*index])
-            .fg
-            .unwrap_or(app.theme.accent)
-    };
-    match rows.first().map(color) {
-        Some(first) if rows.iter().all(|index| color(index) == first) => first,
-        _ => app.theme.accent,
-    }
 }
 
 /// One task line: lead cell (badge, time or countdown), TODO keyword,
@@ -541,33 +526,13 @@ fn lead_style(theme: &Theme, kind: OccurrenceType, extra: &str) -> Style {
 /// Done keywords green, the first keyword of a sequence amber, middle
 /// states (NEXT, WAIT, …) in accent.
 fn keyword_style(app: &App, row: &DisplayRow) -> Style {
-    let theme = &app.theme;
-    let configured = row
-        .item
-        .todo
-        .as_ref()
-        .and_then(|keyword| app.settings.todo_keyword_colors.get(keyword));
-    match (configured, row.item.done) {
-        (Some(name), true) => return theme.fg(theme.named(name)),
-        (Some(name), false) => return theme.strong(theme.named(name)),
-        (None, true) => return theme.fg(theme.done),
-        (None, false) => {}
-    }
-    let first = app
-        .index
-        .document(std::path::Path::new(&row.item.file))
-        .and_then(|document| {
-            let keyword = document.todo_keyword(row.item.todo.as_deref()?)?;
-            document
-                .todo_keywords()
-                .iter()
-                .find(|candidate| candidate.sequence == keyword.sequence)
-        })
-        .is_some_and(|head| Some(head.name.as_str()) == row.item.todo.as_deref());
-    if first {
-        theme.fg(theme.due)
+    let name = keyword_color(&app.index, &row.item);
+    let color = app.theme.named(&name);
+    // Done keywords and a sequence's first keyword (TODO) are not bold.
+    if row.item.done || name == "orange" {
+        app.theme.fg(color)
     } else {
-        theme.strong(theme.accent)
+        app.theme.strong(color)
     }
 }
 

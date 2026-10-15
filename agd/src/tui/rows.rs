@@ -186,11 +186,12 @@ impl App {
                             if !section.header.is_empty() {
                                 headers.push(Header::section(
                                     section.header.clone(),
-                                    section.color.clone(),
+                                    Some(section.color.clone()),
                                 ));
                             }
                             for group in section.groups {
-                                headers.push(Header::section(group.name.clone(), group.color));
+                                headers
+                                    .push(Header::section(group.name.clone(), Some(group.color)));
                                 rows.extend(group.entries.into_iter().map(|entry| DisplayRow {
                                     section: group.name.clone(),
                                     item: entry.item,
@@ -212,14 +213,14 @@ impl App {
                             } else {
                                 section.header.clone()
                             };
-                            headers.push(Header::section(title, section.color.clone()));
+                            headers.push(Header::section(title, Some(section.color.clone())));
                             headers.extend(day_labels(from, to));
                             rows.extend(day_grouped(section.entries));
                         }
                         if section.from.is_none() && !section.header.is_empty() {
                             headers.push(Header::section(
                                 section.header.clone(),
-                                section.color.clone(),
+                                Some(section.color.clone()),
                             ));
                         }
                         rows.extend(section.items.into_iter().map(|item| DisplayRow {
