@@ -124,9 +124,10 @@ a network port.
 
 In Claude Code, install agd as a plugin. It brings the MCP server and the
 `agenda` skill, and a mod (Claude Code 2.1.287 or later) that adds `/agd`, a
-pane beside the transcript with your `start_view` (or today's agenda),
-`/capture KEY text`, which files a task at once without a Claude turn, and a
-line above the prompt with the day's counts. It runs the `agd` on your `PATH`.
+pane beside the transcript with your `start_view` (or today's agenda) and a
+tab per saved view on its own key, `/capture KEY text`, which files a task at
+once without a Claude turn, and a line above the prompt with the day's counts.
+It runs the `agd` on your `PATH`.
 
 ```bash
 claude plugin marketplace add johnnybravo-xyz/agd

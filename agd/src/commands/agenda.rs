@@ -49,6 +49,9 @@ pub struct AgendaCommand {
     /// One line of counts for a tmux or herdr status bar
     #[arg(long, conflicts_with_all = ["json", "csv", "brief", "view"])]
     status: bool,
+    /// The saved views, start_view first; with --json, `{ key, desc, start }`
+    #[arg(long, conflicts_with_all = ["csv", "brief", "view", "status"])]
+    views: bool,
     /// agd.agenda-entry/v1 objects
     #[arg(long, conflicts_with_all = ["csv", "brief"])]
     json: bool,
@@ -64,6 +67,9 @@ impl AgendaCommand {
             root.as_deref().map(Path::new),
         )?
         .settings;
+        if self.views {
+            return print_views(&settings, self.json);
+        }
         let mut match_expression = self.match_expression;
         if let Some(name) = self.profile.as_deref() {
             let profile = settings
@@ -256,6 +262,34 @@ fn render_view(sections: &[ViewSection], settings: &Settings) -> String {
         blocks.push(block);
     }
     blocks.join(&format!("{}\n", "=".repeat(78)))
+}
+
+/// The saved views in config order, with start_view moved first.
+fn print_views(settings: &Settings, json: bool) -> Result<()> {
+    let mut views: Vec<_> = settings
+        .views
+        .iter()
+        .map(|view| {
+            (
+                view.key.as_str(),
+                view.desc.as_str(),
+                view.key == settings.start_view,
+            )
+        })
+        .collect();
+    views.sort_by_key(|(_, _, start)| !start);
+    if json {
+        let rows: Vec<_> = views
+            .iter()
+            .map(|(key, desc, start)| serde_json::json!({ "key": key, "desc": desc, "start": start }))
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&rows)?);
+    } else {
+        for (key, desc, start) in views {
+            println!("{key:<4}{desc}{}", if start { "  (start)" } else { "" });
+        }
+    }
+    Ok(())
 }
 
 fn item_line(item: &Item) -> String {

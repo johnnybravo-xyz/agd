@@ -72,6 +72,22 @@ const DASHBOARD = JSON.stringify([
   },
 ])
 
+const VIEWS = JSON.stringify([
+  { key: 'd', desc: 'Dashboard', start: true },
+  { key: 'e', desc: 'Low effort', start: false },
+])
+
+const LOW_EFFORT = JSON.stringify([
+  {
+    header: 'Quick',
+    from: null,
+    to: null,
+    entries: [],
+    items: [item('NEXT', 'Reply to the review')],
+    color: 'blue',
+  },
+])
+
 const PANE = {
   title: 'agd',
   isFocused: true,
@@ -86,7 +102,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     panes(on)
     agd(on, {
       'agenda --status': { stdout: '1 today · 3 inbox\n' },
-      'agenda --view --json': { stdout: DASHBOARD },
+      'agenda --views --json': { stdout: VIEWS },
+      'agenda --view d --json': { stdout: DASHBOARD },
     })
     await $.command.run(typed('agd'))
     const ui = await $.ui.mount({ plugin: 'agd', surface, component: 'Pane', requestId: 'agd', props: PANE })
@@ -113,7 +130,7 @@ test('without a start_view the pane shows today\'s agenda by day', async ($, on)
   panes(on)
   agd(on, {
     'agenda --status': { stdout: '1 today · 0 inbox\n' },
-    'agenda --view --json': { exitCode: 1, stderr: 'Error: --view without a key runs start_view, which is not set' },
+    'agenda --views --json': { stdout: JSON.stringify([{ key: 'n', desc: 'Next', start: false }]) },
     'agenda --span day --json': { stdout: JSON.stringify([entry]) },
   })
   await $.command.run(typed('agd'))
@@ -124,11 +141,63 @@ test('without a start_view the pane shows today\'s agenda by day', async ($, on)
   await ui.unmount()
 })
 
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`the tabs switch between saved views and today (${surface})`, async ($, on) => {
+    panes(on)
+    agd(on, {
+      'agenda --status': { stdout: '1 today · 3 inbox\n' },
+      'agenda --views --json': { stdout: VIEWS },
+      'agenda --view d --json': { stdout: DASHBOARD },
+      'agenda --view e --json': { stdout: LOW_EFFORT },
+      'agenda --span day --json': { stdout: '[]' },
+    })
+    await $.command.run(typed('agd'))
+    const ui = await $.ui.mount({ plugin: 'agd', surface, component: 'Pane', requestId: 'agd', props: PANE })
+    // The start view's tab is the open one; the others are dimmed.
+    expect((await ui.find({ key: 'view-d' }))?.props.dimColor).toBe(false)
+    expect((await ui.find({ key: 'view-e' }))?.props.dimColor).toBe(true)
+    expect((await ui.find({ key: 'view-e' }))?.props.hotkey).toBe('e')
+
+    await ui.press({ key: 'view-e' })
+    expect(await ui.find({ type: 'Text', text: 'QUICK  1' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /NEXT TASKS/ })).toBeUndefined()
+
+    await ui.press({ key: 'view-today' })
+    expect(await ui.find({ type: 'Text', text: 'TODAY' })).toBeDefined()
+    await ui.unmount()
+  })
+}
+
+test('a view keyed a or g takes that key from Today or refresh', async ($, on) => {
+  panes(on)
+  agd(on, {
+    'agenda --status': { stdout: '' },
+    'agenda --views --json': {
+      stdout: JSON.stringify([
+        { key: 'a', desc: 'All', start: true },
+        { key: 'g', desc: 'Goals', start: false },
+      ]),
+    },
+    'agenda --view a --json': { stdout: '[]' },
+  })
+  await $.command.run(typed('agd'))
+  const ui = await $.ui.mount({ plugin: 'agd', surface: 'terminal', component: 'Pane', requestId: 'agd', props: PANE })
+  expect((await ui.find({ key: 'view-a' }))?.props.hotkey).toBe('a')
+  expect((await ui.find({ key: 'view-today' }))?.props.hotkey).toBeUndefined()
+  expect((await ui.find({ key: 'view-g' }))?.props.hotkey).toBe('g')
+  expect((await ui.find({ key: 'refresh' }))?.props.hotkey).toBeUndefined()
+  await ui.unmount()
+})
+
 test('the band above the prompt shows the day\'s counts', async ($, on) => {
   panes(on)
   // No other mod draws in the band.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e) => $.ui.resolve(e).Box({ children: [] }))
-  agd(on, { 'agenda --status': { stdout: '2 today · 5 inbox\n' }, 'agenda --view --json': { stdout: '[]' } })
+  agd(on, {
+    'agenda --status': { stdout: '2 today · 5 inbox\n' },
+    'agenda --views --json': { stdout: '[]' },
+    'agenda --span day --json': { stdout: '[]' },
+  })
   await $.command.run(typed('agd'))
   const ui = await $.ui.mount({
     plugin: 'agd',

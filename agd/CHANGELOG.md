@@ -9,15 +9,17 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A Claude Code plugin (`claude plugin marketplace add johnnybravo-xyz/agd`,
   then `claude plugin install agd@johnnybravo-xyz`) with the MCP server, the
   `agenda` skill and a mod: `/agd` opens a pane with your `start_view` or
-  today's agenda, `/capture KEY text` files a task without a Claude turn, and
-  a line above the prompt shows the day's counts. The mod only runs `agd`; it
-  needs Claude Code 2.1.287 or later.
+  today's agenda and a tab per saved view on its own key (`d: Dashboard`),
+  `/capture KEY text` files a task without a Claude turn, and a line above
+  the prompt shows the day's counts. The mod only runs `agd`; it needs
+  Claude Code 2.1.287 or later.
 - `agd setup install` covers Codex and OpenCode, writing their MCP entry and
   the `agenda` skill to `.agents/skills/agenda/`, and leaves another skill of
   that name untouched.
 - `start_view = "KEY"` opens `agd` on that saved view, such as your
   dashboard, as the first tab; number keys follow the tab order.
-  `agd agenda --view` without a key runs it.
+  `agd agenda --view` without a key runs it, and `agd agenda --views` lists
+  the views.
 - View blocks take org-super-agenda groups: each row goes to the first group
   whose match it passes, `discard` drops rows, `by` groups by category,
   parent, todo or priority, `effort_max`/`effort_min` compare `:Effort:` as a

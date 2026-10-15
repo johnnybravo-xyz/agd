@@ -5,11 +5,17 @@
 
 const PANE = 'agd'
 
-// What the band and the pane draw; refresh() replaces them.
+const TODAY = 'today'
+
+// What the band and the pane draw; refresh() replaces them. `views` are the
+// saved views from `agd agenda --views`; `current` is the open tab, a view's
+// key or TODAY, starting on start_view.
 let status = ''
 let sections = []
 let problem = ''
 let paneOpen = false
+let views = []
+let current = null
 
 // Runs agd with an argument list (no shell). Resolves { stdout } or { error }.
 async function agd($, args) {
@@ -25,14 +31,25 @@ async function agd($, args) {
   }
 }
 
-// The configured start_view, or today's agenda when there is none.
-async function readSections($) {
-  const view = await agd($, ['agenda', '--view', '--json'])
-  if (!view.error) return parsed(view.stdout, (sections) => sections)
-  if (!view.error.includes('start_view')) return { error: view.error }
+// A saved view's sections, or today's agenda as one section.
+async function readSections($, key) {
+  if (key !== TODAY) {
+    const view = await agd($, ['agenda', '--view', key, '--json'])
+    return view.error ? { error: view.error } : parsed(view.stdout, (sections) => sections)
+  }
   const day = await agd($, ['agenda', '--span', 'day', '--json'])
   if (day.error) return { error: day.error }
   return parsed(day.stdout, (entries) => [{ header: 'Today', entries, items: [], groups: [] }])
+}
+
+async function readViews($) {
+  const listed = await agd($, ['agenda', '--views', '--json'])
+  if (listed.error) return []
+  try {
+    return JSON.parse(listed.stdout)
+  } catch {
+    return []
+  }
 }
 
 // agd's JSON as { sections }, or { error } when it does not parse.
@@ -48,11 +65,50 @@ async function refresh($) {
   const counts = await agd($, ['agenda', '--status'])
   status = counts.error ? '' : counts.stdout.trim()
   if (paneOpen) {
-    const read = await readSections($)
+    views = await readViews($)
+    if (current === null || (current !== TODAY && !views.some((view) => view.key === current))) {
+      const start = views.find((view) => view.start)
+      current = start ? start.key : TODAY
+    }
+    const read = await readSections($, current)
     problem = read.error || ''
     sections = read.sections || []
   }
   $.ui.invalidate('ui.render')
+}
+
+async function showView($, key) {
+  current = key
+  await refresh($)
+}
+
+// A button's props with its hotkey, when it has one; a hotkey prop must be a
+// single digit or lowercase letter, never undefined.
+function withHotkey(props, hotkey) {
+  return hotkey ? { ...props, hotkey } : props
+}
+
+// The tab row: Today, then each saved view on its own key (`d: Dashboard`),
+// as org-agenda's dispatcher keys; a view keyed `a` or `g` takes that key
+// from Today or refresh.
+function tabs($, Box, Button) {
+  const keys = new Set(views.map((view) => view.key))
+  const tab = (key, label, hotkey) =>
+    Button(
+      withHotkey(
+        { key: 'view-' + key, label, plain: true, dimColor: current !== key, onPress: () => showView($, key) },
+        /^[a-z0-9]$/.test(hotkey) ? hotkey : undefined,
+      ),
+    )
+  return Box({
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 3,
+    children: [
+      tab(TODAY, 'Today', keys.has('a') ? undefined : 'a'),
+      ...views.map((view) => tab(view.key, view.desc, view.key)),
+    ],
+  })
 }
 
 // A config color name (agd's COLOR_NAMES) as Text props.
@@ -142,35 +198,42 @@ function sectionCount(section) {
   )
 }
 
+// One section's lines: its header, its rows, then each group's.
+function sectionLines(Text, section) {
+  const lines = [header(Text, section.header || 'Agenda', sectionCount(section), section.color)]
+  lines.push(...rows(Text, section.entries || [], section.items || []))
+  for (const group of section.groups || []) {
+    const count = group.entries.length + group.items.length
+    lines.push(header(Text, ' ' + group.name, count, group.color))
+    lines.push(...rows(Text, group.entries, group.items))
+  }
+  return lines
+}
+
 function paneBody($, e) {
   const { Box, Text, Button } = $.ui.resolve(e)
-  const children = []
-  if (problem) {
-    children.push(Text({ color: 'red', children: [problem] }))
-  }
-  for (const section of sections) {
-    if (children.length > 0) children.push(Text({ children: [' '] }))
-    const title = section.header || 'Agenda'
-    children.push(header(Text, title, sectionCount(section), section.color))
-    children.push(...rows(Text, section.entries || [], section.items || []))
-    for (const group of section.groups || []) {
-      const count = group.entries.length + group.items.length
-      children.push(header(Text, ' ' + group.name, count, group.color))
-      children.push(...rows(Text, group.entries, group.items))
-    }
-  }
-  children.push(Text({ children: [' '] }))
-  children.push(
-    Box({
-      flexDirection: 'row',
-      columnGap: 3,
-      children: [
-        Button({ key: 'refresh', label: 'refresh', hotkey: 'r', plain: true, onPress: () => refresh($) }),
-        Text({ dimColor: true, children: ['esc close · ctrl-x x close'] }),
-      ],
-    }),
-  )
-  return Box({ flexDirection: 'column', width: e.props.bodyColumns, children })
+  const blank = () => Text({ children: [' '] })
+  const body = problem
+    ? [Text({ color: 'red', children: [problem] })]
+    : sections.flatMap((section, index) => [...(index > 0 ? [blank()] : []), ...sectionLines(Text, section)])
+  const footer = Box({
+    flexDirection: 'row',
+    columnGap: 3,
+    children: [
+      Button(
+        withHotkey(
+          { key: 'refresh', label: 'refresh', plain: true, onPress: () => refresh($) },
+          views.some((view) => view.key === 'g') ? undefined : 'g',
+        ),
+      ),
+      Text({ dimColor: true, children: ['esc close · ctrl-x x close'] }),
+    ],
+  })
+  return Box({
+    flexDirection: 'column',
+    width: e.props.bodyColumns,
+    children: [tabs($, Box, Button), blank(), ...body, blank(), footer],
+  })
 }
 
 // "/capture t buy milk due:fri" runs `agd capture t "buy milk due:fri"`.
