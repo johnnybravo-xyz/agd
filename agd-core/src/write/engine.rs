@@ -30,11 +30,18 @@ impl WriteContext {
         self.now.unwrap_or_else(|| Local::now().naive_local())
     }
 
-    // MCP clients are journaled as "mcp:<client name>"; every other actor is a
-    // person using the CLI or TUI.
     pub fn is_agent(&self) -> bool {
-        self.actor.starts_with("mcp:")
+        agent_name(&self.actor).is_some()
     }
+}
+
+/// How an MCP client's writes are journaled: `mcp:<client name>`. Every
+/// other actor is a person using the CLI or the TUI.
+const AGENT_ACTOR_PREFIX: &str = "mcp:";
+
+/// The agent an actor names, `codex` for `mcp:codex`; None for a person.
+pub fn agent_name(actor: &str) -> Option<&str> {
+    actor.strip_prefix(AGENT_ACTOR_PREFIX)
 }
 
 #[derive(Debug)]

@@ -87,8 +87,9 @@ pub mod path;
 pub mod write;
 
 pub use agenda::{
-    AgendaEngine, AgendaQuery, AgendaSpan, ViewSection, ViewSectionGroup, agenda_csv, agenda_row,
-    agenda_text, agenda_title, item_row, items_csv, keyword_color, keyword_colors,
+    AgendaEngine, AgendaQuery, AgendaSpan, AgendaSummary, ViewSection, ViewSectionGroup,
+    agenda_csv, agenda_row, agenda_text, agenda_title, item_row, items_csv, keyword_color,
+    keyword_colors, overdue_entries,
 };
 pub use capture_line::{CaptureDraft, parse_capture_line};
 pub use capture_template::{CapturePrompt, capture_prompts, render_capture_template};
@@ -119,5 +120,5 @@ pub use model::{
 pub use path::{OrgFiles, RootSet, SkipReason};
 pub use write::{
     BatchMutation, Change, EditIntent, ItemEdit, JournalRecord, JournalStatus, Patch, RefileResult,
-    StoredPatch, UndoResult, WriteContext, WriteEngine, apply_patches,
+    StoredPatch, UndoResult, WriteContext, WriteEngine, agent_name, apply_patches,
 };

@@ -85,7 +85,18 @@ pub struct Occurrence {
     /// The end of a time range such as `10:00-11:30`; null without one.
     #[serde(default)]
     pub end_time: Option<String>,
+    /// Org's leader for the row, as the agenda prints it (`Sched.12x:`,
+    /// `3 d. ago:`, `In   5 d.:`).
     pub extra: String,
+    /// Days late on an overdue row (`Sched.12x:` is 12, `3 d. ago:` is 3),
+    /// minus the days left on an upcoming deadline (`In   5 d.:` is -5),
+    /// and 0 on every other row.
+    #[serde(default)]
+    pub days: i64,
+    /// Whether the row is overdue: a past-scheduled reminder or a missed
+    /// deadline, both shown on today.
+    #[serde(default)]
+    pub late: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]

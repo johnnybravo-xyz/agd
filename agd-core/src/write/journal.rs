@@ -57,6 +57,14 @@ pub struct JournalRecord {
     pub diff: String,
 }
 
+impl JournalRecord {
+    /// The agent that made the change, `codex` for `mcp:codex`; None for a
+    /// person's change from the CLI or TUI.
+    pub fn agent(&self) -> Option<&str> {
+        super::engine::agent_name(&self.actor)
+    }
+}
+
 impl WriteEngine {
     pub fn review(&self, journal_id: &str) -> Result<(), AgdError> {
         let records = self.latest_records()?;

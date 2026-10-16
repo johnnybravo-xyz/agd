@@ -15,6 +15,7 @@ mod query;
 mod repeat;
 mod sort;
 mod span;
+mod summary;
 #[cfg(test)]
 mod test_support;
 mod view;
@@ -24,5 +25,6 @@ pub use engine::{AgendaEngine, AgendaQuery};
 pub use export::{agenda_csv, agenda_row, agenda_text, agenda_title, item_row, items_csv};
 pub(crate) use repeat::{add_period, parse_repeater};
 pub use span::AgendaSpan;
+pub use summary::{AgendaSummary, overdue_entries};
 pub(crate) use view::duration_minutes;
 pub use view::{ViewSection, ViewSectionGroup, validate_view_block};

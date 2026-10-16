@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use agd_core::{
-    AgdError, AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, JournalStatus, OccurrenceType,
-    Settings, VIEWS_SCHEMA, ViewSection, ViewSettings, WorkspaceIndex, WriteEngine, agenda_csv,
-    agenda_row, agenda_text, agenda_title, item_row, items_csv, keyword_colors, load_settings,
+    AgdError, AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, OccurrenceType, Settings,
+    VIEWS_SCHEMA, ViewSection, ViewSettings, WorkspaceIndex, WriteEngine, agenda_csv, agenda_row,
+    agenda_text, agenda_title, item_row, items_csv, keyword_colors, load_settings,
     parse_agenda_day,
 };
 use anyhow::Result;
@@ -151,17 +151,15 @@ struct RowFacts {
 }
 
 fn entry_row(entry: &AgendaEntry) -> RowFacts {
-    let extra = &entry.occurrence.extra;
-    let kind = entry.occurrence.kind;
     RowFacts {
         text: agenda_row(entry),
         done: entry.item.done,
-        late: kind == OccurrenceType::PastScheduled || extra.ends_with("ago:"),
+        late: entry.occurrence.late,
         due: matches!(
-            kind,
+            entry.occurrence.kind,
             OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline
         ),
-        leader: extra.clone(),
+        leader: entry.occurrence.extra.clone(),
     }
 }
 
@@ -439,53 +437,11 @@ fn views_output(settings: &Settings, json: bool) -> Result<String> {
         .collect())
 }
 
-/// `3 overdue · 7 today · 4 inbox · 2 agents`, zero counts left out. Today
-/// counts what is scheduled, due or timestamped today; a deadline warning
-/// (`In 4 d.:`) is neither today nor overdue.
+/// The status band, `1 overdue · 3 today · 9 inbox · 2 unreviewed`, as the
+/// TUI's header and pane count it (AgendaEngine::summary).
 fn status_line(index: &WorkspaceIndex, settings: &Settings, today: NaiveDate) -> Result<String> {
-    let engine = AgendaEngine::new(index);
-    let entries = engine.agenda(&AgendaQuery {
-        from: today,
-        to: today,
-        today,
-        match_expression: None,
-        log_mode: false,
-    })?;
-    let overdue_kind = |entry: &AgendaEntry| {
-        entry.occurrence.kind == agd_core::OccurrenceType::PastScheduled
-            || entry.occurrence.extra.ends_with("ago:")
-    };
-    let mut overdue = std::collections::BTreeSet::new();
-    let mut open = std::collections::BTreeSet::new();
-    let counted = entries.iter().filter(|entry| {
-        !entry.item.done && entry.occurrence.kind != agd_core::OccurrenceType::UpcomingDeadline
-    });
-    for entry in counted {
-        if overdue_kind(entry) {
-            overdue.insert(&entry.item.item_ref);
-        } else {
-            open.insert(&entry.item.item_ref);
-        }
-    }
-    let agents = WriteEngine::with_default_journal(settings.clone())?
-        .journal()?
-        .iter()
-        .filter(|record| {
-            record.actor.starts_with("mcp:") && record.status == JournalStatus::Committed
-        })
-        .count();
-    let counts = [
-        (overdue.len(), "overdue"),
-        (open.len(), "today"),
-        (engine.inbox().len(), "inbox"),
-        (agents, "agents"),
-    ];
-    Ok(counts
-        .iter()
-        .filter(|(count, _)| *count > 0)
-        .map(|(count, label)| format!("{count} {label}"))
-        .collect::<Vec<_>>()
-        .join(" · "))
+    let journal = WriteEngine::with_default_journal(settings.clone())?.journal()?;
+    Ok(AgendaEngine::new(index).summary(today, &journal)?.line())
 }
 
 // Reads keep working when one agenda file cannot be indexed; say which file

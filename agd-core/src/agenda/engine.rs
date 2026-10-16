@@ -238,12 +238,13 @@ impl<'a> AgendaEngine<'a> {
                 ));
             }
             if !item.done && base < today && today >= from && today <= to {
-                entries.push(entry(
+                let late = (today - base).num_days();
+                entries.push(reminder(
                     item,
                     OccurrenceType::PastScheduled,
                     today,
-                    (None, None),
-                    format!("Sched.{:>2}x:", (today - base).num_days()),
+                    format!("Sched.{late:>2}x:"),
+                    late,
                 ));
             }
         }
@@ -268,21 +269,22 @@ impl<'a> AgendaEngine<'a> {
                 .unwrap_or(settings.deadline_warning_days)
                 .max(0);
             if !item.done && today >= from && today <= to {
-                if base < today {
-                    entries.push(entry(
+                let late = (today - base).num_days();
+                if late > 0 {
+                    entries.push(reminder(
                         item,
                         OccurrenceType::Deadline,
                         today,
-                        (None, None),
-                        format!("{} d. ago:", (today - base).num_days()),
+                        format!("{late} d. ago:"),
+                        late,
                     ));
-                } else if base > today && (base - today).num_days() <= warning_days {
-                    entries.push(entry(
+                } else if late < 0 && -late <= warning_days {
+                    entries.push(reminder(
                         item,
                         OccurrenceType::UpcomingDeadline,
                         today,
-                        (None, None),
-                        format!("In {:>3} d.:", (base - today).num_days()),
+                        format!("In {:>3} d.:", -late),
+                        late,
                     ));
                 }
             }
@@ -363,6 +365,21 @@ impl<'a> AgendaEngine<'a> {
     }
 }
 
+/// A reminder row on today: a past-scheduled or missed deadline `days`
+/// late (a late row), or an upcoming deadline `-days` away.
+fn reminder(
+    item: &Item,
+    kind: OccurrenceType,
+    today: NaiveDate,
+    extra: String,
+    days: i64,
+) -> AgendaEntry {
+    let mut row = entry(item, kind, today, (None, None), extra);
+    row.occurrence.days = days;
+    row.occurrence.late = days > 0;
+    row
+}
+
 /// One agenda row on `date`; the time pair is the start time and, for a
 /// range such as `10:00-11:30`, the end time.
 fn entry(
@@ -381,6 +398,8 @@ fn entry(
             time,
             end_time,
             extra,
+            days: 0,
+            late: false,
         },
     }
 }
