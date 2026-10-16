@@ -1,9 +1,10 @@
 use std::path::Path;
 
 use agd_core::{
-    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, OccurrenceType, Settings, VIEWS_SCHEMA,
-    ViewSection, WorkspaceIndex, WriteEngine, agenda_csv, agenda_row, agenda_text, agenda_title,
-    item_row, items_csv, keyword_colors, load_settings, parse_agenda_day,
+    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, OccurrenceType, STATUS_SCHEMA, Settings,
+    VIEWS_SCHEMA, ViewSection, WorkspaceIndex, WriteEngine, agenda_csv, agenda_row, agenda_text,
+    agenda_title, item_row, items_csv, keyword_colors, load_settings, overdue_entries,
+    parse_agenda_day,
 };
 use anyhow::Result;
 
@@ -46,11 +47,12 @@ pub struct AgendaCommand {
     /// One `date title` line per entry, for hooks
     #[arg(long)]
     brief: bool,
-    /// One line of counts for a tmux or herdr status bar
+    /// One line of counts for a tmux or herdr status bar; with --json,
+    /// agd.status/v1: the counts and the overdue rows in Today's order
     #[arg(
         long,
         conflicts_with_all = [
-            "json", "csv", "brief", "view", "span", "from", "match_expression", "log", "profile",
+            "csv", "brief", "view", "span", "from", "match_expression", "log", "profile",
         ]
     )]
     status: bool,
@@ -93,8 +95,9 @@ impl AgendaCommand {
         let index = load_index(settings.clone())?;
         let today = Local::now().date_naive();
         if self.status {
-            let line = status_line(&index, &settings, today)?;
-            return Ok(write_stdout(&format!("{line}\n"))?);
+            return Ok(write_stdout(&status_output(
+                &index, &settings, today, self.json,
+            )?)?);
         }
         let start = match self.from {
             Some(value) => parse_agenda_day(&value, today)?,
@@ -392,10 +395,37 @@ fn views_output(settings: &Settings, json: bool) -> Result<String> {
 
 /// The status band, `1 overdue · 3 today · 9 inbox · 2 unreviewed`, as the
 /// TUI's header and pane count it (AgendaEngine::summary, words::summary).
-fn status_line(index: &WorkspaceIndex, settings: &Settings, today: NaiveDate) -> Result<String> {
+/// With --json, agd.status/v1: the same counts and the overdue rows in the
+/// order Today and Triage list them (overdue_entries), for a client such as
+/// the Claude Code pane.
+fn status_output(
+    index: &WorkspaceIndex,
+    settings: &Settings,
+    today: NaiveDate,
+    json: bool,
+) -> Result<String> {
     let journal = WriteEngine::with_default_journal(settings.clone())?.journal()?;
-    let summary = AgendaEngine::new(index).summary(today, &journal)?;
-    Ok(crate::words::summary(&summary))
+    let engine = AgendaEngine::new(index);
+    let summary = engine.summary(today, &journal)?;
+    if !json {
+        return Ok(format!("{}\n", crate::words::summary(&summary)));
+    }
+    let entries = engine.agenda(&AgendaQuery {
+        from: today,
+        to: today,
+        today,
+        match_expression: None,
+        log_mode: false,
+    })?;
+    let payload = serde_json::json!({
+        "schema": STATUS_SCHEMA,
+        "overdue": summary.overdue,
+        "today": summary.today,
+        "inbox": summary.inbox,
+        "unreviewed": summary.unreviewed,
+        "overdue_entries": overdue_entries(&entries),
+    });
+    Ok(format!("{}\n", serde_json::to_string_pretty(&payload)?))
 }
 
 // Reads keep working when one agenda file cannot be indexed; say which file

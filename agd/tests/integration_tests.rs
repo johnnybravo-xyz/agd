@@ -330,6 +330,24 @@ fn status_line_counts_today_for_a_status_bar() {
         .assert()
         .success()
         .stdout("1 overdue · 1 today · 1 inbox\n");
+    // As JSON: the same counts and the overdue rows, as Today lists them.
+    let output = fixture
+        .command()
+        .args(["agenda", "--status", "--json"])
+        .output()
+        .expect("status");
+    assert!(output.status.success(), "{output:?}");
+    let status: Value = serde_json::from_slice(&output.stdout).expect("status JSON");
+    assert_eq!(status["schema"], "agd.status/v1");
+    assert_eq!(
+        (&status["overdue"], &status["today"], &status["inbox"]),
+        (&Value::from(1), &Value::from(1), &Value::from(1))
+    );
+    assert_eq!(status["unreviewed"], 0);
+    let overdue = status["overdue_entries"].as_array().unwrap();
+    assert_eq!(overdue.len(), 1);
+    assert_eq!(overdue[0]["item"]["title"], "Late");
+    assert_eq!(overdue[0]["occurrence"]["late"], true);
 }
 
 #[test]

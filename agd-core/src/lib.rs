@@ -118,8 +118,8 @@ pub use import::{
 pub use model::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, CHECK_SCHEMA, DESCRIBE_SCHEMA, ERROR_SCHEMA,
     ErrorCode, ErrorResponse, ITEM_SCHEMA, Item, JOURNAL_SCHEMA, MUTATION_SCHEMA, Mutation,
-    Occurrence, OccurrenceType, Planning, PlanningTimestamp, REFILE_SCHEMA, Repeat, UNDO_SCHEMA,
-    VIEW_SECTION_SCHEMA, VIEWS_SCHEMA,
+    Occurrence, OccurrenceType, Planning, PlanningTimestamp, REFILE_SCHEMA, Repeat, STATUS_SCHEMA,
+    UNDO_SCHEMA, VIEW_SECTION_SCHEMA, VIEWS_SCHEMA,
 };
 pub use path::{OrgFiles, RootSet, SkipReason};
 pub use write::{
