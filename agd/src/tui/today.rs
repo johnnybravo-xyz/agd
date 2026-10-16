@@ -819,7 +819,7 @@ fn right_cell(app: &App, row: &DisplayRow) -> Vec<Span<'static>> {
     if row.section == INBOX {
         return match app.provenance.get(&super::stable_ref(&item.item_ref)) {
             Some((actor, _)) if actor != "you" => {
-                let mut spans = agent_label(theme, actor, RIGHT, false);
+                let mut spans = agent_label(theme, actor, RIGHT);
                 spans.push(Span::raw(" "));
                 spans
             }
@@ -849,23 +849,12 @@ fn right_cell(app: &App, row: &DisplayRow) -> Vec<Span<'static>> {
     Vec::new()
 }
 
-/// `● codex`: an agent's name after its dot, the dot in the agent's hue
-/// and the name in bold text (`muted` for a reviewed change), cut to
-/// `width` cells with "…".
-pub(super) fn agent_label(
-    theme: &Theme,
-    agent: &str,
-    width: usize,
-    bold: bool,
-) -> Vec<Span<'static>> {
-    let name_style = if bold {
-        theme.strong(theme.text)
-    } else {
-        theme.muted()
-    };
+/// `● codex` as provenance: the dot in the agent's hue, the name muted
+/// like all metadata, cut to `width` cells with "…".
+fn agent_label(theme: &Theme, agent: &str, width: usize) -> Vec<Span<'static>> {
     vec![
         Span::styled("● ", theme.fg(theme.agent(agent))),
-        Span::styled(truncate(agent, width.saturating_sub(2)), name_style),
+        Span::styled(truncate(agent, width.saturating_sub(2)), theme.muted()),
     ]
 }
 

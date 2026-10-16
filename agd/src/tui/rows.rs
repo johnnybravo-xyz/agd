@@ -15,7 +15,7 @@ use super::{
 
 /// Rows shown under OVERDUE on Today; the rest wait in Triage.
 const OVERDUE_ON_TODAY: usize = 3;
-/// Agent review shows this many recent changes.
+/// The Agents tab shows this many recent changes.
 const REVIEW_LIMIT: usize = 200;
 
 impl App {

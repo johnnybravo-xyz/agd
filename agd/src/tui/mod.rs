@@ -1,5 +1,5 @@
 //! Terminal workflows from the TUI design: Today (with Week, Inbox and saved
-//! views as tabs), Triage, Capture, Agent review, and the narrow pane.
+//! views as tabs), Triage, Capture, the Agents tab, and the narrow pane.
 //! `mod.rs` owns state, the event loop and terminal handling; each screen
 //! draws itself from `App`, and every write goes through `actions`.
 
