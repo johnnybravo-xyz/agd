@@ -1,18 +1,19 @@
-use chrono::Local;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 
 use super::theme::truncate;
+use super::today::{self, Clock};
 use super::{App, DisplayRow, FULL_WIDTH};
 
 /// The 2-second glance for a herdr or tmux split: overdue collapses to a
 /// count, timed items sort by clock time with ▸ on the next one, done items
-/// stay dimmed, and the footer carries the only cross-screen signals.
+/// stay dimmed, and the footer carries the only cross-screen signals. Rows
+/// use Today's marker and lead cells, so the two read alike.
 pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     let theme = app.theme.clone();
-    let block = theme.panel("agd").border_style(theme.fg(theme.accent));
+    let block = theme.panel("agd");
     let inner = block.inner(area);
     frame.render_widget(block, area);
     // A status message too long for one row wraps onto a second.
@@ -28,6 +29,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     let parts = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(1),
@@ -47,37 +49,28 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     frame.render_widget(Paragraph::new(Line::from(top)), parts[0]);
     frame.render_widget(
         Paragraph::new(Span::styled(
-            Local::now().format("%H:%M").to_string(),
+            app.clock.format("%H:%M").to_string(),
             theme.muted(),
         ))
         .alignment(ratatui::layout::Alignment::Right),
         parts[0],
     );
+    // One blank line above the section, as on Today.
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("TODAY ", theme.strong(theme.accent)),
+            Span::styled("TODAY", theme.strong(theme.accent)),
             Span::styled(
-                app.rows
-                    .iter()
-                    .filter(|row| !row.item.done)
-                    .count()
-                    .to_string(),
+                format!("  {}", app.rows.iter().filter(|row| !row.item.done).count()),
                 theme.muted(),
             ),
         ])),
-        parts[1],
+        parts[2],
     );
 
-    let width = parts[2].width.saturating_sub(1) as usize;
-    let now = Local::now().format("%H:%M").to_string();
-    let next = app.rows.iter().position(|row| {
-        !row.item.done
-            && row
-                .occurrence
-                .as_ref()
-                .and_then(|occurrence| occurrence.time.as_deref())
-                .is_some_and(|time| time >= now.as_str())
-    });
+    let list_area = parts[3];
+    // The highlight column takes one cell.
+    let width = list_area.width.saturating_sub(1) as usize;
+    let next = today::next_timed(app);
     let items: Vec<ListItem<'_>> = if app.rows.is_empty() {
         // The inbox count is already in the footer.
         let lines = if app.index.documents().next().is_none() {
@@ -92,10 +85,11 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
                 .collect::<Vec<_>>(),
         )]
     } else {
-        app.rows
-            .iter()
-            .enumerate()
-            .map(|(index, row)| ListItem::new(pane_line(app, row, Some(index) == next, width)))
+        (0..app.rows.len())
+            .map(|index| {
+                let clock = today::clock_of(app, index, next);
+                ListItem::new(pane_line(app, &app.rows[index], clock, width))
+            })
             .collect()
     };
     let mut state =
@@ -105,22 +99,22 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
             .highlight_symbol(Span::styled("▌", theme.fg(theme.accent)))
             .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
             .highlight_style(theme.selected()),
-        parts[2],
+        list_area,
         &mut state,
     );
-    app.list_area = parts[2];
+    app.list_area = list_area;
     app.click_rows = (0..app.rows.len())
         .skip(state.offset())
-        .take(parts[2].height as usize)
+        .take(list_area.height as usize)
         .enumerate()
-        .map(|(line, row)| (parts[2].y + line as u16, row))
+        .map(|(line, row)| (list_area.y + line as u16, row))
         .collect();
 
-    draw_footer(frame, app, parts[3]);
+    draw_footer(frame, app, parts[4]);
 }
 
 /// The last write's confirmation or a refusal while it lasts, else the
-/// inbox and agent counts; `?` at the right.
+/// inbox and agent counts named as the tabs are; `?` at the right.
 fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
     let line = match &app.status {
@@ -132,21 +126,19 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 theme.done
             }),
         )),
-        None => Line::from(
-            [
-                theme.pill(format!("inbox {}", app.counts.inbox), theme.muted),
-                vec![Span::raw(" ")],
-                theme.pill(
-                    format!("agents {}", app.counts.agents),
-                    if app.counts.agents > 0 {
-                        theme.accent
-                    } else {
-                        theme.muted
-                    },
-                ),
-            ]
-            .concat(),
-        ),
+        None => {
+            let mut spans = vec![Span::styled(
+                format!("Inbox {}  Agents", app.counts.inbox),
+                theme.muted(),
+            )];
+            if app.counts.agents > 0 {
+                spans.push(Span::styled(
+                    format!(" ● {}", app.counts.agents),
+                    theme.strong(theme.accent),
+                ));
+            }
+            Line::from(spans)
+        }
     };
     let help = Line::from(vec![
         Span::raw(" "),
@@ -166,67 +158,48 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     );
 }
 
-fn pane_line(app: &App, row: &DisplayRow, next: bool, width: usize) -> Line<'static> {
+/// Today's marker and lead cells, the title, and a right-hand mark:
+/// priority, ↻ for a repeating task, ✓ for done (the pane shows no
+/// keyword, so ✓ says it).
+fn pane_line(app: &App, row: &DisplayRow, clock: Clock, width: usize) -> Line<'static> {
     let theme = &app.theme;
     let item = &row.item;
-    let time = row
-        .occurrence
-        .as_ref()
-        .and_then(|occurrence| occurrence.time.clone())
-        .unwrap_or_default();
-    let marker = if next { "▸" } else { " " };
+    let repeats = [&item.planning.scheduled, &item.planning.deadline]
+        .into_iter()
+        .flatten()
+        .any(|timestamp| timestamp.repeater.is_some());
     let right = if item.done {
         Span::styled("✓", theme.strong(theme.done))
     } else if let Some(priority) = &item.priority {
         Span::styled(priority.clone(), theme.strong(theme.due))
-    } else if let Some(days) = row
-        .occurrence
-        .as_ref()
-        .filter(|occurrence| occurrence.extra.starts_with("In"))
-        .and_then(|occurrence| {
-            occurrence
-                .extra
-                .split_whitespace()
-                .nth(1)
-                .map(str::to_string)
-        })
-    {
-        Span::styled(format!("{days}d"), theme.fg(theme.due))
-    } else if item
-        .planning
-        .scheduled
-        .as_ref()
-        .is_some_and(|scheduled| scheduled.repeater.is_some())
-    {
+    } else if repeats {
         Span::styled("↻", theme.muted())
     } else {
         Span::raw("")
     };
     let title_style = if item.done {
         theme.done_row()
-    } else if next {
+    } else if clock == Clock::Next {
         theme.strong(theme.text)
     } else {
         theme.fg(theme.text)
     };
-    let time_style = if next {
-        theme.strong(theme.accent)
-    } else {
-        theme.muted()
-    };
+    let mut spans = vec![today::marker(app, row, clock)];
+    spans.extend(today::lead_cell(app, row, clock));
+    spans.push(Span::raw(" "));
+    let used: usize = spans.iter().map(Span::width).sum();
     // Display width, not characters: a CJK or emoji title takes two
     // columns a character. A right-hand mark keeps a space before it.
     let gap = usize::from(right.width() > 0);
     let title = truncate(
         &super::peek::display_title(item),
-        width.saturating_sub(8 + right.width() + gap),
+        width.saturating_sub(used + right.width() + gap),
     );
-    let used = 2 + 6 + Span::raw(title.as_str()).width();
-    Line::from(vec![
-        Span::styled(format!("{marker} "), theme.fg(theme.accent)),
-        Span::styled(format!("{time:<6}"), time_style),
-        Span::styled(title, title_style),
-        Span::raw(" ".repeat(width.saturating_sub(used + right.width()))),
-        right,
-    ])
+    let title_width = Span::raw(title.as_str()).width();
+    spans.push(Span::styled(title, title_style));
+    spans.push(Span::raw(
+        " ".repeat(width.saturating_sub(used + title_width + right.width())),
+    ));
+    spans.push(right);
+    Line::from(spans)
 }

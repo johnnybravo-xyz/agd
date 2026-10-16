@@ -29,7 +29,7 @@ use agd_core::{
     load_settings,
 };
 use anyhow::{Context, Result};
-use chrono::{Local, NaiveDate};
+use chrono::{Local, NaiveDate, NaiveTime};
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, MouseEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -221,6 +221,9 @@ struct App {
     index: WorkspaceIndex,
     theme: Theme,
     today: NaiveDate,
+    /// The time of day at the last tick, for which timed rows are past and
+    /// which is next.
+    clock: NaiveTime,
     /// First day of the Today/Week agenda; f, b and . move it.
     day: NaiveDate,
     screen: Screen,
@@ -281,6 +284,7 @@ impl App {
             index,
             theme,
             today,
+            clock: Local::now().time(),
             day: today,
             screen: Screen::Today,
             back: Screen::Today,
@@ -468,7 +472,9 @@ fn event_loop(
                 Err(error) => app.set_status(format!("watch failed: {error}")),
             }
         }
-        let today = Local::now().date_naive();
+        let now = Local::now();
+        app.clock = now.time();
+        let today = now.date_naive();
         if today != app.today {
             // Past midnight: done items leave and the agenda moves on.
             app.day += today - app.today;

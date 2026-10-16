@@ -203,7 +203,7 @@ fn pane_sorts_by_clock_time_and_keeps_done_rows_last() {
         );
         let screen = render(&mut app, 35, 12).join("\n");
         assert!(screen.contains("1 overdue"), "{screen}");
-        assert!(screen.contains("inbox 1"), "{screen}");
+        assert!(screen.contains("Inbox 1"), "{screen}");
     });
 }
 
@@ -1702,18 +1702,19 @@ fn only_captures_say_who_captured_a_task() {
 #[serial]
 fn a_full_pane_title_keeps_a_space_before_its_mark() {
     with_home(|root| {
-        // 21 characters: exactly the room a 34-column pane leaves.
         fs::write(
             root.join("work.org"),
-            "* TODO Submit expense claims\nDEADLINE: <2026-10-22 Thu>\n",
+            "* TODO [#A] Submit expense claims for the offsite\nDEADLINE: <2026-10-22 Thu>\n",
         )
         .unwrap();
         let mut app = test_app(root);
         app.pane = true;
         app.reload_rows().unwrap();
         let screen = render(&mut app, 34, 10).join("\n");
-        assert!(!screen.contains("claims9d"), "{screen}");
-        assert!(screen.contains(" 9d│"), "{screen}");
+        // The countdown leads, as on Today; the priority keeps a space
+        // before it however long the title.
+        assert!(screen.contains("in 9d  Submit"), "{screen}");
+        assert!(screen.contains("… A│"), "{screen}");
     });
 }
 
@@ -1976,6 +1977,69 @@ fn sectioned_rows_line_titles_up_after_the_widest_keyword() {
         let line: String = (0..120).map(|x| buffer[(x, y)].symbol()).collect();
         assert!(!line.contains('✓'), "{line}");
         assert_ne!(buffer[(column_of(&buffer, y, "Delta"), y)].fg, Color::Reset);
+    });
+}
+
+#[test]
+#[serial]
+fn today_reads_as_a_timeline_against_the_clock() {
+    use ratatui::style::Modifier;
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* DONE Call with bank\nSCHEDULED: <2026-10-13 Tue 08:00>\n\
+* TODO Standup\nSCHEDULED: <2026-10-13 Tue 10:00>\n\
+* NEXT Review PR\nSCHEDULED: <2026-10-13 Tue 15:00>\n\
+* TODO One-on-one\nSCHEDULED: <2026-10-13 Tue 16:30>\n\
+* TODO Pay rent\nDEADLINE: <2026-10-16 Fri>\n\
+* TODO File taxes\nDEADLINE: <2026-10-14 Wed>\n\
+* TODO Submit claims\nDEADLINE: <2026-10-18 Sun>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(Some("truecolor"));
+        app.clock = chrono::NaiveTime::from_hms_opt(12, 0, 30).unwrap();
+        app.reload_rows().unwrap();
+        let titles: Vec<&str> = app.rows.iter().map(|row| row.item.title.as_str()).collect();
+        // Done rows last in their section; deadlines soonest first.
+        assert_eq!(
+            titles,
+            [
+                "Standup",
+                "Review PR",
+                "One-on-one",
+                "Call with bank",
+                "File taxes",
+                "Pay rent",
+                "Submit claims"
+            ]
+        );
+        let buffer = render_buffer(&mut app, 120, 24);
+        let lead = |title: &str| {
+            let y = row_of(&buffer, title);
+            let cells: Vec<&ratatui::buffer::Cell> = (0..120).map(|x| &buffer[(x, y)]).collect();
+            let line: String = cells.iter().map(|cell| cell.symbol()).collect();
+            (line, buffer[(4, y)].clone())
+        };
+        // The next timed task is marked and bold; a past time is muted.
+        let (line, time) = lead("Review PR");
+        assert!(line.starts_with("│ ▸ 15:00"), "{line}");
+        assert!(time.modifier.contains(Modifier::BOLD));
+        assert_eq!(time.fg, app.theme.accent);
+        let (_, time) = lead("Standup");
+        assert_eq!(time.fg, app.theme.muted);
+        let (line, time) = lead("One-on-one");
+        assert!(!line.contains('▸'), "{line}");
+        assert!(!time.modifier.contains(Modifier::BOLD));
+        assert_eq!(time.fg, app.theme.accent);
+
+        // Week's today stands out.
+        press(&mut app, crossterm::event::KeyCode::Tab);
+        let buffer = render_buffer(&mut app, 120, 30);
+        let y = row_of(&buffer, "Tuesday");
+        let today = &buffer[(column_of(&buffer, y, "Tuesday"), y)];
+        assert_eq!(today.fg, app.theme.accent);
+        assert!(today.modifier.contains(Modifier::UNDERLINED));
     });
 }
 

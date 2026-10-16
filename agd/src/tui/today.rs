@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, ScrollbarState};
 
 use agd_core::{OccurrenceType, keyword_color};
+use chrono::{NaiveTime, Timelike};
 use unicode_width::UnicodeWidthStr;
 
 use super::input::TextInput;
@@ -340,6 +341,7 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
         width,
         wide,
         keyword: keyword_width(app),
+        next: next_timed(app),
     };
     for ((header, rows), held) in app
         .headers
@@ -359,11 +361,10 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
         items.push(ListItem::new(section_header(app, header, held, width)));
         line_rows.push(None);
         for &index in rows {
-            let row = &app.rows[index];
             if index == app.selected {
                 selected_line = Some(items.len());
             }
-            items.push(ListItem::new(row_line(app, row, &columns)));
+            items.push(ListItem::new(row_line(app, index, &columns)));
             line_rows.push(Some(index));
         }
     }
@@ -459,7 +460,12 @@ fn section_header(app: &App, header: &Header, rows: &[usize], width: usize) -> L
     let theme = &app.theme;
     let section = header.text.as_str();
     if header.day {
-        let style = if rows.is_empty() {
+        // Today's date stands out in accent, underlined, as the CLI's does.
+        let style = if section == super::rows::day_label(app.today) {
+            theme
+                .strong(theme.accent)
+                .add_modifier(Modifier::UNDERLINED)
+        } else if rows.is_empty() {
             theme.muted()
         } else {
             theme.strong(theme.text)
@@ -504,11 +510,12 @@ const LEAD: usize = 6;
 const KEYWORD_MAX: usize = 9;
 
 /// What every row of one list shares: the row width, whether tags fit
-/// (WIDE), and the keyword column's width.
+/// (WIDE), the keyword column's width and the next timed row.
 pub(super) struct RowColumns {
     pub width: usize,
     pub wide: bool,
     pub keyword: usize,
+    pub next: Option<usize>,
 }
 
 /// Rows of an org-agenda day list (Week, the classic view, agenda blocks)
@@ -536,8 +543,10 @@ fn keyword_width(app: &App) -> usize {
 /// One task line: the marker, then Org's prefix (category, time, leader)
 /// or the lead cell (badge, time or countdown), the TODO keyword, the
 /// title, priority and tags, and a right-aligned context column.
-fn row_line(app: &App, row: &DisplayRow, columns: &RowColumns) -> Line<'static> {
+fn row_line(app: &App, index: usize, columns: &RowColumns) -> Line<'static> {
     let theme = &app.theme;
+    let row = &app.rows[index];
+    let clock = clock_of(app, index, columns.next);
     if row.more > 0 {
         return Line::from(vec![
             Span::raw(" ".repeat(MARKER + LEAD + 1)),
@@ -546,7 +555,7 @@ fn row_line(app: &App, row: &DisplayRow, columns: &RowColumns) -> Line<'static> 
         ]);
     }
     let item = &row.item;
-    let mut spans = vec![marker(app, row)];
+    let mut spans = vec![marker(app, row, clock)];
     if classic_row(row) {
         // The org-agenda prefix: "category:  Sched. 2x:  TODO title".
         let occurrence = row
@@ -572,7 +581,7 @@ fn row_line(app: &App, row: &DisplayRow, columns: &RowColumns) -> Line<'static> 
     } else {
         // The lead is padded to six columns but may fill them (`in 14d`,
         // a rounded badge); the separator keeps it off the keyword.
-        spans.extend(lead_cell(app, row));
+        spans.extend(lead_cell(app, row, clock));
         spans.push(Span::raw(" "));
         if columns.keyword > 0 {
             let todo = item.todo.as_deref().unwrap_or_default();
@@ -646,9 +655,60 @@ fn fit_row(
     spans
 }
 
+/// Where a timed row stands against the clock on today's list.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Clock {
+    Past,
+    Next,
+    Later,
+}
+
+/// The clock time a row's lead shows, if it shows one (`16:30`, or the
+/// start of `16:30-17:00`).
+fn lead_time(row: &DisplayRow) -> Option<NaiveTime> {
+    let occurrence = row.occurrence.as_ref()?;
+    if matches!(
+        occurrence.kind,
+        OccurrenceType::PastScheduled | OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline
+    ) {
+        return None;
+    }
+    let time = occurrence.time.as_deref()?.split('-').next()?;
+    NaiveTime::parse_from_str(time, "%H:%M").ok()
+}
+
+/// The next timed task today: the first open row whose time is now or
+/// later. None on another day.
+pub(super) fn next_timed(app: &App) -> Option<usize> {
+    if !app.pane && app.day != app.today {
+        return None;
+    }
+    let now = minute(app.clock);
+    app.rows
+        .iter()
+        .position(|row| !row.item.done && lead_time(row).is_some_and(|time| time >= now))
+}
+
+/// The clock to the minute, as Org writes times: a task at 15:00 is next
+/// all through 15:00.
+fn minute(time: NaiveTime) -> NaiveTime {
+    NaiveTime::from_hms_opt(time.hour(), time.minute(), 0).unwrap_or(time)
+}
+
+/// Where row `index` stands against the clock, `next` being next_timed.
+pub(super) fn clock_of(app: &App, index: usize, next: Option<usize>) -> Clock {
+    let today = app.pane || app.day == app.today;
+    match lead_time(&app.rows[index]) {
+        _ if next == Some(index) => Clock::Next,
+        Some(time) if today && time < minute(app.clock) => Clock::Past,
+        _ => Clock::Later,
+    }
+}
+
 /// Six-character lead: overdue days as a red badge, clock time, a
-/// deadline countdown, or how long a WAIT has waited.
-fn lead_cell(app: &App, row: &DisplayRow) -> Vec<Span<'static>> {
+/// deadline countdown, or how long a WAIT has waited. A time already past
+/// is muted and the next one bold.
+pub(super) fn lead_cell(app: &App, row: &DisplayRow, clock: Clock) -> Vec<Span<'static>> {
     let theme = &app.theme;
     let Some(occurrence) = &row.occurrence else {
         if row.section == DOING
@@ -695,10 +755,11 @@ fn lead_cell(app: &App, row: &DisplayRow) -> Vec<Span<'static>> {
         )],
         _ => match &occurrence.time {
             Some(time) => {
-                let style = if row.item.done {
-                    theme.muted()
-                } else {
-                    theme.strong(theme.accent)
+                let style = match clock {
+                    _ if row.item.done => theme.muted(),
+                    Clock::Past => theme.muted(),
+                    Clock::Next => theme.strong(theme.accent),
+                    Clock::Later => theme.fg(theme.accent),
                 };
                 vec![Span::styled(format!("{time:<6}"), style)]
             }
@@ -735,10 +796,12 @@ pub(super) fn keyword_style(app: &App, row: &DisplayRow) -> Style {
     }
 }
 
-/// The marker cell: `*` on a marked row.
-fn marker(app: &App, row: &DisplayRow) -> Span<'static> {
+/// The marker cell: `*` on a marked row, `▸` on the next timed task.
+pub(super) fn marker(app: &App, row: &DisplayRow, clock: Clock) -> Span<'static> {
     if app.marks.contains(&row.item.item_ref) {
         Span::styled("* ", app.theme.strong(app.theme.accent))
+    } else if clock == Clock::Next {
+        Span::styled("▸ ", app.theme.strong(app.theme.accent))
     } else {
         Span::raw(" ".repeat(MARKER))
     }

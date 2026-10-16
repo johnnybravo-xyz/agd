@@ -422,6 +422,10 @@ fn today_rows(
     }
     let overdue = std::mem::take(&mut sections[0].1);
     sections[0].1 = collapse_overdue(overdue, overdue_expanded);
+    // Deadlines soonest first; a deadline today counts as 0 days.
+    sections[2]
+        .1
+        .sort_by_key(|row| row.occurrence.as_ref().map_or(0, countdown));
     for item in todos {
         if !shown.contains(&item.item_ref) && is_in_progress(item, index) {
             shown.insert(item.item_ref.clone());
@@ -443,7 +447,20 @@ fn today_rows(
             });
         }
     }
+    // Done rows stay visible, last in their section.
+    for (_, rows) in &mut sections[1..] {
+        rows.sort_by_key(|row| row.item.done);
+    }
     sections.into_iter().flat_map(|(_, rows)| rows).collect()
+}
+
+/// Days until a deadline from org's `In   3 d.:` leader; 0 on the day.
+fn countdown(occurrence: &Occurrence) -> i64 {
+    if occurrence.kind == OccurrenceType::UpcomingDeadline {
+        days_late(occurrence)
+    } else {
+        0
+    }
 }
 
 /// Missed deadlines before old scheduled items, most days late first;
