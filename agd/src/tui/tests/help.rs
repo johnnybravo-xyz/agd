@@ -285,8 +285,8 @@ fn keys_md_is_the_key_tables() {
     let written = fs::read_to_string(&path).unwrap_or_default();
     assert!(
         written == expected,
-        "docs/KEYS.md is out of date with agd/src/tui/keys.rs; run \
-         `AGD_UPDATE_DOCS=1 cargo test -p agd keys_md` and commit it"
+        "docs/KEYS.md is out of date with agd/src/tui/keys.rs \
+         (AGD_UPDATE_DOCS=1 rewrites it); it should read:\n\n{expected}"
     );
 }
 
