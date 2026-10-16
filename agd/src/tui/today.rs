@@ -124,8 +124,8 @@ fn header_tabs(app: &App, width: usize) -> Vec<Span<'static>> {
                 Screen::Triage => "Triage".to_string(),
                 Screen::Today => "Today".to_string(),
             };
-            let alert = (*screen == Screen::Review && app.counts.agents > 0)
-                .then(|| format!("● {}", app.counts.agents));
+            let alert = (*screen == Screen::Review && app.counts.unreviewed > 0)
+                .then(|| format!("● {}", app.counts.unreviewed));
             tab(label, alert, app.screen == *screen)
         })
         .collect();

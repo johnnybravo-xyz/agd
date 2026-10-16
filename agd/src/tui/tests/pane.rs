@@ -95,3 +95,26 @@ fn a_full_pane_title_keeps_a_space_before_its_mark() {
         assert!(screen.contains("…  A │"), "{screen}");
     });
 }
+
+#[test]
+#[serial]
+fn the_pane_counts_each_item_once_as_the_status_band_does() {
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* TODO Late twice\nSCHEDULED: <2026-09-01 Tue> DEADLINE: <2026-10-10 Sat>\n\
+* TODO Both today\nSCHEDULED: <2026-10-13 Tue> DEADLINE: <2026-10-13 Tue>\n\
+* TODO Due soon\nDEADLINE: <2026-10-16 Fri>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.pane = true;
+        app.reload_rows().unwrap();
+        // A deadline's warning is not today's, and two rows of one task
+        // count once.
+        assert_eq!(crate::words::summary(&app.counts), "1 overdue · 1 today");
+        let screen = render(&mut app, 34, 12).join("\n");
+        assert!(screen.contains(" 1 overdue "), "{screen}");
+        assert!(screen.contains("TODAY  1"), "{screen}");
+    });
+}

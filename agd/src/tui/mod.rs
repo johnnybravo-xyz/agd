@@ -25,8 +25,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration as StdDuration, Instant};
 
 use agd_core::{
-    AgdError, ErrorCode, Item, JournalRecord, Occurrence, Settings, WorkspaceIndex, WriteContext,
-    load_settings,
+    AgdError, AgendaSummary, ErrorCode, Item, JournalRecord, Occurrence, Settings, WorkspaceIndex,
+    WriteContext, load_settings,
 };
 use anyhow::{Context, Result};
 use chrono::{Local, NaiveDate, NaiveTime};
@@ -190,14 +190,6 @@ enum Tone {
     Error,
 }
 
-/// Cross-screen signals shown in tabs, the footer and the pane.
-#[derive(Debug, Default)]
-struct Counts {
-    overdue: usize,
-    inbox: usize,
-    agents: usize,
-}
-
 /// Progress of one triage pass; outcomes index the actions::TODAY… slots.
 #[derive(Debug, Default)]
 struct TriageState {
@@ -266,7 +258,9 @@ struct App {
     list_area: Rect,
     /// (screen row, row index) of the drawn list, for mouse clicks.
     click_rows: Vec<(u16, usize)>,
-    counts: Counts,
+    /// The day's counts as the status band has them, for the tabs and the
+    /// pane.
+    counts: AgendaSummary,
     /// Reschedules per stable_ref: LOGBOOK "Rescheduled from" notes, else
     /// agd's own journal.
     reschedules: BTreeMap<String, usize>,
@@ -316,7 +310,7 @@ impl App {
             status: None,
             list_area: Rect::default(),
             click_rows: Vec::new(),
-            counts: Counts::default(),
+            counts: AgendaSummary::default(),
             reschedules: BTreeMap::new(),
             provenance: BTreeMap::new(),
             recent_targets: Vec::new(),

@@ -112,7 +112,7 @@ fn a_second_shift_a_never_clears_the_queue_and_marks_choose_what_a_accepts() {
         let status = app.status.as_ref().unwrap().text.clone();
         assert!(status.starts_with("2 changes  accepted"), "{status}");
         assert!(journal().iter().all(|record| record.status == Reviewed));
-        assert_eq!(app.counts.agents, 0);
+        assert_eq!(app.counts.unreviewed, 0);
         assert_eq!(
             fs::read_to_string(root.join("inbox.org"))
                 .unwrap()

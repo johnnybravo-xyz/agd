@@ -234,18 +234,9 @@ impl App {
                 );
             }
         }
-        self.counts.agents = journals
-            .iter()
-            .filter(|record| is_agent(record) && record.status == JournalStatus::Committed)
-            .count();
         let engine = AgendaEngine::new(&self.index);
-        let today_entries = engine.agenda(&self.query(self.today, self.today))?;
-        self.counts.overdue = today_entries
-            .iter()
-            .filter(|entry| entry.occurrence.late)
-            .count();
+        self.counts = engine.summary(self.today, &journals)?;
         let inbox = engine.inbox();
-        self.counts.inbox = inbox.len();
 
         let mut headers: Vec<Header> = Vec::new();
         let mut rows = match &self.screen {
