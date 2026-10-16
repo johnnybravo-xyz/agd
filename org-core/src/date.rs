@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
-use chrono::{Datelike, Duration, Local, Months, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
+use chrono::{
+    Datelike, Days, Duration, Local, Months, NaiveDate, NaiveDateTime, NaiveTime, Weekday,
+};
 use regex::Regex;
 
 use crate::{AgdError, CaptureTemplate, PlanningTimestamp};
@@ -11,7 +13,9 @@ static ABSOLUTE_RE: LazyLock<Regex> = LazyLock::new(|| {
         .expect("absolute date regex")
 });
 static RELATIVE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\+(\d+)([dwmy])$").expect("relative date regex"));
+    LazyLock::new(|| Regex::new(r"^([+-])(\d+)([dwmy])?$").expect("relative date regex"));
+static CLOCK_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\d{1,2}:\d{2}$").expect("clock time regex"));
 static ESCAPE_RE: LazyLock<Regex> = LazyLock::new(|| {
     // %^{name}t/T/u/U and a bare %^t/T/u/U prompt for a date, as Org does.
     Regex::new(r"%(\?|i|U|u|T|t|%|\^g|\^\{([^}]+)\}([tTuU])?|\^([tTuU]))")
@@ -29,58 +33,99 @@ pub struct CaptureDraft {
     pub properties: BTreeMap<String, String>,
 }
 
+/// The date forms agd accepts wherever it asks for a date, listed in every
+/// `invalid_date` error so the fix is in the message.
+const DATE_FORMS: &str = "use 2026-10-30, 2026-10-30 14:00 (or 2026-10-30T14:00), today, tomorrow, \
+'.' (today), a weekday (fri), +3d -1w +2m +1y (+3 alone means days), 14:00 (today at 14:00), \
+or a day then a time (fri 14:00, +2d 9:30)";
+
+/// Reads a date the way Org's date prompt does: an ISO date with optional
+/// time, repeater and warning, or a day relative to `today` (see
+/// `relative_day`), optionally followed by ` HH:MM`. A bare `HH:MM` is today
+/// at that time.
 pub fn parse_date_input(input: &str, today: NaiveDate) -> Result<PlanningTimestamp, AgdError> {
     let input = input.trim();
-    if let Some(captures) = ABSOLUTE_RE.captures(input) {
-        let date = NaiveDate::parse_from_str(captures.get(1).expect("date").as_str(), "%Y-%m-%d")
-            .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {input}")))?;
-        let time = captures
-            .get(2)
-            .map(|matched| parse_time(matched.as_str()))
-            .transpose()?;
-        return Ok(PlanningTimestamp {
-            date: date.format("%Y-%m-%d").to_string(),
-            time: time.map(|value| value.format("%H:%M").to_string()),
-            end_time: None,
-            repeater: captures.get(3).map(|matched| matched.as_str().to_string()),
-            warning: captures.get(4).map(|matched| matched.as_str().to_string()),
-            raw: None,
-        });
+    if CLOCK_RE.is_match(input) {
+        return timed_date(today, input);
     }
-    if let Some(captures) = RELATIVE_RE.captures(input) {
-        let amount = captures
-            .get(1)
-            .expect("amount")
-            .as_str()
-            .parse::<u64>()
-            .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {input}")))?;
-        let unit = captures.get(2).expect("unit").as_str();
-        let date = match unit {
-            "d" => today.checked_add_signed(Duration::days(amount as i64)),
-            "w" => today.checked_add_signed(Duration::weeks(amount as i64)),
-            "m" => today.checked_add_months(Months::new(amount as u32)),
-            "y" => today.checked_add_months(Months::new((amount * 12) as u32)),
-            _ => None,
-        }
-        .ok_or_else(|| AgdError::new("invalid_date", format!("date is out of range: {input}")))?;
+    if let Some((day, time)) = input.rsplit_once(' ')
+        && CLOCK_RE.is_match(time)
+        && let Some(date) = relative_day(day.trim(), today)?
+    {
+        return timed_date(date, time);
+    }
+    if let Some(date) = relative_day(input, today)? {
         return Ok(simple_date(date));
     }
-    if input.eq_ignore_ascii_case("today") {
-        return Ok(simple_date(today));
+    let Some(captures) = ABSOLUTE_RE.captures(input) else {
+        return Err(AgdError::new(
+            "invalid_date",
+            format!("unsupported date '{input}'; {DATE_FORMS}"),
+        ));
+    };
+    let date = NaiveDate::parse_from_str(captures.get(1).expect("date").as_str(), "%Y-%m-%d")
+        .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {input}")))?;
+    let time = captures
+        .get(2)
+        .map(|matched| parse_time(matched.as_str()))
+        .transpose()?;
+    Ok(PlanningTimestamp {
+        date: date.format("%Y-%m-%d").to_string(),
+        time: time.map(|value| value.format("%H:%M").to_string()),
+        end_time: None,
+        repeater: captures.get(3).map(|matched| matched.as_str().to_string()),
+        warning: captures.get(4).map(|matched| matched.as_str().to_string()),
+        raw: None,
+    })
+}
+
+/// A day relative to `today` as Org's date prompt reads it: `.` or `today`,
+/// `tomorrow`, a weekday name (the next one, today included), or `+N`/`-N`
+/// with a d, w, m or y unit (days when the unit is left out). None when the
+/// input is none of these.
+fn relative_day(input: &str, today: NaiveDate) -> Result<Option<NaiveDate>, AgdError> {
+    if input == "." || input.eq_ignore_ascii_case("today") {
+        return Ok(Some(today));
     }
     if input.eq_ignore_ascii_case("tomorrow") {
-        return Ok(simple_date(today + Duration::days(1)));
+        return Ok(Some(today + Duration::days(1)));
     }
     if let Some(weekday) = parse_weekday(input) {
         let current = today.weekday().num_days_from_monday() as i64;
         let requested = weekday.num_days_from_monday() as i64;
         let distance = (requested - current).rem_euclid(7);
-        return Ok(simple_date(today + Duration::days(distance)));
+        return Ok(Some(today + Duration::days(distance)));
     }
-    Err(AgdError::new(
-        "invalid_date",
-        format!("unsupported Org date '{input}'; use YYYY-MM-DD, +Nd, +Nw, +Nm, +Ny, or weekday"),
-    ))
+    let Some(captures) = RELATIVE_RE.captures(input) else {
+        return Ok(None);
+    };
+    let out_of_range = || AgdError::new("invalid_date", format!("date is out of range: {input}"));
+    let amount = captures[2].parse::<u32>().map_err(|_| out_of_range())?;
+    let forward = &captures[1] == "+";
+    let (days, months) = match captures.get(3).map_or("d", |unit| unit.as_str()) {
+        "d" => (amount, 0),
+        "w" => (amount.checked_mul(7).ok_or_else(out_of_range)?, 0),
+        "m" => (0, amount),
+        _ => (0, amount.checked_mul(12).ok_or_else(out_of_range)?),
+    };
+    let date = if forward {
+        today
+            .checked_add_days(Days::new(days.into()))
+            .and_then(|date| date.checked_add_months(Months::new(months)))
+    } else {
+        today
+            .checked_sub_days(Days::new(days.into()))
+            .and_then(|date| date.checked_sub_months(Months::new(months)))
+    };
+    date.map(Some).ok_or_else(out_of_range)
+}
+
+fn timed_date(date: NaiveDate, time: &str) -> Result<PlanningTimestamp, AgdError> {
+    let time = parse_time(time)?;
+    Ok(PlanningTimestamp {
+        time: Some(time.format("%H:%M").to_string()),
+        ..simple_date(date)
+    })
 }
 
 pub fn parse_capture_line(input: &str, today: NaiveDate) -> Result<CaptureDraft, AgdError> {
@@ -502,6 +547,43 @@ mod tests {
         assert_eq!(absolute.time.as_deref(), Some("09:15"));
         assert_eq!(absolute.repeater.as_deref(), Some("+1w"));
         assert_eq!(absolute.warning.as_deref(), Some("-7d"));
+    }
+
+    #[test]
+    fn reads_org_prompt_shorthands_and_times() {
+        let today = NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+        let date = |input: &str| {
+            let timestamp = parse_date_input(input, today).unwrap();
+            (timestamp.date, timestamp.time)
+        };
+        let day = |value: &str| (value.to_string(), None);
+        let at = |value: &str, time: &str| (value.to_string(), Some(time.to_string()));
+        assert_eq!(date("."), day("2026-10-13"));
+        assert_eq!(date("+3"), day("2026-10-16"));
+        assert_eq!(date("-1d"), day("2026-10-12"));
+        assert_eq!(date("-1w"), day("2026-10-06"));
+        assert_eq!(date("-1m"), day("2026-09-13"));
+        assert_eq!(date("+1y"), day("2027-10-13"));
+        assert_eq!(date("14:00"), at("2026-10-13", "14:00"));
+        assert_eq!(date("mon 10:00"), at("2026-10-19", "10:00"));
+        assert_eq!(date("tomorrow 9:30"), at("2026-10-14", "09:30"));
+        assert_eq!(date("+2d 14:00"), at("2026-10-15", "14:00"));
+        assert_eq!(date("2026-10-30T14:00"), at("2026-10-30", "14:00"));
+        assert_eq!(date("2026-10-30 14:00"), at("2026-10-30", "14:00"));
+
+        let error = parse_date_input("someday", today).unwrap_err();
+        assert_eq!(error.code(), "invalid_date");
+        for form in [
+            "today",
+            "tomorrow",
+            "fri",
+            "-1w",
+            "2026-10-30T14:00",
+            "fri 14:00",
+        ] {
+            assert!(error.to_string().contains(form), "{form} missing: {error}");
+        }
+        assert!(parse_date_input("fri 25:00", today).is_err());
     }
 
     #[test]

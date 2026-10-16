@@ -382,12 +382,6 @@ pub fn load_index(settings: Settings) -> Result<WorkspaceIndex> {
 }
 
 fn parse_day(value: &str, today: NaiveDate) -> Result<NaiveDate> {
-    if let Some(days) = value.strip_prefix('-') {
-        let back = parse_date_input(&format!("+{days}"), today)?
-            .date
-            .parse::<NaiveDate>()?;
-        return Ok(today - (back - today));
-    }
     Ok(parse_date_input(value, today)?.date.parse::<NaiveDate>()?)
 }
 
