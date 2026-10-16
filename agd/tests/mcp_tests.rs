@@ -276,6 +276,33 @@ async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn 
     Ok(())
 }
 
+#[tokio::test]
+async fn plan_none_removes_a_date() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("plan.org");
+    fs::write(
+        &path,
+        "* TODO Plan me\nSCHEDULED: <2026-10-20 Tue> DEADLINE: <2026-10-22 Thu>\n:PROPERTIES:\n:ID: plan-task\n:END:\n",
+    )?;
+    let service = service(&directory).await?;
+    let result = call(
+        &service,
+        "plan",
+        json!({"ref": "plan-task", "scheduled": "none"}),
+    )
+    .await?;
+    assert_eq!(result.is_error, Some(false), "{:?}", result.content);
+    let mutation = first_block(&result);
+    assert_eq!(mutation["schema"], "agd.mutation/v1");
+    assert_eq!(mutation["item"]["planning"]["scheduled"], Value::Null);
+    assert_eq!(
+        fs::read_to_string(&path)?,
+        "* TODO Plan me\nDEADLINE: <2026-10-22 Thu>\n:PROPERTIES:\n:ID: plan-task\n:END:\n"
+    );
+    service.cancel().await?;
+    Ok(())
+}
+
 /// Claude Code speaks the 2026-07-28 protocol: `server/discover` first, no
 /// `initialize`, and its name in every request's metadata. The journal must
 /// still name it.

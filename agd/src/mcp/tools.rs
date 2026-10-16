@@ -98,10 +98,10 @@ struct PlanRequest {
     #[serde(rename = "ref")]
     item_ref: String,
     /// New SCHEDULED date: today, tomorrow, a weekday (fri), +2d (also
-    /// +1w, +1m, +1y), 2026-10-30 or 2026-10-30T14:00.
+    /// +1w, +1m, +1y), 2026-10-30 or 2026-10-30T14:00; `none` removes it.
     scheduled: Option<String>,
     /// New DEADLINE date: today, tomorrow, a weekday (fri), +2d (also +1w,
-    /// +1m, +1y), 2026-10-30 or 2026-10-30T14:00.
+    /// +1m, +1y), 2026-10-30 or 2026-10-30T14:00; `none` removes it.
     deadline: Option<String>,
     /// Note logged with the change.
     note: Option<String>,
@@ -326,22 +326,25 @@ fn plan(
     }
     let today = Local::now().date_naive();
     let intent = EditIntent {
-        scheduled: request
-            .scheduled
-            .as_deref()
-            .map(|value| parse_date_input(value, today).map(Change::Set))
-            .transpose()?
-            .unwrap_or_default(),
-        deadline: request
-            .deadline
-            .as_deref()
-            .map(|value| parse_date_input(value, today).map(Change::Set))
-            .transpose()?
-            .unwrap_or_default(),
+        scheduled: planning_change(request.scheduled.as_deref(), today)?,
+        deadline: planning_change(request.deadline.as_deref(), today)?,
         note: request.note,
         ..EditIntent::default()
     };
     edit(settings, &request.item_ref, intent, context)
+}
+
+/// A `plan` date argument: left out keeps the date, `none` removes it, and
+/// anything else is a date to set.
+fn planning_change(
+    value: Option<&str>,
+    today: NaiveDate,
+) -> Result<Change<PlanningTimestamp>, AgdError> {
+    match value {
+        None => Ok(Change::Keep),
+        Some(value) if value.trim().eq_ignore_ascii_case("none") => Ok(Change::Clear),
+        Some(value) => parse_date_input(value, today).map(Change::Set),
+    }
 }
 
 fn edit(
