@@ -10,7 +10,7 @@ mod importer;
 mod mcp;
 mod tui;
 mod words;
-use commands::{AgendaCommand, CaptureCommand, SetupCommand, UndoCommand};
+use commands::{AgendaCommand, CaptureCommand, CompletionsCommand, SetupCommand, UndoCommand};
 use mcp::McpCommand;
 
 /// Org agenda for terminals and coding agents. With no command, opens your
@@ -46,6 +46,8 @@ enum Commands {
     Mcp(McpCommand),
     /// Import editor settings, install agent integrations, check files
     Setup(SetupCommand),
+    /// Print shell completions: bash, zsh, fish, elvish or powershell
+    Completions(CompletionsCommand),
 }
 
 impl Cli {
@@ -56,7 +58,7 @@ impl Cli {
             Some(Commands::Capture(command)) => command.json(),
             Some(Commands::Undo(command)) => command.json(),
             Some(Commands::Setup(command)) => command.json(),
-            Some(Commands::Mcp(_)) | None => false,
+            Some(Commands::Mcp(_)) | Some(Commands::Completions(_)) | None => false,
         }
     }
 }
@@ -177,5 +179,6 @@ fn run(cli: Cli) -> Result<bool> {
         Some(Commands::Undo(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Mcp(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Setup(command)) => command.execute(config, root_directory),
+        Some(Commands::Completions(command)) => command.execute(Cli::command()).map(|()| false),
     }
 }

@@ -509,7 +509,15 @@ fn help_lists_every_command_and_none_that_went() {
         .assert()
         .success();
     let help = String::from_utf8_lossy(&assertion.get_output().stdout).into_owned();
-    for command in ["agenda", "capture", "undo", "mcp", "setup", "--pane"] {
+    for command in [
+        "agenda",
+        "capture",
+        "undo",
+        "mcp",
+        "setup",
+        "completions",
+        "--pane",
+    ] {
         assert!(help.contains(command), "missing {command} in\n{help}");
     }
     for removed in ["todo", "state", "schedule", "outline", "search"] {
@@ -628,6 +636,39 @@ fn first_run_without_config_or_org_says_how_to_start() {
         .assert()
         .success()
         .stdout("n   Agenda and all TODOs  (built-in)\n");
+}
+
+#[test]
+fn completions_cover_every_command_on_a_fresh_machine() {
+    // No config, no org files, an empty home: completions need none.
+    let home = tempfile::tempdir().expect("home directory");
+    for shell in ["bash", "zsh", "fish", "elvish", "powershell"] {
+        let output = cargo::cargo_bin_cmd!("agd")
+            .env("HOME", home.path())
+            .env("XDG_CONFIG_HOME", home.path().join(".config"))
+            .env("XDG_DATA_HOME", home.path().join(".local/share"))
+            .args(["completions", shell])
+            .output()
+            .expect("agd completions");
+        assert!(output.status.success(), "{shell}: {output:?}");
+        let script = String::from_utf8_lossy(&output.stdout);
+        // fish names a long flag `-l json`; the others write `--json`.
+        let flag = |name: &str| match shell {
+            "fish" => format!("-l {name}"),
+            _ => format!("--{name}"),
+        };
+        for word in ["agenda", "capture", "undo", "setup"]
+            .map(String::from)
+            .into_iter()
+            .chain([flag("json"), flag("view"), flag("dry-run")])
+        {
+            assert!(script.contains(&word), "{shell} misses {word}");
+        }
+    }
+    assert!(
+        fs::read_dir(home.path()).expect("home").next().is_none(),
+        "completions write nothing"
+    );
 }
 
 #[test]
