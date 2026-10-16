@@ -404,7 +404,7 @@ impl Card {
             other => vec![(other.kind().to_string(), ChangeRole::Now)],
         };
         Self {
-            marked: app.marked_changes.contains(&record.id),
+            marked: app.marks.contains(&record.id),
             reviewed: record.status != JournalStatus::Committed,
             agent: agent_name(record).to_string(),
             project: shorten_project(&record.project),

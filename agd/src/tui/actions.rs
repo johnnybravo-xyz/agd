@@ -254,7 +254,8 @@ impl App {
             ),
             _ => change.to_string(),
         };
-        let summary = targets_summary(&items);
+        let titles: Vec<String> = items.iter().map(|item| item.title.clone()).collect();
+        let summary = titles_summary(&titles);
         self.set_status(format!(
             "{} · u undo",
             words::change(&location, &change, &summary)
@@ -786,52 +787,40 @@ impl App {
     /// one under the cursor. Accepting writes nothing to the org files: it
     /// only marks each change reviewed in the journal.
     pub(super) fn accept_changes(&mut self) -> Result<()> {
-        let chosen: Vec<&agd_core::JournalRecord> = if self.marked_changes.is_empty() {
-            self.journals.get(self.selected).into_iter().collect()
-        } else {
-            self.journals
-                .iter()
-                .filter(|record| self.marked_changes.contains(&record.id))
-                .collect()
-        };
-        let unreviewed: Vec<&agd_core::JournalRecord> = chosen
-            .into_iter()
+        let chosen: Vec<&agd_core::JournalRecord> = self
+            .journals
+            .iter()
+            .enumerate()
+            .filter(|(index, record)| match self.marks.is_empty() {
+                true => *index == self.selected,
+                false => self.marks.contains(&record.id),
+            })
+            .map(|(_, record)| record)
             .filter(|record| record.status == JournalStatus::Committed)
             .collect();
-        let status = match unreviewed.as_slice() {
+        let location = match chosen.as_slice() {
             [] => {
-                self.marked_changes.clear();
+                self.marks.clear();
                 self.set_status("already accepted");
                 return Ok(());
             }
-            [record] => format!(
-                "{} · nothing written",
-                words::change(
-                    &super::review::subject_location(self, record),
-                    "accepted",
-                    &super::review::subject_title(self, record),
-                )
-            ),
-            [first, rest @ ..] => format!(
-                "{} · nothing written",
-                words::change(
-                    &crate::commands::counted(rest.len() + 1, "change", "changes"),
-                    "accepted",
-                    &format!(
-                        "{} + {} more",
-                        super::review::subject_title(self, first),
-                        rest.len()
-                    ),
-                )
-            ),
+            [record] => super::review::subject_location(self, record),
+            several => crate::commands::counted(several.len(), "change", "changes"),
         };
-        let ids: Vec<String> = unreviewed.iter().map(|record| record.id.clone()).collect();
+        let titles: Vec<String> = chosen
+            .iter()
+            .map(|record| super::review::subject_title(self, record))
+            .collect();
+        let ids: Vec<String> = chosen.iter().map(|record| record.id.clone()).collect();
         let engine = WriteEngine::with_default_journal(self.settings.clone())?;
         for id in &ids {
             engine.review(id)?;
         }
-        self.marked_changes.clear();
-        self.set_status(status);
+        self.marks.clear();
+        self.set_status(format!(
+            "{} · nothing written",
+            words::change(&location, "accepted", &titles_summary(&titles))
+        ));
         self.reload_rows()
     }
 
@@ -993,11 +982,11 @@ impl App {
 }
 
 /// The first target's title, and how many more: `Pay rent + 2 more`.
-pub(super) fn targets_summary(items: &[&Item]) -> String {
-    match items {
+fn titles_summary(titles: &[String]) -> String {
+    match titles {
         [] => String::new(),
-        [item] => item.title.clone(),
-        [first, rest @ ..] => format!("{} + {} more", first.title, rest.len()),
+        [title] => title.clone(),
+        [first, rest @ ..] => format!("{first} + {} more", rest.len()),
     }
 }
 

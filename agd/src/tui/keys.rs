@@ -482,7 +482,7 @@ pub(super) fn footer_hints(app: &App) -> Vec<(String, &'static str)> {
                 (A::Back, "back"),
             ],
         ),
-        Screen::Review if !app.marked_changes.is_empty() => (
+        Screen::Review if !app.marks.is_empty() => (
             AGENT_KEYS,
             &[(A::Accept, "accept marked"), (A::UnmarkAll, "unmark all")],
         ),
@@ -968,9 +968,9 @@ fn run_agents(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarg
     }
     match action {
         A::Accept => app.accept_changes()?,
-        A::Mark => app.toggle_change_mark(),
-        A::MarkAll => app.mark_all_changes(),
-        A::UnmarkAll => app.marked_changes.clear(),
+        A::Mark => app.toggle_mark(),
+        A::MarkAll => app.mark_all(),
+        A::UnmarkAll => app.marks.clear(),
         A::Undo => app.undo_selected_change()?,
         A::Peek => app.peek = !app.peek,
         A::FilterAgent => app.cycle_agent_filter()?,
@@ -1008,8 +1008,8 @@ fn changed_location(app: &App) -> EditorTarget {
 fn agents_back(app: &mut App) -> Result<()> {
     if app.peek {
         app.peek = false;
-    } else if !app.marked_changes.is_empty() {
-        app.marked_changes.clear();
+    } else if !app.marks.is_empty() {
+        app.marks.clear();
     } else if app.agent_filter.is_some() {
         app.agent_filter = None;
         app.reload_rows()?;

@@ -233,10 +233,9 @@ struct App {
     headers: Vec<Header>,
     journals: Vec<JournalRecord>,
     selected: usize,
-    /// Item refs of the marked rows in the lists.
+    /// Item refs of the marked rows; on the Agents tab, the journal ids of
+    /// the marked changes.
     marks: BTreeSet<String>,
-    /// Journal ids of the marked changes on the Agents tab.
-    marked_changes: BTreeSet<String>,
     /// Today shows every OVERDUE row, not the first few; reset on leaving.
     overdue_expanded: bool,
     /// Tomorrow's open (scheduled, due) counts, which an empty Today shows.
@@ -293,7 +292,6 @@ impl App {
             journals: Vec::new(),
             selected: 0,
             marks: BTreeSet::new(),
-            marked_changes: BTreeSet::new(),
             overdue_expanded: false,
             tomorrow: (0, 0),
             context: None,

@@ -100,7 +100,6 @@ impl App {
         self.rows.clear();
         self.selected = 0;
         self.marks.clear();
-        self.marked_changes.clear();
         self.overdue_expanded = false;
         self.reload_rows()?;
         self.cursor_to_today();
@@ -158,50 +157,41 @@ impl App {
         };
     }
 
+    /// `m`: marks or unmarks the row (on the Agents tab, the change) under
+    /// the cursor and moves on.
     pub(super) fn toggle_mark(&mut self) {
-        let Some(item_ref) = self.selected_row().map(|row| row.item.item_ref.clone()) else {
+        let mark = if self.screen == Screen::Review {
+            self.journals
+                .get(self.selected)
+                .map(|record| record.id.clone())
+        } else {
+            self.selected_row().map(|row| row.item.item_ref.clone())
+        };
+        let Some(mark) = mark else {
             return;
         };
-        if !self.marks.remove(&item_ref) {
-            self.marks.insert(item_ref);
+        if !self.marks.remove(&mark) {
+            self.marks.insert(mark);
         }
         self.move_selection(1);
     }
 
-    /// `m` on the Agents tab: marks or unmarks the change under the cursor
-    /// and moves on, as `m` does on a row.
-    pub(super) fn toggle_change_mark(&mut self) {
-        let Some(id) = self
-            .journals
-            .get(self.selected)
-            .map(|record| record.id.clone())
-        else {
-            return;
-        };
-        if !self.marked_changes.remove(&id) {
-            self.marked_changes.insert(id);
-        }
-        self.move_selection(1);
-    }
-
-    /// `*` on the Agents tab: marks every change shown.
-    pub(super) fn mark_all_changes(&mut self) {
-        self.marked_changes = self
-            .journals
-            .iter()
-            .map(|record| record.id.clone())
-            .collect();
-    }
-
-    /// `*`: marks every task row shown, as org-agenda-bulk-mark-all; the
-    /// overdue rows folded under "+N more" stay unmarked, being out of view.
+    /// `*`: marks every row (on the Agents tab, every change) shown, as
+    /// org-agenda-bulk-mark-all; overdue rows folded under "+N more" stay
+    /// unmarked, being out of view.
     pub(super) fn mark_all(&mut self) {
-        self.marks = self
-            .rows
-            .iter()
-            .filter(|row| row.more == 0)
-            .map(|row| row.item.item_ref.clone())
-            .collect();
+        self.marks = if self.screen == Screen::Review {
+            self.journals
+                .iter()
+                .map(|record| record.id.clone())
+                .collect()
+        } else {
+            self.rows
+                .iter()
+                .filter(|row| row.more == 0)
+                .map(|row| row.item.item_ref.clone())
+                .collect()
+        };
     }
 
     /// Marked rows when any are marked (bulk mode), else the selected row.

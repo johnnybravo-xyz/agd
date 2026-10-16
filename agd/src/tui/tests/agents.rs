@@ -103,11 +103,11 @@ fn a_second_shift_a_never_clears_the_queue_and_marks_choose_what_a_accepts() {
             };
             assert_eq!(record.status, expected, "{}", record.id);
         }
-        assert!(app.marked_changes.is_empty());
+        assert!(app.marks.is_empty());
 
         // * marks every change; a accepts them all at once.
         press(&mut app, KeyCode::Char('*'));
-        assert_eq!(app.marked_changes.len(), 3);
+        assert_eq!(app.marks.len(), 3);
         press(&mut app, KeyCode::Char('a'));
         let status = app.status.as_ref().unwrap().text.clone();
         assert!(status.starts_with("2 changes  accepted"), "{status}");
@@ -330,9 +330,9 @@ fn on_the_agents_tab_esc_steps_back_and_q_quits() {
         press(&mut app, KeyCode::Char('*'));
         press(&mut app, KeyCode::Esc);
         assert!(!app.peek);
-        assert_eq!(app.marked_changes.len(), 1);
+        assert_eq!(app.marks.len(), 1);
         press(&mut app, KeyCode::Esc);
-        assert!(app.marked_changes.is_empty());
+        assert!(app.marks.is_empty());
         assert_eq!(app.screen, Screen::Review);
         press(&mut app, KeyCode::Esc);
         assert_eq!(app.screen, Screen::Today);
