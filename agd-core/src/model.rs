@@ -54,6 +54,9 @@ pub struct Planning {
     pub closed: Option<PlanningTimestamp>,
 }
 
+/// An Org timestamp: `date` is `YYYY-MM-DD`, and `time` and `end_time` are
+/// always `HH:MM` (`<… 9:30>` reads `09:30`); `raw` is the text as the file
+/// writes it, which a write that leaves the timestamp alone keeps.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PlanningTimestamp {
     pub date: String,
@@ -77,6 +80,7 @@ pub struct Occurrence {
     #[serde(rename = "type")]
     pub kind: OccurrenceType,
     pub date: String,
+    /// `HH:MM`, as every time in the model.
     pub time: Option<String>,
     /// The end of a time range such as `10:00-11:30`; null without one.
     #[serde(default)]

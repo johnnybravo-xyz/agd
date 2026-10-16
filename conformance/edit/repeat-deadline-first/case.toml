@@ -1,0 +1,5 @@
+operation = "state"
+value = "DONE"
+now = "2026-10-13 14:22"
+log_done = "time"
+log_repeat = "time"

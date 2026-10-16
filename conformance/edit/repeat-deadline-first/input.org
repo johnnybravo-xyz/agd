@@ -1,0 +1,6 @@
+#+TODO: TODO | DONE
+* TODO Water plants
+DEADLINE: <2026-10-23 Fri> SCHEDULED: <2026-10-06 Tue 9:30 +1w>
+:PROPERTIES:
+:ID: task-id
+:END:
