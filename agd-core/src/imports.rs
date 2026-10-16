@@ -407,7 +407,7 @@ pub fn apply_import(
         let unusable_match = command
             .blocks
             .iter()
-            .find_map(|block| crate::agenda_engine::validate_view_block(block).err());
+            .find_map(|block| crate::agenda::validate_view_block(block).err());
         if let Some(error) = &unusable_match {
             diagnostics.push(ImportDiagnostic {
                 status: ImportStatus::Unsupported,

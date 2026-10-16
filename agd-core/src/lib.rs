@@ -1,4 +1,4 @@
-pub mod agenda_engine;
+pub mod agenda;
 pub mod check;
 pub mod date;
 pub mod document;
@@ -8,7 +8,7 @@ pub mod paths;
 pub mod settings;
 pub mod write;
 
-pub use agenda_engine::{
+pub use agenda::{
     AgendaEngine, AgendaQuery, AgendaSpan, ViewSection, ViewSectionGroup, agenda_csv, agenda_row,
     agenda_text, agenda_title, item_row, items_csv, keyword_color, keyword_colors,
 };

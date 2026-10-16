@@ -959,7 +959,7 @@ pub(crate) fn validate_values(settings: &Settings) -> Result<(), AgdError> {
                     VIEW_BLOCK_KINDS.join(", ")
                 )));
             }
-            crate::agenda_engine::validate_view_block(block)
+            crate::agenda::validate_view_block(block)
                 .map_err(|error| config_error(format!("view '{}': {error}", view.key)))?;
             let colors =
                 std::iter::once(&block.color).chain(block.groups.iter().map(|group| &group.color));
@@ -993,7 +993,7 @@ pub(crate) fn validate_values(settings: &Settings) -> Result<(), AgdError> {
                     }
                 }
                 for effort in [&group.effort_max, &group.effort_min].into_iter().flatten() {
-                    if crate::agenda_engine::duration_minutes(effort).is_none() {
+                    if crate::agenda::duration_minutes(effort).is_none() {
                         return Err(config_error(format!(
                             "view '{}': effort '{effort}' is not a duration such as 0:15, 30 or 1h",
                             view.key
