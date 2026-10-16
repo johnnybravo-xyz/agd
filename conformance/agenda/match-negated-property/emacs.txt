@@ -1,0 +1,5 @@
+Headlines with TAGS match: -TODO="WAIT"+STATUS="review"|-STATUS="review"+urgent
+Press `C-u r' to search again
+  tasks:      TODO Review the design doc
+  tasks:      TODO Urgent without status                               :urgent:
+  tasks:      TODO Urgent in review                                    :urgent:

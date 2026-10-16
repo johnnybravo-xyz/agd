@@ -1,0 +1,4 @@
+Day-agenda (W42):
+Tuesday    13 October 2026
+  plain:      10:00...... Scheduled:  TODO [#A] Scheduled task           :work:
+  plain:      Deadline:   NEXT Due task

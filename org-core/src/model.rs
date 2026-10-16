@@ -6,6 +6,10 @@ pub const ITEM_SCHEMA: &str = "agd.item/v1";
 pub const AGENDA_ENTRY_SCHEMA: &str = "agd.agenda-entry/v1";
 pub const MUTATION_SCHEMA: &str = "agd.mutation/v1";
 pub const ERROR_SCHEMA: &str = "agd.error/v1";
+/// One block of `agd agenda --view KEY --json`.
+pub const VIEW_SECTION_SCHEMA: &str = "agd.view-section/v1";
+/// The payload of `agd agenda --views --json`.
+pub const VIEWS_SCHEMA: &str = "agd.views/v1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Item {
@@ -57,6 +61,9 @@ pub struct Occurrence {
     pub kind: OccurrenceType,
     pub date: String,
     pub time: Option<String>,
+    /// The end of a time range such as `10:00-11:30`; null without one.
+    #[serde(default)]
+    pub end_time: Option<String>,
     pub extra: String,
 }
 

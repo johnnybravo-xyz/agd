@@ -21,6 +21,11 @@ enum SetupAction {
 }
 
 impl SetupCommand {
+    /// True when the output, and so any error, is JSON (`check --json`).
+    pub fn json(&self) -> bool {
+        matches!(&self.action, SetupAction::Check(command) if command.json)
+    }
+
     /// Returns true when `check` found problems, so the caller can exit 1.
     pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<bool> {
         match self.action {

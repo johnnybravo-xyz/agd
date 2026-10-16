@@ -27,6 +27,12 @@
         (equal (getenv "AGD_SKIP_DEADLINE_IF_DONE") "true")
         org-agenda-skip-timestamp-if-done
         (equal (getenv "AGD_SKIP_TIMESTAMP_IF_DONE") "true"))
+  ;; A named span such as month, whose header names it; AGD_DAYS alone
+  ;; gives a day count (1 and 7 still print as Day and Week).
+  (when (getenv "AGD_SPAN")
+    (setq org-agenda-span (intern (getenv "AGD_SPAN"))))
+  (when (equal (getenv "AGD_LOG") "true")
+    (setq org-agenda-start-with-log-mode t))
   (when (getenv "AGD_SORTING")
     (setq org-agenda-sorting-strategy
           `((agenda ,@(mapcar #'intern (split-string (getenv "AGD_SORTING")))))))
@@ -49,4 +55,8 @@
               ((symbol-function 'decode-time)
                (lambda (&optional time zone form)
                  (funcall decode-time-now (or time fixed-time) zone form))))
-      (org-batch-agenda-csv (if (getenv "AGD_MATCH") "x" "a")))))
+      ;; The CSV rows, a form-feed line, then the text agenda.
+      (let ((key (if (getenv "AGD_MATCH") "x" "a")))
+        (org-batch-agenda-csv key)
+        (princ "\f\n")
+        (org-batch-agenda key)))))

@@ -10,7 +10,7 @@ use crate::commands::counted;
 pub struct CheckCommand {
     /// Emit a machine-readable report
     #[arg(long)]
-    json: bool,
+    pub json: bool,
 }
 
 impl CheckCommand {
@@ -20,30 +20,36 @@ impl CheckCommand {
             root_directory.as_deref().map(Path::new),
         )?;
         let report = check_settings(&loaded.settings)?;
-        if self.json {
-            println!("{}", serde_json::to_string_pretty(&report)?);
+        let output = if self.json {
+            format!("{}\n", serde_json::to_string_pretty(&report)?)
         } else {
-            print_human_report(&report);
-        }
+            human_report(&report)
+        };
+        super::write_stdout(&output)?;
         Ok(report.has_errors())
     }
 }
 
-fn print_human_report(report: &CheckReport) {
+fn human_report(report: &CheckReport) -> String {
+    let mut output = String::new();
     for problem in &report.problems {
         if let Some(line) = problem.line {
-            println!(
-                "{}:{line}: {}: {}",
+            output.push_str(&format!(
+                "{}:{line}: {}: {}\n",
                 problem.file, problem.code, problem.message
-            );
+            ));
         } else {
-            println!("{}: {}: {}", problem.file, problem.code, problem.message);
+            output.push_str(&format!(
+                "{}: {}: {}\n",
+                problem.file, problem.code, problem.message
+            ));
         }
     }
-    println!(
-        "checked {} and {}: {}",
+    output.push_str(&format!(
+        "checked {} and {}: {}\n",
         counted(report.summary.files, "file", "files"),
         counted(report.summary.headlines, "headline", "headlines"),
         counted(report.summary.errors, "error", "errors")
-    );
+    ));
+    output
 }

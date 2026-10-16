@@ -660,21 +660,17 @@ fn scan_headlines(
         {
             ancestors.pop();
         }
-        let mut inherited = BTreeSet::new();
-        for tag in file_tags {
-            if !excluded.contains(tag.as_str()) {
-                inherited.insert(tag.clone());
+        // Org's order: #+FILETAGS, then each ancestor's tags from the top,
+        // each tag once and none the headline carries itself.
+        let mut inherited: Vec<String> = Vec::new();
+        let ancestor_tags = ancestors.iter().flat_map(|(_, _, tags, _)| tags);
+        for tag in file_tags.iter().chain(ancestor_tags) {
+            if !excluded.contains(tag.as_str())
+                && !headline.tags.contains(tag)
+                && !inherited.contains(tag)
+            {
+                inherited.push(tag.clone());
             }
-        }
-        for (_, _, tags, _) in &ancestors {
-            for tag in tags {
-                if !excluded.contains(tag.as_str()) {
-                    inherited.insert(tag.clone());
-                }
-            }
-        }
-        for own in &headline.tags {
-            inherited.remove(own);
         }
         let own_category = headline
             .properties
@@ -717,7 +713,7 @@ fn scan_headlines(
             priority: headline.priority.clone(),
             title: headline.title.clone(),
             tags: headline.tags.clone(),
-            inherited_tags: inherited.into_iter().collect(),
+            inherited_tags: inherited,
             category: category.clone(),
             planning: headline.planning.clone(),
         };
@@ -1183,7 +1179,8 @@ mod tests {
         assert_eq!(item.item_ref, "exact-id");
         assert_eq!(item.todo.as_deref(), Some("OPEN"));
         assert_eq!(item.priority.as_deref(), Some("A"));
-        assert_eq!(item.inherited_tags, vec!["project", "work"]);
+        // File tags first, then the parent's, as Org lists them.
+        assert_eq!(item.inherited_tags, vec!["work", "project"]);
         assert_eq!(item.category, "reporting");
         assert_eq!(
             item.planning.deadline.as_ref().unwrap().warning.as_deref(),

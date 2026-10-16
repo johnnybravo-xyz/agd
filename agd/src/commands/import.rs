@@ -100,7 +100,7 @@ impl ImportCommand {
             );
         }
         if write {
-            println!("wrote {}", destination.display());
+            super::write_stdout(&format!("wrote {}\n", destination.display()))?;
         }
         Ok(())
     }
@@ -110,10 +110,10 @@ impl ImportCommand {
     fn print(&self, execution: &ImportExecution) -> Result<()> {
         let (mut stdout, mut stderr) = (std::io::stdout(), std::io::stderr());
         let out: &mut dyn Write = if self.stdout {
-            print!("{}", execution.toml);
+            super::write_stdout(&execution.toml)?;
             &mut stderr
         } else {
-            print!("{}", execution.diff);
+            super::write_stdout(&execution.diff)?;
             &mut stdout
         };
         let sources = &execution.sources;

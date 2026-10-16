@@ -9,16 +9,16 @@ pub mod settings;
 pub mod write;
 
 pub use agenda_engine::{
-    AgendaEngine, AgendaQuery, AgendaSpan, ViewSection, ViewSectionGroup, agenda_csv, agenda_title,
-    items_csv, keyword_color, keyword_colors,
+    AgendaEngine, AgendaQuery, AgendaSpan, ViewSection, ViewSectionGroup, agenda_csv, agenda_row,
+    agenda_text, agenda_title, item_row, items_csv, keyword_color, keyword_colors,
 };
 pub use check::{
     CHECK_SCHEMA, CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError,
     IndexedHeadline, OrgDocument, SourceSpan, check_paths, check_settings,
 };
 pub use date::{
-    CaptureDraft, CapturePrompt, capture_prompts, format_active_timestamp, now_local_naive,
-    parse_capture_line, parse_date_input, render_capture_template,
+    CaptureDraft, CapturePrompt, capture_prompts, date_preview, format_active_timestamp,
+    now_local_naive, parse_capture_line, parse_date_input, render_capture_template,
 };
 pub use document::{
     ByteSpan, HeadlineSpan, LogKind, LogSettings, OrgDocument as IndexedDocument, PropertySpan,
@@ -31,6 +31,7 @@ pub use imports::{
 pub use model::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ERROR_SCHEMA, ErrorResponse, ITEM_SCHEMA, Item,
     MUTATION_SCHEMA, Mutation, Occurrence, OccurrenceType, Planning, PlanningTimestamp,
+    VIEW_SECTION_SCHEMA, VIEWS_SCHEMA,
 };
 pub use paths::RootSet;
 pub use settings::{

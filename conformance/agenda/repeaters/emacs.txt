@@ -1,0 +1,23 @@
+Week-agenda (W42):
+Monday     12 October 2026 W42
+  repeaters:  Scheduled:  TODO Plus
+  repeaters:  Scheduled:  TODO Double plus
+  repeaters:  Scheduled:  TODO Dot plus
+Tuesday    13 October 2026
+  repeaters:  Sched. 1x:  TODO Plus
+  repeaters:  Sched. 1x:  TODO Double plus
+  repeaters:  Sched. 1x:  TODO Dot plus
+Wednesday  14 October 2026
+  repeaters:  Scheduled:  TODO Plus
+  repeaters:  Scheduled:  TODO Double plus
+  repeaters:  Scheduled:  TODO Dot plus
+Thursday   15 October 2026
+Friday     16 October 2026
+  repeaters:  Scheduled:  TODO Plus
+  repeaters:  Scheduled:  TODO Double plus
+  repeaters:  Scheduled:  TODO Dot plus
+Saturday   17 October 2026
+Sunday     18 October 2026
+  repeaters:  Scheduled:  TODO Plus
+  repeaters:  Scheduled:  TODO Double plus
+  repeaters:  Scheduled:  TODO Dot plus

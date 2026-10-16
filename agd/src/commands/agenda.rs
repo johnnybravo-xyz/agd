@@ -1,37 +1,44 @@
 use std::path::Path;
 
 use agd_core::{
-    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalStatus, Settings, ViewSection,
-    WorkspaceIndex, WriteEngine, agenda_csv, agenda_title, items_csv, keyword_colors,
-    load_settings, parse_agenda_day,
+    AgdError, AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, JournalStatus, Settings,
+    VIEWS_SCHEMA, ViewSection, ViewSettings, WorkspaceIndex, WriteEngine, agenda_csv, agenda_row,
+    agenda_text, agenda_title, item_row, items_csv, keyword_colors, load_settings,
+    parse_agenda_day,
 };
-use anyhow::{Result, anyhow, bail};
-use chrono::{Datelike, Duration, Local, NaiveDate};
+use anyhow::Result;
+
+use super::write_stdout;
+use chrono::{Local, NaiveDate};
 use clap::Args;
 
 #[derive(Args, Debug)]
 pub struct AgendaCommand {
     /// Days to show: day, week, month or a number of days; defaults to
-    /// agenda_span from the configuration
+    /// agenda_span from config.toml
     #[arg(long)]
     span: Option<AgendaSpan>,
-    /// First day: a date (2026-10-13) or org relative syntax (fri, +2d, -1w)
-    #[arg(long)]
+    /// First day: a date (2026-10-13) or Org date-prompt syntax (fri, +2d,
+    /// -1w, oct 30)
+    #[arg(long, allow_hyphen_values = true)]
     from: Option<String>,
-    /// Emacs tags/todo match, e.g. 'work-someday/NEXT|TODO'
+    /// Filter the dated agenda with an Emacs tags/todo match, e.g.
+    /// 'work-someday/NEXT|TODO'. For a tags search like C-c a m, run a
+    /// `tags` or `tags-todo` view
     #[arg(long = "match")]
     match_expression: Option<String>,
-    /// Run a saved view, like org-agenda's dispatcher keys (n, or a [[view]]
-    /// key); without a key, the configured start_view
+    /// Run a saved view by its dispatcher key, as org-agenda does: a [[view]]
+    /// key, or Org's built-in n, which is always available. Without a key,
+    /// the configured start_view
     #[arg(
         long,
         num_args = 0..=1,
         default_missing_value = "",
         value_name = "KEY",
-        conflicts_with_all = ["span", "match_expression"]
+        conflicts_with_all = ["span", "match_expression", "brief", "profile"]
     )]
     view: Option<String>,
-    /// Use the files and match of a configured agents.profiles entry
+    /// Use the files and match of a configured [[agent_profile]]
     #[arg(long)]
     profile: Option<String>,
     /// Also list CLOSED entries, like org-agenda log mode (l)
@@ -41,21 +48,36 @@ pub struct AgendaCommand {
     #[arg(long)]
     brief: bool,
     /// One line of counts for a tmux or herdr status bar
-    #[arg(long, conflicts_with_all = ["json", "csv", "brief", "view"])]
+    #[arg(
+        long,
+        conflicts_with_all = [
+            "json", "csv", "brief", "view", "span", "from", "match_expression", "log", "profile",
+        ]
+    )]
     status: bool,
     /// The saved views, start_view first; with --json, also what a client
     /// draws them with: theme, nerd_font and each TODO keyword's color
-    #[arg(long, conflicts_with_all = ["csv", "brief", "view", "status"])]
+    #[arg(
+        long,
+        conflicts_with_all = [
+            "csv", "brief", "view", "status", "span", "from", "match_expression", "log", "profile",
+        ]
+    )]
     views: bool,
     /// agd.agenda-entry/v1 objects
     #[arg(long, conflicts_with_all = ["csv", "brief"])]
     json: bool,
-    /// The same columns as Emacs org-batch-agenda-csv
+    /// Emacs org-batch-agenda-csv rows: the same eleven columns and values
     #[arg(long, conflicts_with = "brief")]
     csv: bool,
 }
 
 impl AgendaCommand {
+    /// True when the output, and so any error, is JSON.
+    pub fn json(&self) -> bool {
+        self.json
+    }
+
     pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<()> {
         let mut settings = load_settings(
             config.as_deref().map(Path::new),
@@ -63,64 +85,27 @@ impl AgendaCommand {
         )?
         .settings;
         if self.views {
-            return print_views(&settings, self.json);
+            return Ok(write_stdout(&views_output(&settings, self.json)?)?);
         }
-        let mut match_expression = self.match_expression;
-        if let Some(name) = self.profile.as_deref() {
-            let profile = settings
-                .agent_profile(name)
-                .cloned()
-                .ok_or_else(|| anyhow!("unknown agent agenda profile: {name}"))?;
-            if !profile.files.is_empty() {
-                settings.agenda_files = profile.files;
-            }
-            match_expression = match_expression.or(profile.match_expression);
-        }
+        let match_expression = match self.profile.as_deref() {
+            Some(name) => apply_profile(&mut settings, name, self.match_expression)?,
+            None => self.match_expression,
+        };
         let index = load_index(settings.clone())?;
         let today = Local::now().date_naive();
         if self.status {
-            println!("{}", status_line(&index, &settings, today)?);
-            return Ok(());
+            let line = status_line(&index, &settings, today)?;
+            return Ok(write_stdout(&format!("{line}\n"))?);
         }
         let start = match self.from {
-            Some(value) => parse_day(&value, today)?,
+            Some(value) => parse_agenda_day(&value, today)?,
             None => settings.agenda_start(today)?,
         };
         if let Some(key) = self.view.as_deref() {
-            let key = if key.is_empty() {
-                if settings.start_view.is_empty() {
-                    bail!("--view without a key runs start_view, which is not set");
-                }
-                settings.start_view.as_str()
-            } else {
-                key
-            };
-            let view = settings.view(key).ok_or_else(|| {
-                let keys: Vec<&str> = settings
-                    .all_views()
-                    .iter()
-                    .map(|view| view.key.as_str())
-                    .collect();
-                anyhow!("unknown view '{key}'; views: {}", keys.join(", "))
-            })?;
+            let view = find_view(&settings, key)?;
             let sections = AgendaEngine::new(&index).view(view, start, today, self.log)?;
-            if self.json {
-                println!("{}", serde_json::to_string_pretty(&sections)?);
-            } else if self.csv {
-                for section in &sections {
-                    print!(
-                        "{}{}",
-                        agenda_csv(&section.entries),
-                        items_csv(&section.items)
-                    );
-                    for group in &section.groups {
-                        print!("{}{}", agenda_csv(&group.entries), items_csv(&group.items));
-                    }
-                }
-            } else {
-                print!("{}", render_view(&sections, &settings));
-            }
-            return Ok(());
+            let output = view_output(&sections, self.json, self.csv, today, &settings)?;
+            return Ok(write_stdout(&output)?);
         }
         let span = self.span.unwrap_or(settings.agenda_span);
         let (from, to) = span.bounds(start, settings.week_start);
@@ -131,88 +116,105 @@ impl AgendaCommand {
             match_expression,
             log_mode: self.log,
         })?;
-        if self.json {
-            println!("{}", serde_json::to_string_pretty(&entries)?);
+        let output = if self.json {
+            format!("{}\n", serde_json::to_string_pretty(&entries)?)
         } else if self.csv {
-            print!("{}", agenda_csv(&entries));
+            agenda_csv(&entries, today, &settings)
         } else if self.brief {
-            for entry in &entries {
-                println!("{} {}", entry.occurrence.date, agenda_title(&entry.item));
-            }
+            entries
+                .iter()
+                .map(|entry| format!("{} {}\n", entry.occurrence.date, agenda_title(&entry.item)))
+                .collect()
         } else {
-            print!("{}", render_agenda(&entries, from, to, span));
-        }
-        Ok(())
+            agenda_text(&entries, from, to, None)
+        };
+        Ok(write_stdout(&output)?)
     }
 }
 
-/// Plain-text agenda in the layout of an Emacs org-agenda buffer: a header
-/// per day, then `category:` + time + leader + TODO + title + tags.
-fn render_agenda(
-    entries: &[AgendaEntry],
-    from: NaiveDate,
-    to: NaiveDate,
-    span: AgendaSpan,
-) -> String {
-    let mut output = String::new();
-    if span == AgendaSpan::Week {
-        output.push_str(&format!("Week-agenda (W{:02}):\n", from.iso_week().week()));
-    }
-    let mut day = from;
-    while day <= to {
-        let date = day.format("%Y-%m-%d").to_string();
-        let rows: Vec<&AgendaEntry> = entries
+/// Applies a `[[agent_profile]]`: its files replace agenda_files, and its
+/// match is the match unless --match gives one.
+fn apply_profile(
+    settings: &mut Settings,
+    name: &str,
+    match_expression: Option<String>,
+) -> Result<Option<String>, AgdError> {
+    let profile = settings.agent_profile(name).cloned().ok_or_else(|| {
+        let names: Vec<&str> = settings
+            .agent_profiles
             .iter()
-            .filter(|entry| entry.occurrence.date == date)
+            .map(|profile| profile.name.as_str())
             .collect();
-        if span != AgendaSpan::Month || !rows.is_empty() {
-            output.push_str(&format!(
-                "{:<10} {:>2} {} {}{}\n",
-                day.format("%A"),
-                day.day(),
-                day.format("%B"),
-                day.year(),
-                if span == AgendaSpan::Week && day.weekday().num_days_from_monday() == 0 {
-                    format!(" W{:02}", day.iso_week().week())
-                } else {
-                    String::new()
-                }
+        AgdError::new(
+            "unknown_profile",
+            format!(
+                "unknown agent profile '{name}'; profiles: {}",
+                names.join(", ")
+            ),
+        )
+    })?;
+    if !profile.files.is_empty() {
+        settings.agenda_files = profile.files;
+    }
+    Ok(match_expression.or(profile.match_expression))
+}
+
+/// The view `--view KEY` names; an empty key is the configured start_view.
+fn find_view<'a>(settings: &'a Settings, key: &str) -> Result<&'a ViewSettings, AgdError> {
+    let key = if key.is_empty() {
+        if settings.start_view.is_empty() {
+            return Err(AgdError::new(
+                "no_start_view",
+                "--view without a key runs start_view, which is not set",
             ));
         }
-        for entry in rows {
-            output.push_str(&agenda_line(entry));
-            output.push('\n');
+        settings.start_view.as_str()
+    } else {
+        key
+    };
+    settings.view(key).ok_or_else(|| {
+        let keys: Vec<&str> = settings
+            .all_views()
+            .iter()
+            .map(|view| view.key.as_str())
+            .collect();
+        AgdError::new(
+            "unknown_view",
+            format!("unknown view '{key}'; views: {}", keys.join(", ")),
+        )
+    })
+}
+
+/// A view's output: its sections as JSON, their CSV rows, or the text.
+fn view_output(
+    sections: &[ViewSection],
+    json: bool,
+    csv: bool,
+    today: NaiveDate,
+    settings: &Settings,
+) -> Result<String> {
+    if json {
+        return Ok(format!("{}\n", serde_json::to_string_pretty(sections)?));
+    }
+    if !csv {
+        return Ok(render_view(sections));
+    }
+    let mut rows = String::new();
+    for section in sections {
+        rows.push_str(&agenda_csv(&section.entries, today, settings));
+        rows.push_str(&items_csv(&section.items, &section.kind, settings));
+        for group in &section.groups {
+            rows.push_str(&agenda_csv(&group.entries, today, settings));
+            rows.push_str(&items_csv(&group.items, &section.kind, settings));
         }
-        day += Duration::days(1);
     }
-    output
+    Ok(rows)
 }
 
-fn agenda_line(entry: &AgendaEntry) -> String {
-    let item = &entry.item;
-    let mut line = format!("  {:<12}", format!("{}:", item.category));
-    if let Some(time) = &entry.occurrence.time {
-        line.push_str(&format!("{time}...... "));
-    }
-    if !entry.occurrence.extra.is_empty() {
-        line.push_str(&format!("{:<11} ", entry.occurrence.extra));
-    }
-    if let Some(todo) = &item.todo {
-        line.push_str(todo);
-        line.push(' ');
-    }
-    if let Some(priority) = &item.priority {
-        line.push_str(&format!("[#{priority}] "));
-    }
-    line.push_str(&agenda_title(item));
-    if !item.tags.is_empty() {
-        line.push_str(&format!("  :{}:", item.tags.join(":")));
-    }
-    line
-}
-
-/// Blocks separated by a rule of `=`, as in an Emacs block agenda.
-fn render_view(sections: &[ViewSection], settings: &Settings) -> String {
+/// Blocks separated by a rule of `=`, as in an Emacs block agenda. An agenda
+/// block's header replaces its `Week-agenda (W42):` line, as
+/// org-agenda-overriding-header does.
+fn render_view(sections: &[ViewSection]) -> String {
     let mut blocks = Vec::new();
     for section in sections {
         let mut block = String::new();
@@ -225,24 +227,21 @@ fn render_view(sections: &[ViewSection], settings: &Settings) -> String {
             for group in &section.groups {
                 block.push_str(&format!(" {}\n", group.name));
                 for entry in &group.entries {
-                    block.push_str(&agenda_line(entry));
+                    block.push_str(&agenda_row(entry));
                     block.push('\n');
                 }
                 for item in &group.items {
-                    block.push_str(&item_line(item));
+                    block.push_str(&item_row(item));
                     block.push('\n');
                 }
             }
         } else if let (Some(from), Some(to)) = (section.from, section.to) {
-            if !section.header.is_empty() {
-                block.push_str(&format!("{}\n", section.header));
-            }
-            let span = span_for_bounds(from, to, settings);
-            block.push_str(&render_agenda(&section.entries, from, to, span));
+            let header = (!section.header.is_empty()).then_some(section.header.as_str());
+            block.push_str(&agenda_text(&section.entries, from, to, header));
         } else {
             block.push_str(&format!("{}\n", section.header));
             for item in &section.items {
-                block.push_str(&item_line(item));
+                block.push_str(&item_row(item));
                 block.push('\n');
             }
         }
@@ -254,7 +253,7 @@ fn render_view(sections: &[ViewSection], settings: &Settings) -> String {
 /// The saved views in config order, then the built-in ones, with
 /// start_view moved first. The JSON carries the TUI's display settings, so a
 /// client such as the Claude Code pane draws them the same way.
-fn print_views(settings: &Settings, json: bool) -> Result<()> {
+fn views_output(settings: &Settings, json: bool) -> Result<String> {
     let mut views = settings.all_views();
     views.sort_by_key(|view| view.key != settings.start_view);
     if json {
@@ -271,14 +270,17 @@ fn print_views(settings: &Settings, json: bool) -> Result<()> {
             .collect();
         let index = load_index(settings.clone())?;
         let payload = serde_json::json!({
+            "schema": VIEWS_SCHEMA,
             "views": rows,
             "theme": settings.theme,
             "nerd_font": settings.nerd_font,
             "keyword_colors": keyword_colors(&index),
         });
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-    } else {
-        for view in views {
+        return Ok(format!("{}\n", serde_json::to_string_pretty(&payload)?));
+    }
+    Ok(views
+        .iter()
+        .map(|view| {
             let start = if view.key == settings.start_view {
                 "  (start)"
             } else {
@@ -289,38 +291,14 @@ fn print_views(settings: &Settings, json: bool) -> Result<()> {
             } else {
                 ""
             };
-            println!("{:<4}{}{start}{builtin}", view.key, view.desc);
-        }
-    }
-    Ok(())
+            format!("{:<4}{}{start}{builtin}\n", view.key, view.desc)
+        })
+        .collect())
 }
 
-fn item_line(item: &Item) -> String {
-    let mut line = format!("  {:<12}", format!("{}:", item.category));
-    if let Some(todo) = &item.todo {
-        line.push_str(&format!("{todo} "));
-    }
-    if let Some(priority) = &item.priority {
-        line.push_str(&format!("[#{priority}] "));
-    }
-    line.push_str(&agenda_title(item));
-    if !item.tags.is_empty() {
-        line.push_str(&format!("  :{}:", item.tags.join(":")));
-    }
-    line
-}
-
-fn span_for_bounds(from: NaiveDate, to: NaiveDate, settings: &Settings) -> AgendaSpan {
-    if from == to {
-        AgendaSpan::Day
-    } else if AgendaSpan::Week.bounds(from, settings.week_start) == (from, to) {
-        AgendaSpan::Week
-    } else {
-        AgendaSpan::Month
-    }
-}
-
-/// `3 overdue · 7 today · 4 inbox · 2 agents`, zero counts left out.
+/// `3 overdue · 7 today · 4 inbox · 2 agents`, zero counts left out. Today
+/// counts what is scheduled, due or timestamped today; a deadline warning
+/// (`In 4 d.:`) is neither today nor overdue.
 fn status_line(index: &WorkspaceIndex, settings: &Settings, today: NaiveDate) -> Result<String> {
     let engine = AgendaEngine::new(index);
     let entries = engine.agenda(&AgendaQuery {
@@ -336,7 +314,10 @@ fn status_line(index: &WorkspaceIndex, settings: &Settings, today: NaiveDate) ->
     };
     let mut overdue = std::collections::BTreeSet::new();
     let mut open = std::collections::BTreeSet::new();
-    for entry in entries.iter().filter(|entry| !entry.item.done) {
+    let counted = entries.iter().filter(|entry| {
+        !entry.item.done && entry.occurrence.kind != agd_core::OccurrenceType::UpcomingDeadline
+    });
+    for entry in counted {
         if overdue_kind(entry) {
             overdue.insert(&entry.item.item_ref);
         } else {
@@ -372,8 +353,4 @@ pub fn load_index(settings: Settings) -> Result<WorkspaceIndex> {
         eprintln!("warning: skipped {reason}");
     }
     Ok(index)
-}
-
-fn parse_day(value: &str, today: NaiveDate) -> Result<NaiveDate> {
-    Ok(parse_agenda_day(value, today)?)
 }

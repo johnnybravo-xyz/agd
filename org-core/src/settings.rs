@@ -597,17 +597,10 @@ fn validate_agenda_days(settings: &Settings) -> Result<(), AgdError> {
 /// an offset from `today` such as -1d or +2w, or what `parse_date_input`
 /// reads, such as "fri".
 pub fn parse_agenda_day(value: &str, today: NaiveDate) -> Result<NaiveDate, AgdError> {
-    let date = |timestamp: crate::PlanningTimestamp| {
-        timestamp
-            .date
-            .parse::<NaiveDate>()
-            .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {value}")))
-    };
-    if let Some(offset) = value.strip_prefix('-') {
-        let ahead = date(crate::parse_date_input(&format!("+{offset}"), today)?)?;
-        return Ok(today - (ahead - today));
-    }
-    date(crate::parse_date_input(value, today)?)
+    crate::parse_date_input(value, today)?
+        .date
+        .parse::<NaiveDate>()
+        .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {value}")))
 }
 
 /// A template has one text source and one of org-capture's target shapes:

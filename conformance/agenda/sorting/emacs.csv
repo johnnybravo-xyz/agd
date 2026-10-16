@@ -1,7 +1,7 @@
-sort,Echo,upcoming-deadline,NEXT,,2026-10-13,,In   1 d.:,
-sort,Delta,scheduled,TODO,,2026-10-13,,Scheduled:,
-sort,Charlie,scheduled,WAIT,,2026-10-13,,Scheduled:,
-sort,Alpha,scheduled,NEXT,,2026-10-13,14:30,Scheduled:,
-sort,Bravo,scheduled,TODO,,2026-10-13,9:00,Scheduled:,
-sort,Echo,scheduled,TODO,,2026-10-14,,Scheduled:,
-sort,Echo,deadline,NEXT,,2026-10-14,,Deadline:,
+sort,Echo,upcoming-deadline,NEXT,,2026-10-13,,In   1 d.:,,1000,2026-10-13
+sort,Delta,scheduled,TODO,,2026-10-13,,Scheduled:,,1000,2026-10-13
+sort,Charlie,scheduled,WAIT,,2026-10-13,,Scheduled:,,1000,2026-10-13
+sort,Alpha,scheduled,NEXT,,2026-10-13,14:30......,Scheduled:,,1000,2026-10-13
+sort,Bravo,scheduled,TODO,,2026-10-13,9:00......,Scheduled:,,1000,2026-10-13
+sort,Echo,scheduled,TODO,,2026-10-14,,Scheduled:,,1000,2026-10-14
+sort,Echo,deadline,NEXT,,2026-10-14,,Deadline:,,1000,2026-10-14

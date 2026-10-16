@@ -1,0 +1,4 @@
+Headlines with TAGS match: DEADLINE>="<today>"+DEADLINE<="<+1w>"
+Press `C-u r' to search again
+  tasks:      TODO Due today
+  tasks:      TODO Due in five days

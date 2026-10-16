@@ -1,0 +1,26 @@
+Week-agenda (W01):
+Monday      4 January 2027 W01
+  export:     Closed:     DONE Finished untimed                         :file::
+Tuesday     5 January 2027
+  export:      0:10...... Scheduled:  NEXT [#A] Call bank, about fees   :file::
+  export:      8:15...... Closed:     DONE Finished                     :file::
+  export:      9:00-10:30 Scheduled:  TODO Range meeting                :file::
+  export:     Sched. 4x:  TODO Weekly                                 :file::a:
+  export:     35 d. ago:  Old deadline repeat                           :file::
+  export:      5 d. ago:  TODO Weekly due                               :file::
+  export:     In   2 d.:  TODO Due later timed                          :file::
+  export:     In   3 d.:  NEXT Child of weekly                      :file:a::b:
+Wednesday   6 January 2027
+  export:      8:00-9:30  Scheduled:  TODO Early range                  :file::
+  export:     14:00-15:15 Timestamp range                               :file::
+Thursday    7 January 2027
+  export:     17:00...... Deadline:   TODO Due later timed              :file::
+  export:     Scheduled:  TODO Talk <2027-01-09 Sat> about it           :file::
+  export:     Deadline:   TODO Weekly due                               :file::
+Friday      8 January 2027
+  export:     Scheduled:  TODO Weekly                                 :file::a:
+  export:     Deadline:   NEXT Child of weekly                      :file:a::b:
+Saturday    9 January 2027
+  export:     TODO Middle  of title                                     :file::
+  export:     TODO Talk  about it                                       :file::
+Sunday     10 January 2027

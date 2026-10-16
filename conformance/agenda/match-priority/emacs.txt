@@ -1,0 +1,3 @@
+Headlines with TAGS match: PRIORITY="A"+Emacs/!SOMEDAY
+Press `C-u r' to search again
+  tasks:      SOMEDAY [#A] Rewrite the theme                            :Emacs:

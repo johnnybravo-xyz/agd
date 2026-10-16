@@ -1,0 +1,5 @@
+Headlines with TAGS match: LEVEL=2+CATEGORY="home"|LEVEL=1+chores
+Press `C-u r' to search again
+  home:       TODO Water plants
+  home:       DONE Trim the hedge
+  home:       TODO Laundry                                             :chores:

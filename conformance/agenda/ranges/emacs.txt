@@ -1,0 +1,8 @@
+4 days-agenda (W42):
+Tuesday    13 October 2026
+Wednesday  14 October 2026
+  ranges:     (1/3):  TODO Conference
+Thursday   15 October 2026
+  ranges:     (2/3):  TODO Conference
+Friday     16 October 2026
+  ranges:     (3/3):  TODO Conference

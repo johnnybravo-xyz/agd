@@ -1,0 +1,7 @@
+#+CATEGORY: month
+* TODO Morning run :health:
+SCHEDULED: <2026-10-05 Mon 07:30>
+* TODO Pay rent
+DEADLINE: <2026-10-31 Sat>
+* Team offsite
+<2026-10-20 Tue>--<2026-10-21 Wed>

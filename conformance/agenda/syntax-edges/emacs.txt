@@ -1,0 +1,19 @@
+Week-agenda (W42):
+Monday     12 October 2026 W42
+  edges:      Scheduled:  TODO Habit with max interval
+Tuesday    13 October 2026
+  edges:      19:00...... (1/2):  Meeting across two days
+  edges:      Sched. 1x:  TODO Habit with max interval
+  edges:      In   2 d.:  进行中 Unicode keyword
+Wednesday  14 October 2026
+  edges:      10:30...... Scheduled:  TODO 写论文               :紧急重要:work:
+  edges:      18:00...... (2/2):  Meeting across two days
+  edges:      Scheduled:  TODO Habit with max interval
+Thursday   15 October 2026
+  edges:      Deadline:   进行中 Unicode keyword
+Friday     16 October 2026
+  edges:      Scheduled:  TODO Habit with max interval
+Saturday   17 October 2026
+Sunday     18 October 2026
+  edges:       9:00...... Tagged                                 :@home:urgent:
+  edges:      Scheduled:  TODO Habit with max interval

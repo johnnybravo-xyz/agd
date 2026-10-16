@@ -1,0 +1,4 @@
+Headlines with TAGS match: TODO="NEXT"+Effort<15+Effort>0
+Press `C-u r' to search again
+  tasks:      NEXT Ten minutes as a number
+  tasks:      NEXT An hour and a half

@@ -76,14 +76,17 @@ fn agenda_prints_org_agenda_layout_and_shared_schemas() {
     assert_eq!(rows[0]["item"]["schema"], "agd.item/v1");
     assert_eq!(rows[0]["occurrence"]["type"], "scheduled");
 
+    // As org-batch-agenda prints it: the span header, ` 9:30` without a
+    // leading zero, and tags ending at column 79.
     fixture
         .command()
         .args(["agenda", "--span", "day", "--from", "2026-10-13"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Tuesday    13 October 2026"))
-        .stdout(predicate::str::contains(
-            "  cli:        09:30...... Scheduled:  TODO Renew passport  :admin:",
+        .stdout(concat!(
+            "Day-agenda (W42):\n",
+            "Tuesday    13 October 2026\n",
+            "  cli:         9:30...... Scheduled:  TODO Renew passport               :admin:\n",
         ));
 
     fixture
@@ -113,7 +116,10 @@ fn agenda_span_takes_a_number_of_days_from_config_or_flag() {
         .expect("agenda command");
     assert!(output.status.success(), "{output:?}");
     let text = String::from_utf8(output.stdout).unwrap();
-    assert!(text.starts_with("Monday     12 October 2026"), "{text}");
+    assert!(
+        text.starts_with("3 days-agenda (W42):\nMonday     12 October 2026"),
+        "{text}"
+    );
     assert!(text.contains("Wednesday  14 October 2026"), "{text}");
     assert!(!text.contains("Thursday"), "{text}");
 
@@ -169,12 +175,139 @@ fn builtin_n_view_runs_beside_configured_views() {
 }
 
 #[test]
-fn status_line_counts_today_for_a_status_bar() {
+fn from_takes_a_negative_offset_as_its_value() {
     let fixture = Fixture::new();
-    let today = chrono::Local::now().format("%Y-%m-%d %a").to_string();
+    let week_ago = (chrono::Local::now().date_naive() - chrono::Duration::weeks(1))
+        .format("%Y-%m-%d")
+        .to_string();
     fs::write(
         &fixture.tasks,
-        format!("* TODO Late\nSCHEDULED: <2020-01-01 Wed>\n* TODO Now\nSCHEDULED: <{today}>\n* Inbox\n** TODO New idea\n"),
+        format!("* DONE Last week\nSCHEDULED: <{week_ago}>\n"),
+    )
+    .unwrap();
+    for offset in ["-1w", "-7"] {
+        fixture
+            .command()
+            .args(["agenda", "--span", "day", "--brief", "--from", offset])
+            .assert()
+            .success()
+            .stdout(format!("{week_ago} Last week\n"));
+    }
+}
+
+#[test]
+fn json_mode_reports_every_error_as_agd_error() {
+    let fixture = Fixture::new();
+    let failures: [(&[&str], &str); 7] = [
+        (&["agenda", "--view", "zz", "--json"], "unknown_view"),
+        (&["agenda", "--view", "--json"], "no_start_view"),
+        (
+            &["agenda", "--profile", "nope", "--json"],
+            "unknown_profile",
+        ),
+        (&["agenda", "--from", "someday", "--json"], "invalid_date"),
+        (&["capture", "--json"], "usage"),
+        (
+            &["capture", "t", "Hi", "--prompt", "bad", "--json"],
+            "invalid_prompt",
+        ),
+        // Clap refuses this before any command runs.
+        (&["agenda", "--bogus", "--json"], "usage"),
+    ];
+    for (arguments, code) in failures {
+        let output = fixture.command().args(arguments).output().expect("agd");
+        assert!(!output.status.success(), "{arguments:?}");
+        let error: Value = serde_json::from_slice(&output.stderr)
+            .unwrap_or_else(|_| panic!("{arguments:?}: {output:?}"));
+        assert_eq!(error["schema"], "agd.error/v1", "{arguments:?}");
+        assert_eq!(error["code"], code, "{arguments:?}: {error}");
+    }
+    // Without --json the same error is a plain line.
+    fixture
+        .command()
+        .args(["agenda", "--view", "zz"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::starts_with("Error: unknown view 'zz'"));
+}
+
+#[test]
+fn errors_name_the_valid_choices() {
+    let fixture = Fixture::new();
+    let config = fs::read_to_string(&fixture.config).unwrap();
+    fs::write(
+        &fixture.config,
+        format!(
+            concat!(
+                "{config}",
+                "[[capture]]\n",
+                "key = \"m\"\n",
+                "desc = \"Meeting\"\n",
+                "file = \"tasks.org\"\n",
+                "template = \"* Meet %^{{Who}} about %?\"\n",
+                "[[agent_profile]]\n",
+                "name = \"coding\"\n",
+            ),
+            config = config,
+        ),
+    )
+    .unwrap();
+    let failures: [(&[&str], &str); 3] = [
+        (&["capture", "x", "Buy milk"], "templates: t, m"),
+        (&["agenda", "--profile", "nope"], "profiles: coding"),
+        (&["capture", "m", "Budget"], "--prompt 'Who=...'"),
+    ];
+    for (arguments, hint) in failures {
+        fixture
+            .command()
+            .args(arguments)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(hint));
+    }
+}
+
+#[test]
+fn flags_a_command_would_ignore_are_usage_errors() {
+    let fixture = Fixture::new();
+    let refused: [&[&str]; 11] = [
+        &["agenda", "--view", "n", "--brief"],
+        &["agenda", "--view", "n", "--profile", "work"],
+        &["agenda", "--status", "--span", "week"],
+        &["agenda", "--status", "--from", "fri"],
+        &["agenda", "--status", "--match", "work"],
+        &["agenda", "--views", "--span", "week"],
+        &["agenda", "--views", "--log"],
+        &["capture", "-i", "--dry-run"],
+        &["capture", "-i", "--prompt", "Who=me"],
+        &["mcp", "--log-level", "bogus"],
+        &["--pane", "agenda"],
+    ];
+    for arguments in refused {
+        let output = fixture.command().args(arguments).output().expect("agd");
+        assert_eq!(output.status.code(), Some(2), "{arguments:?}: {output:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("cannot be used with")
+                || stderr.contains("invalid value 'bogus'")
+                || stderr.contains("takes no command"),
+            "{arguments:?}: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn status_line_counts_today_for_a_status_bar() {
+    let fixture = Fixture::new();
+    let now = chrono::Local::now().date_naive();
+    let today = now.format("%Y-%m-%d %a").to_string();
+    // A deadline in four days shows today as a warning, but is not today's.
+    let soon = (now + chrono::Duration::days(4))
+        .format("%Y-%m-%d %a")
+        .to_string();
+    fs::write(
+        &fixture.tasks,
+        format!("* TODO Late\nSCHEDULED: <2020-01-01 Wed>\n* TODO Now\nSCHEDULED: <{today}>\n* TODO Soon\nDEADLINE: <{soon}>\n* Inbox\n** TODO New idea\n"),
     )
     .unwrap();
     fixture
@@ -228,6 +361,19 @@ fn views_json_carries_what_a_client_draws_them_with() {
     assert_eq!(payload["views"].as_array().unwrap().len(), 3);
     assert_eq!(payload["theme"], "light");
     assert_eq!(payload["nerd_font"], true);
+    assert_eq!(payload["schema"], "agd.views/v1");
+
+    // Every section names its schema and carries groups, empty or not.
+    let output = fixture
+        .command()
+        .args(["agenda", "--view", "w", "--json"])
+        .output()
+        .expect("view command");
+    assert!(output.status.success(), "{output:?}");
+    let sections: Value = serde_json::from_slice(&output.stdout).expect("view JSON");
+    assert_eq!(sections[0]["schema"], "agd.view-section/v1");
+    assert_eq!(sections[0]["kind"], "tags-todo");
+    assert_eq!(sections[0]["groups"], serde_json::json!([]));
     // The file's #+TODO keywords: a configured color, the sequence's first
     // keyword orange, done green.
     assert_eq!(
@@ -261,6 +407,93 @@ fn capture_parses_tokens_and_keeps_body_literal() {
 }
 
 #[test]
+fn capture_takes_a_key_and_unquoted_words_or_the_text_alone() {
+    let fixture = Fixture::new();
+    // Unquoted words after the key are the text.
+    fixture
+        .command()
+        .args([
+            "capture",
+            "t",
+            "Water",
+            "the",
+            "plants",
+            "due:fri",
+            "--dry-run",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("** TODO Water the plants\n"));
+    // One argument is the text for the first template; a pipe gets the ref.
+    let output = fixture
+        .command()
+        .args(["capture", "Renew visa due:fri"])
+        .output()
+        .expect("capture");
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.starts_with(
+            &fixture
+                .tasks
+                .canonicalize()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        ),
+        "{stdout}"
+    );
+    assert_eq!(stdout.lines().count(), 1, "{stdout}");
+    assert!(
+        fs::read_to_string(&fixture.tasks)
+            .unwrap()
+            .contains("** TODO Renew visa\nDEADLINE: <")
+    );
+    // Unquoted words without a key would file the first word as a key.
+    fixture
+        .command()
+        .args(["capture", "Renew", "visa"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "quote the text: agd capture \"Renew visa\"",
+        ));
+    fixture
+        .command()
+        .args(["capture", "t"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("needs text"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_closed_stdout_ends_the_command_quietly() {
+    let fixture = Fixture::new();
+    for arguments in [
+        &["agenda", "--span", "month"][..],
+        &["agenda", "--csv"],
+        &["capture", "t", "Quiet", "--dry-run"],
+        &["setup", "check"],
+    ] {
+        let mut command = std::process::Command::new(assert_cmd::cargo::cargo_bin!("agd"));
+        command
+            .arg("--config")
+            .arg(&fixture.config)
+            .env("XDG_DATA_HOME", fixture.directory.path().join("data"))
+            .args(arguments)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut child = command.spawn().expect("agd");
+        // Close the reading end before agd writes, like `| head` exiting.
+        drop(child.stdout.take());
+        let output = child.wait_with_output().expect("agd exit");
+        assert!(output.status.success(), "{arguments:?}: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "", "{arguments:?}");
+    }
+}
+
+#[test]
 fn help_lists_only_the_five_surfaces() {
     let assertion = cargo::cargo_bin_cmd!("agd")
         .arg("--help")
@@ -275,6 +508,16 @@ fn help_lists_only_the_five_surfaces() {
             !help.contains(&format!("  {removed} ")),
             "{removed} still listed"
         );
+    }
+    assert!(help.contains("start_view"), "{help}");
+
+    let assertion = cargo::cargo_bin_cmd!("agd")
+        .args(["agenda", "--help"])
+        .assert()
+        .success();
+    let help = String::from_utf8_lossy(&assertion.get_output().stdout).into_owned();
+    for hint in ["built-in n", "C-c a m", "[[agent_profile]]"] {
+        assert!(help.contains(hint), "missing {hint} in\n{help}");
     }
 }
 
