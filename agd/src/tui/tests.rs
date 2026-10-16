@@ -1875,7 +1875,7 @@ fn u_undoes_only_this_sessions_changes_and_names_them() {
         app.undo().unwrap();
         assert_eq!(
             app.status.as_ref().unwrap().text,
-            "undid scheduled Tue 20 Oct · Pay rent"
+            "tasks.org:1  undid scheduled Tue 20 Oct · Pay rent"
         );
         assert!(
             fs::read_to_string(&tasks)
@@ -1906,7 +1906,7 @@ fn x_on_a_repeating_task_says_it_repeated_and_when_it_is_next() {
         app.mark_done().unwrap();
         assert_eq!(
             app.status.as_ref().unwrap().text,
-            "repeated · Water plants → Tue 20 Oct · u undo"
+            "home.org:1  repeated → Tue 20 Oct · Water plants · u undo"
         );
         assert!(
             fs::read_to_string(&path)
@@ -1916,7 +1916,7 @@ fn x_on_a_repeating_task_says_it_repeated_and_when_it_is_next() {
         app.undo().unwrap();
         assert_eq!(
             app.status.as_ref().unwrap().text,
-            "undid repeated · Water plants → Tue 20 Oct"
+            "home.org:1  undid repeated → Tue 20 Oct · Water plants"
         );
     });
 }

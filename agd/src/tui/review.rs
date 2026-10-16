@@ -33,7 +33,7 @@ enum Change {
     },
 }
 
-fn classify(record: &JournalRecord) -> Change {
+fn classify(record: &JournalRecord, today: chrono::NaiveDate) -> Change {
     let removed: Vec<&str> = changed(record, '-');
     let added: Vec<&str> = changed(record, '+');
     let headline = |lines: &[&str]| {
@@ -79,7 +79,7 @@ fn classify(record: &JournalRecord) -> Change {
             }
         }
         _ => {
-            let date = |lines: &[&str]| lines.iter().find_map(|line| compact_date(line));
+            let date = |lines: &[&str]| lines.iter().find_map(|line| compact_date(line, today));
             match (date(&removed), date(&added)) {
                 (from, Some(to)) => Change::Dates {
                     from: from.unwrap_or_else(|| "—".to_string()),
@@ -93,17 +93,15 @@ fn classify(record: &JournalRecord) -> Change {
     }
 }
 
-/// `SCHEDULED: <2026-10-15 Thu 15:00>` reads as `15 Oct 15:00`.
-fn compact_date(line: &str) -> Option<String> {
+/// `SCHEDULED: <2026-10-15 Thu 15:00>` reads as `Thu 15 Oct 15:00`.
+fn compact_date(line: &str, today: chrono::NaiveDate) -> Option<String> {
     let inner = line.split_once('<')?.1.split_once('>')?.0;
     let mut parts = inner.split_whitespace();
-    let date = parts.next()?.parse::<chrono::NaiveDate>().ok()?;
+    let date = parts.next()?;
+    date.parse::<chrono::NaiveDate>().ok()?;
     let _weekday = parts.next();
     let time = parts.next().filter(|part| part.contains(':'));
-    Some(match time {
-        Some(time) => format!("{} {time}", date.format("%-d %b")),
-        None => date.format("%-d %b").to_string(),
-    })
+    Some(crate::words::when(date, time, today))
 }
 
 fn changed(record: &JournalRecord, sign: char) -> Vec<&str> {
@@ -300,7 +298,7 @@ fn card(theme: &Theme, record: &JournalRecord, width: usize, app: &App) -> Vec<L
                 .collect::<String>()
         );
     }
-    let change = classify(record);
+    let change = classify(record, app.today);
     let kind = match &change {
         Change::Captured { .. } => ("captured", theme.done),
         Change::State { .. } => ("state", theme.due),

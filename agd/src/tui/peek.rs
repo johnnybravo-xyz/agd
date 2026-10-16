@@ -5,7 +5,7 @@ use ratatui::widgets::{Clear, Paragraph, Wrap};
 
 use agd_core::{Item, OccurrenceType, WorkspaceIndex};
 
-use super::actions::short_date;
+use super::actions::when;
 use super::keys::{self, Action};
 use super::rows::next_repeat;
 use super::theme::centered;
@@ -172,22 +172,15 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
         let Some(timestamp) = timestamp else {
             continue;
         };
-        let mut spans = vec![
-            label(name),
-            Span::raw(short_date(timestamp)),
-            Span::raw(
-                timestamp
-                    .time
-                    .as_ref()
-                    .map(|time| format!(" {time}"))
-                    .unwrap_or_default(),
-            ),
-        ];
+        let mut spans = vec![label(name), Span::raw(when(timestamp, app.today))];
         if let Some(repeater) = &timestamp.repeater
             && let Some(next) = next_repeat(&timestamp.date, repeater, app.today)
         {
             spans.push(Span::styled(
-                format!("  ↻ {repeater} · next {}", next.format("%-d %b")),
+                format!(
+                    "  ↻ {repeater} · next {}",
+                    crate::words::day(next, app.today)
+                ),
                 theme.muted(),
             ));
         }

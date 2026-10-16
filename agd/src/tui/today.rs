@@ -150,7 +150,7 @@ fn header_pills(app: &App, room: usize) -> Vec<Span<'static>> {
         pills.push(theme.pill(format!("ctx {context}"), theme.muted));
     }
     pills.push(vec![Span::styled(
-        format!(" {} ", app.day.format("%a %-d %b")),
+        format!(" {} ", crate::words::day(app.day, app.today)),
         theme.fg(theme.text),
     )]);
     let mut right: Vec<Span<'static>> = Vec::new();
@@ -263,7 +263,7 @@ fn list_title(app: &App) -> String {
 /// The day `f`/`b` moved the list to: Today, else its date, after
 /// Tomorrow or Yesterday when it is one.
 fn day_name(app: &App) -> String {
-    let date = app.day.format("%a %-d %b").to_string();
+    let date = crate::words::day(app.day, app.today);
     match relative_day(app) {
         Some("Today") => "Today".to_string(),
         Some(word) => format!("{word} · {date}"),
@@ -431,7 +431,7 @@ pub(super) fn empty_message(app: &App) -> Vec<Line<'static>> {
         }
         Screen::Today => vec![muted(format!(
             "Nothing on {}.",
-            app.day.format("%a %-d %b")
+            crate::words::day(app.day, app.today)
         ))],
         Screen::Inbox => vec![muted("Inbox is empty.".to_string())],
         _ => vec![muted("Nothing here.".to_string())],

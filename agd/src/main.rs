@@ -9,6 +9,7 @@ mod commands;
 mod importer;
 mod mcp;
 mod tui;
+mod words;
 use commands::{AgendaCommand, CaptureCommand, SetupCommand};
 use mcp::McpCommand;
 
@@ -74,9 +75,18 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
         Err(error) => {
-            eprintln!("Error: {error:#}");
+            eprintln!("Error: {}", error_text(&error));
             ExitCode::FAILURE
         }
+    }
+}
+
+/// An error as a sentence, read the same as in the TUI: a core error's
+/// message without its code (words::error_sentence), after any context.
+fn error_text(error: &anyhow::Error) -> String {
+    match error.downcast_ref::<AgdError>() {
+        Some(agd_error) if error.chain().count() == 1 => words::error_sentence(agd_error),
+        _ => format!("{error:#}"),
     }
 }
 

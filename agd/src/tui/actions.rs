@@ -6,10 +6,11 @@ use agd_core::{
     PlanningTimestamp, PriorityRange, WriteEngine, parse_date_input,
 };
 use anyhow::{Result, bail};
-use chrono::{Datelike, Duration, NaiveDate};
+use chrono::{Duration, NaiveDate};
 
 use super::input::TextInput;
 use super::{App, Overlay, PromptKind, Screen, write_context};
+use crate::words;
 
 /// Triage outcomes, counted for the summary line.
 pub(super) const TODAY: usize = 0;
@@ -21,10 +22,12 @@ pub(super) const REFILED: usize = 5;
 pub(super) const OTHER: usize = 6;
 
 /// A write this TUI made, undone as a unit by `u`: a journal entry or
-/// transaction, and what to call it on the status line.
+/// transaction, where it was, and what to call it on the status line
+/// (`scheduled Tue 20 Oct · Pay rent`).
 #[derive(Debug)]
 pub(super) struct UndoStep {
     journal_id: String,
+    location: String,
     label: String,
 }
 
@@ -156,21 +159,9 @@ fn tags_edit(input: &str) -> Option<PromptEdit> {
     })
 }
 
-/// A planning date as people say it: `Fri 16 Oct`, with the time and, in
-/// another year, the year.
-fn when(timestamp: &PlanningTimestamp, today: NaiveDate) -> String {
-    let Ok(date) = timestamp.date.parse::<NaiveDate>() else {
-        return timestamp.date.clone();
-    };
-    let format = if date.year() == today.year() {
-        "%a %-d %b"
-    } else {
-        "%a %-d %b %Y"
-    };
-    match &timestamp.time {
-        Some(time) => format!("{} {time}", date.format(format)),
-        None => date.format(format).to_string(),
-    }
+/// A planning date as people say it (words::when): `Fri 16 Oct 14:00`.
+pub(super) fn when(timestamp: &PlanningTimestamp, today: NaiveDate) -> String {
+    words::when(&timestamp.date, timestamp.time.as_deref(), today)
 }
 
 /// A date two weeks out, for prompt examples that never go stale.
@@ -242,27 +233,30 @@ impl App {
             .iter()
             .map(|mutation| &mutation.item)
             .collect();
-        let summary = targets_summary(&items);
-        let repeated = match batch.mutations.as_slice() {
-            [single] => single.repeated.as_ref().map(|repeat| {
-                format!(
-                    "repeated · {} → {}",
-                    single.item.title,
-                    display_date(&repeat.next_date)
-                )
-            }),
-            _ => None,
-        };
-        let status = match &repeated {
-            Some(label) => format!("{label} · u undo"),
-            None => format!(
-                "{}  {change} · {summary} · u undo",
-                self.targets_location(&items)
+        let location = self.targets_location(&items);
+        // A repeating task that was marked done moved on instead.
+        let change = match batch.mutations.as_slice() {
+            [single] => single.repeated.as_ref().map_or_else(
+                || change.to_string(),
+                |repeat| {
+                    format!(
+                        "repeated → {}",
+                        words::when(&repeat.next_date, None, self.today)
+                    )
+                },
             ),
+            _ => change.to_string(),
         };
-        let label = repeated.unwrap_or_else(|| format!("{change} · {summary}"));
-        self.set_status(status);
-        self.remember_undo(&batch.transaction, label);
+        let summary = targets_summary(&items);
+        self.set_status(format!(
+            "{} · u undo",
+            words::change(&location, &change, &summary)
+        ));
+        self.remember_undo(
+            &batch.transaction,
+            &location,
+            format!("{change} · {summary}"),
+        );
         self.reload_rows()
     }
 
@@ -620,7 +614,7 @@ impl App {
     /// a count when rows are marked, or why nothing would be written.
     fn dry_run(&self, edit: &PromptEdit) -> Result<Vec<String>, String> {
         let engine = WriteEngine::with_default_journal(self.settings.clone())
-            .map_err(|error| super::error_sentence(&error))?;
+            .map_err(|error| words::error_sentence(&error))?;
         let targets = self.targets();
         let mut first = None;
         let mut changing = 0;
@@ -631,7 +625,7 @@ impl App {
                     first.get_or_insert_with(|| super::edit::changed_lines(&mutation.diff));
                 }
                 Err(error) if error.code() == "no_change" => {}
-                Err(error) => return Err(super::error_sentence(&error)),
+                Err(error) => return Err(words::error_sentence(&error)),
             }
         }
         let Some(first) = first else {
@@ -705,10 +699,12 @@ impl App {
     }
 
     /// Keeps a write this TUI made, so `u` can undo it later; `label`
-    /// names it on the status line, such as `schedule Mon 19 Oct · Pay rent`.
-    pub(super) fn remember_undo(&mut self, journal_id: &str, label: String) {
+    /// names it on the status line, such as `scheduled Mon 19 Oct · Pay
+    /// rent`, after where it was.
+    pub(super) fn remember_undo(&mut self, journal_id: &str, location: &str, label: String) {
         self.undo_steps.push(UndoStep {
             journal_id: journal_id.to_string(),
+            location: location.to_string(),
             label,
         });
     }
@@ -728,7 +724,7 @@ impl App {
             .undo(&step.journal_id, &write_context())?;
         let step = self.undo_steps.pop().expect("the step just undone");
         self.refresh_files(&result.file)?;
-        self.set_status(format!("undid {}", step.label));
+        self.set_status(format!("{}  undid {}", step.location, step.label));
         self.reload_rows()
     }
 
@@ -742,19 +738,30 @@ impl App {
         } else {
             self.triage.undo.pop().into_iter().collect()
         };
+        let count = steps.len();
+        let mut undone = None;
         for step in steps.into_iter().rev() {
             let result = engine.undo(&step.journal_id, &write_context())?;
             self.refresh_files(&result.file)?;
             self.triage.outcomes[step.outcome] =
                 self.triage.outcomes[step.outcome].saturating_sub(1);
-            self.undo_steps
-                .retain(|undo| undo.journal_id != step.journal_id);
+            if let Some(index) = self
+                .undo_steps
+                .iter()
+                .position(|undo| undo.journal_id == step.journal_id)
+            {
+                undone = Some(self.undo_steps.remove(index));
+            }
         }
-        self.set_status(if undo_all {
-            "undid the whole triage pass"
-        } else {
-            "undid the last triage step"
-        });
+        match undone {
+            Some(step) if !undo_all => {
+                self.set_status(format!("{}  undid {}", step.location, step.label))
+            }
+            _ => self.set_status(format!(
+                "{}  undid the whole triage pass",
+                crate::commands::counted(count, "item", "items")
+            )),
+        }
         self.reload_rows()
     }
 
@@ -912,11 +919,20 @@ impl App {
         self.recent_targets.retain(|recent| recent != &target);
         self.recent_targets.insert(0, target);
         self.recent_targets.truncate(10);
+        let location = self.short_location(&result.item);
+        let change = format!("refiled → {label}");
         if let Some(journal_id) = result.journal_ids.first() {
             self.record_triage(journal_id, REFILED);
-            self.remember_undo(journal_id, format!("refile · {}", result.item.title));
+            self.remember_undo(
+                journal_id,
+                &location,
+                format!("{change} · {}", result.item.title),
+            );
         }
-        self.set_status(format!("refiled to {label} · u undo"));
+        self.set_status(format!(
+            "{} · u undo",
+            words::change(&location, &change, &result.item.title)
+        ));
         self.reload_rows()
     }
 
@@ -952,13 +968,6 @@ pub(super) fn targets_summary(items: &[&Item]) -> String {
     }
 }
 
-/// `Mon 19 Oct` for a `YYYY-MM-DD` date.
-fn display_date(date: &str) -> String {
-    date.parse::<NaiveDate>()
-        .map(|date| date.format("%a %-d %b").to_string())
-        .unwrap_or_else(|_| date.to_string())
-}
-
 /// Characters of `query` appear in `value` in order, ignoring case.
 pub(super) fn fuzzy_match(value: &str, query: &str) -> bool {
     let mut wanted = query.chars().flat_map(char::to_lowercase).peekable();
@@ -968,13 +977,4 @@ pub(super) fn fuzzy_match(value: &str, query: &str) -> bool {
         }
     }
     wanted.peek().is_none()
-}
-
-/// Inactive timestamp text from a planning timestamp, for display.
-pub(super) fn short_date(timestamp: &PlanningTimestamp) -> String {
-    timestamp
-        .date
-        .parse::<NaiveDate>()
-        .map(|date| date.format("%-d %b").to_string())
-        .unwrap_or_else(|_| timestamp.date.clone())
 }

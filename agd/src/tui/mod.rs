@@ -354,7 +354,11 @@ impl App {
     /// A refused write or a failure, as a sentence without error codes.
     fn set_error(&mut self, error: &anyhow::Error) {
         let text = match error.downcast_ref::<AgdError>() {
-            Some(error) => format!("✗ {}", error_sentence(error)),
+            // Here `r` re-reads the files, which settles a stale heading.
+            Some(error) if error.code() == "stale_ref" => {
+                format!("✗ {}; r refreshes", crate::words::error_sentence(error))
+            }
+            Some(error) => format!("✗ {}", crate::words::error_sentence(error)),
             None => format!("✗ {error:#}"),
         };
         self.status = Some(Status {
@@ -376,15 +380,7 @@ impl App {
 
     /// `file:line` relative to the files root it lives in.
     fn short_location(&self, item: &Item) -> String {
-        let path = Path::new(&item.file);
-        let relative = self
-            .index
-            .roots()
-            .roots()
-            .iter()
-            .find_map(|root| path.strip_prefix(root).ok())
-            .unwrap_or(path);
-        format!("{}:{}", relative.display(), item.line)
+        crate::words::location(&item.file, item.line, self.index.roots().roots())
     }
 }
 
@@ -698,17 +694,6 @@ fn stable_ref(item_ref: &str) -> String {
             format!("{file}#sha256:{digest}")
         }
         None => item_ref.to_string(),
-    }
-}
-
-/// What a core error means for the person at the keyboard. Most messages
-/// already read as sentences; a stale ref's names the raw ref, so it is
-/// said plainly.
-fn error_sentence(error: &AgdError) -> String {
-    match error.code() {
-        "stale_ref" => "this heading changed on disk since agd read it; r refreshes".to_string(),
-        "no_change" => "nothing would change".to_string(),
-        _ => error.to_string(),
     }
 }
 

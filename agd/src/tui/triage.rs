@@ -5,7 +5,7 @@ use ratatui::widgets::{LineGauge, Paragraph, Wrap};
 
 use agd_core::OccurrenceType;
 
-use super::actions::{DONE, NEXT_WEEK, REFILED, SOMEDAY, TODAY, TOMORROW, short_date};
+use super::actions::{DONE, NEXT_WEEK, REFILED, SOMEDAY, TODAY, TOMORROW, when};
 use super::rows::days_since;
 use super::{App, DisplayRow, INBOX, keys, peek};
 
@@ -174,7 +174,7 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
             .scheduled
             .as_ref()
             .map_or("not scheduled".to_string(), |scheduled| {
-                format!("scheduled {}", short_date(scheduled))
+                format!("scheduled {}", when(scheduled, app.today))
             }),
         theme.muted,
     );
@@ -192,7 +192,7 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
                 .deadline
                 .as_ref()
                 .map_or("no deadline".to_string(), |deadline| {
-                    format!("deadline {}", short_date(deadline))
+                    format!("deadline {}", when(deadline, app.today))
                 }),
             if item.planning.deadline.is_some() {
                 theme.due

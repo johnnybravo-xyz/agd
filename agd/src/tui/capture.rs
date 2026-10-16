@@ -6,7 +6,7 @@ use std::process::Command;
 
 use agd_core::{CaptureDraft, CapturePrompt, WriteEngine, capture_prompts, parse_capture_line};
 use anyhow::{Context, Result};
-use chrono::{Datelike, NaiveDate};
+use chrono::NaiveDate;
 use crossterm::event::{EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, enable_raw_mode};
@@ -284,13 +284,15 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
         &write_context(),
     )?;
     app.index.refresh_path(Path::new(&mutation.item.file))?;
+    let location = app.short_location(&mutation.item);
     app.remember_undo(
         &mutation.journal_id,
+        &location,
         format!("capture · {}", mutation.item.title),
     );
     app.set_status(format!(
-        "captured to {} · u undo",
-        app.short_location(&mutation.item)
+        "{} · u undo",
+        crate::words::captured(&mutation.item, &location, app.today)
     ));
     if app.capture_only {
         app.quit = true;
@@ -607,19 +609,7 @@ fn chips(theme: &Theme, draft: Option<CaptureDraft>, today: NaiveDate) -> Vec<Sp
         return Vec::new();
     };
     let mut spans = Vec::new();
-    let date = |value: &str| {
-        value
-            .parse::<NaiveDate>()
-            .map(|date| {
-                let format = if date.year() == today.year() {
-                    "%a %-d %b"
-                } else {
-                    "%a %-d %b %Y"
-                };
-                date.format(format).to_string()
-            })
-            .unwrap_or_else(|_| value.to_string())
-    };
+    let date = |value: &str| crate::words::when(value, None, today);
     if let Some(deadline) = &draft.deadline {
         spans.extend(theme.pill(format!("deadline {}", date(&deadline.date)), theme.due));
         spans.push(Span::raw("  "));
