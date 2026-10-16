@@ -12,7 +12,7 @@ use agd_core::{
 use chrono::{Local, NaiveDate};
 use rmcp::{
     ErrorData as McpError, RoleServer,
-    handler::server::tool::{schema_for_input, schema_for_type},
+    handler::server::tool::schema_for_input,
     model::{CallToolResult, ContentBlock, ErrorCode, JsonObject},
     schemars::{self, JsonSchema},
     service::RequestContext,
@@ -21,7 +21,7 @@ use rmcp::{
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
-use crate::mcp::OrgModeRouter;
+use crate::mcp::{OrgModeRouter, describe};
 
 // Request structs refuse unknown arguments, so a misspelled or invented one
 // (`due` for `deadline`) is an error instead of being silently ignored; the
@@ -168,6 +168,11 @@ struct QueryRequest {
     with_body: bool,
 }
 
+/// `describe` takes no arguments.
+#[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DescribeRequest {}
+
 /// Rows `agenda` and `query` return when the call gives no `limit`; a busy
 /// agenda's full week runs to hundreds of kilobytes.
 const DEFAULT_LIMIT: usize = 100;
@@ -282,6 +287,20 @@ impl OrgModeRouter {
         rows_result(
             parse_arguments::<QueryRequest>(arguments)
                 .and_then(|request| query(&self.settings, request)),
+        )
+    }
+
+    #[tool(
+        name = "describe",
+        description = "Describe what writes accept: capture templates (key, target, prompts), TODO keyword sequences, priorities, saved views, tags in use, the date grammar, and whether agent captures go to an inbox",
+        input_schema = input_schema::<DescribeRequest>()
+    )]
+    async fn describe(&self, arguments: JsonObject) -> Result<CallToolResult, McpError> {
+        tool_result(
+            parse_arguments::<DescribeRequest>(arguments).and_then(|DescribeRequest {}| {
+                let index = WorkspaceIndex::load(self.settings.clone())?;
+                describe::describe(&self.settings, &index)
+            }),
         )
     }
 }
@@ -566,10 +585,18 @@ fn edit(
 }
 
 /// A tool's JSON schema for its request struct, as `Parameters<T>` would
-/// publish it.
+/// publish it, always with `properties`: some clients refuse an object
+/// schema without one, which schemars leaves out for a struct with no
+/// fields.
 fn input_schema<T: JsonSchema + 'static>() -> std::sync::Arc<JsonObject> {
-    schema_for_input::<T>()
+    let mut schema = schema_for_input::<T>()
         .unwrap_or_else(|error| panic!("invalid input schema for a tool request: {error}"))
+        .as_ref()
+        .clone();
+    schema
+        .entry("properties")
+        .or_insert_with(|| Value::Object(JsonObject::new()));
+    std::sync::Arc::new(schema)
 }
 
 /// Reads a tool's arguments into its request struct. A bad argument is an
@@ -578,7 +605,7 @@ fn input_schema<T: JsonSchema + 'static>() -> std::sync::Arc<JsonObject> {
 fn parse_arguments<T: DeserializeOwned + JsonSchema + 'static>(
     arguments: JsonObject,
 ) -> Result<T, AgdError> {
-    let schema = schema_for_type::<T>();
+    let schema = input_schema::<T>();
     let accepted = schema.get("properties").and_then(Value::as_object);
     let unknown = arguments
         .keys()
@@ -632,7 +659,7 @@ fn accepted_arguments(schema: &JsonObject) -> String {
         .and_then(Value::as_array)
         .map(|names| names.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
-    schema
+    let names: Vec<String> = schema
         .get("properties")
         .and_then(Value::as_object)
         .map(|properties| {
@@ -645,10 +672,14 @@ fn accepted_arguments(schema: &JsonObject) -> String {
                         name.clone()
                     }
                 })
-                .collect::<Vec<_>>()
-                .join(", ")
+                .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+    if names.is_empty() {
+        "none".to_string()
+    } else {
+        names.join(", ")
+    }
 }
 
 /// The tool's answer: the value as JSON on success; the agd.error/v1

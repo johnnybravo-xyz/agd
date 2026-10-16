@@ -1,6 +1,8 @@
 //! `agd mcp`: the stdio MCP server. `server` holds the handler (instructions
-//! and the agenda://today resource), `tools` the tools.
+//! and the agenda://today resource), `tools` the tools, and `describe` what
+//! the `describe` tool and the instructions tell an agent about the setup.
 
+mod describe;
 mod server;
 mod tools;
 

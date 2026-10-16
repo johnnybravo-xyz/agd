@@ -121,7 +121,15 @@ async fn exposes_only_the_short_spec_tool_list() -> Result<(), Box<dyn std::erro
     names.sort_unstable();
     assert_eq!(
         names,
-        ["agenda", "capture", "edit", "plan", "query", "set_state"]
+        [
+            "agenda",
+            "capture",
+            "describe",
+            "edit",
+            "plan",
+            "query",
+            "set_state"
+        ]
     );
     service.cancel().await?;
     Ok(())
@@ -452,6 +460,88 @@ async fn agenda_runs_views_and_profiles_from_agenda_start_day_as_the_cli_does()
     assert_eq!(error["message"], "unknown view 'x'; configured views: w");
     let result = call(&service, "agenda", json!({"profile": "work"})).await?;
     assert_eq!(first_block(&result)["code"], "unknown_profile");
+    service.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn describe_lists_what_writes_accept() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    fs::write(
+        directory.path().join("tasks.org"),
+        "* TODO Report :work:\n* NEXT Call :work:phone:\n",
+    )?;
+    fs::write(
+        directory.path().join("projects.org"),
+        "#+TODO: OPEN | SHUT\n#+FILETAGS: :proj:\n* OPEN Garden\n",
+    )?;
+    write_config(
+        &directory,
+        r#"
+todo_keywords = [["TODO", "NEXT", "|", "DONE"]]
+lowest_priority = "E"
+default_priority = "C"
+start_view = "w"
+
+[[capture]]
+key = "t"
+desc = "Todo"
+file = "inbox.org"
+heading = "Inbox"
+template = "* TODO %?"
+
+[[capture]]
+key = "m"
+desc = "Meeting"
+file = "meetings.org"
+outline_path = ["Work", "Meetings"]
+template = "* MEET %^{Who} about %?\nSCHEDULED: %^{When}t"
+
+[[view]]
+key = "w"
+desc = "Work"
+blocks = [{ kind = "tags-todo", match = "work" }]
+"#,
+    );
+    let service = service(&directory).await?;
+    let result = call(&service, "describe", json!({})).await?;
+    assert_eq!(result.is_error, Some(false), "{:?}", result.content);
+    let mut described = first_block(&result);
+    let files = described["todo_keywords"]["overrides"][0]["files"].take();
+    assert!(
+        files[0]
+            .as_str()
+            .is_some_and(|file| file.ends_with("projects.org")),
+        "{files}"
+    );
+    assert_eq!(
+        described,
+        json!({
+            "schema": "agd.describe/v1",
+            "capture_templates": [
+                {"key": "t", "desc": "Todo", "target": "inbox.org > Inbox", "prompts": []},
+                {
+                    "key": "m",
+                    "desc": "Meeting",
+                    "target": "meetings.org > Work > Meetings",
+                    "prompts": ["Who", "When"]
+                }
+            ],
+            "default_template": "t",
+            "agent_inbox": null,
+            "todo_keywords": {
+                "default": ["TODO NEXT | DONE"],
+                "overrides": [{"sequences": ["OPEN | SHUT"], "files": null}]
+            },
+            "priorities": {"highest": "A", "lowest": "E", "default": "C"},
+            "views": [{"key": "w", "desc": "Work", "start": true}],
+            "tags": ["phone", "proj", "work"],
+            "date_grammar": "today, tomorrow, a weekday (fri), +2d (also +1w, +1m, +1y), 2026-10-30 or 2026-10-30T14:00"
+        })
+    );
+
+    let result = call(&service, "describe", json!({"verbose": true})).await?;
+    assert_eq!(first_block(&result)["code"], "invalid_arguments");
     service.cancel().await?;
     Ok(())
 }
