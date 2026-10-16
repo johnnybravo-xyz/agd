@@ -1981,6 +1981,40 @@ fn sectioned_rows_line_titles_up_after_the_widest_keyword() {
 
 #[test]
 #[serial]
+fn the_capture_preview_colours_org_text_like_its_chips() {
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(Some("truecolor"));
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        app.overlay = Overlay::Capture(capture::Draft::default());
+        // The chooser is a list: the bar and the tint cross the whole row.
+        let buffer = render_buffer(&mut app, 100, 30);
+        let y = row_of(&buffer, "t  Todo");
+        let bar = column_of(&buffer, y, "t  Todo") - 1;
+        assert_eq!(buffer[(bar, y)].symbol(), "▌");
+        assert_eq!(buffer[(bar + 40, y)].bg, app.theme.selection);
+
+        for key in "tRenew passport due:fri on:+2d +home".chars() {
+            capture::type_key(&mut app, key);
+        }
+        let buffer = render_buffer(&mut app, 100, 30);
+        let at = |needle: &str| {
+            let y = row_of(&buffer, needle);
+            buffer[(column_of(&buffer, y, needle), y)].fg
+        };
+        assert_eq!(at("DEADLINE:"), app.theme.due);
+        assert_eq!(at("SCHEDULED:"), app.theme.accent);
+        assert_eq!(at(":home:"), app.theme.muted);
+        let y = row_of(&buffer, "* TODO Renew");
+        let star = column_of(&buffer, y, "* TODO Renew");
+        assert_eq!(buffer[(star, y)].fg, app.theme.muted);
+        assert_eq!(buffer[(star + 2, y)].fg, app.theme.named("orange"));
+    });
+}
+
+#[test]
+#[serial]
 fn a_triage_card_shows_only_the_facts_it_has_and_earns_its_nudge() {
     with_home(|root| {
         let logged = "- Rescheduled from \"[2026-09-20 Sun]\" on [2026-09-21 Mon]\n".repeat(3);

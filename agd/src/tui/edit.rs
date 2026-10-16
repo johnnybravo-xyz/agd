@@ -365,7 +365,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let value = &form.values[field];
         let choice = field == STATE || field == PRIORITY;
         let mut spans = vec![
-            Span::styled(if focused { "› " } else { "  " }, theme.fg(theme.accent)),
+            Span::styled(if focused { "▌ " } else { "  " }, theme.fg(theme.accent)),
             Span::styled(
                 format!("{label:<11}"),
                 if focused {
