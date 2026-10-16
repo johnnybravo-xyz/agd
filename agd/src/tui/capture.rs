@@ -1,3 +1,8 @@
+//! The capture popup (`c`, and `agd capture -i`): pick a template as in
+//! org-capture's menu, type one line with tokens (`due:fri +tag #A`) that
+//! show as chips, answer the template's prompts, and see the exact Org text
+//! a dry run would write before ⏎ writes it.
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Stdout, Write};

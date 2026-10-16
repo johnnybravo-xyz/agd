@@ -1,3 +1,9 @@
+//! Peek (SPC): the entry under the cursor, beside the list from 100
+//! columns and over it below: its dates as people say them, its state,
+//! priority, tags, body and links, and why the agenda lists it. Also the
+//! entry-text helpers other screens share (the body, links, the title as
+//! the agenda shows it).
+
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};

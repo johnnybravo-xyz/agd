@@ -1,3 +1,9 @@
+//! What each screen lists: Today's sections, Week's days, the inbox, saved
+//! views, Triage's frozen queue and the Agents tab's journal records, read
+//! from the agenda engine and the journal. Also the cursor (kept on the
+//! same heading across reloads), marks, screen switching and the `<` and
+//! `/` filters.
+
 use std::collections::BTreeSet;
 use std::time::Instant;
 

@@ -1,3 +1,7 @@
+//! The narrow pane (`agd --pane`, or any terminal under 60 columns): today
+//! at a glance beside an agent or an editor, drawn with Today's marker and
+//! lead cells so the two read alike.
+
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};

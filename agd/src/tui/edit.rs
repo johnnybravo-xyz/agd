@@ -1,3 +1,7 @@
+//! The edit popup (⏎ on a task): its title, state, priority, tags and
+//! dates as fields, the exact diff of the one guarded write they make, and
+//! the hand-over to $EDITOR.
+
 use std::collections::BTreeSet;
 use std::path::Path;
 

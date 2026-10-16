@@ -1,3 +1,9 @@
+//! The full layout every screen shares (the header with its tabs and
+//! filters, the body, the footer with the status line and key hints) and
+//! the lists drawn in it: Today, Week, Inbox and saved views, row by row.
+//! Also the prompts, the refile picker, the bulk menu and the Views popup
+//! drawn over them.
+
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};

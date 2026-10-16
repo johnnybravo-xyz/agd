@@ -1,3 +1,10 @@
+//! Every write the TUI makes, and the prompts and pickers that lead to one:
+//! state changes, dates, priority, tags, someday, refile, undo, accepting
+//! agent changes and copying a link. A write acts on the marked rows, else
+//! the cursor row, as one guarded transaction; a prompt previews the exact
+//! change with a dry run first; each write is confirmed on the status line
+//! as `words::change` says it and can be undone with `u`.
+
 use std::collections::BTreeSet;
 use std::path::Path;
 
