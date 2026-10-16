@@ -4,7 +4,7 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use ratatui::widgets::{Clear, Paragraph, ScrollbarState};
 
 use super::keys::{self, KeyGroup};
 use super::theme::{Theme, centered};
@@ -85,11 +85,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), inner);
     if max_scroll > 0 {
         let mut state = ScrollbarState::new(max_scroll as usize).position(scroll as usize);
-        frame.render_stateful_widget(
-            Scrollbar::new(ScrollbarOrientation::VerticalRight),
-            popup,
-            &mut state,
-        );
+        frame.render_stateful_widget(app.theme.scrollbar(), popup, &mut state);
     }
 }
 

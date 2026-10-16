@@ -2,9 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{
-    Clear, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
-};
+use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, ScrollbarState};
 
 use agd_core::{OccurrenceType, keyword_color};
 use unicode_width::UnicodeWidthStr;
@@ -384,11 +382,7 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
         .collect();
     if total > inner.height as usize {
         let mut scrollbar = ScrollbarState::new(total).position(selected_line.unwrap_or(0));
-        frame.render_stateful_widget(
-            Scrollbar::new(ScrollbarOrientation::VerticalRight),
-            area,
-            &mut scrollbar,
-        );
+        frame.render_stateful_widget(theme.scrollbar(), area, &mut scrollbar);
     }
 }
 

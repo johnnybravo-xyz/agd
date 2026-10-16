@@ -1981,6 +1981,32 @@ fn sectioned_rows_line_titles_up_after_the_widest_keyword() {
 
 #[test]
 #[serial]
+fn the_scrollbar_reads_as_the_border() {
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(Some("truecolor"));
+        app.reload_rows().unwrap();
+        let buffer = render_buffer(&mut app, 100, 12);
+        let border: Vec<&ratatui::buffer::Cell> = (1..10).map(|y| &buffer[(99, y)]).collect();
+        let symbols: String = border.iter().map(|cell| cell.symbol()).collect();
+        assert!(
+            !symbols.contains('▲') && !symbols.contains('▼'),
+            "{symbols}"
+        );
+        let thumb: Vec<_> = border.iter().filter(|cell| cell.symbol() == "┃").collect();
+        assert!(!thumb.is_empty(), "{symbols}");
+        assert!(thumb.iter().all(|cell| cell.fg == app.theme.muted));
+        let track = border
+            .iter()
+            .find(|cell| cell.symbol() == "│")
+            .expect("track");
+        assert_eq!(track.fg, app.theme.border);
+    });
+}
+
+#[test]
+#[serial]
 fn an_inbox_item_names_its_agent_after_the_agents_dot() {
     with_home(|root| {
         fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();

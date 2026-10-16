@@ -52,7 +52,7 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
-use ratatui::widgets::{Block, BorderType, Borders, Padding};
+use ratatui::widgets::{Block, BorderType, Borders, Padding, Scrollbar, ScrollbarOrientation};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// The colour roles above, built once at startup from the terminal and the
@@ -345,6 +345,19 @@ impl Theme {
             .border_type(BorderType::Rounded)
             .border_style(self.fg(self.border))
             .padding(Padding::horizontal(2))
+    }
+
+    /// A list's scroll position drawn on its right border: the track is
+    /// the border itself and the thumb a heavier line in muted, so it
+    /// reads as part of the frame.
+    pub(super) fn scrollbar(&self) -> Scrollbar<'static> {
+        Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("│"))
+            .track_style(self.fg(self.border))
+            .thumb_symbol("┃")
+            .thumb_style(self.muted())
     }
 
     /// A one-line input box: rounded, accent while focused.
