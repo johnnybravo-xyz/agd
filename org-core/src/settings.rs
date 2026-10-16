@@ -434,8 +434,38 @@ pub fn parse_config_file(path: &Path) -> Result<Settings, AgdError> {
             error,
         )
     })?;
-    toml::from_str(&source)
-        .map_err(|error| config_error(format!("cannot parse {}: {error}", path.display())))
+    toml::from_str(&source).map_err(|error| {
+        config_error(format!(
+            "cannot parse {}: {}",
+            path.display(),
+            explain_parse_error(&error)
+        ))
+    })
+}
+
+/// The TOML error with its location. TOML puts every key below a
+/// `[[capture]]`, `[[view]]` or `[[agent_profile]]` line into that record,
+/// so a top-level setting written there is explained instead of reported as
+/// an unknown record field.
+fn explain_parse_error(error: &toml::de::Error) -> String {
+    let text = error.to_string();
+    let field = error
+        .message()
+        .strip_prefix("unknown field `")
+        .and_then(|rest| rest.split('`').next());
+    match field {
+        Some(field) if is_top_level_key(field) => text.replace(
+            error.message(),
+            &format!(
+                "`{field}` is a top-level setting; move it above the first [[capture]], [[view]] or [[agent_profile]] record"
+            ),
+        ),
+        _ => text,
+    }
+}
+
+fn is_top_level_key(name: &str) -> bool {
+    CONFIG_GROUPS.iter().any(|(_, keys)| keys.contains(&name))
 }
 
 fn config_error(message: impl Into<String>) -> AgdError {
@@ -1173,6 +1203,46 @@ mod tests {
         ] {
             let error = load_error(&format!("{key} = {value}\n"));
             assert!(error.contains(&format!("unknown field `{key}`")), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_setting_below_a_record_is_explained_with_its_location() {
+        let error = load_error(concat!(
+            "[[capture]]\nkey = \"t\"\ndesc = \"Todo\"\nfile = \"inbox.org\"\n",
+            "template = \"* %?\"\n",
+            "start_view = \"n\"\n",
+        ));
+        assert_eq!(
+            error,
+            concat!(
+                "cannot parse CONFIG: TOML parse error at line 7, column 1\n",
+                "  |\n",
+                "7 | start_view = \"n\"\n",
+                "  | ^^^^^^^^^^\n",
+                "`start_view` is a top-level setting; move it above the first [[capture]], [[view]] or [[agent_profile]] record\n",
+            )
+        );
+        // A key that is no setting at all keeps TOML's own message.
+        let error = load_error("[[agent_profile]]\nname = \"a\"\nfils = []\n");
+        assert!(
+            error.contains("unknown field `fils`, expected one of `name`, `files`, `match`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn every_top_level_setting_is_rendered_and_explained() {
+        let settings = Settings {
+            agenda_start_day: Some("-1d".to_string()),
+            agent_inbox: Some("t".to_string()),
+            ..Settings::default()
+        };
+        let encoded = toml::Value::try_from(&settings).unwrap();
+        for key in encoded.as_table().unwrap().keys() {
+            if !["capture", "view", "agent_profile"].contains(&key.as_str()) {
+                assert!(is_top_level_key(key), "{key} is missing from CONFIG_GROUPS");
+            }
         }
     }
 
