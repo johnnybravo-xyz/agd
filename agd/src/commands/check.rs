@@ -64,25 +64,21 @@ fn resolved_lines(resolved: &[JournalRecord]) -> String {
         .collect()
 }
 
+/// `file:line: message` per problem, then the counts; codes are for JSON.
 fn human_report(report: &CheckReport) -> String {
     let mut output = String::new();
     for problem in &report.problems {
-        if let Some(line) = problem.line {
-            output.push_str(&format!(
-                "{}:{line}: {}: {}\n",
-                problem.file, problem.code, problem.message
-            ));
-        } else {
-            output.push_str(&format!(
-                "{}: {}: {}\n",
-                problem.file, problem.code, problem.message
-            ));
+        match problem.line {
+            Some(line) => {
+                output.push_str(&format!("{}:{line}: {}\n", problem.file, problem.message))
+            }
+            None => output.push_str(&format!("{}: {}\n", problem.file, problem.message)),
         }
     }
     output.push_str(&format!(
         "checked {} and {}: {}\n",
         counted(report.summary.files, "file", "files"),
-        counted(report.summary.headlines, "headline", "headlines"),
+        counted(report.summary.headlines, "heading", "headings"),
         counted(report.summary.errors, "error", "errors")
     ));
     output

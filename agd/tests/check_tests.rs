@@ -129,7 +129,10 @@ fn check_reports_duplicate_ids_and_exits_one() {
         .code(1);
     let text = String::from_utf8(human.get_output().stdout.clone()).unwrap();
     assert!(
-        text.ends_with("checked 2 files and 2 headlines: 1 error\n"),
+        text.ends_with("checked 2 files and 2 headings: 1 error\n"),
         "{text}"
     );
+    // A sentence per problem at its file and line; the code is JSON's.
+    assert!(text.contains(".org:1: "), "{text}");
+    assert!(!text.contains("id_conflict"), "{text}");
 }
