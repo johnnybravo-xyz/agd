@@ -734,16 +734,10 @@ fn run_agents(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarg
     Ok(None)
 }
 
-/// The selected agent change's place in its file, for $EDITOR.
+/// The heading the selected agent change touched, for $EDITOR.
 fn changed_location(app: &App) -> EditorTarget {
     let record = app.journals.get(app.selected)?;
-    let file = record
-        .file
-        .split(',')
-        .next()
-        .unwrap_or_default()
-        .to_string();
-    Some((file, super::review::changed_line(record)))
+    Some(super::review::changed_place(app, record))
 }
 
 /// esc or q on the Agents tab: close the diff, then peek, then go back.

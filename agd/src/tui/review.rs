@@ -139,7 +139,6 @@ fn title_after_keyword(headline: &str) -> String {
     words[skip.min(words.len())..].join(" ")
 }
 
-/// Line of the change in its file, for opening the editor there.
 /// The task a change touched, as the file reads now: the heading whose
 /// section holds the first patch's start. None once the change is undone
 /// or nothing is left at that place.
@@ -160,22 +159,44 @@ pub(super) fn touched_item(app: &App, record: &JournalRecord) -> Option<Item> {
         .map(|headline| headline.item.clone())
 }
 
-pub(super) fn changed_line(record: &JournalRecord) -> usize {
-    record
-        .diff
-        .lines()
-        .find_map(|line| {
-            let hunk = line.strip_prefix("@@ +")?;
-            hunk.split([',', ' ']).next()?.parse().ok()
-        })
-        .or_else(|| {
-            record.diff.lines().find_map(|line| {
-                let hunk = line.strip_prefix("@@ -")?;
-                let plus = hunk.split_once(" +")?.1;
-                plus.split([',', ' ']).next()?.parse().ok()
-            })
-        })
-        .unwrap_or(1)
+/// Where a change is, for its card and for ⏎: the touched heading's line
+/// as the file reads now, else the diff's first changed line.
+pub(super) fn changed_place(app: &App, record: &JournalRecord) -> (String, usize) {
+    match touched_item(app, record) {
+        Some(item) => (item.file, item.line),
+        None => (
+            record
+                .file
+                .split(',')
+                .next()
+                .unwrap_or_default()
+                .to_string(),
+            first_changed_line(record),
+        ),
+    }
+}
+
+/// The new-file line of the diff's first added or removed line: the hunk
+/// header gives where its context starts, and each context line counts.
+fn first_changed_line(record: &JournalRecord) -> usize {
+    let mut line: Option<usize> = None;
+    for text in record.diff.lines() {
+        if let Some(hunk) = text.strip_prefix("@@ ") {
+            line = hunk
+                .split_whitespace()
+                .find_map(|part| part.strip_prefix('+'))
+                .and_then(|plus| plus.split(',').next()?.parse().ok());
+            continue;
+        }
+        let Some(current) = line else {
+            continue;
+        };
+        if text.starts_with('+') || text.starts_with('-') {
+            return current.max(1);
+        }
+        line = Some(current + 1);
+    }
+    line.unwrap_or(1).max(1)
 }
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
@@ -302,13 +323,10 @@ fn card(theme: &Theme, record: &JournalRecord, width: usize, app: &App) -> Vec<L
     ));
     head.extend(pill);
     let body_style = |style: Style| if reviewed { theme.muted() } else { style };
+    let (file, line) = changed_place(app, record);
     let location = format!(
         "{:<14}",
-        format!(
-            "{}:{}",
-            record.file.rsplit('/').next().unwrap_or_default(),
-            changed_line(record)
-        )
+        format!("{}:{line}", file.rsplit('/').next().unwrap_or_default())
     );
     let mut lines = vec![Line::from(head)];
     match change {

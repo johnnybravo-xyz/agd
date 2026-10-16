@@ -1132,6 +1132,40 @@ fn shift_b_opens_a_bulk_menu_for_the_marked_rows_and_shift_u_unmarks_all() {
 
 #[test]
 #[serial]
+fn agent_cards_name_the_changed_headings_line_and_enter_opens_it() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        let filler: String = (1..20).map(|line| format!("line {line}\n")).collect();
+        fs::write(&path, format!("{filler}* TODO Pay rent\n")).unwrap();
+        let mut app = test_app(root);
+        let item = app.index.items().next().unwrap().clone();
+        assert_eq!(item.line, 20);
+        let intent = agd_core::EditIntent {
+            state: agd_core::Change::Set("DONE".to_string()),
+            ..Default::default()
+        };
+        let context = agd_core::WriteContext {
+            actor: "mcp:test-agent".to_string(),
+            project: root.to_string_lossy().into_owned(),
+            now: None,
+        };
+        agd_core::WriteEngine::with_default_journal(app.settings.clone())
+            .unwrap()
+            .edit(&item.item_ref, &intent, false, &context)
+            .unwrap();
+        app.index.refresh_path(&path).unwrap();
+        app.switch_screen(Screen::Review).unwrap();
+        let screen = render(&mut app, 120, 30).join("\n");
+        assert!(screen.contains("work.org:20"), "{screen}");
+        let (file, line) = press(&mut app, KeyCode::Enter).unwrap();
+        assert!(file.ends_with("work.org"), "{file}");
+        assert_eq!(line, 20);
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {
