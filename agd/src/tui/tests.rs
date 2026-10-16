@@ -1673,6 +1673,30 @@ fn triage_advances_after_every_decision_with_a_fixed_counter() {
 
 #[test]
 #[serial]
+fn only_captures_say_who_captured_a_task() {
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n** TODO Written by hand\n").unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let row = app
+            .rows
+            .iter()
+            .position(|row| row.item.title == "Written by hand")
+            .unwrap();
+        app.selected = row;
+        app.set_state("DONE").unwrap();
+        app.undo().unwrap();
+        let screen = render(&mut app, 120, 20).join("\n");
+        assert!(screen.contains("Written by hand"), "{screen}");
+        assert!(
+            !screen.contains("you "),
+            "an edit is not a capture: {screen}"
+        );
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {

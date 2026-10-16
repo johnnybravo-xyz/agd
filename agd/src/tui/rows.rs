@@ -175,7 +175,7 @@ impl App {
         let journals = WriteEngine::with_default_journal(self.settings.clone())?.journal()?;
         self.provenance.clear();
         for record in &journals {
-            if record.diff.lines().any(|line| line.starts_with("+*"))
+            if is_capture(record)
                 && let Some(item_ref) = &record.item_ref
             {
                 let actor = record
@@ -667,6 +667,21 @@ fn is_in_progress(item: &Item, index: &WorkspaceIndex) -> bool {
         .iter()
         .find(|candidate| candidate.sequence == keyword.sequence);
     !item.done && head.is_some_and(|head| head.name != todo)
+}
+
+/// A journal entry that added a heading and removed none: a capture. A
+/// state change rewrites its heading line (`-*` then `+*`), and an undo or
+/// a refile moves one, so none of those name who captured the task.
+fn is_capture(record: &JournalRecord) -> bool {
+    let changed = || {
+        record
+            .diff
+            .lines()
+            .filter(|line| !line.starts_with("+++") && !line.starts_with("---"))
+    };
+    record.transaction.is_none()
+        && changed().any(|line| line.starts_with("+*"))
+        && !changed().any(|line| line.starts_with("-*"))
 }
 
 fn is_agent(record: &JournalRecord) -> bool {
