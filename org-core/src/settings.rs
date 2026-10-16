@@ -73,10 +73,10 @@ pub struct Settings {
     /// The `[[view]]` key `agd` opens on, such as your dashboard; empty
     /// opens Today.
     pub start_view: String,
-    /// "template" captures through the agent's chosen template; "inbox" sends
-    /// every agent capture through `agent_inbox_template` without dates.
-    pub agent_capture_to: String,
-    pub agent_inbox_template: String,
+    /// A `[[capture]]` key: every agent capture goes through that template
+    /// without dates, so agent work reaches your day only through triage.
+    /// Absent, agents choose a template.
+    pub agent_inbox: Option<String>,
     pub someday_tag: String,
     /// Someday also removes SCHEDULED, so the task leaves the agenda.
     pub someday_clears_scheduled: bool,
@@ -288,8 +288,7 @@ impl Default for Settings {
             theme: "auto".to_string(),
             nerd_font: false,
             start_view: String::new(),
-            agent_capture_to: "template".to_string(),
-            agent_inbox_template: "t".to_string(),
+            agent_inbox: None,
             someday_tag: "someday".to_string(),
             someday_clears_scheduled: true,
             reschedule_nudge: 3,
@@ -608,8 +607,7 @@ const CONFIG_GROUPS: [(&str, &[&str]); 6] = [
     (
         "Agents and triage",
         &[
-            "agent_capture_to",
-            "agent_inbox_template",
+            "agent_inbox",
             "someday_tag",
             "someday_clears_scheduled",
             "reschedule_nudge",
@@ -788,24 +786,18 @@ pub(crate) fn validate_values(settings: &Settings) -> Result<(), AgdError> {
     if settings.editor.is_empty() {
         return Err(config_error("editor needs at least the program to run"));
     }
-    match settings.agent_capture_to.as_str() {
-        "template" => {}
-        "inbox" => {
-            if settings
-                .capture_template(&settings.agent_inbox_template)
-                .is_none()
-            {
-                return Err(config_error(format!(
-                    "agent_capture_to = \"inbox\" needs capture template '{}' (agent_inbox_template)",
-                    settings.agent_inbox_template
-                )));
-            }
-        }
-        other => {
-            return Err(config_error(format!(
-                "agent_capture_to must be \"template\" or \"inbox\", not \"{other}\""
-            )));
-        }
+    if let Some(key) = &settings.agent_inbox
+        && settings.capture_template(key).is_none()
+    {
+        let keys: Vec<&str> = settings
+            .captures
+            .iter()
+            .map(|template| template.key.as_str())
+            .collect();
+        return Err(config_error(format!(
+            "agent_inbox names capture template '{key}', which is not a [[capture]] key; use one of {}",
+            keys.join(", ")
+        )));
     }
     if !["auto", "dark", "light"].contains(&settings.theme.as_str()) {
         return Err(config_error(format!(
@@ -1109,10 +1101,26 @@ mod tests {
 
     #[test]
     fn removed_keys_are_unknown() {
-        for key in ["tag_alist", "persistent_tags"] {
-            let error = load_error(&format!("{key} = [\"work\"]\n"));
+        for (key, value) in [
+            ("tag_alist", "[\"work\"]"),
+            ("persistent_tags", "[\"work\"]"),
+            ("agent_capture_to", "\"inbox\""),
+            ("agent_inbox_template", "\"t\""),
+        ] {
+            let error = load_error(&format!("{key} = {value}\n"));
             assert!(error.contains(&format!("unknown field `{key}`")), "{error}");
         }
+    }
+
+    #[test]
+    fn agent_inbox_names_a_capture_template() {
+        let settings = load_body("agent_inbox = \"t\"\n").unwrap();
+        assert_eq!(settings.agent_inbox.as_deref(), Some("t"));
+        assert_eq!(load_body("").unwrap().agent_inbox, None);
+        assert_eq!(
+            load_error("agent_inbox = \"i\"\n"),
+            "agent_inbox names capture template 'i', which is not a [[capture]] key; use one of t"
+        );
     }
 
     #[test]
