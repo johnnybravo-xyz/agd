@@ -75,9 +75,18 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
         Err(error) => {
-            eprintln!("Error: {}", error_text(&error));
+            eprintln!("{} {}", error_prefix(), error_text(&error));
             ExitCode::FAILURE
         }
+    }
+}
+
+/// `error:`, as clap starts its own, bold red on a terminal.
+fn error_prefix() -> &'static str {
+    if commands::color_stderr() {
+        "\x1b[1;31merror:\x1b[0m"
+    } else {
+        "error:"
     }
 }
 
@@ -146,7 +155,7 @@ fn broken_pipe(error: &anyhow::Error) -> bool {
 fn print_json_error(response: &ErrorResponse) {
     match serde_json::to_string(response) {
         Ok(json) => eprintln!("{json}"),
-        Err(error) => eprintln!("Error: {}: {error}", response.message),
+        Err(error) => eprintln!("{} {}: {error}", error_prefix(), response.message),
     }
 }
 

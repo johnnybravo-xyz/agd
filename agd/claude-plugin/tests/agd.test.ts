@@ -12,7 +12,7 @@ function agd(on: On, outputs: Outputs, calls: string[] = []) {
     calls.push(args)
     const output = outputs[args]
     if (e.argv[0] !== 'agd' || !output) {
-      return { value: result(2, '', 'Error: no output for ' + args) }
+      return { value: result(2, '', 'error: no output for ' + args) }
     }
     return { value: result(output.exitCode ?? 0, output.stdout ?? '', output.stderr ?? '') }
   })
@@ -435,7 +435,7 @@ test('/capture runs agd capture with the key and the rest of the line', async ($
 test('/capture reports agd\'s own error and its usage', async ($, on) => {
   agd(on, {
     'agenda --status': { stdout: '' },
-    'capture zz nothing': { exitCode: 1, stderr: "Error: capture template 'zz' is not configured" },
+    'capture zz nothing': { exitCode: 1, stderr: "error: capture template 'zz' is not configured" },
   })
   expect((await $.command.run(typed('capture', 'zz nothing'))).text).toBe(
     "capture template 'zz' is not configured",

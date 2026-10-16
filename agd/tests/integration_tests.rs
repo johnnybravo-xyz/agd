@@ -228,7 +228,7 @@ fn json_mode_reports_every_error_as_agd_error() {
         .args(["agenda", "--view", "zz"])
         .assert()
         .failure()
-        .stderr(predicate::str::starts_with("Error: unknown view 'zz'"));
+        .stderr(predicate::str::starts_with("error: unknown view 'zz'"));
 }
 
 #[test]
@@ -602,7 +602,7 @@ fn first_run_without_config_or_org_says_how_to_start() {
         .failure()
         .stderr(format!(
             concat!(
-                "Error: no config at {} and no ~/org to read. Start with one of:\n",
+                "error: no config at {} and no ~/org to read. Start with one of:\n",
                 "  mkdir ~/org    agd then reads it with its defaults\n",
                 "  agd setup import <your Emacs or Neovim config directory>\n",
                 "  agd -r DIR    read another directory for this run\n",

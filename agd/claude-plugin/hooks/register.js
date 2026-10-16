@@ -53,7 +53,7 @@ async function agd($, args) {
   try {
     const result = await $.process.run(['agd', ...args], { timeoutMs: 15000 })
     if (result.exitCode !== 0) {
-      const message = result.stderr.trim().replace(/^Error:\s*/, '')
+      const message = result.stderr.trim().replace(/^error:\s*/i, '')
       return { error: message || 'agd ' + args[0] + ' exited with ' + result.exitCode }
     }
     return { stdout: result.stdout }

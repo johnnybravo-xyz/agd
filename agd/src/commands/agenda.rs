@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use agd_core::{
-    AgdError, AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, JournalStatus, Settings,
-    VIEWS_SCHEMA, ViewSection, ViewSettings, WorkspaceIndex, WriteEngine, agenda_csv, agenda_row,
-    agenda_text, agenda_title, item_row, items_csv, keyword_colors, load_settings,
+    AgdError, AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, JournalStatus, OccurrenceType,
+    Settings, VIEWS_SCHEMA, ViewSection, ViewSettings, WorkspaceIndex, WriteEngine, agenda_csv,
+    agenda_row, agenda_text, agenda_title, item_row, items_csv, keyword_colors, load_settings,
     parse_agenda_day,
 };
 use anyhow::Result;
@@ -101,10 +101,15 @@ impl AgendaCommand {
             Some(value) => parse_agenda_day(&value, today)?,
             None => settings.agenda_start(today)?,
         };
+        let color = !self.json && !self.csv && super::color_stdout();
         if let Some(key) = self.view.as_deref() {
             let view = find_view(&settings, key)?;
             let sections = AgendaEngine::new(&index).view(view, start, today, self.log)?;
-            let output = view_output(&sections, self.json, self.csv, today, &index)?;
+            let mut output = view_output(&sections, self.json, self.csv, today, &index)?;
+            if color {
+                let rows: Vec<RowFacts> = sections.iter().flat_map(section_rows).collect();
+                output = colored(&output, &rows, today);
+            }
             return Ok(write_stdout(&output)?);
         }
         let span = self.span.unwrap_or(settings.agenda_span);
@@ -125,11 +130,147 @@ impl AgendaCommand {
                 .iter()
                 .map(|entry| format!("{} {}\n", entry.occurrence.date, agenda_title(&entry.item)))
                 .collect()
+        } else if color {
+            let rows: Vec<RowFacts> = entries.iter().map(entry_row).collect();
+            colored(&agenda_text(&entries, from, to, None), &rows, today)
         } else {
             agenda_text(&entries, from, to, None)
         };
         Ok(write_stdout(&output)?)
     }
+}
+
+/// What colours one printed row: its exact text, whether it is done, and
+/// the leader Org printed for it (`Sched. 2x:`, `In   3 d.:`).
+struct RowFacts {
+    text: String,
+    done: bool,
+    late: bool,
+    due: bool,
+    leader: String,
+}
+
+fn entry_row(entry: &AgendaEntry) -> RowFacts {
+    let extra = &entry.occurrence.extra;
+    let kind = entry.occurrence.kind;
+    RowFacts {
+        text: agenda_row(entry),
+        done: entry.item.done,
+        late: kind == OccurrenceType::PastScheduled || extra.ends_with("ago:"),
+        due: matches!(
+            kind,
+            OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline
+        ),
+        leader: extra.clone(),
+    }
+}
+
+fn item_facts(item: &agd_core::Item) -> RowFacts {
+    RowFacts {
+        text: item_row(item),
+        done: item.done,
+        late: false,
+        due: false,
+        leader: String::new(),
+    }
+}
+
+/// Every row a view section prints, its groups' too.
+fn section_rows(section: &ViewSection) -> Vec<RowFacts> {
+    let mut rows: Vec<RowFacts> = section.entries.iter().map(entry_row).collect();
+    rows.extend(section.items.iter().map(item_facts));
+    for group in &section.groups {
+        rows.extend(group.entries.iter().map(entry_row));
+        rows.extend(group.items.iter().map(item_facts));
+    }
+    rows
+}
+
+const BOLD: &str = "\x1b[1m";
+const FAINT: &str = "\x1b[2m";
+const UNDERLINE: &str = "\x1b[4m";
+const RED: &str = "\x1b[31m";
+const YELLOW: &str = "\x1b[33m";
+const RESET: &str = "\x1b[0m";
+
+/// The org-agenda text with 16-colour codes for a terminal, its words
+/// unchanged: day headers bold and today's underlined, categories and tags
+/// faint, lateness red, deadlines yellow, done rows faint throughout.
+/// Only for a terminal; piped output stays Org's own bytes.
+fn colored(text: &str, rows: &[RowFacts], today: NaiveDate) -> String {
+    let today_line = agenda_text(&[], today, today, Some(""))
+        .lines()
+        .nth(1)
+        .unwrap_or_default()
+        .to_string();
+    let mut output = String::with_capacity(text.len() * 2);
+    for line in text.split_inclusive('\n') {
+        let (body, newline) = match line.strip_suffix('\n') {
+            Some(body) => (body, "\n"),
+            None => (line, ""),
+        };
+        let painted = match rows.iter().find(|row| row.text == body) {
+            Some(row) => paint_row(body, row),
+            None if body == today_line => format!("{BOLD}{UNDERLINE}{body}{RESET}"),
+            None if is_day_line(body) => format!("{BOLD}{body}{RESET}"),
+            None => body.to_string(),
+        };
+        output.push_str(&painted);
+        output.push_str(newline);
+    }
+    output
+}
+
+/// `Friday     16 October 2026`: a weekday first, at the line's start.
+fn is_day_line(line: &str) -> bool {
+    const DAYS: [&str; 7] = [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+    ];
+    DAYS.iter().any(|day| {
+        line.strip_prefix(day)
+            .is_some_and(|rest| rest.starts_with(' '))
+    })
+}
+
+/// One row: `  category:` faint, its leader red when late and yellow when
+/// due, its trailing `:tags:` faint; a done row is faint as a whole.
+fn paint_row(line: &str, row: &RowFacts) -> String {
+    if row.done {
+        return format!("{FAINT}{line}{RESET}");
+    }
+    let category_end = line.find(':').map_or(0, |colon| colon + 1).min(line.len());
+    let (indent, rest) = line.split_at(line.len() - line.trim_start().len());
+    let category = &rest[..category_end.saturating_sub(indent.len())];
+    let mut after = rest[category.len()..].to_string();
+    let leader = row.leader.trim();
+    if (row.late || row.due)
+        && !leader.is_empty()
+        && let Some(at) = after.find(leader)
+    {
+        let color = if row.late { RED } else { YELLOW };
+        after = format!(
+            "{}{color}{leader}{RESET}{}",
+            &after[..at],
+            &after[at + leader.len()..]
+        );
+    }
+    let tags_at = after
+        .rfind(' ')
+        .filter(|at| {
+            let tags = &after[at + 1..];
+            tags.len() > 1 && tags.starts_with(':') && tags.ends_with(':')
+        })
+        .map(|at| at + 1);
+    if let Some(at) = tags_at {
+        after = format!("{}{FAINT}{}{RESET}", &after[..at], &after[at..]);
+    }
+    format!("{indent}{FAINT}{category}{RESET}{after}")
 }
 
 /// Applies a `[[agent_profile]]`: its files replace agenda_files, and its
@@ -355,4 +496,70 @@ pub fn load_index(settings: Settings) -> Result<WorkspaceIndex> {
         eprintln!("warning: skipped {reason}");
     }
     Ok(index)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The text with every escape sequence taken out.
+    fn plain(text: &str) -> String {
+        let mut output = String::new();
+        let mut rest = text;
+        while let Some(start) = rest.find('\x1b') {
+            output.push_str(&rest[..start]);
+            let end = rest[start..]
+                .find('m')
+                .map_or(rest.len(), |m| start + m + 1);
+            rest = &rest[end..];
+        }
+        output.push_str(rest);
+        output
+    }
+
+    #[test]
+    fn a_terminal_gets_colours_without_a_word_changed() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("work.org"),
+            "#+TODO: TODO | DONE\n\
+* TODO Late one :ops:\nSCHEDULED: <2026-10-14 Wed>\n\
+* TODO Soon one\nDEADLINE: <2026-10-19 Mon>\n\
+* DONE Finished\nSCHEDULED: <2026-10-16 Fri>\n",
+        )
+        .unwrap();
+        let settings = Settings {
+            roots: vec![directory.path().to_string_lossy().into_owned()],
+            agenda_files: vec!["*.org".to_string()],
+            ..Settings::default()
+        };
+        let index = WorkspaceIndex::load(settings).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 10, 16).unwrap();
+        let entries = AgendaEngine::new(&index)
+            .agenda(&AgendaQuery {
+                from: today,
+                to: today,
+                today,
+                match_expression: None,
+                log_mode: false,
+            })
+            .unwrap();
+        let text = agenda_text(&entries, today, today, None);
+        let rows: Vec<RowFacts> = entries.iter().map(entry_row).collect();
+        let painted = colored(&text, &rows, today);
+        assert_eq!(plain(&painted), text, "{painted}");
+        assert!(
+            painted.contains("\x1b[1m\x1b[4mFriday     16 October 2026"),
+            "{painted}"
+        );
+        assert!(painted.contains("\x1b[31mSched. 2x:\x1b[0m"), "{painted}");
+        assert!(painted.contains("\x1b[33mIn   3 d.:\x1b[0m"), "{painted}");
+        assert!(painted.contains("\x1b[2m:ops:\x1b[0m"), "{painted}");
+        assert!(painted.contains("\x1b[2mwork:\x1b[0m"), "{painted}");
+        let done = painted
+            .lines()
+            .find(|line| line.contains("Finished"))
+            .unwrap();
+        assert!(done.starts_with("\x1b[2m"), "{done}");
+    }
 }
