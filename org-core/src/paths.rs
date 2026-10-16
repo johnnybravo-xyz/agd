@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -47,6 +47,47 @@ fn base_dir(
         )
     })?;
     Ok(home.join(home_relative))
+}
+
+/// Org files discovered under the roots, plus the paths discovery left out.
+#[derive(Clone, Debug, Default)]
+pub struct OrgFiles {
+    /// Canonical paths, sorted.
+    pub files: Vec<PathBuf>,
+    /// Path as discovered -> why it was left out.
+    pub skipped: BTreeMap<PathBuf, SkipReason>,
+}
+
+/// Why discovery left a path out instead of failing.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SkipReason {
+    /// A symlinked file or directory that resolves outside every root.
+    OutsideRoots,
+    /// An entry the walk could not read, such as a dangling symlink.
+    Unreadable(String),
+}
+
+impl SkipReason {
+    /// The `agd setup check` problem code for this reason.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::OutsideRoots => "outside_roots",
+            Self::Unreadable(_) => "read_error",
+        }
+    }
+
+    /// The reason alone, for a report that names the path separately.
+    pub fn message(&self) -> String {
+        match self {
+            Self::OutsideRoots => "symlink resolves outside the roots; skipped".to_string(),
+            Self::Unreadable(error) => format!("cannot read; skipped: {error}"),
+        }
+    }
+
+    /// One line naming the path and the reason, for warnings.
+    pub fn describe(&self, path: &Path) -> String {
+        format!("{}: {}", path.display(), self.message())
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -211,22 +252,29 @@ impl RootSet {
         Ok(lexical)
     }
 
-    pub fn agenda_files(&self) -> Result<Vec<PathBuf>, AgdError> {
-        let patterns = if self.agenda.is_empty() {
-            vec!["**/*.org".to_string()]
-        } else {
-            self.agenda.clone()
-        };
-        self.org_files_matching(&patterns)
+    /// The agenda files: every `.org` file under the roots that matches an
+    /// agenda pattern.
+    pub fn agenda_files(&self) -> Result<OrgFiles, AgdError> {
+        self.org_files_matching(&self.agenda_patterns())
     }
 
-    pub fn all_org_files(&self) -> Result<Vec<PathBuf>, AgdError> {
+    /// Every `.org` file under the roots, agenda file or not.
+    pub fn all_org_files(&self) -> Result<OrgFiles, AgdError> {
         self.org_files_matching(&[String::from("**/*.org")])
     }
 
-    fn org_files_matching(&self, patterns: &[String]) -> Result<Vec<PathBuf>, AgdError> {
+    fn agenda_patterns(&self) -> Vec<String> {
+        if self.agenda.is_empty() {
+            vec!["**/*.org".to_string()]
+        } else {
+            self.agenda.clone()
+        }
+    }
+
+    fn org_files_matching(&self, patterns: &[String]) -> Result<OrgFiles, AgdError> {
         let mut relative_patterns = Vec::new();
         let mut files = BTreeSet::new();
+        let mut skipped = BTreeMap::new();
         for pattern in patterns {
             let path = Path::new(pattern);
             reject_parent_segments(path)?;
@@ -253,38 +301,80 @@ impl RootSet {
             }
         }
         if relative_patterns.is_empty() {
-            return Ok(files.into_iter().collect());
+            return Ok(OrgFiles {
+                files: files.into_iter().collect(),
+                skipped,
+            });
         }
 
         let matcher = build_globset(&relative_patterns)?;
         for root in &self.roots {
+            // Symlinked directories that resolve outside the roots; nothing
+            // below them is read.
+            let mut escaped_directories: Vec<PathBuf> = Vec::new();
             for entry in WalkBuilder::new(root).follow_links(true).build() {
                 let entry = match entry {
                     Ok(entry) => entry,
                     Err(error) if is_emacs_lock(&error) => continue,
-                    Err(error) => {
-                        return Err(AgdError::new(
-                            "walk_error",
-                            format!("cannot walk {}: {error}", root.display()),
-                        ));
-                    }
+                    Err(error) => match walk_error_path(&error) {
+                        Some(path) => {
+                            skipped.insert(path, SkipReason::Unreadable(error.to_string()));
+                            continue;
+                        }
+                        None => {
+                            return Err(AgdError::new(
+                                "walk_error",
+                                format!("cannot walk {}: {error}", root.display()),
+                            ));
+                        }
+                    },
                 };
-                if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+                let path = entry.path();
+                if escaped_directories
+                    .iter()
+                    .any(|directory| path.starts_with(directory))
+                {
                     continue;
                 }
-                let path = entry.path();
-                let relative = path.strip_prefix(root).unwrap_or(path);
-                if path.extension().is_some_and(|extension| extension == "org")
-                    && matcher.is_match(relative)
+                let is_directory = entry.file_type().is_some_and(|kind| kind.is_dir());
+                let is_org_file = entry.file_type().is_some_and(|kind| kind.is_file())
+                    && path.extension().is_some_and(|extension| extension == "org");
+                if entry.path_is_symlink()
+                    && (is_directory || is_org_file)
+                    && !self.symlink_target_inside(path)
                 {
+                    skipped.insert(path.to_path_buf(), SkipReason::OutsideRoots);
+                    if is_directory {
+                        escaped_directories.push(path.to_path_buf());
+                    }
+                    continue;
+                }
+                let relative = path.strip_prefix(root).unwrap_or(path);
+                if is_org_file && matcher.is_match(relative) {
                     files.insert(self.validate_existing_read(path)?);
                 }
             }
         }
-        Ok(files.into_iter().collect())
+        Ok(OrgFiles {
+            files: files.into_iter().collect(),
+            skipped,
+        })
     }
 
+    fn symlink_target_inside(&self, path: &Path) -> bool {
+        path.canonicalize()
+            .is_ok_and(|canonical| self.contains(&canonical))
+    }
+
+    /// Containment is checked before the file itself is resolved, so a path
+    /// outside the roots is `outside_roots` whether or not it exists.
     fn validate_existing_read(&self, path: &Path) -> Result<PathBuf, AgdError> {
+        if !self.contains(&resolve_existing_prefix(path)?) {
+            return Err(AgdError::new(
+                "outside_roots",
+                format!("resolved path escapes approved roots: {}", path.display()),
+            ));
+        }
         let canonical = path.canonicalize().map_err(|error| {
             AgdError::with_source(
                 "not_found",
@@ -319,6 +409,37 @@ fn reject_parent_segments(path: &Path) -> Result<(), AgdError> {
         ));
     }
     Ok(())
+}
+
+/// `path` with its longest existing prefix canonicalized and the missing
+/// rest appended as written; for an existing path, its canonical form.
+fn resolve_existing_prefix(path: &Path) -> Result<PathBuf, AgdError> {
+    let existing = nearest_existing(path)?;
+    let canonical = existing.canonicalize().map_err(|error| {
+        AgdError::with_source(
+            "invalid_path",
+            format!("cannot resolve {}: {error}", existing.display()),
+            error,
+        )
+    })?;
+    let rest = path.strip_prefix(existing).unwrap_or(Path::new(""));
+    Ok(if rest.as_os_str().is_empty() {
+        canonical
+    } else {
+        canonical.join(rest)
+    })
+}
+
+/// The entry a walk error is about, when it names one.
+fn walk_error_path(error: &ignore::Error) -> Option<PathBuf> {
+    match error {
+        ignore::Error::WithPath { path, .. } => Some(path.clone()),
+        ignore::Error::WithDepth { err, .. } | ignore::Error::WithLineNumber { err, .. } => {
+            walk_error_path(err)
+        }
+        ignore::Error::Loop { child, .. } => Some(child.clone()),
+        _ => None,
+    }
 }
 
 fn nearest_existing(path: &Path) -> Result<&Path, AgdError> {
@@ -405,7 +526,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            roots.agenda_files().unwrap(),
+            roots.agenda_files().unwrap().files,
             vec![std::fs::canonicalize(file).unwrap()]
         );
     }
@@ -420,7 +541,7 @@ mod tests {
         std::fs::write(&file, "* TODO Edited in Emacs\n").unwrap();
         symlink("user@host.1234:1700000000", temp.path().join(".#tasks.org")).unwrap();
         assert_eq!(
-            roots(&temp).agenda_files().unwrap(),
+            roots(&temp).agenda_files().unwrap().files,
             vec![std::fs::canonicalize(file).unwrap()]
         );
     }
@@ -450,5 +571,69 @@ mod tests {
         symlink(&outside_file, temp.path().join("escape.org")).unwrap();
         let error = roots.resolve_read(Path::new("escape.org")).unwrap_err();
         assert_eq!(error.code(), "outside_roots");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_skips_and_reports_symlinks_that_leave_the_roots() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let kept = temp.path().join("tasks.org");
+        std::fs::write(&kept, "* TODO Kept\n").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.org"), "* TODO Secret\n").unwrap();
+        symlink(
+            outside.path().join("secret.org"),
+            temp.path().join("escape.org"),
+        )
+        .unwrap();
+        symlink(outside.path(), temp.path().join("elsewhere")).unwrap();
+        symlink(
+            outside.path().join("missing.org"),
+            temp.path().join("dangling.org"),
+        )
+        .unwrap();
+
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        for found in [
+            roots(&temp).agenda_files().unwrap(),
+            roots(&temp).all_org_files().unwrap(),
+        ] {
+            assert_eq!(found.files, vec![std::fs::canonicalize(&kept).unwrap()]);
+            let skipped: Vec<(&Path, &str)> = found
+                .skipped
+                .iter()
+                .map(|(path, reason)| (path.strip_prefix(&root).unwrap(), reason.code()))
+                .collect();
+            assert_eq!(
+                skipped,
+                [
+                    (Path::new("dangling.org"), "read_error"),
+                    (Path::new("elsewhere"), "outside_roots"),
+                    (Path::new("escape.org"), "outside_roots"),
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn outside_paths_are_outside_roots_whether_or_not_they_exist() {
+        let temp = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("real.org"), "* TODO Secret\n").unwrap();
+        let roots = roots(&temp);
+        for path in [
+            outside.path().join("real.org"),
+            outside.path().join("missing.org"),
+            PathBuf::from("/no/such/file.org"),
+        ] {
+            let error = roots.resolve_read(&path).unwrap_err();
+            assert_eq!(error.code(), "outside_roots", "{}", path.display());
+        }
+        let error = roots
+            .resolve_read(&temp.path().join("missing.org"))
+            .unwrap_err();
+        assert_eq!(error.code(), "not_found");
     }
 }

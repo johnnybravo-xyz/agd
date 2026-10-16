@@ -32,7 +32,7 @@ pub use model::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ERROR_SCHEMA, ErrorResponse, ITEM_SCHEMA, Item,
     MUTATION_SCHEMA, Mutation, Occurrence, OccurrenceType, Planning, PlanningTimestamp,
 };
-pub use paths::RootSet;
+pub use paths::{OrgFiles, RootSet, SkipReason};
 pub use settings::{
     AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, SORTING_KEYS, Settings,
     VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, default_config_path,

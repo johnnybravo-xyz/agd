@@ -294,8 +294,13 @@ impl WorkspaceIndex {
     pub fn load(settings: Settings) -> Result<Self, AgdError> {
         let roots = RootSet::new(&settings.roots, &settings.agenda_files)?;
         let mut documents = BTreeMap::new();
-        let mut skipped = BTreeMap::new();
-        for path in roots.agenda_files()? {
+        let agenda_files = roots.agenda_files()?;
+        let mut skipped: BTreeMap<PathBuf, String> = agenda_files
+            .skipped
+            .iter()
+            .map(|(path, reason)| (path.clone(), reason.describe(path)))
+            .collect();
+        for path in agenda_files.files {
             match load_document(&path, &settings)? {
                 Ok(document) => {
                     documents.insert(path, document);
@@ -306,7 +311,7 @@ impl WorkspaceIndex {
             }
         }
         let mut outside_ids: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
-        for path in roots.all_org_files()? {
+        for path in roots.all_org_files()?.files {
             if documents.contains_key(&path) || skipped.contains_key(&path) {
                 continue;
             }
@@ -326,8 +331,8 @@ impl WorkspaceIndex {
         Ok(index)
     }
 
-    /// Agenda files left out of the index, with the reason (currently only
-    /// non-UTF-8 content).
+    /// Agenda files left out of the index, with the reason: non-UTF-8
+    /// content, or a symlink that resolves outside the roots.
     pub fn skipped_files(&self) -> impl Iterator<Item = (&Path, &str)> {
         self.skipped
             .iter()
@@ -1253,6 +1258,42 @@ mod tests {
         let item_ref = index.items().next().unwrap().item_ref.clone();
         assert_eq!(index.resolve(&item_ref).unwrap_err().code(), "duplicate_id");
         assert_eq!(index.duplicate_ids().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_leaving_the_roots_are_skipped_not_fatal() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("tasks.org"), "* TODO Kept\n").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.org"), "* TODO Secret\n").unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.org"),
+            temp.path().join("escape.org"),
+        )
+        .unwrap();
+        let index = WorkspaceIndex::load(settings(temp.path())).unwrap();
+        let titles: Vec<&str> = index.items().map(|item| item.title.as_str()).collect();
+        assert_eq!(titles, ["Kept"]);
+        let skipped: Vec<_> = index.skipped_files().collect();
+        assert_eq!(skipped.len(), 1);
+        assert!(skipped[0].0.ends_with("escape.org"));
+        assert!(
+            skipped[0].1.contains("outside the roots"),
+            "{}",
+            skipped[0].1
+        );
+    }
+
+    #[test]
+    fn refs_to_missing_files_outside_the_roots_are_outside_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("tasks.org"), "* TODO One\n").unwrap();
+        let index = WorkspaceIndex::load(settings(temp.path())).unwrap();
+        let error = index
+            .resolve("/no/such/file:1#sha256:00000000000000000000000000000000")
+            .unwrap_err();
+        assert_eq!(error.code(), "outside_roots");
     }
 
     #[test]
