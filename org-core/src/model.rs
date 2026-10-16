@@ -80,6 +80,21 @@ pub struct Mutation {
     pub item: Item,
     pub diff: String,
     pub journal_id: String,
+    /// Set when marking a repeating task done moved its dates on instead
+    /// of closing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeated: Option<Repeat>,
+}
+
+/// A repeating task marked done (org-auto-repeat-maybe): the done state
+/// that was recorded, and the next occurrence the item now has.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Repeat {
+    /// The done keyword requested, such as `DONE`.
+    pub done_state: String,
+    /// `YYYY-MM-DD` of the repeating SCHEDULED date, else of the repeating
+    /// DEADLINE.
+    pub next_date: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

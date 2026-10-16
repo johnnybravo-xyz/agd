@@ -92,11 +92,23 @@ impl App {
             .map(|mutation| &mutation.item)
             .collect();
         let summary = targets_summary(&items);
-        self.set_status(format!(
-            "{}  {change} · {summary} · u undo",
-            self.targets_location(&items),
-        ));
-        self.remember_undo(&batch.transaction, format!("{change} · {summary}"));
+        let label = match batch.mutations.as_slice() {
+            [single] => single.repeated.as_ref().map(|repeat| {
+                format!(
+                    "repeated · {} → {}",
+                    single.item.title,
+                    display_date(&repeat.next_date)
+                )
+            }),
+            _ => None,
+        };
+        let label = label.unwrap_or_else(|| format!("{change} · {summary}"));
+        self.set_status(if label.starts_with("repeated") {
+            format!("{label} · u undo")
+        } else {
+            format!("{}  {label} · u undo", self.targets_location(&items))
+        });
+        self.remember_undo(&batch.transaction, label);
         self.reload_rows()
     }
 
@@ -618,6 +630,13 @@ pub(super) fn fuzzy_match(value: &str, query: &str) -> bool {
         }
     }
     wanted.peek().is_none()
+}
+
+/// `Mon 19 Oct` for a `YYYY-MM-DD` date.
+fn display_date(date: &str) -> String {
+    date.parse::<NaiveDate>()
+        .map(|date| date.format("%a %-d %b").to_string())
+        .unwrap_or_else(|_| date.to_string())
 }
 
 /// Inactive timestamp text from a planning timestamp, for display.

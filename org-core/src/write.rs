@@ -13,7 +13,7 @@ use similar::TextDiff;
 
 use crate::{
     AgdError, ByteSpan, CaptureDraft, CaptureTemplate, ErrorCode, HeadlineSpan, IdPolicy,
-    IndexedDocument, Item, LogKind, MUTATION_SCHEMA, Mutation, PlanningTimestamp, RootSet,
+    IndexedDocument, Item, LogKind, MUTATION_SCHEMA, Mutation, PlanningTimestamp, Repeat, RootSet,
     Settings, WorkspaceIndex, format_active_timestamp, render_capture_template,
 };
 
@@ -212,6 +212,46 @@ struct PreparedCapture {
     item: Item,
 }
 
+/// An edited item as it reads after the edit, and whether marking it done
+/// repeated it.
+#[derive(Clone)]
+struct EditedItem {
+    item: Item,
+    repeated: Option<Repeat>,
+}
+
+impl EditedItem {
+    /// A done state requested for an item that is still not done after
+    /// the edit means a repeater moved its dates on.
+    fn new(item: Item, intent: &EditIntent, document: &IndexedDocument) -> Self {
+        let repeated = match &intent.state {
+            Change::Set(state) if document.todo_done().contains(state) && !item.done => {
+                let repeating = |timestamp: &Option<PlanningTimestamp>| {
+                    timestamp
+                        .as_ref()
+                        .filter(|timestamp| timestamp.repeater.is_some())
+                        .map(|timestamp| timestamp.date.clone())
+                };
+                repeating(&item.planning.scheduled)
+                    .or_else(|| repeating(&item.planning.deadline))
+                    .map(|next_date| Repeat {
+                        done_state: state.clone(),
+                        next_date,
+                    })
+            }
+            _ => None,
+        };
+        Self { item, repeated }
+    }
+
+    fn into_mutation(self, diff: String, journal_id: &str) -> Mutation {
+        Mutation {
+            repeated: self.repeated,
+            ..mutation(self.item, diff, journal_id)
+        }
+    }
+}
+
 /// A refile's file images: one, or the source and then the target.
 struct PreparedRefile {
     files: Vec<PreparedFile>,
@@ -242,7 +282,7 @@ struct PreparedBatch {
     files: Vec<PreparedFile>,
     /// The first edited item's ref in each file, for its journal record.
     file_refs: Vec<String>,
-    items: Vec<Option<Item>>,
+    items: Vec<Option<EditedItem>>,
     file_of: Vec<usize>,
 }
 
@@ -258,11 +298,8 @@ impl PreparedBatch {
                 let journal_id = records
                     .get(file)
                     .map_or(transaction.as_str(), |record| record.id.as_str());
-                mutation(
-                    item.expect("every edit has an item"),
-                    self.files[file].diff.clone(),
-                    journal_id,
-                )
+                item.expect("every edit has an item")
+                    .into_mutation(self.files[file].diff.clone(), journal_id)
             })
             .collect();
         BatchMutation {
@@ -316,7 +353,7 @@ impl WriteEngine {
         self.roots.resolve_write(&path, false)?;
         refuse_emacs_lock(&path)?;
         if dry_run {
-            return Ok(mutation(item, preview.diff, DRY_RUN_JOURNAL_ID));
+            return Ok(item.into_mutation(preview.diff, DRY_RUN_JOURNAL_ID));
         }
 
         let _lock = self.lock_target(&path)?;
@@ -331,7 +368,7 @@ impl WriteEngine {
             ));
         }
         let record = self.commit_image(prepared.journal_image(Some(item_ref)), context)?;
-        Ok(mutation(item, prepared.diff, &record.id))
+        Ok(item.into_mutation(prepared.diff, &record.id))
     }
 
     /// The edit's patches against the item's file as `index` read it.
@@ -341,7 +378,7 @@ impl WriteEngine {
         item_ref: &str,
         intent: &EditIntent,
         now: NaiveDateTime,
-    ) -> Result<(PreparedFile, Item), AgdError> {
+    ) -> Result<(PreparedFile, EditedItem), AgdError> {
         let (document, headline) = index.resolve(item_ref)?;
         let path = document.path().to_path_buf();
         validate_intent_for_file(intent, document)?;
@@ -353,7 +390,7 @@ impl WriteEngine {
         }
         let item = parse_updated_item(&path, &post_image, headline.item.line, &self.settings)?;
         let prepared = PreparedFile::new(path, document.source().to_string(), post_image, stored);
-        Ok((prepared, item))
+        Ok((prepared, EditedItem::new(item, intent, document)))
     }
 
     /// Captures through a template. A dry run renders the same diff and
@@ -753,7 +790,8 @@ impl WriteEngine {
                     .ok_or_else(|| {
                         AgdError::new("parse_error", "edit produced no target headline")
                     })?;
-                batch.items[position] = Some(item);
+                batch.items[position] =
+                    Some(EditedItem::new(item, &edits[position].intent, document));
                 batch.file_of[position] = batch.files.len();
             }
             batch.file_refs.push(edits[targets[0].0].item_ref.clone());
@@ -2776,6 +2814,7 @@ fn mutation(item: Item, diff: String, journal_id: &str) -> Mutation {
         item,
         diff,
         journal_id: journal_id.to_string(),
+        repeated: None,
     }
 }
 
@@ -4336,7 +4375,7 @@ mod tests {
             .item_ref
             .clone();
         let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
-        engine
+        let repeated = engine
             .edit(
                 &item_ref,
                 &EditIntent {
@@ -4351,6 +4390,13 @@ mod tests {
         let tomorrow = (Local::now().date_naive() + Duration::days(1))
             .format("%Y-%m-%d")
             .to_string();
+        assert_eq!(
+            repeated.repeated,
+            Some(Repeat {
+                done_state: "DONE".to_string(),
+                next_date: tomorrow.clone(),
+            })
+        );
         assert!(written.contains("* TODO Water plants\n"));
         assert!(written.contains(&format!("SCHEDULED: <{tomorrow}")));
         assert!(written.contains(":LAST_REPEAT: ["));

@@ -591,6 +591,36 @@ fn u_undoes_only_this_sessions_changes_and_names_them() {
 
 #[test]
 #[serial]
+fn x_on_a_repeating_task_says_it_repeated_and_when_it_is_next() {
+    with_home(|root| {
+        let path = root.join("home.org");
+        fs::write(
+            &path,
+            "* TODO Water plants\nSCHEDULED: <2026-10-13 Tue +1w>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.mark_done().unwrap();
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "repeated · Water plants → Tue 20 Oct · u undo"
+        );
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("<2026-10-20 Tue +1w>")
+        );
+        app.undo().unwrap();
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "undid repeated · Water plants → Tue 20 Oct"
+        );
+    });
+}
+
+#[test]
+#[serial]
 fn priority_keys_step_through_the_files_own_range() {
     with_home(|root| {
         let path = root.join("work.org");
