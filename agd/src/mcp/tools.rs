@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use agd_core::{
-    AgdError, AgendaEngine, AgendaQuery, AgendaSpan, CaptureDraft, Change, EditIntent,
+    AgdError, AgendaEngine, AgendaQuery, AgendaSpan, CaptureDraft, Change, EditIntent, ITEM_SCHEMA,
     PlanningTimestamp, WorkspaceIndex, WriteContext, WriteEngine, parse_date_input,
 };
 use chrono::{Local, NaiveDate};
@@ -31,7 +31,7 @@ use crate::mcp::OrgModeRouter;
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AgendaRequest {
-    /// day, week or month; defaults to the configured agenda_span.
+    /// day, week or month; defaults to day.
     span: Option<String>,
     /// First day: today, tomorrow, a weekday (fri), +2d (also +1w, +1m,
     /// +1y) or 2026-10-30; defaults to today.
@@ -41,6 +41,13 @@ struct AgendaRequest {
     /// todo_keywords; `describe` lists them.
     #[serde(rename = "match")]
     match_expression: Option<String>,
+    /// Most rows to return; defaults to 100. A second content block says
+    /// when rows were left out.
+    limit: Option<usize>,
+    /// Also return each item's body: the text under its heading, such as
+    /// notes and its LOGBOOK.
+    #[serde(default)]
+    with_body: bool,
 }
 
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
@@ -140,7 +147,18 @@ struct QueryRequest {
     /// done, tags, priority, category, text, deadline :to DAYS,
     /// scheduled :to DAYS.
     expression: String,
+    /// Most items to return; defaults to 100. A second content block says
+    /// when items were left out.
+    limit: Option<usize>,
+    /// Also return each item's body: the text under its heading, such as
+    /// notes and its LOGBOOK.
+    #[serde(default)]
+    with_body: bool,
 }
+
+/// Rows `agenda` and `query` return when the call gives no `limit`; a busy
+/// agenda's full week runs to hundreds of kilobytes.
+const DEFAULT_LIMIT: usize = 100;
 
 /// Each tool takes its arguments as a raw object and parses them itself
 /// (`parse_arguments`), so a bad argument is an agd.error/v1 result rather
@@ -153,7 +171,7 @@ impl OrgModeRouter {
         input_schema = input_schema::<AgendaRequest>()
     )]
     async fn agenda(&self, arguments: JsonObject) -> Result<CallToolResult, McpError> {
-        tool_result(
+        rows_result(
             parse_arguments::<AgendaRequest>(arguments)
                 .and_then(|request| agenda(&self.settings, request)),
         )
@@ -249,19 +267,14 @@ impl OrgModeRouter {
         input_schema = input_schema::<QueryRequest>()
     )]
     async fn query(&self, arguments: JsonObject) -> Result<CallToolResult, McpError> {
-        tool_result(
-            parse_arguments::<QueryRequest>(arguments).and_then(|request| {
-                let index = WorkspaceIndex::load(self.settings.clone())?;
-                AgendaEngine::new(&index).query(&request.expression, Local::now().date_naive())
-            }),
+        rows_result(
+            parse_arguments::<QueryRequest>(arguments)
+                .and_then(|request| query(&self.settings, request)),
         )
     }
 }
 
-fn agenda(
-    settings: &agd_core::Settings,
-    request: AgendaRequest,
-) -> Result<Vec<agd_core::AgendaEntry>, AgdError> {
+fn agenda(settings: &agd_core::Settings, request: AgendaRequest) -> Result<Rows, AgdError> {
     let index = WorkspaceIndex::load(settings.clone())?;
     let today = Local::now().date_naive();
     let from = request
@@ -270,25 +283,101 @@ fn agenda(
         .map(|value| parse_day(value, today))
         .transpose()?
         .unwrap_or(today);
-    let span = match request.span.as_deref().unwrap_or(&settings.agenda_span) {
+    let span = match request.span.as_deref().unwrap_or("day") {
         "day" => AgendaSpan::Day,
         "week" => AgendaSpan::Week,
         "month" => AgendaSpan::Month,
         value => {
             return Err(AgdError::new(
                 "invalid_span",
-                format!("unsupported agenda span: {value}"),
+                format!("unsupported agenda span: {value}; use day, week or month"),
             ));
         }
     };
     let (from, to) = span.bounds(from, &settings.week_start);
-    AgendaEngine::new(&index).agenda(&AgendaQuery {
+    let mut entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
         from,
         to,
         today,
         match_expression: request.match_expression,
         log_mode: false,
-    })
+    })?;
+    let total = entries.len();
+    entries.truncate(request.limit.unwrap_or(DEFAULT_LIMIT));
+    Rows::new(&entries, total, request.with_body.then_some(&index))
+}
+
+fn query(settings: &agd_core::Settings, request: QueryRequest) -> Result<Rows, AgdError> {
+    let index = WorkspaceIndex::load(settings.clone())?;
+    let mut items =
+        AgendaEngine::new(&index).query(&request.expression, Local::now().date_naive())?;
+    let total = items.len();
+    items.truncate(request.limit.unwrap_or(DEFAULT_LIMIT));
+    Rows::new(&items, total, request.with_body.then_some(&index))
+}
+
+/// What `agenda` and `query` answer: their JSON, which keeps its shape when
+/// `limit` cuts it short, and how many rows there were before the cut.
+struct Rows {
+    json: Value,
+    shown: usize,
+    total: usize,
+}
+
+impl Rows {
+    /// `rows` as JSON, with each item's body added when `bodies` gives the
+    /// index they were read from.
+    fn new<T: Serialize>(
+        rows: &[T],
+        total: usize,
+        bodies: Option<&WorkspaceIndex>,
+    ) -> Result<Self, AgdError> {
+        let mut json = serde_json::to_value(rows).map_err(|error| {
+            AgdError::with_source("internal", "cannot encode the rows as JSON", error)
+        })?;
+        if let Some(index) = bodies {
+            add_bodies(&mut json, index);
+        }
+        Ok(Self {
+            json,
+            shown: rows.len(),
+            total,
+        })
+    }
+}
+
+/// Adds `body`, the text under the heading (notes, LOGBOOK, plain text),
+/// to every agd.item/v1 object in `json`, wherever the schema nests it.
+fn add_bodies(json: &mut Value, index: &WorkspaceIndex) {
+    match json {
+        Value::Array(values) => {
+            for value in values {
+                add_bodies(value, index);
+            }
+        }
+        Value::Object(object) => {
+            if object.get("schema").and_then(Value::as_str) == Some(ITEM_SCHEMA) {
+                let body = item_body(object, index).unwrap_or_default();
+                object.insert("body".to_string(), Value::String(body));
+            }
+            for value in object.values_mut() {
+                add_bodies(value, index);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The body of the heading an item JSON object names by `file` and `line`.
+fn item_body(item: &JsonObject, index: &WorkspaceIndex) -> Option<String> {
+    let file = item.get("file")?.as_str()?;
+    let line = usize::try_from(item.get("line")?.as_u64()?).ok()?;
+    let document = index.document(std::path::Path::new(file))?;
+    let span = document.headline_at_line(line)?.body_span;
+    document
+        .source()
+        .get(span.start..span.end)
+        .map(str::to_string)
 }
 
 fn capture(
@@ -452,6 +541,23 @@ fn tool_result<T: Serialize>(result: Result<T, AgdError>) -> Result<CallToolResu
         Ok(value) => Ok(CallToolResult::success(vec![json_block(value)?])),
         Err(error) => Ok(CallToolResult::error(vec![json_block(error.response())?])),
     }
+}
+
+/// A read's answer: its rows' JSON, then, when `limit` left rows out, a
+/// text block saying how many.
+fn rows_result(result: Result<Rows, AgdError>) -> Result<CallToolResult, McpError> {
+    let rows = match result {
+        Ok(rows) => rows,
+        Err(error) => return tool_result::<()>(Err(error)),
+    };
+    let mut content = vec![json_block(&rows.json)?];
+    if rows.shown < rows.total {
+        content.push(ContentBlock::text(format!(
+            "showing {} of {}; pass limit or narrow the query",
+            rows.shown, rows.total
+        )));
+    }
+    Ok(CallToolResult::success(content))
 }
 
 fn json_block(value: impl Serialize) -> Result<ContentBlock, McpError> {

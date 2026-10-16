@@ -142,6 +142,74 @@ async fn agenda_tool_and_today_resource_return_versioned_rows()
     Ok(())
 }
 
+/// 150 tasks today and one tomorrow, the first with notes under it.
+fn busy_fixture() -> tempfile::TempDir {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let today = Local::now().date_naive();
+    let tomorrow = today + chrono::Duration::days(1);
+    let mut source = String::new();
+    for number in 0..150 {
+        source.push_str(&format!(
+            "* TODO Task {number:03}\nSCHEDULED: <{}>\n",
+            today.format("%Y-%m-%d %a")
+        ));
+        if number == 0 {
+            source.push_str("Call Ana first.\n");
+        }
+    }
+    source.push_str(&format!(
+        "* TODO Tomorrow's task\nSCHEDULED: <{}>\n",
+        tomorrow.format("%Y-%m-%d %a")
+    ));
+    fs::write(directory.path().join("busy.org"), source).expect("org fixture");
+    directory
+}
+
+#[tokio::test]
+async fn reads_default_to_a_day_and_100_rows_and_say_what_they_left_out()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = busy_fixture();
+    let service = service(&directory).await?;
+
+    // No span is today only; no limit is 100 rows, and a second block says
+    // how many there were. The first block keeps its array shape.
+    let result = call(&service, "agenda", json!({})).await?;
+    let entries = first_block(&result);
+    assert_eq!(entries.as_array().map(Vec::len), Some(100));
+    assert_eq!(entries[0]["schema"], "agd.agenda-entry/v1");
+    assert_eq!(entries[0]["item"].get("body"), None);
+    assert_eq!(
+        result.content[1].as_text().map(|text| text.text.as_str()),
+        Some("showing 100 of 150; pass limit or narrow the query")
+    );
+    let encoded = content_json(&result).to_string();
+    assert!(!encoded.contains("Tomorrow's task"));
+
+    let result = call(&service, "agenda", json!({"limit": 500, "with_body": true})).await?;
+    assert_eq!(result.content.len(), 1);
+    let entries = first_block(&result);
+    assert_eq!(entries.as_array().map(Vec::len), Some(150));
+    assert_eq!(entries[0]["item"]["title"], "Task 000");
+    assert_eq!(entries[0]["item"]["body"], "Call Ana first.\n");
+    assert_eq!(entries[1]["item"]["body"], "");
+
+    let result = call(
+        &service,
+        "query",
+        json!({"expression": "(todo)", "limit": 3}),
+    )
+    .await?;
+    let items = first_block(&result);
+    assert_eq!(items.as_array().map(Vec::len), Some(3));
+    assert_eq!(items[0]["schema"], "agd.item/v1");
+    assert_eq!(
+        result.content[1].as_text().map(|text| text.text.as_str()),
+        Some("showing 3 of 151; pass limit or narrow the query")
+    );
+    service.cancel().await?;
+    Ok(())
+}
+
 #[tokio::test]
 async fn writes_return_mutations_and_failures_return_error_schemas()
 -> Result<(), Box<dyn std::error::Error>> {
