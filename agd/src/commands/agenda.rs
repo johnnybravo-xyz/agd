@@ -1,12 +1,12 @@
 use std::path::Path;
 
 use agd_core::{
-    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalStatus, Settings, ViewSection,
-    WorkspaceIndex, WriteEngine, agenda_csv, agenda_title, items_csv, keyword_colors,
-    load_settings, parse_date_input,
+    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, JournalStatus, Settings, ViewSection,
+    WorkspaceIndex, WriteEngine, agenda_csv, agenda_row, agenda_text, agenda_title, item_row,
+    items_csv, keyword_colors, load_settings, parse_date_input,
 };
 use anyhow::{Context, Result, anyhow, bail};
-use chrono::{Datelike, Duration, Local, NaiveDate};
+use chrono::{Local, NaiveDate};
 use clap::{Args, ValueEnum};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -131,7 +131,7 @@ impl AgendaCommand {
                     }
                 }
             } else {
-                print!("{}", render_view(&sections, &settings));
+                print!("{}", render_view(&sections));
             }
             return Ok(());
         }
@@ -158,79 +158,16 @@ impl AgendaCommand {
                 println!("{} {}", entry.occurrence.date, agenda_title(&entry.item));
             }
         } else {
-            print!("{}", render_agenda(&entries, from, to, span));
+            print!("{}", agenda_text(&entries, from, to, None));
         }
         Ok(())
     }
 }
 
-/// Plain-text agenda in the layout of an Emacs org-agenda buffer: a header
-/// per day, then `category:` + time + leader + TODO + title + tags.
-fn render_agenda(
-    entries: &[AgendaEntry],
-    from: NaiveDate,
-    to: NaiveDate,
-    span: AgendaSpan,
-) -> String {
-    let mut output = String::new();
-    if span == AgendaSpan::Week {
-        output.push_str(&format!("Week-agenda (W{:02}):\n", from.iso_week().week()));
-    }
-    let mut day = from;
-    while day <= to {
-        let date = day.format("%Y-%m-%d").to_string();
-        let rows: Vec<&AgendaEntry> = entries
-            .iter()
-            .filter(|entry| entry.occurrence.date == date)
-            .collect();
-        if span != AgendaSpan::Month || !rows.is_empty() {
-            output.push_str(&format!(
-                "{:<10} {:>2} {} {}{}\n",
-                day.format("%A"),
-                day.day(),
-                day.format("%B"),
-                day.year(),
-                if span == AgendaSpan::Week && day.weekday().num_days_from_monday() == 0 {
-                    format!(" W{:02}", day.iso_week().week())
-                } else {
-                    String::new()
-                }
-            ));
-        }
-        for entry in rows {
-            output.push_str(&agenda_line(entry));
-            output.push('\n');
-        }
-        day += Duration::days(1);
-    }
-    output
-}
-
-fn agenda_line(entry: &AgendaEntry) -> String {
-    let item = &entry.item;
-    let mut line = format!("  {:<12}", format!("{}:", item.category));
-    if let Some(time) = &entry.occurrence.time {
-        line.push_str(&format!("{time}...... "));
-    }
-    if !entry.occurrence.extra.is_empty() {
-        line.push_str(&format!("{:<11} ", entry.occurrence.extra));
-    }
-    if let Some(todo) = &item.todo {
-        line.push_str(todo);
-        line.push(' ');
-    }
-    if let Some(priority) = &item.priority {
-        line.push_str(&format!("[#{priority}] "));
-    }
-    line.push_str(&agenda_title(item));
-    if !item.tags.is_empty() {
-        line.push_str(&format!("  :{}:", item.tags.join(":")));
-    }
-    line
-}
-
-/// Blocks separated by a rule of `=`, as in an Emacs block agenda.
-fn render_view(sections: &[ViewSection], settings: &Settings) -> String {
+/// Blocks separated by a rule of `=`, as in an Emacs block agenda. An agenda
+/// block's header replaces its `Week-agenda (W42):` line, as
+/// org-agenda-overriding-header does.
+fn render_view(sections: &[ViewSection]) -> String {
     let mut blocks = Vec::new();
     for section in sections {
         let mut block = String::new();
@@ -243,24 +180,21 @@ fn render_view(sections: &[ViewSection], settings: &Settings) -> String {
             for group in &section.groups {
                 block.push_str(&format!(" {}\n", group.name));
                 for entry in &group.entries {
-                    block.push_str(&agenda_line(entry));
+                    block.push_str(&agenda_row(entry));
                     block.push('\n');
                 }
                 for item in &group.items {
-                    block.push_str(&item_line(item));
+                    block.push_str(&item_row(item));
                     block.push('\n');
                 }
             }
         } else if let (Some(from), Some(to)) = (section.from, section.to) {
-            if !section.header.is_empty() {
-                block.push_str(&format!("{}\n", section.header));
-            }
-            let span = span_for_bounds(from, to, settings);
-            block.push_str(&render_agenda(&section.entries, from, to, span));
+            let header = (!section.header.is_empty()).then_some(section.header.as_str());
+            block.push_str(&agenda_text(&section.entries, from, to, header));
         } else {
             block.push_str(&format!("{}\n", section.header));
             for item in &section.items {
-                block.push_str(&item_line(item));
+                block.push_str(&item_row(item));
                 block.push('\n');
             }
         }
@@ -304,31 +238,6 @@ fn print_views(settings: &Settings, json: bool) -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn item_line(item: &Item) -> String {
-    let mut line = format!("  {:<12}", format!("{}:", item.category));
-    if let Some(todo) = &item.todo {
-        line.push_str(&format!("{todo} "));
-    }
-    if let Some(priority) = &item.priority {
-        line.push_str(&format!("[#{priority}] "));
-    }
-    line.push_str(&agenda_title(item));
-    if !item.tags.is_empty() {
-        line.push_str(&format!("  :{}:", item.tags.join(":")));
-    }
-    line
-}
-
-fn span_for_bounds(from: NaiveDate, to: NaiveDate, settings: &Settings) -> AgendaSpan {
-    if from == to {
-        AgendaSpan::Day
-    } else if AgendaSpan::Week.bounds(from, &settings.week_start) == (from, to) {
-        AgendaSpan::Week
-    } else {
-        AgendaSpan::Month
-    }
 }
 
 /// `3 overdue · 7 today · 4 inbox · 2 agents`, zero counts left out. Today

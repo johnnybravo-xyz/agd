@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""Writes or checks each conformance/agenda case's emacs.csv and emacs.txt:
+pinned Emacs's org-batch-agenda-csv rows and org-batch-agenda text, byte for
+byte. agd's --csv and text agenda must print the same."""
 import argparse
 import datetime
 import pathlib
@@ -20,7 +23,8 @@ def docker(*args: str, capture: bool = False) -> str:
     return result.stdout if capture else ""
 
 
-def emacs_rows(case_dir: pathlib.Path, case: dict) -> str:
+def emacs_outputs(case_dir: pathlib.Path, case: dict) -> dict[str, str]:
+    """{"emacs.csv": rows, "emacs.txt": text} from one Emacs run."""
     name = f"agd-emacs-{uuid.uuid4().hex}"
     start = datetime.date.fromisoformat(case["from"])
     end = datetime.date.fromisoformat(case["to"])
@@ -41,6 +45,8 @@ def emacs_rows(case_dir: pathlib.Path, case: dict) -> str:
         ).lower(),
         "AGD_LOG": str(case.get("log", False)).lower(),
     }
+    if case.get("span"):
+        environment["AGD_SPAN"] = case["span"]
     if case.get("sorting_strategy"):
         environment["AGD_SORTING"] = " ".join(case["sorting_strategy"])
     if case.get("match"):
@@ -55,15 +61,17 @@ def emacs_rows(case_dir: pathlib.Path, case: dict) -> str:
         docker("cp", str(case_dir) + "/.", f"{name}:/case")
         oracle = pathlib.Path(__file__).resolve().parent.parent / "conformance" / "emacs-agenda-oracle.el"
         docker("cp", str(oracle), f"{name}:/oracle.el")
-        # Emacs's own rows, byte for byte: agd's --csv must print the same.
-        # Their order is the org-agenda sorting strategy under test.
-        return docker("start", "-a", name, capture=True)
+        raw = docker("start", "-a", name, capture=True)
     finally:
         subprocess.run(
             ["docker", "rm", "-f", name],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+    # The oracle prints the CSV rows, a form-feed line, then the text agenda.
+    # Row order is the org-agenda sorting strategy under test.
+    rows, text = raw.split("\f\n", 1)
+    return {"emacs.csv": rows, "emacs.txt": text}
 
 
 def cases(root: pathlib.Path):
@@ -82,14 +90,14 @@ def main() -> int:
     for case_dir in cases(arguments.root.resolve()):
         with (case_dir / "case.toml").open("rb") as file:
             case = tomllib.load(file)
-        actual = emacs_rows(case_dir, case)
-        expected_path = case_dir / "emacs.csv"
-        if arguments.update:
-            expected_path.write_text(actual, encoding="utf-8")
-            print(f"updated {expected_path}")
-        elif not expected_path.is_file() or expected_path.read_text(encoding="utf-8") != actual:
-            print(f"Emacs oracle drift: {case_dir.name}", file=sys.stderr)
-            failed = True
+        for file_name, actual in emacs_outputs(case_dir, case).items():
+            expected_path = case_dir / file_name
+            if arguments.update:
+                expected_path.write_text(actual, encoding="utf-8")
+                print(f"updated {expected_path}")
+            elif not expected_path.is_file() or expected_path.read_text(encoding="utf-8") != actual:
+                print(f"Emacs oracle drift: {case_dir.name}/{file_name}", file=sys.stderr)
+                failed = True
     return int(failed)
 
 

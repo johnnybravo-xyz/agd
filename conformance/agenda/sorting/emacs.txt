@@ -1,0 +1,10 @@
+2 days-agenda (W42):
+Tuesday    13 October 2026
+  sort:       In   1 d.:  NEXT Echo
+  sort:       Scheduled:  TODO Delta
+  sort:       Scheduled:  WAIT Charlie
+  sort:       14:30...... Scheduled:  NEXT Alpha
+  sort:        9:00...... Scheduled:  TODO Bravo
+Wednesday  14 October 2026
+  sort:       Scheduled:  TODO Echo
+  sort:       Deadline:   NEXT Echo

@@ -76,14 +76,17 @@ fn agenda_prints_org_agenda_layout_and_shared_schemas() {
     assert_eq!(rows[0]["item"]["schema"], "agd.item/v1");
     assert_eq!(rows[0]["occurrence"]["type"], "scheduled");
 
+    // As org-batch-agenda prints it: the span header, ` 9:30` without a
+    // leading zero, and tags ending at column 79.
     fixture
         .command()
         .args(["agenda", "--span", "day", "--from", "2026-10-13"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Tuesday    13 October 2026"))
-        .stdout(predicate::str::contains(
-            "  cli:        09:30...... Scheduled:  TODO Renew passport  :admin:",
+        .stdout(concat!(
+            "Day-agenda (W42):\n",
+            "Tuesday    13 October 2026\n",
+            "  cli:         9:30...... Scheduled:  TODO Renew passport               :admin:\n",
         ));
 
     fixture

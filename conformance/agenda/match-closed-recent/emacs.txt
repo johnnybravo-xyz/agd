@@ -1,0 +1,4 @@
+Headlines with TAGS match: TODO="DONE"+CLOSED>="<-3w>"
+Press `C-u r' to search again
+  tasks:      DONE Shipped last week
+  tasks:      DONE Closed exactly three weeks ago

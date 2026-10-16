@@ -1,0 +1,14 @@
+Week-agenda (W42):
+Monday     12 October 2026 W42
+Tuesday    13 October 2026
+  planning:   In   3 d.:  TODO One planning line
+Wednesday  14 October 2026
+  planning:   Scheduled:  TODO Two planning lines
+  planning:   Scheduled:  TODO One planning line
+Thursday   15 October 2026
+  planning:   TODO Planning after a blank line
+Friday     16 October 2026
+  planning:   Deadline:   TODO One planning line
+  planning:   TODO Two planning lines
+Saturday   17 October 2026
+Sunday     18 October 2026

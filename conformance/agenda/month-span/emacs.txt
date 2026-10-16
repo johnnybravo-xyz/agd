@@ -1,0 +1,37 @@
+Month-agenda (W40-W44):
+Thursday    1 October 2026
+Friday      2 October 2026
+Saturday    3 October 2026
+Sunday      4 October 2026
+Monday      5 October 2026 W41
+  month:       7:30...... Scheduled:  TODO Morning run                 :health:
+Tuesday     6 October 2026
+Wednesday   7 October 2026
+Thursday    8 October 2026
+Friday      9 October 2026
+Saturday   10 October 2026
+Sunday     11 October 2026
+Monday     12 October 2026 W42
+Tuesday    13 October 2026
+  month:      Sched. 8x:  TODO Morning run                             :health:
+Wednesday  14 October 2026
+Thursday   15 October 2026
+Friday     16 October 2026
+Saturday   17 October 2026
+Sunday     18 October 2026
+Monday     19 October 2026 W43
+Tuesday    20 October 2026
+  month:      (1/2):  Team offsite
+Wednesday  21 October 2026
+  month:      (2/2):  Team offsite
+Thursday   22 October 2026
+Friday     23 October 2026
+Saturday   24 October 2026
+Sunday     25 October 2026
+Monday     26 October 2026 W44
+Tuesday    27 October 2026
+Wednesday  28 October 2026
+Thursday   29 October 2026
+Friday     30 October 2026
+Saturday   31 October 2026
+  month:      Deadline:   TODO Pay rent

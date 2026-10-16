@@ -1,0 +1,149 @@
+12 days-agenda (W41-W43):
+Saturday   10 October 2026
+Sunday     11 October 2026
+Monday     12 October 2026 W42
+Tuesday    13 October 2026
+  generated:  Deadline:   DONE [#A] Generated 02                       :errand:
+  generated:  (1/3):  DONE [#A] Generated 47                             :home:
+  generated:  In   1 d.:  WAIT [#A] Generated 15                      :project:
+  generated:  In   1 d.:  TODO [#A] Generated 52                      :project:
+  generated:  Scheduled:  TODO Generated 51                              :home:
+  generated:  (1/4):  WAIT Generated 14                                  :home:
+  generated:  (1/3):  NEXT Generated 59                               :project:
+  generated:  In   1 d.:  TODO Generated 24                           :project:
+  generated:  In   2 d.:  WAIT [#B] Generated 06                       :errand:
+  generated:  In   3 d.:  WAIT [#B] Generated 25                       :errand:
+  generated:  In   5 d.:  WAIT Generated 53                           :project:
+  generated:  (1/4):  DONE [#C] Generated 32                           :errand:
+  generated:  TODO [#C] Generated 03                                   :errand:
+  generated:  In   1 d.:  WAIT [#C] Generated 18                       :errand:
+  generated:  In   3 d.:  NEXT [#C] Generated 27                      :project:
+  generated:  In   4 d.:  NEXT [#C] Generated 04                         :work:
+Wednesday  14 October 2026
+  generated:  Scheduled:  TODO [#A] Generated 52                      :project:
+  generated:  Deadline:   WAIT [#A] Generated 15                      :project:
+  generated:  Deadline:   TODO [#A] Generated 52                      :project:
+  generated:  (2/3):  DONE [#A] Generated 47                             :home:
+  generated:  Scheduled:  WAIT [#B] Generated 20                         :work:
+  generated:  Deadline:   TODO Generated 24                           :project:
+  generated:  (2/4):  WAIT Generated 14                                  :home:
+  generated:  (2/3):  NEXT Generated 59                               :project:
+  generated:  Deadline:   WAIT [#C] Generated 18                       :errand:
+  generated:  (1/4):  WAIT [#C] Generated 17                          :project:
+  generated:  (2/4):  DONE [#C] Generated 32                           :errand:
+Thursday   15 October 2026
+  generated:  (3/3):  DONE [#A] Generated 47                             :home:
+  generated:  NEXT [#A] Generated 39                                   :errand:
+  generated:  Scheduled:  WAIT [#B] Generated 06                       :errand:
+  generated:  Scheduled:  DONE Generated 36                              :work:
+  generated:  Deadline:   WAIT [#B] Generated 06                       :errand:
+  generated:  (3/4):  WAIT Generated 14                                  :home:
+  generated:  (3/3):  NEXT Generated 59                               :project:
+  generated:  DONE [#B] Generated 60                                     :work:
+  generated:  (2/4):  WAIT [#C] Generated 17                          :project:
+  generated:  (3/4):  DONE [#C] Generated 32                           :errand:
+  generated:  TODO [#C] Generated 03                                   :errand:
+  generated:  NEXT [#C] Generated 43                                     :home:
+Friday     16 October 2026
+  generated:  Scheduled:  TODO [#A] Generated 52                      :project:
+  generated:  Scheduled:  DONE [#A] Generated 12                         :home:
+  generated:  Scheduled:  NEXT [#A] Generated 45                      :project:
+  generated:  Scheduled:  NEXT [#A] Generated 55                      :project:
+  generated:  Deadline:   DONE [#A] Generated 12                         :home:
+  generated:  Deadline:   DONE [#A] Generated 26                         :home:
+  generated:  (1/4):  WAIT [#A] Generated 19                             :home:
+  generated:  Scheduled:  TODO Generated 51                              :home:
+  generated:  Scheduled:  WAIT [#B] Generated 20                         :work:
+  generated:  Scheduled:  WAIT [#B] Generated 05                      :project:
+  generated:  Scheduled:  WAIT [#B] Generated 46                         :home:
+  generated:  Deadline:   WAIT [#B] Generated 25                       :errand:
+  generated:  Deadline:   WAIT [#B] Generated 46                         :home:
+  generated:  (4/4):  WAIT Generated 14                                  :home:
+  generated:  (1/2):  DONE [#B] Generated 38                             :home:
+  generated:  TODO Generated 29                                       :project:
+  generated:  NEXT [#B] Generated 34                                     :work:
+  generated:  Scheduled:  WAIT [#C] Generated 35                       :errand:
+  generated:  Deadline:   NEXT [#C] Generated 27                      :project:
+  generated:  (3/4):  WAIT [#C] Generated 17                          :project:
+  generated:  (4/4):  DONE [#C] Generated 32                           :errand:
+  generated:  DONE [#C] Generated 22                                     :work:
+Saturday   17 October 2026
+  generated:  Deadline:   WAIT [#A] Generated 30                      :project:
+  generated:  (2/4):  WAIT [#A] Generated 19                             :home:
+  generated:  DONE [#A] Generated 33                                  :project:
+  generated:  NEXT [#A] Generated 39                                   :errand:
+  generated:  Scheduled:  TODO Generated 16                              :home:
+  generated:  (2/2):  DONE [#B] Generated 38                             :home:
+  generated:  TODO [#B] Generated 28                                     :work:
+  generated:  Scheduled:  NEXT [#C] Generated 04                         :work:
+  generated:  Deadline:   NEXT [#C] Generated 04                         :work:
+  generated:  Deadline:   WAIT [#C] Generated 62                         :home:
+  generated:  (4/4):  WAIT [#C] Generated 17                          :project:
+  generated:  TODO [#C] Generated 03                                   :errand:
+  generated:  WAIT [#C] Generated 09                                     :home:
+  generated:  NEXT [#C] Generated 43                                     :home:
+Sunday     18 October 2026
+  generated:  Scheduled:  TODO [#A] Generated 52                      :project:
+  generated:  (3/4):  WAIT [#A] Generated 19                             :home:
+  generated:  Scheduled:  WAIT [#B] Generated 20                         :work:
+  generated:  Scheduled:  WAIT [#B] Generated 46                         :home:
+  generated:  Scheduled:  WAIT [#B] Generated 00                      :project:
+  generated:  Scheduled:  TODO Generated 41                              :home:
+  generated:  Scheduled:  WAIT Generated 53                           :project:
+  generated:  Deadline:   WAIT Generated 53                           :project:
+  generated:  (1/3):  NEXT [#B] Generated 40                             :home:
+  generated:  (1/2):  WAIT [#B] Generated 61                          :project:
+  generated:  WAIT [#B] Generated 56                                     :work:
+Monday     19 October 2026 W43
+  generated:  Scheduled:  NEXT [#A] Generated 21                       :errand:
+  generated:  Scheduled:  NEXT [#A] Generated 54                         :home:
+  generated:  Deadline:   NEXT [#A] Generated 21                       :errand:
+  generated:  Deadline:   NEXT [#A] Generated 54                         :home:
+  generated:  (4/4):  WAIT [#A] Generated 19                             :home:
+  generated:  NEXT [#A] Generated 39                                   :errand:
+  generated:  Scheduled:  TODO Generated 51                              :home:
+  generated:  Deadline:   DONE [#B] Generated 31                      :project:
+  generated:  (2/3):  NEXT [#B] Generated 40                             :home:
+  generated:  (2/2):  WAIT [#B] Generated 61                          :project:
+  generated:  TODO [#B] Generated 28                                     :work:
+  generated:  Scheduled:  WAIT [#C] Generated 35                       :errand:
+  generated:  (1/2):  TODO [#C] Generated 07                           :errand:
+  generated:  (1/4):  DONE [#C] Generated 13                             :home:
+  generated:  TODO [#C] Generated 03                                   :errand:
+  generated:  DONE [#C] Generated 22                                     :work:
+  generated:  DONE [#C] Generated 42                                   :errand:
+  generated:  NEXT [#C] Generated 43                                     :home:
+Tuesday    20 October 2026
+  generated:  Scheduled:  TODO [#A] Generated 52                      :project:
+  generated:  Scheduled:  WAIT [#A] Generated 63                      :project:
+  generated:  Deadline:   WAIT [#A] Generated 44                       :errand:
+  generated:  (1/4):  TODO [#A] Generated 10                           :errand:
+  generated:  NEXT [#A] Generated 08                                   :errand:
+  generated:  NEXT [#A] Generated 23                                     :work:
+  generated:  Scheduled:  WAIT [#B] Generated 20                         :work:
+  generated:  Scheduled:  WAIT [#B] Generated 46                         :home:
+  generated:  Scheduled:  WAIT [#B] Generated 00                      :project:
+  generated:  Scheduled:  TODO Generated 41                              :home:
+  generated:  Scheduled:  TODO [#B] Generated 57                       :errand:
+  generated:  (3/3):  NEXT [#B] Generated 40                             :home:
+  generated:  (1/3):  TODO [#B] Generated 58                             :home:
+  generated:  Scheduled:  WAIT [#C] Generated 50                       :errand:
+  generated:  Deadline:   WAIT [#C] Generated 50                       :errand:
+  generated:  (2/2):  TODO [#C] Generated 07                           :errand:
+  generated:  (2/4):  DONE [#C] Generated 13                             :home:
+Wednesday  21 October 2026
+  generated:  (2/4):  TODO [#A] Generated 10                           :errand:
+  generated:  NEXT [#A] Generated 39                                   :errand:
+  generated:  Scheduled:  WAIT Generated 53                           :project:
+  generated:  Scheduled:  WAIT [#B] Generated 49                         :home:
+  generated:  Deadline:   WAIT [#B] Generated 49                         :home:
+  generated:  (2/3):  TODO [#B] Generated 58                             :home:
+  generated:  NEXT Generated 01                                          :work:
+  generated:  WAIT [#B] Generated 11                                     :work:
+  generated:  TODO [#B] Generated 28                                     :work:
+  generated:  WAIT [#B] Generated 56                                     :work:
+  generated:  Scheduled:  TODO [#C] Generated 48                       :errand:
+  generated:  Deadline:   NEXT [#C] Generated 37                         :work:
+  generated:  (3/4):  DONE [#C] Generated 13                             :home:
+  generated:  TODO [#C] Generated 03                                   :errand:
+  generated:  NEXT [#C] Generated 43                                     :home:

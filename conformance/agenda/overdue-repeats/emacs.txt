@@ -1,0 +1,24 @@
+Week-agenda (W42):
+Monday     12 October 2026 W42
+  overdue:    Deadline:   TODO Base inside week
+Tuesday    13 October 2026
+  overdue:    Sched.2164x:  TODO Old reading
+  overdue:    709 d. ago:  TODO Pay rent
+  overdue:    Sched.12x:  TODO Review twelve days late
+  overdue:    Sched. 8x:  NEXT Standup notes
+  overdue:    Scheduled:  DONE Shipped release
+  overdue:     3 d. ago:  TODO Card bill
+  overdue:     1 d. ago:  TODO Base inside week
+  overdue:    Weekly sync 
+  overdue:    In   7 d.:  TODO Insurance
+Wednesday  14 October 2026
+  overdue:    Scheduled:  NEXT Standup notes
+Thursday   15 October 2026
+  overdue:    Scheduled:  NEXT Standup notes
+Friday     16 October 2026
+  overdue:    [#A] Anniversary 
+  overdue:    Scheduled:  NEXT Standup notes
+Saturday   17 October 2026
+  overdue:    Scheduled:  NEXT Standup notes
+Sunday     18 October 2026
+  overdue:    Scheduled:  NEXT Standup notes

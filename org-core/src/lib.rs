@@ -9,8 +9,8 @@ pub mod settings;
 pub mod write;
 
 pub use agenda_engine::{
-    AgendaEngine, AgendaQuery, AgendaSpan, ViewSection, ViewSectionGroup, agenda_csv, agenda_title,
-    items_csv, keyword_color, keyword_colors, span_days,
+    AgendaEngine, AgendaQuery, AgendaSpan, ViewSection, ViewSectionGroup, agenda_csv, agenda_row,
+    agenda_text, agenda_title, item_row, items_csv, keyword_color, keyword_colors, span_days,
 };
 pub use check::{
     CHECK_SCHEMA, CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError,

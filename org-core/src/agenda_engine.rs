@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 
 use chrono::{Datelike, Duration, Local, Months, NaiveDate, NaiveDateTime, NaiveTime};
 use regex::Regex;
+use unicode_width::UnicodeWidthStr;
 
 use serde::Serialize;
 
@@ -1684,7 +1685,7 @@ fn occurrence_name(kind: OccurrenceType) -> &'static str {
 }
 
 // Emacs's export layouts, checked against pinned Emacs in conformance/agenda:
-// the rows of `org-batch-agenda-csv`.
+// the rows of `org-batch-agenda-csv` and the text `org-batch-agenda` prints.
 
 /// An active timestamp in a headline, which a timestamp row leaves out.
 static HEADLINE_TIMESTAMP_RE: LazyLock<Regex> =
@@ -1829,6 +1830,147 @@ fn push_csv_row(output: &mut String, fields: [&str; 11]) {
     let fields = fields.map(|field| field.replace(',', ";").trim().to_string());
     output.push_str(&fields.join(","));
     output.push('\n');
+}
+
+/// The column tags end at: org-agenda-tags-column `auto` right-aligns them
+/// to the window, and `org-batch-agenda`'s window is 79 columns wide.
+const TAGS_COLUMN: usize = 79;
+
+/// The agenda from `from` to `to` as `org-batch-agenda` prints it with the
+/// time grid off: `header`, or Org's span line such as `Week-agenda (W42):`,
+/// then every day with its rows (org-agenda-show-all-dates).
+pub fn agenda_text(
+    entries: &[AgendaEntry],
+    from: NaiveDate,
+    to: NaiveDate,
+    header: Option<&str>,
+) -> String {
+    let mut output = match header {
+        Some(header) => format!("{header}\n"),
+        None => span_header(from, to),
+    };
+    for day in date_range(from, to) {
+        output.push_str(&day_line(day));
+        let date = day.format("%Y-%m-%d").to_string();
+        for entry in entries.iter().filter(|entry| entry.occurrence.date == date) {
+            output.push_str(&agenda_row(entry));
+            output.push('\n');
+        }
+    }
+    output
+}
+
+/// One agenda row as org-agenda prints it: `  category:`, the time, the
+/// leader (`Scheduled:`, `In   3 d.:`), TODO, priority, headline and tags.
+pub fn agenda_row(entry: &AgendaEntry) -> String {
+    let mut line = format!("  {:<12}", format!("{}:", entry.item.category));
+    let time = agenda_time(&entry.occurrence);
+    if !time.is_empty() {
+        line.push_str(&format!("{time:<12}"));
+    }
+    let leader = agenda_leader(&entry.occurrence.extra);
+    if !leader.is_empty() {
+        line.push_str(&leader);
+        line.push(' ');
+    }
+    push_headline(&mut line, &entry.item, &row_head(entry));
+    with_tags(line, &entry.item)
+}
+
+/// One row of a TODO list or tags match: `  category:`, TODO, priority,
+/// headline and tags.
+pub fn item_row(item: &Item) -> String {
+    let mut line = format!("  {:<12}", format!("{}:", item.category));
+    push_headline(&mut line, item, &item.title);
+    with_tags(line, item)
+}
+
+/// `Day-agenda (W42):`, `Week-agenda (W42):`, `Month-agenda (W40-W44):` or
+/// `12 days-agenda (W41-W43):`: Org names spans of 1, 7 and 14 days and the
+/// month span, and counts the days of any other.
+fn span_header(from: NaiveDate, to: NaiveDate) -> String {
+    let days = (to - from).num_days() + 1;
+    let name = match days {
+        1 => "Day".to_string(),
+        7 => "Week".to_string(),
+        14 => "Fortnight".to_string(),
+        _ if AgendaSpan::Month.bounds(from, "monday") == (from, to) => "Month".to_string(),
+        _ => format!("{days} days"),
+    };
+    let (first, last) = (from.iso_week().week(), to.iso_week().week());
+    let weeks = if first == last {
+        format!("W{first:02}")
+    } else {
+        format!("W{first:02}-W{last:02}")
+    };
+    format!("{name}-agenda ({weeks}):\n")
+}
+
+/// org-agenda-format-date-aligned: `Monday      5 October 2026 W41`, the
+/// ISO week on Mondays.
+fn day_line(day: NaiveDate) -> String {
+    let week = if day.weekday() == chrono::Weekday::Mon {
+        format!(" W{:02}", day.iso_week().week())
+    } else {
+        String::new()
+    };
+    format!(
+        "{:<10} {:>2} {} {}{week}\n",
+        day.format("%A"),
+        day.day(),
+        day.format("%B"),
+        day.year()
+    )
+}
+
+/// Org's default leader for a row's `extra` (org-agenda-scheduled-leaders,
+/// org-agenda-deadline-leaders and the log mode's `Closed:`), padded as
+/// Emacs prints it; `extra` itself is trimmed, as in Emacs's CSV.
+fn agenda_leader(extra: &str) -> String {
+    match extra {
+        "" => String::new(),
+        "Deadline:" => "Deadline:  ".to_string(),
+        "Closed:" => "Closed:    ".to_string(),
+        _ if extra.ends_with(" d. ago:") => format!("{extra:>10} "),
+        _ => format!("{extra} "),
+    }
+}
+
+fn push_headline(line: &mut String, item: &Item, head: &str) {
+    if let Some(todo) = &item.todo {
+        line.push_str(todo);
+        line.push(' ');
+    }
+    if let Some(priority) = &item.priority {
+        line.push_str(&format!("[#{priority}] "));
+    }
+    line.push_str(head);
+}
+
+/// Appends the row's tags ending at TAGS_COLUMN, at least one space after
+/// the text, as org-agenda-align-tags does; display width counts wide
+/// characters twice.
+fn with_tags(line: String, item: &Item) -> String {
+    let Some(tags) = agenda_tags(item) else {
+        return line;
+    };
+    let text = line.trim_end();
+    let used = text.width() + tags.width();
+    let padding = TAGS_COLUMN.saturating_sub(used).max(1);
+    format!("{text}{}{tags}", " ".repeat(padding))
+}
+
+/// Tags as org-agenda shows them, inherited ones first: `:own:`,
+/// `:file:parent::own:`, or `:file::` when every tag is inherited.
+fn agenda_tags(item: &Item) -> Option<String> {
+    let inherited = item.inherited_tags.join(":");
+    let own = item.tags.join(":");
+    match (inherited.is_empty(), own.is_empty()) {
+        (true, true) => None,
+        (true, false) => Some(format!(":{own}:")),
+        (false, true) => Some(format!(":{inherited}::")),
+        (false, false) => Some(format!(":{inherited}::{own}:")),
+    }
 }
 
 #[cfg(test)]

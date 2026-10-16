@@ -1,13 +1,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use agd_core::{AgendaEngine, AgendaQuery, Settings, WorkspaceIndex, agenda_csv, items_csv};
+use agd_core::{
+    AgendaEngine, AgendaQuery, Settings, WorkspaceIndex, agenda_csv, agenda_text, item_row,
+    items_csv,
+};
 use chrono::NaiveDate;
 use serde::Deserialize;
 use similar::TextDiff;
 
-/// One conformance/agenda/<case>/case.toml; emacs.csv is written by
-/// scripts/emacs-agenda-oracle.py from pinned Emacs and compared exactly.
+/// One conformance/agenda/<case>/case.toml. emacs.csv and emacs.txt are
+/// written by scripts/emacs-agenda-oracle.py from pinned Emacs, and agd's
+/// CSV and text must equal them byte for byte.
 #[derive(Debug, Deserialize)]
 struct Case {
     today: String,
@@ -30,6 +34,13 @@ struct Case {
     match_kind: Option<String>,
 }
 
+/// agd's output for a case and the Emacs fixture it must equal.
+struct Comparison {
+    file: &'static str,
+    actual: String,
+    expected: String,
+}
+
 fn date(value: &str) -> NaiveDate {
     NaiveDate::parse_from_str(value, "%Y-%m-%d").expect("valid case date")
 }
@@ -44,7 +55,13 @@ fn case_directories(root: &Path) -> Vec<PathBuf> {
     cases
 }
 
-fn native_csv(directory: &Path, case: &Case) -> String {
+fn fixture(directory: &Path, file: &str) -> String {
+    fs::read_to_string(directory.join(file))
+        .unwrap_or_else(|error| panic!("read {file} in {}: {error}", directory.display()))
+        .replace("\r\n", "\n")
+}
+
+fn compare(directory: &Path, case: &Case) -> Vec<Comparison> {
     let mut settings = Settings {
         roots: vec![directory.to_string_lossy().into_owned()],
         agenda_files: vec!["*.org".to_string(), "**/*.org".to_string()],
@@ -59,6 +76,11 @@ fn native_csv(directory: &Path, case: &Case) -> String {
     let index = WorkspaceIndex::load(settings).expect("index case");
     let engine = AgendaEngine::new(&index);
     let today = date(&case.today);
+    let csv = |actual| Comparison {
+        file: "emacs.csv",
+        actual,
+        expected: fixture(directory, "emacs.csv"),
+    };
     match &case.match_expression {
         Some(expression) => {
             let kind = case.match_kind.as_deref().unwrap_or("tags");
@@ -68,25 +90,48 @@ fn native_csv(directory: &Path, case: &Case) -> String {
                 engine.tags(expression, today)
             }
             .expect("run native match");
-            items_csv(&items, kind, index.settings())
+            // A match's text starts with its header and a `Press C-u r`
+            // hint, which agd does not print; the rows must match.
+            let text = fixture(directory, "emacs.txt");
+            let rows: String = items.iter().map(|item| item_row(item) + "\n").collect();
+            vec![
+                csv(items_csv(&items, kind, index.settings())),
+                Comparison {
+                    file: "emacs.txt",
+                    actual: rows,
+                    expected: text
+                        .lines()
+                        .skip(2)
+                        .map(|line| format!("{line}\n"))
+                        .collect(),
+                },
+            ]
         }
         None => {
+            let (from, to) = (date(&case.from), date(&case.to));
             let entries = engine
                 .agenda(&AgendaQuery {
-                    from: date(&case.from),
-                    to: date(&case.to),
+                    from,
+                    to,
                     today,
                     match_expression: None,
                     log_mode: case.log,
                 })
                 .expect("run native agenda");
-            agenda_csv(&entries, today, index.settings())
+            vec![
+                csv(agenda_csv(&entries, today, index.settings())),
+                Comparison {
+                    file: "emacs.txt",
+                    actual: agenda_text(&entries, from, to, None),
+                    expected: fixture(directory, "emacs.txt"),
+                },
+            ]
         }
     }
 }
 
 #[test]
-fn native_agenda_matches_pinned_emacs_rows() {
+fn native_agenda_matches_pinned_emacs_rows_and_text() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../conformance/agenda");
     let cases = case_directories(&root);
     assert!(
@@ -99,15 +144,14 @@ fn native_agenda_matches_pinned_emacs_rows() {
             &fs::read_to_string(directory.join("case.toml")).expect("read case.toml"),
         )
         .expect("parse case.toml");
-        let expected = fs::read_to_string(directory.join("emacs.csv"))
-            .expect("read Emacs rows")
-            .replace("\r\n", "\n");
-        let actual = native_csv(&directory, &case);
-        assert!(
-            actual == expected,
-            "agenda drift in {}\n{}",
-            directory.display(),
-            TextDiff::from_lines(&expected, &actual).unified_diff()
-        );
+        for comparison in compare(&directory, &case) {
+            assert!(
+                comparison.actual == comparison.expected,
+                "agenda drift in {}/{}\n{}",
+                directory.display(),
+                comparison.file,
+                TextDiff::from_lines(&comparison.expected, &comparison.actual).unified_diff()
+            );
+        }
     }
 }
