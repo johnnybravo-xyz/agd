@@ -36,6 +36,8 @@ pub struct Settings {
     pub todo_keywords: Vec<String>,
     /// org-todo-keyword-faces for the TUI: a color name (COLOR_NAMES) per
     /// keyword. A view section takes the color its rows' keywords share.
+    /// The default colors the default workflow's WAIT yellow and CANCELLED
+    /// dim-red; a map of your own replaces it.
     pub todo_keyword_colors: BTreeMap<String, String>,
     /// "preserve" leaves headings alone; "add-on-write" adds an org-id :ID:
     /// on a heading's first edit.
@@ -289,7 +291,10 @@ impl Default for Settings {
             roots: vec!["~/org".to_string()],
             agenda_files: Vec::new(),
             todo_keywords: strings(&["TODO NEXT WAIT | DONE CANCELLED"]),
-            todo_keyword_colors: BTreeMap::new(),
+            todo_keyword_colors: BTreeMap::from([
+                ("WAIT".to_string(), "yellow".to_string()),
+                ("CANCELLED".to_string(), "dim-red".to_string()),
+            ]),
             ids: IdPolicy::Preserve,
             tags_column: -77,
             tag_inheritance_exclusions: Vec::new(),
