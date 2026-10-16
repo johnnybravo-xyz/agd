@@ -496,6 +496,17 @@ fn capture_takes_a_key_and_unquoted_words_or_the_text_alone() {
     ] {
         assert!(written.contains(heading), "{heading}: {written}");
     }
+    // --json adds where the item is as people read it, under its root.
+    let output = fixture
+        .command()
+        .args(["capture", "t", "Call the bank", "--json"])
+        .output()
+        .expect("capture");
+    assert!(output.status.success(), "{output:?}");
+    let mutation: Value = serde_json::from_slice(&output.stdout).expect("mutation JSON");
+    assert_eq!(mutation["schema"], "agd.mutation/v1");
+    let line = mutation["item"]["line"].as_u64().unwrap();
+    assert_eq!(mutation["location"], format!("tasks.org:{line}"));
 }
 
 #[cfg(unix)]

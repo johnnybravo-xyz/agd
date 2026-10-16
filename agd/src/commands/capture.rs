@@ -39,7 +39,8 @@ pub struct CaptureCommand {
     /// Print the exact diff without writing
     #[arg(long)]
     dry_run: bool,
-    /// Print the agd.mutation/v1 result
+    /// Print the agd.mutation/v1 result, with the item's file:line under
+    /// its root as `location`
     #[arg(long)]
     json: bool,
 }
@@ -50,9 +51,10 @@ impl CaptureCommand {
         self.json
     }
 
-    /// Prints the diff with --dry-run, the mutation with --json, a sentence
-    /// on a terminal, and otherwise the new item's ref alone, which scripts
-    /// and the Claude Code mod read.
+    /// Prints the diff with --dry-run, the mutation with --json (and its
+    /// `location` as people read it, `projects/alpha.org:3`, which the
+    /// Claude Code mod's /capture says), a sentence on a terminal, and
+    /// otherwise the new item's ref alone, which scripts read.
     pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<()> {
         if self.interactive {
             return crate::tui::run_capture(config, root);
@@ -78,16 +80,18 @@ impl CaptureCommand {
             self.dry_run,
             &super::cli_context(),
         )?;
+        let roots = RootSet::new(&settings.roots, &settings.agenda_files)
+            .map(|roots| roots.roots().to_vec())
+            .unwrap_or_default();
+        let item = &mutation.item;
+        let location = words::location(&item.file, item.line, &roots);
         let output = if self.json {
-            format!("{}\n", serde_json::to_string_pretty(&mutation)?)
+            let mut json = serde_json::to_value(&mutation)?;
+            json["location"] = location.into();
+            format!("{}\n", serde_json::to_string_pretty(&json)?)
         } else if self.dry_run {
             mutation.diff
         } else if std::io::stdout().is_terminal() {
-            let roots = RootSet::new(&settings.roots, &settings.agenda_files)
-                .map(|roots| roots.roots().to_vec())
-                .unwrap_or_default();
-            let item = &mutation.item;
-            let location = words::location(&item.file, item.line, &roots);
             format!(
                 "{}\n",
                 words::captured(item, &location, Local::now().date_naive())

@@ -567,8 +567,8 @@ function paneBody($, e) {
 
 // "/capture t buy milk due:fri" runs `agd capture --json -- t "buy milk
 // due:fri"`; after `--` a text such as `-1 point` is text, not an option.
-// It says what it wrote as agd's TUI and terminal do:
-// `inbox.org:7  captured · buy milk · deadline Fri 23 Oct`.
+// It says what it wrote as agd's TUI and terminal do, the file relative to
+// its root: `projects/inbox.org:7  captured · buy milk · deadline Fri 23 Oct`.
 async function capture($, args) {
   const match = args.trim().match(/^(\S+)\s+(.+)$/)
   if (!match) return { text: 'usage: /capture KEY text, such as /capture t buy milk due:fri' }
@@ -578,16 +578,18 @@ async function capture($, args) {
   const today = await readNow($)
   await refresh($)
   try {
-    return { text: capturedLine(JSON.parse(result.stdout).item, today) }
+    return { text: capturedLine(JSON.parse(result.stdout), today) }
   } catch {
     return { text: 'captured' }
   }
 }
 
-// agd's words::captured: the file and line, `captured`, the title, then its
-// dates (`scheduled Sat 17 Oct`, `deadline Fri 23 Oct`).
-function capturedLine(item, today) {
-  let line = item.file.split('/').pop() + ':' + item.line + '  captured · ' + item.title
+// agd's words::captured for a capture's JSON: its `location` (file:line
+// under its root), `captured`, the title, then its dates (`scheduled Sat 17
+// Oct`, `deadline Fri 23 Oct`).
+function capturedLine(captured, today) {
+  const item = captured.item
+  let line = captured.location + '  captured · ' + item.title
   const planning = item.planning || {}
   for (const [label, timestamp] of [
     ['scheduled', planning.scheduled],

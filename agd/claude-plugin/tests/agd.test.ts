@@ -481,13 +481,16 @@ test('/capture runs agd capture and says what it wrote as agd does', async ($, o
       line: 7,
       planning: { deadline: { date: '2026-10-16', time: null }, scheduled: { date: '2027-01-04', time: '09:00' } },
     }),
+    location: 'inbox.org:7',
   }
   agd(
     on,
     {
       'agenda --status': { stdout: '1 today · 1 inbox\n' },
       'capture --json -- t buy milk due:fri': { stdout: JSON.stringify(mutation) },
-      'capture --json -- t -1 point': { stdout: JSON.stringify({ ...mutation, item: item('TODO', '-1 point') }) },
+      'capture --json -- t -1 point': {
+        stdout: JSON.stringify({ ...mutation, item: item('TODO', '-1 point'), location: 'projects/tasks.org:1' }),
+      },
     },
     calls,
   )
@@ -497,7 +500,8 @@ test('/capture runs agd capture and says what it wrote as agd does', async ($, o
   )
   expect(calls).toContain('capture --json -- t buy milk due:fri')
   // After `--` a text that starts with `-` is text, not an option.
-  expect((await $.command.run(typed('capture', 't -1 point'))).text).toBe('tasks.org:1  captured · -1 point')
+  // The file is named under its root, as agd's terminal names it.
+  expect((await $.command.run(typed('capture', 't -1 point'))).text).toBe('projects/tasks.org:1  captured · -1 point')
 })
 
 test('/capture reports agd\'s own error as a sentence, and its usage', async ($, on) => {
