@@ -47,6 +47,16 @@ pub fn location(file: &str, line: usize, roots: &[PathBuf]) -> String {
     format!("{}:{line}", relative.display())
 }
 
+/// A sentence with every path under a root written relative to it, as
+/// `location` writes one (`projects/alpha.org`), for errors that name a
+/// file. Absolute paths are for JSON.
+pub fn relative_paths(text: &str, roots: &[PathBuf]) -> String {
+    roots.iter().fold(text.to_string(), |text, root| {
+        let root = root.display().to_string();
+        text.replace(&format!("{}/", root.trim_end_matches('/')), "")
+    })
+}
+
 /// A path with the home directory written as `~`, as people read it:
 /// `~/src/app`. Only a whole path component is replaced, so a sibling such
 /// as `/Users/bob2` of home `/Users/bob` stays as it is.
@@ -153,6 +163,19 @@ mod tests {
         assert_eq!(day(date("2027-01-04"), today), "Mon 4 Jan 2027");
         assert_eq!(when("2026-10-16", Some("14:00"), today), "Fri 16 Oct 14:00");
         assert_eq!(when("someday", None, today), "someday");
+    }
+
+    #[test]
+    fn errors_name_files_relative_to_their_root() {
+        let roots = [PathBuf::from("/notes/org")];
+        assert_eq!(
+            relative_paths("refused: /notes/org/work/a.org is a symlink", &roots),
+            "refused: work/a.org is a symlink"
+        );
+        assert_eq!(
+            relative_paths("/notes/org2/a.org", &roots),
+            "/notes/org2/a.org"
+        );
     }
 
     #[test]

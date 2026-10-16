@@ -139,7 +139,7 @@ impl Draft {
                     )
                 })
                 .map(|mutation| added_lines(&mutation.diff))
-                .map_err(|error| error.to_string())
+                .map_err(|error| app.error_text(&error))
         });
     }
 }

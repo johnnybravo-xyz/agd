@@ -358,16 +358,26 @@ impl App {
         let text = match error.downcast_ref::<AgdError>() {
             // Here `r` re-reads the files, which settles a stale heading.
             Some(error) if error.code() == "stale_ref" => {
-                format!("✗ {}; r refreshes", crate::words::error_sentence(error))
+                format!("✗ {}; r refreshes", self.error_text(error))
             }
-            Some(error) => format!("✗ {}", crate::words::error_sentence(error)),
-            None => format!("✗ {error:#}"),
+            Some(error) => format!("✗ {}", self.error_text(error)),
+            None => format!("✗ {}", self.relative_paths(&format!("{error:#}"))),
         };
         self.status = Some(Status {
             text,
             error: true,
             at: Instant::now(),
         });
+    }
+
+    /// A core error as people read it: words::error_sentence, its paths
+    /// relative to the roots.
+    fn error_text(&self, error: &AgdError) -> String {
+        self.relative_paths(&crate::words::error_sentence(error))
+    }
+
+    fn relative_paths(&self, text: &str) -> String {
+        crate::words::relative_paths(text, self.index.roots().roots())
     }
 
     fn row_at(&self, column: u16, row: u16) -> Option<usize> {

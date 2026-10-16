@@ -118,6 +118,25 @@ fn refused_write_reports_the_error_and_keeps_rows() {
 }
 
 #[test]
+#[serial]
+fn a_refused_write_names_its_file_relative_to_the_root() {
+    with_home(|root| {
+        let mut app = test_app(root);
+        // The core names files absolutely, as JSON wants them.
+        let file = app.index.roots().roots()[0].join("projects/alpha.org");
+        let refused = agd_core::AgdError::new(
+            "outside_roots",
+            format!("writes to symlinks are refused: {}", file.display()),
+        );
+        app.set_error(&refused.into());
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "✗ writes to symlinks are refused: projects/alpha.org"
+        );
+    });
+}
+
+#[test]
 fn renders_five_thousand_headings_under_budget() {
     let directory = tempfile::tempdir().unwrap();
     let source = (0..5_000)

@@ -625,7 +625,7 @@ impl App {
     /// a count when rows are marked, or why nothing would be written.
     fn dry_run(&self, edit: &PromptEdit) -> Result<Vec<String>, String> {
         let engine = WriteEngine::with_default_journal(self.settings.clone())
-            .map_err(|error| words::error_sentence(&error))?;
+            .map_err(|error| self.error_text(&error))?;
         let targets = self.targets();
         let mut first = None;
         let mut changing = 0;
@@ -636,7 +636,7 @@ impl App {
                     first.get_or_insert_with(|| super::edit::changed_lines(&mutation.diff));
                 }
                 Err(error) if error.code() == "no_change" => {}
-                Err(error) => return Err(words::error_sentence(&error)),
+                Err(error) => return Err(self.error_text(&error)),
             }
         }
         let Some(first) = first else {

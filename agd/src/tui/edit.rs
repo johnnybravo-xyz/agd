@@ -168,7 +168,7 @@ impl EditForm {
             WriteEngine::with_default_journal(app.settings.clone())
                 .and_then(|engine| engine.edit(&self.item_ref, &intent, true, &write_context()))
                 .map(|mutation| changed_lines(&mutation.diff))
-                .map_err(|error| error.to_string())
+                .map_err(|error| app.error_text(&error))
         });
     }
 
