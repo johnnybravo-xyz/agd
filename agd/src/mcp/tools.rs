@@ -71,9 +71,9 @@ struct AgendaRequest {
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CaptureRequest {
-    /// Capture template key from the configuration, such as `t`;
-    /// `describe` lists the templates.
-    template: String,
+    /// Capture template key from the configuration; left out, the first
+    /// template. `describe` lists the templates.
+    template: Option<String>,
     /// Heading text, taken literally.
     title: String,
     /// SCHEDULED date: today, tomorrow, a weekday (fri), +2d (also +1w,
@@ -517,8 +517,12 @@ fn capture(
         priority: request.priority,
         properties: request.properties,
     };
+    let template = match request.template.as_deref() {
+        Some(key) => settings.find_capture_template(key)?,
+        None => settings.default_capture_template()?,
+    };
     let mutation = WriteEngine::with_default_journal(settings.clone())?.capture(
-        &request.template,
+        &template.key,
         &draft,
         &request.body,
         &request.prompts,
@@ -532,7 +536,7 @@ fn capture(
             error,
         )
     })?;
-    let notes = inbox_notes(settings, &request.template, &draft);
+    let notes = inbox_notes(settings, &template.key, &draft);
     if !notes.is_empty() {
         json["notes"] = Value::from(notes);
     }

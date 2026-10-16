@@ -3,8 +3,8 @@ use std::io::IsTerminal;
 use std::path::Path;
 
 use agd_core::{
-    AgdError, CaptureTemplate, ErrorCode, RootSet, Settings, WriteEngine, capture_prompts,
-    load_settings, parse_capture_line,
+    AgdError, CaptureTemplate, ErrorCode, RootSet, WriteEngine, capture_prompts, load_settings,
+    parse_capture_line,
 };
 use anyhow::Result;
 use chrono::Local;
@@ -17,10 +17,11 @@ const USAGE: &str = "capture needs text: agd capture [KEY] TEXT (KEY defaults to
 
 #[derive(Args, Debug)]
 pub struct CaptureCommand {
-    /// A template key and the text, quoted or not: `t Renew passport
-    /// due:fri`. One argument alone is the text for the first template.
-    /// Tokens: due:fri on:+2d +tag #A
-    #[arg(value_name = "KEY TEXT")]
+    /// The capture line: its first word is a template key when it names one
+    /// and more text follows (`t Renew passport due:fri`); otherwise the
+    /// whole line goes through the first template. Tokens: due:fri on:+2d
+    /// +tag #A. Put text that starts with - after --: agd capture t -- -x
+    #[arg(value_name = "[KEY] TEXT", allow_negative_numbers = true)]
     words: Vec<String>,
     /// Open the capture popup (for tmux display-popup or a pane keybinding)
     #[arg(
@@ -64,14 +65,13 @@ impl CaptureCommand {
             root.as_deref().map(Path::new),
         )?
         .settings;
-        let (template, text) = template_and_text(&self.words, &settings)?;
-        let draft = parse_capture_line(&text, Local::now().date_naive())?;
+        let line = self.words.join(" ");
+        let (template, text) = settings.capture_line_template(&line)?;
+        let draft = parse_capture_line(text, Local::now().date_naive())?;
         let prompts = parse_prompts(self.prompts)?;
-        if let Some(capture) = settings.capture_template(&template) {
-            check_prompts(&template, capture, &prompts)?;
-        }
+        check_prompts(template, &prompts)?;
         let mutation = WriteEngine::with_default_journal(settings.clone())?.capture(
-            &template,
+            &template.key,
             &draft,
             &self.body,
             &prompts,
@@ -99,51 +99,9 @@ impl CaptureCommand {
     }
 }
 
-/// The template key and the capture text. Two or more words are a key and
-/// the text's words; one word is the text for the first template.
-fn template_and_text(words: &[String], settings: &Settings) -> Result<(String, String), AgdError> {
-    let keys = || {
-        let keys: Vec<&str> = settings
-            .captures
-            .iter()
-            .map(|template| template.key.as_str())
-            .collect();
-        keys.join(", ")
-    };
-    match words {
-        [] => Err(AgdError::new(ErrorCode::InvalidArguments, USAGE)),
-        [text] if settings.capture_template(text).is_some() => Err(AgdError::new(
-            ErrorCode::InvalidArguments,
-            format!("capture template '{text}' needs text: agd capture {text} Renew passport"),
-        )),
-        [text] => {
-            let first = settings.captures.first().ok_or_else(|| {
-                AgdError::new(
-                    ErrorCode::UnknownTemplate,
-                    "no capture templates are configured",
-                )
-            })?;
-            Ok((first.key.clone(), text.clone()))
-        }
-        [key, text @ ..] if settings.capture_template(key).is_some() => {
-            Ok((key.clone(), text.join(" ")))
-        }
-        [key, ..] => Err(AgdError::new(
-            ErrorCode::UnknownTemplate,
-            format!(
-                "capture template '{key}' is not configured; templates: {}. To use the first \
-                 template, quote the text: agd capture \"{}\"",
-                keys(),
-                words.join(" ")
-            ),
-        )),
-    }
-}
-
 /// Names the `--prompt` a template's `%^{...}` field still needs; a date
 /// prompt may stay empty.
 fn check_prompts(
-    key: &str,
     template: &CaptureTemplate,
     prompts: &BTreeMap<String, String>,
 ) -> Result<(), AgdError> {
@@ -154,7 +112,8 @@ fn check_prompts(
         Some(prompt) => Err(AgdError::new(
             ErrorCode::InvalidPrompt,
             format!(
-                "capture template '{key}' asks for {name}; answer with --prompt '{name}=...'",
+                "capture template '{key}' asks for '{name}'; answer with --prompt '{name}=...'",
+                key = template.key,
                 name = prompt.name
             ),
         )),

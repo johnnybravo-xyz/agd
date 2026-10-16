@@ -261,13 +261,15 @@ fn errors_name_the_valid_choices() {
         ),
     )
     .unwrap();
-    let failures: [(&[&str], &str); 3] = [
-        (&["capture", "x", "Buy milk"], "templates: t, m"),
+    let failures: [(&[&str], &str); 2] = [
         (
             &["agenda", "--profile", "nope"],
             "the profiles are 'coding'",
         ),
-        (&["capture", "m", "Budget"], "--prompt 'Who=...'"),
+        (
+            &["capture", "m", "Budget"],
+            "asks for 'Who'; answer with --prompt 'Who=...'",
+        ),
     ];
     for (arguments, hint) in failures {
         fixture
@@ -470,21 +472,30 @@ fn capture_takes_a_key_and_unquoted_words_or_the_text_alone() {
             .unwrap()
             .contains("** TODO Renew visa\nDEADLINE: <")
     );
-    // Unquoted words without a key would file the first word as a key.
-    fixture
-        .command()
-        .args(["capture", "Renew", "visa"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "quote the text: agd capture \"Renew visa\"",
-        ));
-    fixture
-        .command()
-        .args(["capture", "t"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("needs text"));
+    // Words whose first is no template key go through the first template,
+    // quoted or not; a key alone is text too; text after -- may start with -.
+    for words in [
+        &["Renew", "passport"][..],
+        &["t"],
+        &["t", "-1", "point"],
+        &["t", "--", "-x", "marks"],
+    ] {
+        fixture
+            .command()
+            .arg("capture")
+            .args(words)
+            .assert()
+            .success();
+    }
+    let written = fs::read_to_string(&fixture.tasks).unwrap();
+    for heading in [
+        "** TODO Renew passport\n",
+        "** TODO t\n",
+        "** TODO -1 point\n",
+        "** TODO -x marks\n",
+    ] {
+        assert!(written.contains(heading), "{heading}: {written}");
+    }
 }
 
 #[cfg(unix)]

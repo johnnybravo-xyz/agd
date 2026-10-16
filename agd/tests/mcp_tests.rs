@@ -144,7 +144,7 @@ async fn exposes_only_the_short_spec_tool_list() -> Result<(), Box<dyn std::erro
         "today, tomorrow, a weekday (fri), +2d",
         "2026-10-30T14:00; plan also takes none",
         "describe (templates, TODO keywords",
-        "Capture with template `t`",
+        "Capture with the first template",
     ] {
         assert!(instructions.contains(needle), "{needle}: {instructions}");
     }
@@ -334,11 +334,20 @@ async fn bad_arguments_are_error_schemas_naming_the_argument()
         "{message}"
     );
 
-    let result = call(&service, "capture", json!({"title": "Buy milk"})).await?;
+    let result = call(&service, "capture", json!({"template": "t"})).await?;
     assert_eq!(result.is_error, Some(true));
     let message = first_block(&result)["message"].to_string();
-    assert!(message.contains("missing field `template`"), "{message}");
+    assert!(message.contains("missing field `title`"), "{message}");
     assert_eq!(org_files(&directory), 1);
+
+    // Without a template, a capture goes through the first one.
+    let result = call(&service, "capture", json!({"title": "Buy milk"})).await?;
+    assert_eq!(result.is_error, Some(false), "{:?}", result.content);
+    assert!(
+        first_block(&result)["item"]["file"]
+            .as_str()
+            .is_some_and(|file| file.ends_with("inbox.org"))
+    );
     service.cancel().await?;
     Ok(())
 }
@@ -363,7 +372,7 @@ async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn 
     let message = error["message"].as_str().expect("message");
     assert_eq!(
         message,
-        "unknown argument `due`; accepted arguments: template (required), title (required), \
+        "unknown argument `due`; accepted arguments: template, title (required), \
          scheduled, deadline, tags, priority, body, prompts, properties"
     );
     assert_eq!(org_files(&directory), 1);

@@ -367,6 +367,35 @@ impl Settings {
         self.captures.iter().find(|template| template.key == key)
     }
 
+    /// The template a capture goes through when none is named: the first
+    /// `[[capture]]`. (An agent's capture then goes to `agent_inbox` when
+    /// it is set, as every agent capture does.)
+    pub fn default_capture_template(&self) -> Result<&CaptureTemplate, AgdError> {
+        self.captures.first().ok_or_else(|| {
+            AgdError::new(
+                ErrorCode::UnknownTemplate,
+                "no [[capture]] template is configured",
+            )
+        })
+    }
+
+    /// How a capture line names its template, the one rule for every
+    /// surface: the first word is the template key when it names a
+    /// `[[capture]]` and more text follows; otherwise the whole line is the
+    /// text for the default template. Returns the template and the text.
+    pub fn capture_line_template<'a>(
+        &self,
+        line: &'a str,
+    ) -> Result<(&CaptureTemplate, &'a str), AgdError> {
+        let line = line.trim();
+        if let Some((key, text)) = line.split_once(char::is_whitespace)
+            && let Some(template) = self.capture_template(key)
+        {
+            return Ok((template, text.trim_start()));
+        }
+        Ok((self.default_capture_template()?, line))
+    }
+
     /// The template `key` names, or an `unknown_template` error that lists
     /// the templates there are.
     pub fn find_capture_template(&self, key: &str) -> Result<&CaptureTemplate, AgdError> {
@@ -557,6 +586,37 @@ mod tests {
                 "emacsclient".to_string(),
                 strings(&["-n", "+42:1", "/org/my tasks.org"])
             )
+        );
+    }
+
+    #[test]
+    fn a_capture_line_names_its_template_only_with_text_after_the_key() {
+        let settings = Settings {
+            captures: vec![
+                CaptureTemplate::default(),
+                CaptureTemplate {
+                    key: "n".to_string(),
+                    ..CaptureTemplate::default()
+                },
+            ],
+            ..Settings::default()
+        };
+        let read = |line: &str| {
+            let (template, text) = settings.capture_line_template(line).unwrap();
+            (template.key.clone(), text.to_string())
+        };
+        assert_eq!(
+            read("n Call back"),
+            ("n".to_string(), "Call back".to_string())
+        );
+        assert_eq!(
+            read("Renew passport"),
+            ("t".to_string(), "Renew passport".to_string())
+        );
+        assert_eq!(read("n"), ("t".to_string(), "n".to_string()));
+        assert_eq!(
+            read("x -1 point"),
+            ("t".to_string(), "x -1 point".to_string())
         );
     }
 
