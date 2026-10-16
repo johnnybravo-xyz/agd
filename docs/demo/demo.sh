@@ -1,6 +1,7 @@
 #!/bin/sh
 # Opens agd on a sample org tree with dates relative to today, in a
-# throwaway directory: your own files, config and journal are not touched.
+# throwaway directory, with two agent changes waiting on the Agents tab:
+# your own files, config and journal are not touched. Needs python3.
 #
 #   docs/demo/demo.sh            full TUI
 #   docs/demo/demo.sh --pane     the narrow pane

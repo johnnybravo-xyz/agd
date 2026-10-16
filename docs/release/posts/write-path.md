@@ -3,48 +3,53 @@
 A correct patch can still lose data. Between showing an agenda and pressing
 "done," Emacs may have saved the file, a sync tool may have replaced it, or an
 agent may have moved the heading. Applying offsets calculated from the old
-image is the dangerous shortcut. Agenda's write path is designed around that
+image is the dangerous shortcut. agd's write path is designed around that
 race rather than treating it as an edge case.
 
 The client supplies an item ref and an intent such as "set TODO to DONE." The
-engine first resolves the ref to identify the target path. It then rejects a
-symlink target and an Emacs dirty-buffer lock, acquires a sidecar advisory lock,
-and reads the file again. All offsets from the first read are discarded. The
-same ref is resolved against fresh bytes; a changed heading returns `stale_ref`
-and no patch is applied.
+engine resolves the ref against a fresh read of the files and computes the
+change. It refuses a symlink target and a file Emacs holds unsaved changes
+for (its `.#` lock). A dry run stops here and returns the diff, creating
+nothing at all: no lock, no journal entry, no file.
 
-The mutation becomes a sorted list of non-overlapping byte-span replacements.
-The engine applies them to retained source in memory and computes both forward
-and inverse patches. Before touching the Org file, it appends a pending journal
-record containing the pre-image hash, post-image hash, actor, project, and
-inverse data, then fsyncs the journal.
+A real write then takes the file's advisory lock. Lock files live in agd's
+own data directory, never beside your Org files, so a synced folder stays
+clean. Under the lock the engine reads the file again and discards every
+offset from the first read. The same ref is resolved against the fresh
+bytes; a changed heading returns `ref_conflict` and no patch is applied.
 
-The new image is written to a temporary file in the same directory. Its mode
-and the original line-ending convention are preserved. The temporary file is
-fsynced, renamed atomically over the target, and followed by a parent-directory
-fsync. Finally the journal entry is marked committed and fsynced. Recovery can
-therefore distinguish a prepared operation from a committed one after a crash.
+The change becomes a sorted list of non-overlapping byte replacements,
+applied to the source in memory. Before touching the Org file, the engine
+appends a pending journal record with the hashes of the old and new file,
+who made the change, the project, and the patches with the lines around
+them, then fsyncs the journal.
 
-Undo is not "write the old file." It checks that the current content still has
-the recorded post-image hash and applies the inverse byte patches only then. If
-an editor changed the file after Agenda's write, undo reports a conflict. A
-refile touching two files shares a transaction identifier and reverses both
-sides together.
+The new file is written to a temporary file in the same directory with the
+original mode; line endings stay because only patched bytes change. The
+temporary file is fsynced, renamed over the target, and the directory is
+fsynced. Finally a committed record is appended and fsynced. If agd stops in
+between, the next write to that file settles the pending record from the
+file's bytes: the new bytes mean it happened, the old bytes mean it never
+did, and anything else blocks writes to that file until the person looks at
+it and runs `agd setup check --resolve`.
 
-Dry-run uses the same resolution and patch construction but stops before the
-journal. Its unified diff is produced from the exact candidate post-image, not
-a human summary. This is useful for people and essential for coding agents:
-the caller can review the precise Org text while the actual write still repeats
-fresh validation later.
+Undo is not "write the old file." If the file still holds exactly what agd
+wrote, undo applies the recorded patches in reverse. If the file changed
+elsewhere, undo finds each patch again by its surrounding lines and applies
+it only when that text occurs exactly once. If someone changed the edited
+lines themselves, undo is a conflict that names the heading and who changed
+it, and writes nothing. A refile or a bulk edit touching several files is
+one transaction and is undone as one.
 
-MCP adds provenance, not a different mutation path. The stdio server records
-the client's advertised name and the process project directory. The TUI's
-Agent review screen groups these journal entries, renders the smallest semantic
-change, and offers guarded undo. Accepting a change writes no Org data; it only
-marks the review record.
+MCP adds provenance, not a different write path. The stdio server journals
+each write under the client's advertised name, such as `mcp:claude-code`,
+with its working directory as the project. The TUI's Agents tab lists these
+changes, shows each one's diff, and offers the same guarded undo. Accepting
+a change writes nothing to the Org files; it only marks the journal record
+as reviewed.
 
-The protocol intentionally refuses cases that need more design. Symlink writes
-remain disabled. Non-UTF-8 files are not transcoded. Duplicate IDs never select
-a winner. An uncooperative program can ignore advisory locks, but it cannot
-make Agenda apply a stale digest as if it still matched. The invariant is
-narrow and testable: preserve unrelated bytes, or do nothing.
+The protocol refuses cases that need more design. Symlink writes stay
+disabled. Files that are not UTF-8 are not transcoded. A duplicated ID never
+picks a winner. An uncooperative program can ignore advisory locks, but it
+cannot make agd apply a patch to bytes that moved. The invariant is narrow
+and testable: preserve unrelated bytes, or do nothing.
