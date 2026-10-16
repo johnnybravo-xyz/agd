@@ -638,13 +638,11 @@ async fn plan_none_removes_a_date() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Claude Code speaks the 2026-07-28 protocol: `server/discover` first, no
-/// `initialize`, and its name in every request's metadata. The journal must
-/// still name it.
+/// Sends raw JSON-RPC lines to a fresh server, reading one answer per
+/// request (a message with an id), and returns them with the journal's
+/// first actor once the server exits.
 #[cfg(not(target_os = "windows"))]
-#[test]
-fn writes_from_a_client_without_initialize_are_journaled_under_its_name()
--> Result<(), Box<dyn std::error::Error>> {
+fn session_actor(messages: &[Value]) -> Result<(Vec<String>, Value), Box<dyn std::error::Error>> {
     use std::io::{BufRead, BufReader, Write};
 
     let directory = fixture();
@@ -660,39 +658,85 @@ fn writes_from_a_client_without_initialize_are_journaled_under_its_name()
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()?;
-    let meta = json!({
-        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-        "io.modelcontextprotocol/clientInfo": {"name": "claude-code", "version": "2.1.296"},
-        "io.modelcontextprotocol/clientCapabilities": {}
-    });
     let mut stdin = child.stdin.take().expect("stdin");
     let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
-    let mut send = |request: Value| -> Result<String, Box<dyn std::error::Error>> {
-        writeln!(stdin, "{request}")?;
-        let mut response = String::new();
-        stdout.read_line(&mut response)?;
-        Ok(response)
-    };
-    let discovered = send(json!({
-        "jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": meta}
-    }))?;
-    assert!(discovered.contains("\"result\""), "{discovered}");
-    let written = send(json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tools/call",
-        "params": {
-            "name": "set_state",
-            "arguments": {"ref": "today-task", "state": "DONE"},
-            "_meta": meta
+    let mut answers = Vec::new();
+    for message in messages {
+        writeln!(stdin, "{message}")?;
+        if message.get("id").is_some() {
+            let mut answer = String::new();
+            stdout.read_line(&mut answer)?;
+            answers.push(answer);
         }
-    }))?;
-    assert!(written.contains("agd.mutation/v1"), "{written}");
+    }
     drop(stdin);
     child.wait()?;
-
     let journal = fs::read_to_string(journal_data_directory(&directory).join("agd/journal.jsonl"))?;
     let record: Value = serde_json::from_str(journal.lines().next().expect("journal record"))?;
-    assert_eq!(record["actor"], "mcp:claude-code");
+    Ok((answers, record["actor"].clone()))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_state_call(id: u64, meta: Option<&Value>) -> Value {
+    let mut params = json!({
+        "name": "set_state",
+        "arguments": {"ref": "today-task", "state": "DONE"},
+    });
+    if let Some(meta) = meta {
+        params["_meta"] = meta.clone();
+    }
+    json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": params})
+}
+
+/// Claude Code speaks the 2026-07-28 protocol: `server/discover` first, no
+/// `initialize`, and its name in every request's metadata. The journal must
+/// still name it; Codex's "-mcp-client" suffix is dropped either way.
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn writes_from_a_client_without_initialize_are_journaled_under_its_name()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (client, actor) in [
+        ("claude-code", "mcp:claude-code"),
+        ("codex-mcp-client", "mcp:codex"),
+    ] {
+        let meta = json!({
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {"name": client, "version": "2.1.296"},
+            "io.modelcontextprotocol/clientCapabilities": {}
+        });
+        let (answers, journaled) = session_actor(&[
+            json!({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": meta}}),
+            set_state_call(2, Some(&meta)),
+        ])?;
+        assert!(answers[0].contains("\"result\""), "{}", answers[0]);
+        assert!(answers[1].contains("agd.mutation/v1"), "{}", answers[1]);
+        assert_eq!(journaled, actor);
+    }
+    Ok(())
+}
+
+/// Codex initializes as "codex-mcp-client"; the journal says `mcp:codex`.
+/// Other names are kept as sent.
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn initialize_client_names_drop_the_mcp_client_suffix() -> Result<(), Box<dyn std::error::Error>> {
+    for (client, actor) in [("codex-mcp-client", "mcp:codex"), ("zed", "mcp:zed")] {
+        let (answers, journaled) = session_actor(&[
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": client, "version": "0.50.0"}
+                }
+            }),
+            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            set_state_call(2, None),
+        ])?;
+        assert!(answers[1].contains("agd.mutation/v1"), "{}", answers[1]);
+        assert_eq!(journaled, actor);
+    }
     Ok(())
 }

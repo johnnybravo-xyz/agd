@@ -789,9 +789,19 @@ fn write_context(context: &RequestContext<RoleServer>, project: &str) -> WriteCo
     WriteContext {
         actor: context
             .client_info()
-            .map(|info| format!("mcp:{}", info.name))
+            .map(|info| actor(&info.name))
             .unwrap_or_else(|| "mcp:unknown".to_string()),
         project: project.to_string(),
         now: None,
     }
+}
+
+/// `mcp:<client name>`, without the "-mcp-client" suffix Codex sends
+/// (`codex-mcp-client` is `mcp:codex`); other names are kept as sent.
+fn actor(client_name: &str) -> String {
+    let name = client_name
+        .strip_suffix("-mcp-client")
+        .filter(|name| !name.is_empty())
+        .unwrap_or(client_name);
+    format!("mcp:{name}")
 }
