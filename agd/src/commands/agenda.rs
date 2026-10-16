@@ -327,7 +327,9 @@ fn span_for_bounds(from: NaiveDate, to: NaiveDate, settings: &Settings) -> Agend
     }
 }
 
-/// `3 overdue · 7 today · 4 inbox · 2 agents`, zero counts left out.
+/// `3 overdue · 7 today · 4 inbox · 2 agents`, zero counts left out. Today
+/// counts what is scheduled, due or timestamped today; a deadline warning
+/// (`In 4 d.:`) is neither today nor overdue.
 fn status_line(index: &WorkspaceIndex, settings: &Settings, today: NaiveDate) -> Result<String> {
     let engine = AgendaEngine::new(index);
     let entries = engine.agenda(&AgendaQuery {
@@ -343,7 +345,10 @@ fn status_line(index: &WorkspaceIndex, settings: &Settings, today: NaiveDate) ->
     };
     let mut overdue = std::collections::BTreeSet::new();
     let mut open = std::collections::BTreeSet::new();
-    for entry in entries.iter().filter(|entry| !entry.item.done) {
+    let counted = entries.iter().filter(|entry| {
+        !entry.item.done && entry.occurrence.kind != agd_core::OccurrenceType::UpcomingDeadline
+    });
+    for entry in counted {
         if overdue_kind(entry) {
             overdue.insert(&entry.item.item_ref);
         } else {

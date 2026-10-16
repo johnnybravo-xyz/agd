@@ -125,10 +125,15 @@ fn from_takes_a_negative_offset_as_its_value() {
 #[test]
 fn status_line_counts_today_for_a_status_bar() {
     let fixture = Fixture::new();
-    let today = chrono::Local::now().format("%Y-%m-%d %a").to_string();
+    let now = chrono::Local::now().date_naive();
+    let today = now.format("%Y-%m-%d %a").to_string();
+    // A deadline in four days shows today as a warning, but is not today's.
+    let soon = (now + chrono::Duration::days(4))
+        .format("%Y-%m-%d %a")
+        .to_string();
     fs::write(
         &fixture.tasks,
-        format!("* TODO Late\nSCHEDULED: <2020-01-01 Wed>\n* TODO Now\nSCHEDULED: <{today}>\n* Inbox\n** TODO New idea\n"),
+        format!("* TODO Late\nSCHEDULED: <2020-01-01 Wed>\n* TODO Now\nSCHEDULED: <{today}>\n* TODO Soon\nDEADLINE: <{soon}>\n* Inbox\n** TODO New idea\n"),
     )
     .unwrap();
     fixture
