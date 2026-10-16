@@ -490,20 +490,41 @@ fn derived_roots(org_directory: Option<&str>, entries: &[PathBuf]) -> Vec<String
             roots.push(directory);
         }
     }
+    roots.iter().map(|root| home_relative(root)).collect()
+}
+
+/// `path` with the home directory written as `~`.
+fn home_relative(path: &Path) -> String {
     let home = dirs::home_dir();
-    roots
-        .into_iter()
-        .map(|root| {
-            match home
-                .as_deref()
-                .and_then(|home| root.strip_prefix(home).ok())
-            {
-                Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-                Some(rest) => format!("~/{}", rest.to_string_lossy()),
-                None => root.to_string_lossy().into_owned(),
-            }
-        })
-        .collect()
+    match home
+        .as_deref()
+        .and_then(|home| path.strip_prefix(home).ok())
+    {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{}", rest.to_string_lossy()),
+        None => path.to_string_lossy().into_owned(),
+    }
+}
+
+/// The root an import writes for `agd -r DIR setup import`: DIR made
+/// absolute (symlinks kept, as the editor's paths keep them) with `~` for
+/// the home directory. DIR must exist, since agenda entries and capture
+/// files are placed under it.
+pub fn import_root(directory: &Path) -> Result<String, AgdError> {
+    let expanded = PathBuf::from(shellexpand::tilde(&directory.to_string_lossy()).into_owned());
+    let absolute = std::path::absolute(&expanded).map_err(|error| {
+        import_error(format!(
+            "cannot resolve root {}: {error}",
+            directory.display()
+        ))
+    })?;
+    if !absolute.is_dir() {
+        return Err(import_error(format!(
+            "root {} is not a directory",
+            directory.display()
+        )));
+    }
+    Ok(home_relative(&absolute))
 }
 
 /// An agenda entry as a pattern relative to the root that holds it: a file
@@ -790,6 +811,22 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "the imported settings would not load: deadline_warning_days must be 0 or more, not -1"
+        );
+    }
+
+    #[test]
+    fn import_root_is_an_absolute_existing_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        assert_eq!(
+            import_root(temp.path()).unwrap(),
+            temp.path().to_string_lossy()
+        );
+        let missing = temp.path().join("missing");
+        let error = import_root(&missing).unwrap_err();
+        assert_eq!(error.code(), "import");
+        assert_eq!(
+            error.to_string(),
+            format!("root {} is not a directory", missing.display())
         );
     }
 

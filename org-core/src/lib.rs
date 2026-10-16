@@ -26,7 +26,7 @@ pub use document::{
 };
 pub use imports::{
     ConfigEditor, ConfigSources, ImportDiagnostic, ImportResult, ImportStatus, ImportedCapture,
-    ImportedCommand, ResolvedEditorConfig, apply_import, find_config_sources,
+    ImportedCommand, ResolvedEditorConfig, apply_import, find_config_sources, import_root,
 };
 pub use model::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ERROR_SCHEMA, ErrorResponse, ITEM_SCHEMA, Item,

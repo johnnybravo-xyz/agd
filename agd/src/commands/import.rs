@@ -1,7 +1,7 @@
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use agd_core::{ImportStatus, Settings, default_config_path, parse_config_file};
+use agd_core::{ImportStatus, Settings, default_config_path, import_root, parse_config_file};
 use anyhow::{Result, bail};
 use clap::Args;
 
@@ -39,7 +39,10 @@ pub struct ImportCommand {
 }
 
 impl ImportCommand {
-    pub fn execute(self, config: Option<String>, _root_directory: Option<String>) -> Result<()> {
+    /// `root_directory` (`-r DIR`) becomes the imported config's only root
+    /// instead of one derived from the editor's org-directory or agenda
+    /// files, or the existing config's roots.
+    pub fn execute(self, config: Option<String>, root_directory: Option<String>) -> Result<()> {
         if self.paths.is_empty() {
             let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
             let found: Vec<&str> = USUAL_LOCATIONS
@@ -61,17 +64,21 @@ impl ImportCommand {
             None => default_config_path()?,
         };
         let exists = destination.exists();
-        let base = if exists {
+        let mut base = if exists {
             parse_config_file(&destination)?
         } else {
             Settings::default()
         };
+        if let Some(root) = &root_directory {
+            base.roots = vec![import_root(Path::new(root))?];
+        }
+        let derive_roots = !exists && root_directory.is_none();
         let preview = self.dry_run || self.stdout;
         let write = !preview && (!exists || self.force);
         let execution = import_config(
             &self.paths,
             &base,
-            !exists,
+            derive_roots,
             &destination,
             write,
             self.verify,
