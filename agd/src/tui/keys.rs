@@ -259,11 +259,12 @@ fn triage_key(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('x') => app.mark_done()?,
         KeyCode::Char('n') => app.set_state("NEXT")?,
         KeyCode::Char('s') => app.someday()?,
-        KeyCode::Char('k') => app.cancel()?,
-        KeyCode::Char('r') => app.open_refile(),
+        // Cancel and refile use the lists' keys, so j/k can move.
+        KeyCode::Char('X') => app.cancel()?,
+        KeyCode::Char('R') => app.open_refile(),
         KeyCode::Char('u') => app.undo()?,
         KeyCode::Char('j') | KeyCode::Down | KeyCode::Tab => app.move_selection(1),
-        KeyCode::Up | KeyCode::BackTab => app.move_selection(-1),
+        KeyCode::Char('k') | KeyCode::Up | KeyCode::BackTab => app.move_selection(-1),
         KeyCode::Char('?') => app.overlay = Overlay::Help,
         _ => {}
     }

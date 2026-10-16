@@ -669,6 +669,43 @@ fn list_keys_follow_org_agenda_for_moving_refreshing_and_refiling() {
     });
 }
 
+const TWO_OVERDUE: &str = "#+TODO: TODO | DONE CANCELLED\n\
+* TODO Old one\nSCHEDULED: <2026-10-01 Thu>\n\
+* TODO Old two\nSCHEDULED: <2026-10-05 Mon>\n";
+
+#[test]
+#[serial]
+fn triage_k_moves_back_a_card_and_shift_x_cancels() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, TWO_OVERDUE).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('T'));
+        assert_eq!(app.screen, Screen::Triage);
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("j/k next/previous card"), "{screen}");
+        assert!(screen.contains("X  cancel"), "{screen}");
+        assert!(screen.contains("R  refile"), "{screen}");
+
+        let first = app.selected_row().unwrap().item.title.clone();
+        press(&mut app, KeyCode::Char('j'));
+        press(&mut app, KeyCode::Char('k'));
+        assert_eq!(app.selected_row().unwrap().item.title, first);
+        assert_eq!(fs::read_to_string(&path).unwrap(), TWO_OVERDUE);
+
+        press(&mut app, KeyCode::Char('X'));
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains(&format!("* CANCELLED {first}")),
+            "{}",
+            fs::read_to_string(&path).unwrap()
+        );
+    });
+}
+
 #[test]
 #[serial]
 fn an_empty_no_color_keeps_colour() {

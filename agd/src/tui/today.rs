@@ -150,7 +150,12 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     }
     // Only the most-used keys; ? lists the rest.
     let keys: &[(&str, &str)] = match app.screen {
-        Screen::Triage => &[("?", "keys")],
+        Screen::Triage => &[
+            ("j/k", "next/previous card"),
+            ("u", "undo"),
+            ("esc", "back"),
+            ("?", "help"),
+        ],
         Screen::Review => &[
             ("a", "accept"),
             ("u", "undo"),

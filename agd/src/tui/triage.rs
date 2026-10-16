@@ -87,8 +87,8 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Paragraph::new(chips(&[
             ("n", "make NEXT"),
             ("s", "someday"),
-            ("k", "cancel"),
-            ("r", "refile"),
+            ("X", "cancel"),
+            ("R", "refile"),
             ("u", "undo"),
         ])),
         parts[4],
