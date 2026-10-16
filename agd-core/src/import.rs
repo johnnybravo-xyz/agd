@@ -6,8 +6,7 @@
 //!
 //! The editor resolves its own settings (the agd binary runs it with a reader
 //! script); this module never evaluates editor code, it maps the result. A
-//! result that would not load as a config is refused
-//! (`unsupported_import_shape`).
+//! result that would not load as a config is refused (`invalid_import`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
