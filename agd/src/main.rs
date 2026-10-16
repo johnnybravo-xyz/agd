@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use agd_core::{AgdError, ErrorResponse};
+use agd_core::{AgdError, ErrorCode, ErrorResponse};
 use anyhow::Result;
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser, Subcommand};
@@ -125,17 +125,31 @@ fn usage_error(error: clap::Error) -> ExitCode {
         // Help and version go to stdout as usual.
         error.exit();
     }
-    let rendered = error.render().to_string();
-    let message = rendered.trim().trim_start_matches("error: ");
-    print_json_error(&AgdError::new("usage", message).into_response());
+    let message = clap_message(&error.render().to_string());
+    print_json_error(&AgdError::new(ErrorCode::InvalidArguments, message).into_response());
     ExitCode::from(2)
 }
 
+/// Clap's error without its `error: ` prefix and without the usage line
+/// and "For more information" footer it prints for a terminal.
+fn clap_message(rendered: &str) -> String {
+    let end = ["\n\nUsage:", "\n\nFor more information"]
+        .iter()
+        .filter_map(|footer| rendered.find(footer))
+        .min()
+        .unwrap_or(rendered.len());
+    rendered[..end]
+        .trim()
+        .trim_start_matches("error: ")
+        .to_string()
+}
+
 /// agd.error/v1 for any error: an AgdError keeps its code and `current`, with
-/// any context added on top leading its message; other errors are `error`.
+/// any context added on top leading its message; other errors are
+/// `command_failed`.
 fn error_response(error: &anyhow::Error) -> ErrorResponse {
     let Some(agd_error) = error.downcast_ref::<AgdError>() else {
-        return AgdError::new("error", format!("{error:#}")).into_response();
+        return AgdError::new(ErrorCode::CommandFailed, format!("{error:#}")).into_response();
     };
     let mut response = agd_error.response().clone();
     let context: Vec<String> = error

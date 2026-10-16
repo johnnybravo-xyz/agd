@@ -5,7 +5,7 @@
 //! A batch resolves and computes every edit first; if any is refused, nothing
 //! is written and the error names that target. Each edit is computed again
 //! under the write lock, and a target that moved to another file meanwhile is
-//! refused (`stale_ref`). The Org text an edit writes is `org_edit`'s.
+//! refused (`ref_conflict`). The Org text an edit writes is `org_edit`'s.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -206,7 +206,7 @@ impl WriteEngine {
         let (prepared, item) = self.prepare_edit(&fresh, item_ref, intent, now)?;
         if prepared.path != path {
             return Err(AgdError::new(
-                ErrorCode::StaleRef,
+                ErrorCode::RefConflict,
                 "item resolved to a different file while acquiring the write lock",
             ));
         }
@@ -234,7 +234,7 @@ impl WriteEngine {
         let (post_image, stored) = apply_patches(document.source(), patches)?;
         if post_image == document.source() {
             return Err(AgdError::new(
-                ErrorCode::NoChange,
+                ErrorCode::InvalidEdit,
                 "edit does not change the item",
             ));
         }
@@ -282,7 +282,7 @@ impl WriteEngine {
             .collect();
         if fresh_paths != paths {
             return Err(AgdError::new(
-                ErrorCode::StaleRef,
+                ErrorCode::RefConflict,
                 "targets resolved to different files while acquiring the write locks",
             ));
         }
@@ -344,7 +344,7 @@ impl WriteEngine {
             let (alone, _) = apply_patches(document.source(), own.clone()).map_err(label)?;
             if alone == document.source() {
                 return Err(label(AgdError::new(
-                    ErrorCode::NoChange,
+                    ErrorCode::InvalidEdit,
                     "edit does not change the item",
                 )));
             }
@@ -372,7 +372,7 @@ impl WriteEngine {
                 .headline_at_line(line)
                 .map(|headline| headline.item.clone())
                 .ok_or_else(|| {
-                    AgdError::new(ErrorCode::ParseError, "edit produced no target headline")
+                    AgdError::new(ErrorCode::ParseFailed, "edit produced no target headline")
                 })?;
             items.push((
                 position,
@@ -419,7 +419,7 @@ fn resolve_batch_targets<'a>(
             && !new_ids.insert(id)
         {
             return Err(label(AgdError::new(
-                ErrorCode::DuplicateId,
+                ErrorCode::IdConflict,
                 format!("ID '{id}' is given to two of the targets"),
             )));
         }
@@ -429,7 +429,7 @@ fn resolve_batch_targets<'a>(
             .any(|(_, other)| other.line_span.start == headline.line_span.start)
         {
             return Err(label(AgdError::new(
-                ErrorCode::InvalidEdit,
+                ErrorCode::InvalidBatch,
                 "the same item is listed twice",
             )));
         }
@@ -515,7 +515,7 @@ mod tests {
                 &context(),
             )
             .unwrap_err();
-        assert_eq!(error.code(), "invalid_todo");
+        assert_eq!(error.code().as_str(), "invalid_todo");
         assert!(error.to_string().starts_with("Water plants: "), "{error}");
         assert_eq!(fs::read_to_string(&work).unwrap(), work_bytes);
         assert_eq!(fs::read_to_string(&home).unwrap(), home_bytes);
@@ -532,8 +532,9 @@ mod tests {
             engine
                 .edit_batch(&batch, false, &context())
                 .unwrap_err()
-                .code(),
-            "editor_dirty"
+                .code()
+                .as_str(),
+            "editor_conflict"
         );
         assert_eq!(fs::read_to_string(&work).unwrap(), work_bytes);
         fs::remove_file(temp.path().join(".#home.org")).unwrap();

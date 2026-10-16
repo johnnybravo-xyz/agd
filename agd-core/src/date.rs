@@ -360,7 +360,7 @@ mod tests {
         assert_eq!(date("2026-10-30 14:00"), at("2026-10-30", "14:00"));
 
         let error = parse_date_input("someday", today).unwrap_err();
-        assert_eq!(error.code(), "invalid_date");
+        assert_eq!(error.code().as_str(), "invalid_date");
         for form in [
             "today",
             "tomorrow",

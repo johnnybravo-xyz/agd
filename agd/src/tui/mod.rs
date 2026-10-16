@@ -25,7 +25,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration as StdDuration, Instant};
 
 use agd_core::{
-    AgdError, Item, JournalRecord, Occurrence, Settings, WorkspaceIndex, WriteContext,
+    AgdError, ErrorCode, Item, JournalRecord, Occurrence, Settings, WorkspaceIndex, WriteContext,
     load_settings,
 };
 use anyhow::{Context, Result};
@@ -357,7 +357,7 @@ impl App {
     fn set_error(&mut self, error: &anyhow::Error) {
         let text = match error.downcast_ref::<AgdError>() {
             // Here `r` re-reads the files, which settles a stale heading.
-            Some(error) if error.code() == "stale_ref" => {
+            Some(error) if error.code() == ErrorCode::RefConflict => {
                 format!("✗ {}; r refreshes", crate::words::error_sentence(error))
             }
             Some(error) => format!("✗ {}", crate::words::error_sentence(error)),

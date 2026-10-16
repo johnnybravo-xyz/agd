@@ -140,7 +140,7 @@ async fn exposes_only_the_short_spec_tool_list() -> Result<(), Box<dyn std::erro
         .expect("instructions");
     for needle in [
         "nothing leaves it",
-        "use the item.ref it returns, or the current.ref of a stale_ref error",
+        "use the item.ref it returns, or the current.ref of a ref_conflict error",
         "today, tomorrow, a weekday (fri), +2d",
         "2026-10-30T14:00; plan also takes none",
         "describe (templates, TODO keywords",
@@ -305,7 +305,7 @@ async fn writes_return_mutations_and_failures_return_error_schemas()
         .await?;
     let encoded = content_json(&result).to_string();
     assert!(encoded.contains("agd.error/v1"));
-    assert!(encoded.contains("stale_ref"));
+    assert!(encoded.contains("ref_conflict"));
     // A refused write is a tool error, so the client knows nothing changed.
     assert_eq!(result.is_error, Some(true));
     service.cancel().await?;

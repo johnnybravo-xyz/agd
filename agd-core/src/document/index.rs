@@ -4,7 +4,7 @@
 //!
 //! A ref is the heading's `:ID:` when it is unique, else
 //! `file:line#sha256:digest`. An ID that occurs more than once anywhere under
-//! the roots is refused for writes (`duplicate_id`). A non-UTF-8 file or a
+//! the roots is refused for writes (`id_conflict`). A non-UTF-8 file or a
 //! symlink out of the roots is skipped with a reason instead of failing the
 //! whole index.
 
@@ -37,14 +37,14 @@ fn load_document(
 ) -> Result<Result<OrgDocument, AgdError>, AgdError> {
     let bytes = std::fs::read(path).map_err(|error| {
         AgdError::with_source(
-            ErrorCode::Io,
+            ErrorCode::IoFailed,
             format!("cannot read {}: {error}", path.display()),
             error,
         )
     })?;
     match OrgDocument::parse(path.to_path_buf(), bytes, settings) {
         Ok(document) => Ok(Ok(document)),
-        Err(error) if error.code() == ErrorCode::NonUtf8.as_str() => Ok(Err(error)),
+        Err(error) if error.code() == ErrorCode::InvalidUtf8 => Ok(Err(error)),
         Err(error) => Err(error),
     }
 }
@@ -142,7 +142,7 @@ impl WorkspaceIndex {
         }
         let path = match self.roots.resolve_read(path) {
             Ok(path) => path,
-            Err(error) if error.code() == ErrorCode::OutsideRoots.as_str() => {
+            Err(error) if error.code() == ErrorCode::InvalidPath => {
                 let reason = crate::SkipReason::OutsideRoots.describe(path);
                 self.skipped.insert(path.to_path_buf(), reason);
                 return Ok(());
@@ -181,7 +181,7 @@ impl WorkspaceIndex {
 
     /// Recounts `:ID:` values, then gives every item whose ID is not unique
     /// under the roots a file/line/digest ref, so two items never share a
-    /// ref; resolving it still refuses the write as `duplicate_id`.
+    /// ref; resolving it still refuses the write as `id_conflict`.
     fn rebuild_ids(&mut self) {
         self.ids.clear();
         for (path, document) in &self.documents {
@@ -244,7 +244,7 @@ impl WorkspaceIndex {
         let count = self.ids.get(id).map_or(0, Vec::len) + self.outside_id_count(id);
         if count > 1 {
             return Err(AgdError::new(
-                ErrorCode::DuplicateId,
+                ErrorCode::IdConflict,
                 format!("ID '{id}' occurs {count} times under the configured roots"),
             ));
         }
@@ -265,7 +265,7 @@ impl WorkspaceIndex {
             let outside = self.outside_id_count(item_ref);
             if matches.len() + outside > 1 {
                 return Err(AgdError::new(
-                    ErrorCode::DuplicateId,
+                    ErrorCode::IdConflict,
                     format!(
                         "ID '{item_ref}' occurs {} times under the configured roots",
                         matches.len() + outside
@@ -274,11 +274,11 @@ impl WorkspaceIndex {
             }
             return match matches {
                 [] if outside == 1 => Err(AgdError::new(
-                    ErrorCode::StaleRef,
+                    ErrorCode::RefConflict,
                     format!("ID '{item_ref}' is in a file outside the agenda files"),
                 )),
                 [] => Err(AgdError::new(
-                    ErrorCode::StaleRef,
+                    ErrorCode::RefConflict,
                     format!("no item has ID '{item_ref}'"),
                 )),
                 [(path, index)] => Ok((
@@ -320,7 +320,7 @@ impl WorkspaceIndex {
         let requested = Path::new(file);
         self.roots.resolve_read(requested)?;
         if let Some(reason) = self.skipped.get(requested) {
-            return Err(AgdError::new(ErrorCode::NonUtf8, reason.clone()));
+            return Err(AgdError::new(ErrorCode::InvalidUtf8, reason.clone()));
         }
         let document = self
             .documents
@@ -333,7 +333,7 @@ impl WorkspaceIndex {
             })
             .ok_or_else(|| {
                 AgdError::new(
-                    ErrorCode::StaleRef,
+                    ErrorCode::RefConflict,
                     format!(
                         "referenced file is not an agenda file: {}",
                         requested.display()
@@ -358,7 +358,7 @@ impl WorkspaceIndex {
             }
             [] => {
                 let mut error = AgdError::new(
-                    ErrorCode::StaleRef,
+                    ErrorCode::RefConflict,
                     format!("headline bytes no longer match ref: {item_ref}"),
                 );
                 if let Some(current) = document.headline_at_line(line) {
@@ -367,7 +367,7 @@ impl WorkspaceIndex {
                 Err(error)
             }
             _ => Err(AgdError::new(
-                ErrorCode::StaleRef,
+                ErrorCode::RefConflict,
                 format!("headline digest is ambiguous in {}", requested.display()),
             )),
         }
@@ -395,7 +395,7 @@ mod tests {
         std::fs::write(&path, "intro\n* TODO One\n* TODO Changed\n").unwrap();
         let stale = WorkspaceIndex::load(settings(temp.path())).unwrap();
         let error = stale.resolve(&item_ref).unwrap_err();
-        assert_eq!(error.code(), "stale_ref");
+        assert_eq!(error.code().as_str(), "ref_conflict");
     }
 
     #[test]
@@ -414,7 +414,10 @@ mod tests {
             "{}:1#sha256:00000000000000000000000000000000",
             canonical.display()
         );
-        assert_eq!(index.resolve(&bad_ref).unwrap_err().code(), "non_utf8");
+        assert_eq!(
+            index.resolve(&bad_ref).unwrap_err().code().as_str(),
+            "invalid_utf8"
+        );
     }
 
     #[test]
@@ -434,9 +437,15 @@ mod tests {
         let mut settings = settings(temp.path());
         settings.agenda_files = vec!["tasks.org".to_string()];
         let index = WorkspaceIndex::load(settings).unwrap();
-        assert_eq!(index.resolve("shared").unwrap_err().code(), "duplicate_id");
+        assert_eq!(
+            index.resolve("shared").unwrap_err().code().as_str(),
+            "id_conflict"
+        );
         let item_ref = index.items().next().unwrap().item_ref.clone();
-        assert_eq!(index.resolve(&item_ref).unwrap_err().code(), "duplicate_id");
+        assert_eq!(
+            index.resolve(&item_ref).unwrap_err().code().as_str(),
+            "id_conflict"
+        );
         assert_eq!(index.duplicate_ids().count(), 1);
     }
 
@@ -491,7 +500,10 @@ mod tests {
         std::fs::write(&notes, "* Notes\n:PROPERTIES:\n:ID: shared\n:END:\n").unwrap();
         index.refresh_path(&notes).unwrap();
         assert_eq!(index.items().count(), 1);
-        assert_eq!(index.resolve("shared").unwrap_err().code(), "duplicate_id");
+        assert_eq!(
+            index.resolve("shared").unwrap_err().code().as_str(),
+            "id_conflict"
+        );
 
         std::fs::remove_file(&notes).unwrap();
         index.refresh_path(&notes).unwrap();
@@ -509,7 +521,7 @@ mod tests {
         let error = index
             .resolve("/no/such/file:1#sha256:00000000000000000000000000000000")
             .unwrap_err();
-        assert_eq!(error.code(), "outside_roots");
+        assert_eq!(error.code().as_str(), "invalid_path");
     }
 
     #[test]
@@ -527,7 +539,10 @@ mod tests {
         assert_ne!(refs[0], refs[1]);
         for item_ref in &refs {
             assert!(item_ref.contains("#sha256:"), "{item_ref}");
-            assert_eq!(index.resolve(item_ref).unwrap_err().code(), "duplicate_id");
+            assert_eq!(
+                index.resolve(item_ref).unwrap_err().code().as_str(),
+                "id_conflict"
+            );
         }
 
         // Once the ID is unique again, the item's ref is its ID.
@@ -550,6 +565,9 @@ mod tests {
         .unwrap();
         let index = WorkspaceIndex::load(settings(temp.path())).unwrap();
         assert_eq!(index.duplicate_ids().count(), 1);
-        assert_eq!(index.resolve("same").unwrap_err().code(), "duplicate_id");
+        assert_eq!(
+            index.resolve("same").unwrap_err().code().as_str(),
+            "id_conflict"
+        );
     }
 }

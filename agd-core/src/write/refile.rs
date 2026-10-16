@@ -78,7 +78,7 @@ impl WriteEngine {
         let prepared = self.prepare_refile(&fresh, item_ref, target_ref)?;
         if prepared.paths() != paths {
             return Err(AgdError::new(
-                ErrorCode::StaleRef,
+                ErrorCode::RefConflict,
                 "refile resolved to different files while acquiring the write locks",
             ));
         }
@@ -245,7 +245,7 @@ fn find_refiled_item(
         .map(|headline| headline.item.clone())
         .ok_or_else(|| {
             AgdError::new(
-                ErrorCode::ParseError,
+                ErrorCode::ParseFailed,
                 "refiled item was not found at its target",
             )
         })

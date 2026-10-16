@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use agd_core::{AgdError, Item};
+use agd_core::{AgdError, ErrorCode, Item};
 use chrono::{Datelike, NaiveDate};
 
 /// `Fri 16 Oct`, or `Fri 16 Oct 2027` outside `today`'s year.
@@ -89,13 +89,13 @@ pub fn headline_title(headline: &str) -> String {
     words.join(" ")
 }
 
-/// A core error as a sentence. Most messages already read as one; a stale
-/// ref's names the raw ref and no_change's is about the edit, so they are
-/// said plainly.
+/// A core error as a sentence. Most messages already read as one; a ref
+/// conflict's names the raw ref and invalid_edit's is about the edit, so
+/// they are said plainly.
 pub fn error_sentence(error: &AgdError) -> String {
     match error.code() {
-        "stale_ref" => "this heading changed on disk since agd read it".to_string(),
-        "no_change" => "nothing would change".to_string(),
+        ErrorCode::RefConflict => "this heading changed on disk since agd read it".to_string(),
+        ErrorCode::InvalidEdit => "nothing would change".to_string(),
         _ => error.to_string(),
     }
 }

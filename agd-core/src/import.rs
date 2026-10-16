@@ -289,7 +289,7 @@ fn editor_of(path: &Path) -> Option<ConfigEditor> {
 }
 
 fn import_error(message: impl Into<String>) -> AgdError {
-    AgdError::new(ErrorCode::Import, message)
+    AgdError::new(ErrorCode::ImportFailed, message)
 }
 
 /// The editor's settings applied over `base`, and what could not be.
@@ -453,7 +453,7 @@ pub fn apply_import(
     // The written config must load; only its roots may not exist yet.
     crate::config::validate_values(&settings).map_err(|error| {
         AgdError::new(
-            ErrorCode::UnsupportedImportShape,
+            ErrorCode::InvalidImport,
             format!("the imported settings would not load: {error}"),
         )
     })?;
@@ -645,7 +645,7 @@ fn validate_resolved(resolved: &ResolvedEditorConfig) -> Result<(), AgdError> {
             .any(|sequence| sequence.is_empty())
     {
         return Err(AgdError::new(
-            ErrorCode::UnsupportedImportShape,
+            ErrorCode::InvalidImport,
             "editor returned no usable TODO sequence",
         ));
     }
@@ -818,7 +818,7 @@ mod tests {
 
         let resolved = resolved_with(serde_json::json!({ "deadline_warning_days": -1 }));
         let error = apply_import(&resolved, &Settings::default(), false).unwrap_err();
-        assert_eq!(error.code(), "unsupported_import_shape");
+        assert_eq!(error.code().as_str(), "invalid_import");
         assert_eq!(
             error.to_string(),
             "the imported settings would not load: deadline_warning_days must be 0 or more, not -1"
@@ -834,7 +834,7 @@ mod tests {
         );
         let missing = temp.path().join("missing");
         let error = import_root(&missing).unwrap_err();
-        assert_eq!(error.code(), "import");
+        assert_eq!(error.code().as_str(), "import_failed");
         assert_eq!(
             error.to_string(),
             format!("root {} is not a directory", missing.display())

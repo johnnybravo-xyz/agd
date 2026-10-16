@@ -6,7 +6,7 @@
 //! and only `[[capture]]`, `[[view]]` and `[[agent_profile]]` are lists of
 //! records. Values are lowercase, kebab-case when they name an Org option
 //! (`add-on-write`, `time-up`, `tags-todo`). Unknown keys are errors, and each
-//! problem is a `config` error that names the key and how to fix it. A file's
+//! problem is an `invalid_config` error that names the key and how to fix it. A file's
 //! own Org syntax overrides these settings for that file; [`crate::document`]
 //! reads it.
 

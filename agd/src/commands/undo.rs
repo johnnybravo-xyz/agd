@@ -44,7 +44,7 @@ impl UndoCommand {
                 )
         }) else {
             return Err(AgdError::new(
-                ErrorCode::NothingToUndo,
+                ErrorCode::JournalNotFound,
                 "nothing to undo: no change made from the command line is still in effect",
             )
             .into());

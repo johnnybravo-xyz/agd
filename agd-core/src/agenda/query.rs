@@ -314,7 +314,7 @@ mod tests {
             let error = AgendaEngine::new(&index)
                 .query(expression, today)
                 .unwrap_err();
-            assert_eq!(error.code(), "invalid_query");
+            assert_eq!(error.code().as_str(), "invalid_query");
             error.to_string()
         };
         let unknown = error("(heading \"x\")");

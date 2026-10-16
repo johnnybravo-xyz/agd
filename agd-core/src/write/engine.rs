@@ -165,7 +165,7 @@ pub(super) fn parse_updated_item(
                 .min_by_key(|headline| headline.item.line.abs_diff(line_hint))
         })
         .map(|headline| headline.item.clone())
-        .ok_or_else(|| AgdError::new(ErrorCode::ParseError, "write produced no target headline"))
+        .ok_or_else(|| AgdError::new(ErrorCode::ParseFailed, "write produced no target headline"))
 }
 
 /// A successful mutation result.

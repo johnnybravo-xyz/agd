@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use agd_core::{
-    AgdError, CaptureTemplate, IndexedDocument, Settings, TodoKeyword, WorkspaceIndex,
-    capture_prompts,
+    AgdError, CaptureTemplate, DESCRIBE_SCHEMA, IndexedDocument, Settings, TodoKeyword,
+    WorkspaceIndex, capture_prompts,
 };
 use serde::Serialize;
 
@@ -94,7 +94,7 @@ pub(super) fn describe(
     index: &WorkspaceIndex,
 ) -> Result<Description, AgdError> {
     Ok(Description {
-        schema: "agd.describe/v1",
+        schema: DESCRIBE_SCHEMA,
         capture_templates: settings.captures.iter().map(template).collect(),
         default_template: default_template(settings).map(str::to_string),
         agent_inbox: agent_inbox(settings).map(str::to_string),

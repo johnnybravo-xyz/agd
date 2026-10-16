@@ -201,7 +201,7 @@ impl WriteEngine {
         }
         let serialized = serde_json::to_vec(record).map_err(|error| {
             AgdError::new(
-                ErrorCode::JournalError,
+                ErrorCode::JournalFailed,
                 format!("cannot serialize journal record: {error}"),
             )
         })?;
@@ -230,7 +230,7 @@ impl WriteEngine {
         for (line, raw) in source.lines().enumerate() {
             let record: JournalRecord = serde_json::from_str(raw).map_err(|error| {
                 AgdError::new(
-                    ErrorCode::JournalCorrupt,
+                    ErrorCode::InvalidJournal,
                     format!("invalid journal JSON at line {}: {error}", line + 1),
                 )
             })?;
@@ -398,7 +398,7 @@ mod tests {
     /// between journaling and committing leaves it.
     fn append_interrupted_write(journal: &Path, file: &Path, pre: &str, post: &str) -> String {
         let record = JournalRecord {
-            schema: "agd.journal/v1".to_string(),
+            schema: JOURNAL_SCHEMA.to_string(),
             id: "20261016T090000.000000000-1".to_string(),
             status: JournalStatus::Pending,
             timestamp: "2026-10-16T09:00:00+00:00".to_string(),
@@ -458,7 +458,7 @@ mod tests {
         let error = engine
             .edit(&refs["Edited by hand since"], &done, false, &context())
             .unwrap_err();
-        assert_eq!(error.code(), "journal_conflict");
+        assert_eq!(error.code().as_str(), "journal_conflict");
         assert!(
             error.to_string().contains("agd setup check --resolve"),
             "{error}"

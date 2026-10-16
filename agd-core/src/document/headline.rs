@@ -377,7 +377,7 @@ fn parse_metadata(
             }
             if !found_end {
                 return Err(AgdError::new(
-                    ErrorCode::ParseError,
+                    ErrorCode::ParseFailed,
                     format!(
                         "unterminated property drawer after line {}",
                         headline_line + 1

@@ -100,7 +100,7 @@ pub fn render_capture_template(
 ) -> Result<String, AgdError> {
     if template.template.contains("%(") {
         return Err(AgdError::new(
-            ErrorCode::UnsupportedTemplate,
+            ErrorCode::InvalidTemplate,
             "capture templates may not execute %(sexp) forms",
         ));
     }
@@ -181,7 +181,7 @@ fn expand_capture_escapes(
             "%" => rendered.push('%'),
             "^g" => rendered.push_str(prompts.get("tags").ok_or_else(|| {
                 AgdError::new(
-                    ErrorCode::MissingPrompt,
+                    ErrorCode::InvalidPrompt,
                     "capture tag prompt has no 'tags' value",
                 )
             })?),
@@ -202,7 +202,7 @@ fn expand_capture_escapes(
                     None => {
                         let value = prompts.get(prompt).ok_or_else(|| {
                             AgdError::new(
-                                ErrorCode::MissingPrompt,
+                                ErrorCode::InvalidPrompt,
                                 format!("capture prompt '{prompt}' has no value"),
                             )
                         })?;

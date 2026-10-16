@@ -428,7 +428,7 @@ fn headline_starting_at(
         .find(|headline| headline.line_span.start == start)
         .ok_or_else(|| {
             AgdError::new(
-                ErrorCode::ParseError,
+                ErrorCode::ParseFailed,
                 "capture target heading moved while placing",
             )
         })
@@ -703,6 +703,6 @@ mod tests {
         let error = engine
             .capture("m", &draft, "", &BTreeMap::new(), false, &context())
             .unwrap_err();
-        assert_eq!(error.code(), "capture_target_not_found");
+        assert_eq!(error.code().as_str(), "capture_target_not_found");
     }
 }

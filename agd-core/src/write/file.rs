@@ -92,7 +92,7 @@ pub(super) fn read_org_file(path: &Path) -> Result<String, AgdError> {
     match fs::read(path) {
         Ok(bytes) => String::from_utf8(bytes).map_err(|error| {
             AgdError::with_source(
-                ErrorCode::NonUtf8,
+                ErrorCode::InvalidUtf8,
                 format!("org file is not UTF-8: {}", path.display()),
                 error,
             )
@@ -116,7 +116,7 @@ pub(super) fn refuse_emacs_lock(path: &Path) -> Result<(), AgdError> {
             .or_else(|_| fs::read_to_string(&lock))
             .unwrap_or_else(|_| "ownership unavailable".to_string());
         return Err(AgdError::new(
-            ErrorCode::EditorDirty,
+            ErrorCode::EditorConflict,
             format!(
                 "Emacs lock {} exists ({owner}); save or close the buffer",
                 lock.display()
@@ -280,6 +280,6 @@ mod tests {
                 &context(),
             )
             .unwrap_err();
-        assert_eq!(error.code(), "editor_dirty");
+        assert_eq!(error.code().as_str(), "editor_conflict");
     }
 }

@@ -188,7 +188,7 @@ mod tests {
         assert_eq!("10".parse::<AgendaSpan>().unwrap(), AgendaSpan::Days(10));
         assert_eq!("month".parse::<AgendaSpan>().unwrap(), AgendaSpan::Month);
         let error = "wek".parse::<AgendaSpan>().unwrap_err();
-        assert_eq!(error.code(), "invalid_span");
+        assert_eq!(error.code().as_str(), "invalid_span");
         assert_eq!(
             error.to_string(),
             "agenda span: expected day, week, month or a number of days, not \"wek\""

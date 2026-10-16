@@ -9,15 +9,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use agd_core::{
-    AgdError, AgendaEngine, AgendaQuery, AgendaSpan, CaptureDraft, Change, EditIntent, ITEM_SCHEMA,
-    PlanningTimestamp, ViewSection, WorkspaceIndex, WriteContext, WriteEngine, agent_actor,
-    parse_date_input,
+    AgdError, AgendaEngine, AgendaQuery, AgendaSpan, CaptureDraft, Change, EditIntent, ErrorCode,
+    ITEM_SCHEMA, PlanningTimestamp, ViewSection, WorkspaceIndex, WriteContext, WriteEngine,
+    agent_actor, parse_date_input,
 };
 use chrono::{Local, NaiveDate};
 use rmcp::{
     ErrorData as McpError, RoleServer,
     handler::server::tool::schema_for_input,
-    model::{CallToolResult, ContentBlock, ErrorCode, JsonObject},
+    model::{CallToolResult, ContentBlock, ErrorCode as McpErrorCode, JsonObject},
     schemars::{self, JsonSchema},
     service::RequestContext,
     tool, tool_router,
@@ -394,7 +394,7 @@ fn view_settings<'a>(
 ) -> Result<&'a agd_core::ViewSettings, AgdError> {
     if request.span.is_some() || request.match_expression.is_some() {
         return Err(AgdError::new(
-            "invalid_arguments",
+            ErrorCode::InvalidArguments,
             "a view runs its own spans and matches; leave span and match out",
         ));
     }
@@ -405,7 +405,7 @@ fn view_settings<'a>(
             .map(|view| view.key.as_str())
             .collect();
         AgdError::new(
-            "unknown_view",
+            ErrorCode::UnknownView,
             format!(
                 "unknown view '{key}'; configured views: {}",
                 keys.join(", ")
@@ -421,7 +421,7 @@ fn unknown_profile(settings: &agd_core::Settings, name: &str) -> AgdError {
         .map(|profile| profile.name.as_str())
         .collect();
     AgdError::new(
-        "unknown_profile",
+        ErrorCode::UnknownProfile,
         if names.is_empty() {
             format!("unknown agent profile '{name}'; config.toml has no [[agent_profile]]")
         } else {
@@ -491,7 +491,11 @@ impl Rows {
         bodies: Option<&WorkspaceIndex>,
     ) -> Result<Self, AgdError> {
         let mut json = serde_json::to_value(rows).map_err(|error| {
-            AgdError::with_source("internal", "cannot encode the rows as JSON", error)
+            AgdError::with_source(
+                ErrorCode::EncodeFailed,
+                "cannot encode the rows as JSON",
+                error,
+            )
         })?;
         if let Some(index) = bodies {
             add_bodies(&mut json, index);
@@ -561,7 +565,11 @@ fn capture(
         context,
     )?;
     let mut json = serde_json::to_value(mutation).map_err(|error| {
-        AgdError::with_source("internal", "cannot encode the mutation as JSON", error)
+        AgdError::with_source(
+            ErrorCode::EncodeFailed,
+            "cannot encode the mutation as JSON",
+            error,
+        )
     })?;
     let notes = inbox_notes(settings, &request.template, &draft);
     if !notes.is_empty() {
@@ -610,7 +618,7 @@ fn plan(
 ) -> Result<agd_core::Mutation, AgdError> {
     if request.scheduled.is_none() && request.deadline.is_none() {
         return Err(AgdError::new(
-            "invalid_plan",
+            ErrorCode::InvalidPlan,
             "scheduled or deadline is required",
         ));
     }
@@ -691,7 +699,7 @@ fn parse_arguments<T: DeserializeOwned + JsonSchema + 'static>(
         }
     };
     Err(AgdError::new(
-        "invalid_arguments",
+        ErrorCode::InvalidArguments,
         format!(
             "{problem}; accepted arguments: {}",
             accepted_arguments(&schema)
@@ -775,7 +783,7 @@ fn rows_result(result: Result<Rows, AgdError>) -> Result<CallToolResult, McpErro
 
 fn json_block(value: impl Serialize) -> Result<ContentBlock, McpError> {
     ContentBlock::json(value).map_err(|error| McpError {
-        code: ErrorCode::INTERNAL_ERROR,
+        code: McpErrorCode::INTERNAL_ERROR,
         message: format!("cannot serialize schema response: {error}").into(),
         data: None,
     })

@@ -124,7 +124,7 @@ impl WriteEngine {
         }
         let file = template.file.as_deref().ok_or_else(|| {
             AgdError::new(
-                ErrorCode::UnsupportedTarget,
+                ErrorCode::InvalidTemplate,
                 format!(
                     "capture template '{}' names no file or id target",
                     template.key
@@ -249,7 +249,7 @@ fn capture_entry(rendered: &str, level: usize, newline: &str) -> Result<String, 
 }
 
 fn capture_id_error(template_key: &str, id: &str, error: AgdError) -> AgdError {
-    if error.code() == ErrorCode::DuplicateId.as_str() {
+    if error.code() == ErrorCode::IdConflict {
         return error;
     }
     AgdError::new(
@@ -333,7 +333,7 @@ mod tests {
         let error = engine
             .capture("t", &draft, "", &BTreeMap::new(), false, &context())
             .unwrap_err();
-        assert_eq!(error.code(), "missing_prompt");
+        assert_eq!(error.code().as_str(), "invalid_prompt");
         assert!(tree(org.path()).is_empty());
         assert!(tree(data.path()).is_empty());
     }

@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use agd_core::{
-    AgdError, AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, OccurrenceType, Settings,
-    VIEWS_SCHEMA, ViewSection, ViewSettings, WorkspaceIndex, WriteEngine, agenda_csv, agenda_row,
-    agenda_text, agenda_title, item_row, items_csv, keyword_colors, load_settings,
+    AgdError, AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, ErrorCode, OccurrenceType,
+    Settings, VIEWS_SCHEMA, ViewSection, ViewSettings, WorkspaceIndex, WriteEngine, agenda_csv,
+    agenda_row, agenda_text, agenda_title, item_row, items_csv, keyword_colors, load_settings,
     parse_agenda_day,
 };
 use anyhow::Result;
@@ -17,7 +17,7 @@ pub struct AgendaCommand {
     /// Days to show: day, week, month or a number of days; defaults to
     /// agenda_span from config.toml
     #[arg(long)]
-    span: Option<AgendaSpan>,
+    span: Option<String>,
     /// First day: a date (2026-10-13) or Org date-prompt syntax (fri, +2d,
     /// -1w, oct 30)
     #[arg(long, allow_hyphen_values = true)]
@@ -112,7 +112,10 @@ impl AgendaCommand {
             }
             return Ok(write_stdout(&output)?);
         }
-        let span = self.span.unwrap_or(settings.agenda_span);
+        let span = match self.span.as_deref() {
+            Some(span) => span.parse::<AgendaSpan>()?,
+            None => settings.agenda_span,
+        };
         let (from, to) = span.bounds(start, settings.week_start);
         let entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
             from,
@@ -285,7 +288,7 @@ fn apply_profile(
             .map(|profile| profile.name.as_str())
             .collect();
         AgdError::new(
-            "unknown_profile",
+            ErrorCode::UnknownProfile,
             format!(
                 "unknown agent profile '{name}'; profiles: {}",
                 names.join(", ")
@@ -303,7 +306,7 @@ fn find_view<'a>(settings: &'a Settings, key: &str) -> Result<&'a ViewSettings, 
     let key = if key.is_empty() {
         if settings.start_view.is_empty() {
             return Err(AgdError::new(
-                "no_start_view",
+                ErrorCode::UnknownView,
                 "--view without a key runs start_view, which is not set",
             ));
         }
@@ -318,7 +321,7 @@ fn find_view<'a>(settings: &'a Settings, key: &str) -> Result<&'a ViewSettings, 
             .map(|view| view.key.as_str())
             .collect();
         AgdError::new(
-            "unknown_view",
+            ErrorCode::UnknownView,
             format!("unknown view '{key}'; views: {}", keys.join(", ")),
         )
     })

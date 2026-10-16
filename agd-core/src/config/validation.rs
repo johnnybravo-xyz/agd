@@ -1,7 +1,8 @@
 //! Checks a configuration: the roots exist and differ, then every value in a
 //! fixed order (`validate_values`); the first check that fails is the error.
 //!
-//! Each failure is a `config` error that names the key and the accepted
+//! Each failure is an `invalid_config` error (`invalid_root` for a root)
+//! that names the key and the accepted
 //! values. A view's match is checked by the agenda's own parser, so a view
 //! that loads is a view that runs. Roots are checked apart from the values so
 //! `agd setup import` can check a config before its roots exist.
@@ -9,7 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use crate::AgdError;
+use crate::{AgdError, ErrorCode};
 
 use super::file::config_error;
 use super::model::{
@@ -22,22 +23,26 @@ pub(super) fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
     validate_values(settings)
 }
 
-/// Every root resolves to a distinct directory.
+/// Every root resolves to a distinct directory; a bad root is the same
+/// `invalid_root` error the write engine gives.
 pub(super) fn validate_roots(roots: &[String]) -> Result<(), AgdError> {
+    let root_error = |message: String| AgdError::new(ErrorCode::InvalidRoot, message);
     if roots.is_empty() {
-        return Err(config_error("roots must contain at least one directory"));
+        return Err(root_error(
+            "roots must contain at least one directory".to_string(),
+        ));
     }
     let mut canonical_roots = BTreeSet::new();
     for root in roots {
         let expanded = shellexpand::tilde(root).into_owned();
         let canonical = PathBuf::from(&expanded)
             .canonicalize()
-            .map_err(|error| config_error(format!("cannot resolve root '{root}': {error}")))?;
+            .map_err(|error| root_error(format!("cannot resolve root '{root}': {error}")))?;
         if !canonical.is_dir() {
-            return Err(config_error(format!("root is not a directory: {root}")));
+            return Err(root_error(format!("root '{root}' is not a directory")));
         }
         if !canonical_roots.insert(canonical) {
-            return Err(config_error(format!("duplicate root: {root}")));
+            return Err(root_error(format!("root '{root}' is listed twice")));
         }
     }
     Ok(())

@@ -23,7 +23,9 @@
 //!   written. A file's own syntax (`#+TODO`, `#+PRIORITIES`, `#+STARTUP`) wins
 //!   over configuration.
 //! - An error is an [`AgdError`] whose `code` is one of [`ErrorCode`], the one
-//!   list of agd.error/v1 codes, all snake_case; its message says what to do.
+//!   list of agd.error/v1 codes, named by one rule (`invalid_<thing>`,
+//!   `unknown_<thing>`, `<thing>_not_found`, `<thing>_conflict`,
+//!   `<thing>_failed`; see [`model`]); its message says what to do.
 //! - Every serialized record names its schema, `agd.<name>/v1`, with a
 //!   constant from [`model`] such as [`ITEM_SCHEMA`] or [`MUTATION_SCHEMA`].
 //! - Config keys are snake_case. Values are lowercase, kebab-case when they
@@ -112,9 +114,9 @@ pub use import::{
     ImportedCommand, ResolvedEditorConfig, apply_import, find_config_sources, import_root,
 };
 pub use model::{
-    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, CHECK_SCHEMA, ERROR_SCHEMA, ErrorCode,
-    ErrorResponse, ITEM_SCHEMA, Item, JOURNAL_SCHEMA, MUTATION_SCHEMA, Mutation, Occurrence,
-    OccurrenceType, Planning, PlanningTimestamp, REFILE_SCHEMA, Repeat, UNDO_SCHEMA,
+    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, CHECK_SCHEMA, DESCRIBE_SCHEMA, ERROR_SCHEMA,
+    ErrorCode, ErrorResponse, ITEM_SCHEMA, Item, JOURNAL_SCHEMA, MUTATION_SCHEMA, Mutation,
+    Occurrence, OccurrenceType, Planning, PlanningTimestamp, REFILE_SCHEMA, Repeat, UNDO_SCHEMA,
     VIEW_SECTION_SCHEMA, VIEWS_SCHEMA,
 };
 pub use path::{OrgFiles, RootSet, SkipReason};

@@ -198,21 +198,25 @@ fn from_takes_a_negative_offset_as_its_value() {
 #[test]
 fn json_mode_reports_every_error_as_agd_error() {
     let fixture = Fixture::new();
-    let failures: [(&[&str], &str); 7] = [
+    let failures: [(&[&str], &str); 8] = [
         (&["agenda", "--view", "zz", "--json"], "unknown_view"),
-        (&["agenda", "--view", "--json"], "no_start_view"),
+        (&["agenda", "--view", "--json"], "unknown_view"),
+        (
+            &["agenda", "--span", "fortnightly", "--json"],
+            "invalid_span",
+        ),
         (
             &["agenda", "--profile", "nope", "--json"],
             "unknown_profile",
         ),
         (&["agenda", "--from", "someday", "--json"], "invalid_date"),
-        (&["capture", "--json"], "usage"),
+        (&["capture", "--json"], "invalid_arguments"),
         (
             &["capture", "t", "Hi", "--prompt", "bad", "--json"],
             "invalid_prompt",
         ),
         // Clap refuses this before any command runs.
-        (&["agenda", "--bogus", "--json"], "usage"),
+        (&["agenda", "--bogus", "--json"], "invalid_arguments"),
     ];
     for (arguments, code) in failures {
         let output = fixture.command().args(arguments).output().expect("agd");
@@ -221,6 +225,9 @@ fn json_mode_reports_every_error_as_agd_error() {
             .unwrap_or_else(|_| panic!("{arguments:?}: {output:?}"));
         assert_eq!(error["schema"], "agd.error/v1", "{arguments:?}");
         assert_eq!(error["code"], code, "{arguments:?}: {error}");
+        let message = error["message"].as_str().unwrap_or_default();
+        assert!(!message.contains("For more information"), "{message}");
+        assert!(!message.starts_with("error:"), "{message}");
     }
     // Without --json the same error is a plain line.
     fixture
@@ -624,7 +631,7 @@ fn first_run_without_config_or_org_says_how_to_start() {
         .output()
         .expect("agenda command");
     let error: Value = serde_json::from_slice(&output.stderr).expect("error JSON");
-    assert_eq!(error["code"], "config");
+    assert_eq!(error["code"], "invalid_config");
 
     // `mkdir ~/org` is enough.
     fs::create_dir(home.path().join("org")).expect("org directory");

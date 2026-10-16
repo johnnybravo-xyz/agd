@@ -6,10 +6,10 @@
 //!
 //! It parses with its own light [`OrgDocument`] (`agd_core::OrgDocument`),
 //! separate from the index's [`IndexedDocument`](crate::IndexedDocument), and
-//! never writes. Its problem `code`s (`read_error`, `invalid_org`,
-//! `byte_drift`, `non_utf8`, `duplicate_id`, `unknown_todo_keyword`,
-//! `outside_roots`, `journal_conflict`) belong to agd.check/v1, not to
-//! [`ErrorCode`](crate::ErrorCode).
+//! never writes. Its problem `code`s are [`ErrorCode`](crate::ErrorCode)s,
+//! the same code an agd error gives for the same failure: `io_failed`,
+//! `walk_failed`, `invalid_utf8`, `parse_failed`, `id_conflict`,
+//! `invalid_todo`, `invalid_path` and `journal_conflict`.
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -18,7 +18,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::string::FromUtf8Error;
 
-use crate::{AgdError, CHECK_SCHEMA, JournalRecord, RootSet, Settings};
+use crate::{AgdError, CHECK_SCHEMA, ErrorCode, JournalRecord, RootSet, Settings};
 use ignore::WalkBuilder;
 use orgize::{Org, ParseConfig, ast::Headline as OrgHeadline, rowan::ast::AstNode};
 use serde::Serialize;
@@ -123,7 +123,7 @@ pub fn journal_problems(conflicts: &[JournalRecord]) -> Vec<CheckProblem> {
         .map(|record| CheckProblem {
             file: record.file.clone(),
             line: None,
-            code: "journal_conflict",
+            code: ErrorCode::JournalConflict.as_str(),
             message: format!(
                 "an agd write was interrupted (journal entry {}) and the file changed since; writes to it are refused until `agd setup check --resolve` keeps it as it is",
                 record.id
@@ -273,7 +273,7 @@ pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgdError> {
                 problems.push(CheckProblem {
                     file: display_path,
                     line: None,
-                    code: "read_error",
+                    code: ErrorCode::IoFailed.as_str(),
                     message: error.to_string(),
                 });
                 continue;
@@ -282,15 +282,10 @@ pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgdError> {
         let document = match crate::document::OrgDocument::parse(path, bytes, settings) {
             Ok(document) => document,
             Err(error) => {
-                let code = match error.code() {
-                    "non_utf8" => "non_utf8",
-                    "parse_drift" => "byte_drift",
-                    _ => "invalid_org",
-                };
                 problems.push(CheckProblem {
                     file: display_path,
                     line: None,
-                    code,
+                    code: error.code().as_str(),
                     message: error.to_string(),
                 });
                 continue;
@@ -309,7 +304,7 @@ pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgdError> {
                     problems.push(CheckProblem {
                         file: display_path.clone(),
                         line: Some(headline.item.line),
-                        code: "duplicate_id",
+                        code: ErrorCode::IdConflict.as_str(),
                         message: format!("ID {id:?} first appears at {first_file}:{first_line}"),
                     });
                 } else {
@@ -325,7 +320,7 @@ pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgdError> {
                 problems.push(CheckProblem {
                     file: display_path.clone(),
                     line: Some(headline.item.line),
-                    code: "unknown_todo_keyword",
+                    code: ErrorCode::InvalidTodo.as_str(),
                     message: format!(
                         "TODO keyword {first:?} is not enabled by this file's #+TODO settings"
                     ),
@@ -615,7 +610,7 @@ mod tests {
 
         assert_eq!(report.summary.files, 1);
         assert_eq!(report.problems.len(), 1);
-        assert_eq!(report.problems[0].code, "outside_roots");
+        assert_eq!(report.problems[0].code, "invalid_path");
         assert!(report.problems[0].file.ends_with("elsewhere"));
     }
 }

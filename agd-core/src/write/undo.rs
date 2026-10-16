@@ -51,7 +51,7 @@ impl WriteEngine {
             )
         }) {
             return Err(AgdError::new(
-                ErrorCode::NothingToUndo,
+                ErrorCode::InvalidJournalState,
                 format!(
                     "journal entry {} is {:?}, not a committed change; nothing to undo",
                     record.id, record.status
@@ -126,7 +126,7 @@ impl WriteEngine {
         let path = PathBuf::from(&record.file);
         let current = fs::read_to_string(&path).map_err(|error| {
             AgdError::with_source(
-                ErrorCode::Io,
+                ErrorCode::IoFailed,
                 format!("cannot read {}: {error}", path.display()),
                 error,
             )
@@ -137,7 +137,7 @@ impl WriteEngine {
         if content_hash(&current) == record.post_hash && content_hash(&reverted) != record.pre_hash
         {
             return Err(AgdError::new(
-                ErrorCode::JournalCorrupt,
+                ErrorCode::InvalidJournal,
                 format!(
                     "inverse patch for {} does not reproduce its pre-image",
                     record.id
@@ -298,9 +298,13 @@ mod tests {
             "* TODO One\n"
         );
         let again = engine.undo(&batch.transaction, &context()).unwrap_err();
-        assert_eq!(again.code(), "nothing_to_undo");
+        assert_eq!(again.code().as_str(), "invalid_journal_state");
         assert_eq!(
-            engine.undo("no-such-entry", &context()).unwrap_err().code(),
+            engine
+                .undo("no-such-entry", &context())
+                .unwrap_err()
+                .code()
+                .as_str(),
             "journal_not_found"
         );
     }
@@ -328,7 +332,7 @@ mod tests {
             .replace("<2026-10-19 Mon>", "<2026-10-22 Thu>");
         fs::write(&path, &edited).unwrap();
         let error = engine.undo(&mutation.journal_id, &context()).unwrap_err();
-        assert_eq!(error.code(), "undo_conflict");
+        assert_eq!(error.code().as_str(), "undo_conflict");
         assert_eq!(
             error.to_string(),
             "can't undo: Rotate staging certs changed after codex edited it (work.org:1); edit it by hand"
@@ -374,7 +378,7 @@ mod tests {
         )
         .unwrap();
         let error = engine.undo(&first.journal_id, &context()).unwrap_err();
-        assert_eq!(error.code(), "undo_conflict");
+        assert_eq!(error.code().as_str(), "undo_conflict");
         assert!(
             fs::read_to_string(&path)
                 .unwrap()

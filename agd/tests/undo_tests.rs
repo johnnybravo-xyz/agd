@@ -134,7 +134,7 @@ fn undo_reverts_your_latest_command_line_change_and_never_an_agents() {
         stderr.starts_with("error: nothing to undo: no change made from the command line"),
         "{stderr}"
     );
-    assert!(!stderr.contains("nothing_to_undo"), "{stderr}");
+    assert!(!stderr.contains("journal_not_found"), "{stderr}");
     assert_eq!(fixture.inbox(), after_agent);
     let output = fixture
         .command()
@@ -142,7 +142,7 @@ fn undo_reverts_your_latest_command_line_change_and_never_an_agents() {
         .output()
         .expect("agd undo --json");
     let error: Value = serde_json::from_slice(&output.stderr).expect("error JSON");
-    assert_eq!(error["code"], "nothing_to_undo");
+    assert_eq!(error["code"], "journal_not_found");
 }
 
 #[test]

@@ -5,9 +5,9 @@
 //!
 //! Parsing never changes bytes: a document keeps its source and byte spans
 //! into it, and a file the Org parser would not reproduce exactly is refused
-//! (`parse_drift`). A file's own `#+TODO`, `#+SEQ_TODO`, `#+PRIORITIES`,
+//! (`parse_failed`). A file's own `#+TODO`, `#+SEQ_TODO`, `#+PRIORITIES`,
 //! `#+STARTUP` and `#+FILETAGS` win over configuration, and an `:ID:` that
-//! occurs twice under the roots is refused for writes (`duplicate_id`).
+//! occurs twice under the roots is refused for writes (`id_conflict`).
 
 mod directive;
 mod headline;

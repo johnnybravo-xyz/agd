@@ -72,7 +72,7 @@ impl<'a> AgendaEngine<'a> {
                 }
                 let occurrences = self.occurrences(headline, query).map_err(|error| {
                     AgdError::new(
-                        error.code().to_string(),
+                        error.code(),
                         format!("{}:{}: {error}", headline.item.file, headline.item.line),
                     )
                 })?;

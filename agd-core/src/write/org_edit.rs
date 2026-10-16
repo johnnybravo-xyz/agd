@@ -184,7 +184,7 @@ pub(super) fn build_edit_patches(
         || !intent.tags_remove.is_empty()
     {
         let title = change_value(&Some(headline.item.title.clone()), &intent.title)
-            .ok_or_else(|| AgdError::new(ErrorCode::InvalidEdit, "title cannot be cleared"))?;
+            .ok_or_else(|| AgdError::new(ErrorCode::InvalidTitle, "title cannot be cleared"))?;
         let priority = change_value(&headline.item.priority, &intent.priority);
         let mut tags: Vec<String> = headline
             .item

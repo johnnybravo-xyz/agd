@@ -3,8 +3,8 @@ use std::io::IsTerminal;
 use std::path::Path;
 
 use agd_core::{
-    AgdError, CaptureTemplate, RootSet, Settings, WriteEngine, capture_prompts, load_settings,
-    parse_capture_line,
+    AgdError, CaptureTemplate, ErrorCode, RootSet, Settings, WriteEngine, capture_prompts,
+    load_settings, parse_capture_line,
 };
 use anyhow::Result;
 use chrono::Local;
@@ -58,7 +58,7 @@ impl CaptureCommand {
             return crate::tui::run_capture(config, root);
         }
         if self.words.is_empty() {
-            return Err(AgdError::new("usage", USAGE).into());
+            return Err(AgdError::new(ErrorCode::InvalidArguments, USAGE).into());
         }
         let settings = load_settings(
             config.as_deref().map(Path::new),
@@ -112,14 +112,17 @@ fn template_and_text(words: &[String], settings: &Settings) -> Result<(String, S
         keys.join(", ")
     };
     match words {
-        [] => Err(AgdError::new("usage", USAGE)),
+        [] => Err(AgdError::new(ErrorCode::InvalidArguments, USAGE)),
         [text] if settings.capture_template(text).is_some() => Err(AgdError::new(
-            "usage",
+            ErrorCode::InvalidArguments,
             format!("capture template '{text}' needs text: agd capture {text} Renew passport"),
         )),
         [text] => {
             let first = settings.captures.first().ok_or_else(|| {
-                AgdError::new("unknown_template", "no capture templates are configured")
+                AgdError::new(
+                    ErrorCode::UnknownTemplate,
+                    "no capture templates are configured",
+                )
             })?;
             Ok((first.key.clone(), text.clone()))
         }
@@ -127,7 +130,7 @@ fn template_and_text(words: &[String], settings: &Settings) -> Result<(String, S
             Ok((key.clone(), text.join(" ")))
         }
         [key, ..] => Err(AgdError::new(
-            "unknown_template",
+            ErrorCode::UnknownTemplate,
             format!(
                 "capture template '{key}' is not configured; templates: {}. To use the first \
                  template, quote the text: agd capture \"{}\"",
@@ -150,7 +153,7 @@ fn check_prompts(
         .find(|prompt| !prompt.date && !prompts.contains_key(&prompt.name));
     match missing {
         Some(prompt) => Err(AgdError::new(
-            "missing_prompt",
+            ErrorCode::InvalidPrompt,
             format!(
                 "capture template '{key}' asks for {name}; answer with --prompt '{name}=...'",
                 name = prompt.name
@@ -166,13 +169,13 @@ fn parse_prompts(values: Vec<String>) -> Result<BTreeMap<String, String>, AgdErr
         .map(|value| {
             let (key, value) = value.split_once('=').ok_or_else(|| {
                 AgdError::new(
-                    "invalid_prompt",
+                    ErrorCode::InvalidPrompt,
                     format!("--prompt must be KEY=VALUE: {value}"),
                 )
             })?;
             if key.is_empty() {
                 return Err(AgdError::new(
-                    "invalid_prompt",
+                    ErrorCode::InvalidPrompt,
                     "--prompt key cannot be empty",
                 ));
             }
@@ -190,7 +193,7 @@ mod tests {
     #[test]
     fn a_terminal_reads_the_capture_as_the_tui_says_it() {
         let item = Item {
-            schema: "agd.item/v1".to_string(),
+            schema: agd_core::ITEM_SCHEMA.to_string(),
             item_ref: "ref".to_string(),
             id: None,
             file: "/notes/org/inbox.org".to_string(),
