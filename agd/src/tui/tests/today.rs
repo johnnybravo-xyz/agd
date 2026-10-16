@@ -466,6 +466,39 @@ fn today_folds_overdue_behind_a_more_row_with_missed_deadlines_first() {
 
 #[test]
 #[serial]
+fn today_and_triage_list_the_cores_overdue_items_once_each_in_its_order() {
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* TODO Twice late\nSCHEDULED: <2026-09-01 Tue> DEADLINE: <2026-10-10 Sat>\n\
+* TODO Old schedule\nSCHEDULED: <2026-09-20 Sun>\n\
+* TODO Missed by one\nDEADLINE: <2026-10-12 Mon>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        // Missed deadlines first, most days late first; a task late twice
+        // is one row.
+        let overdue: Vec<String> = app
+            .rows
+            .iter()
+            .filter(|row| row.section == "OVERDUE")
+            .map(|row| row.item.title.clone())
+            .collect();
+        assert_eq!(overdue, ["Twice late", "Missed by one", "Old schedule"]);
+        app.start_triage().unwrap();
+        let queue: Vec<String> = app
+            .triage
+            .queue
+            .iter()
+            .map(|row| row.item.title.clone())
+            .collect();
+        assert_eq!(queue, overdue);
+    });
+}
+
+#[test]
+#[serial]
 fn status_lines_name_what_happened_and_never_blame_the_config() {
     use crossterm::event::KeyCode;
     with_home(|root| {
