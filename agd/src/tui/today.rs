@@ -12,7 +12,7 @@ use super::rows::days_since;
 use super::theme::{Theme, centered};
 use super::{
     App, DOING, DUE, DisplayRow, Header, INBOX, OVERDUE, Overlay, PromptKind, SCHEDULE, Screen,
-    keys, peek, review, triage,
+    actions, keys, peek, review, triage,
 };
 
 /// Width at which peek sits beside the list and tags get their column.
@@ -582,6 +582,86 @@ fn state_age(app: &App, row: &DisplayRow) -> Option<i64> {
     days_since(&line[start..], app.today)
 }
 
+/// What a prompt is for, and examples of what it takes.
+fn prompt_text(app: &App, kind: PromptKind) -> (&'static str, String) {
+    let date = actions::example_date(app.today);
+    let (highest, lowest) = app.priority_range();
+    match kind {
+        PromptKind::Schedule => ("Schedule", format!("tomorrow · fri · +2d · {date} 14:00")),
+        PromptKind::Deadline => ("Deadline", format!("fri · +2d · {date} -3d")),
+        PromptKind::Priority => ("Priority", format!("{highest} to {lowest}; empty clears")),
+        PromptKind::Tags => ("Tags", "+tag adds · -tag removes".to_string()),
+        PromptKind::Filter => ("Filter", "text or tag; empty clears".to_string()),
+    }
+}
+
+/// A prompt: the input, the exact change Enter writes (or why it would
+/// write nothing), examples and keys.
+fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area: Rect) {
+    let theme = &app.theme;
+    let (title, hint) = prompt_text(app, prompt.kind);
+    let target = if app.marks.is_empty() {
+        app.selected_row()
+            .map(|row| app.short_location(&row.item))
+            .unwrap_or_default()
+    } else {
+        format!("{} marked rows", app.marks.len())
+    };
+    let title = if prompt.kind == PromptKind::Filter || target.is_empty() {
+        title.to_string()
+    } else {
+        format!("{title} · {target}")
+    };
+    let preview: Vec<Line<'static>> = match &prompt.preview {
+        Ok(lines) => lines
+            .iter()
+            .map(|line| {
+                let style = match line.chars().next() {
+                    Some('+') => theme.fg(theme.done),
+                    Some('-') => theme.fg(theme.overdue),
+                    _ => theme.muted(),
+                };
+                Line::from(Span::styled(line.clone(), style))
+            })
+            .collect(),
+        Err(reason) => vec![Line::from(Span::styled(
+            reason.clone(),
+            theme.fg(theme.overdue),
+        ))],
+    };
+    let preview_rows = preview.len() as u16;
+    let gap = u16::from(preview_rows > 0);
+    // border + top padding, input, preview, gap, hint, gap, footer, border
+    let height = 2 + 3 + preview_rows + gap + 1 + 1 + 1 + 1;
+    let popup = centered(area, area.width.saturating_sub(4).clamp(60, 84), height);
+    frame.render_widget(Clear, popup);
+    let block = theme.popup(title);
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let parts = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([3, preview_rows, gap, 1, 1, 1].map(Constraint::Length))
+        .split(inner);
+    let input = Line::from(vec![
+        Span::styled("› ", theme.strong(theme.accent)),
+        Span::raw(prompt.input.clone()),
+        Span::styled("▏", theme.fg(theme.accent)),
+    ]);
+    frame.render_widget(Paragraph::new(input).block(theme.input(true)), parts[0]);
+    frame.render_widget(Paragraph::new(preview), parts[1]);
+    frame.render_widget(Paragraph::new(Span::styled(hint, theme.muted())), parts[3]);
+    frame.render_widget(
+        Paragraph::new(Line::from(
+            [
+                theme.key_hint("⏎", "apply"),
+                theme.key_hint("esc", "cancel"),
+            ]
+            .concat(),
+        )),
+        parts[5],
+    );
+}
+
 /// Prompts, the refile picker and the views dispatcher.
 pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
@@ -604,34 +684,7 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
         )
     };
     match &app.overlay {
-        Overlay::Prompt { kind, input } => {
-            let (title, hint) = match kind {
-                PromptKind::Schedule => ("Schedule", "fri · +2d · 2026-10-30 · 14:00"),
-                PromptKind::Deadline => ("Deadline", "fri · +2d · 2026-10-30 -3d"),
-                PromptKind::Priority => ("Priority", "A–C, empty clears"),
-                PromptKind::Tags => ("Tags", "+tag -tag"),
-                PromptKind::Filter => ("Filter", "text or tag; empty clears"),
-            };
-            // border + top padding, input, gap, hint, gap, footer, border
-            let popup = centered(area, 60, 2 + 3 + 1 + 1 + 1 + 1 + 1);
-            frame.render_widget(Clear, popup);
-            let block = theme.popup(title);
-            let inner = block.inner(popup);
-            frame.render_widget(block, popup);
-            let parts = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([3, 1, 1, 1, 1].map(Constraint::Length))
-                .split(inner);
-            frame.render_widget(
-                Paragraph::new(input_line(input)).block(theme.input(true)),
-                parts[0],
-            );
-            frame.render_widget(Paragraph::new(Span::styled(hint, theme.muted())), parts[2]);
-            frame.render_widget(
-                Paragraph::new(footer(&[("⏎", "apply"), ("esc", "cancel")])),
-                parts[4],
-            );
-        }
+        Overlay::Prompt(prompt) => draw_prompt(frame, app, prompt, area),
         Overlay::Refile(picker) => {
             let popup = centered(area, 84, area.height.saturating_sub(6).max(12));
             frame.render_widget(Clear, popup);

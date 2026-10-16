@@ -185,7 +185,8 @@ fn date_text(timestamp: &PlanningTimestamp) -> String {
     .join(" ")
 }
 
-fn changed_lines(diff: &str) -> String {
+/// The `-` and `+` lines of a unified diff, without its file headers.
+pub(super) fn changed_lines(diff: &str) -> String {
     diff.lines()
         .filter(|line| !line.starts_with("+++") && !line.starts_with("---"))
         .filter(|line| line.starts_with('+') || line.starts_with('-'))

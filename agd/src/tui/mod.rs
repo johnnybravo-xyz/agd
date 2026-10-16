@@ -73,10 +73,7 @@ enum Overlay {
     },
     Capture(capture::Draft),
     Edit(Box<edit::EditForm>),
-    Prompt {
-        kind: PromptKind,
-        input: String,
-    },
+    Prompt(actions::Prompt),
     Refile(actions::RefilePicker),
     /// org-agenda's dispatcher: saved views by key.
     Views {
@@ -303,9 +300,10 @@ impl App {
         });
     }
 
+    /// A refused write or a failure, as a sentence without error codes.
     fn set_error(&mut self, error: &anyhow::Error) {
         let text = match error.downcast_ref::<AgdError>() {
-            Some(error) => format!("✗ {}: {error}", error.code()),
+            Some(error) => format!("✗ {}", error_sentence(error)),
             None => format!("✗ {error:#}"),
         };
         self.status = Some(Status {
@@ -482,6 +480,7 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
     // once per key.
     capture::refresh_stale(app);
     edit::refresh_stale(app);
+    actions::refresh_stale_prompt(app);
     let area = frame.area();
     app.width = area.width;
     if app.capture_only {
@@ -596,6 +595,17 @@ fn stop_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()
     )?;
     terminal.show_cursor()?;
     Ok(())
+}
+
+/// What a core error means for the person at the keyboard. Most messages
+/// already read as sentences; a stale ref's names the raw ref, so it is
+/// said plainly.
+fn error_sentence(error: &AgdError) -> String {
+    match error.code() {
+        "stale_ref" => "this heading changed on disk since agd read it; r refreshes".to_string(),
+        "no_change" => "nothing would change".to_string(),
+        _ => error.to_string(),
+    }
 }
 
 fn write_context() -> WriteContext {

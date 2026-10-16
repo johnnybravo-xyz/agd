@@ -253,7 +253,9 @@ fn refused_write_reports_the_error_and_keeps_rows() {
         fs::write(&path, "* TODO Renamed\nSCHEDULED: <2026-10-13 Tue>\n").unwrap();
         let error = app.mark_done().unwrap_err();
         app.set_error(&error);
-        assert!(app.status.as_ref().unwrap().text.contains("stale_ref"));
+        let status = &app.status.as_ref().unwrap().text;
+        assert!(status.contains("changed on disk"), "{status}");
+        assert!(!status.contains("stale_ref"), "{status}");
         assert_eq!(app.rows.len(), 1);
     });
 }
@@ -879,6 +881,95 @@ fn a_narrow_pane_says_to_widen_instead_of_opening_the_full_view() {
         press(&mut app, KeyCode::Enter);
         assert!(!app.pane);
         assert!(!app.pane_requested);
+    });
+}
+
+#[test]
+#[serial]
+fn the_schedule_prompt_previews_the_exact_change_before_writing() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('s'));
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("Schedule · work.org:1"), "{screen}");
+        // Examples come from today (13 Oct), two weeks out.
+        assert!(screen.contains("2026-10-27 14:00"), "{screen}");
+        assert!(!screen.contains("2026-10-30"), "{screen}");
+
+        type_keys(&mut app, "fri");
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("-SCHEDULED: <2026-10-13 Tue>"), "{screen}");
+        assert!(screen.contains("+SCHEDULED: <2026-10-16 Fri>"), "{screen}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_TODAY);
+
+        press(&mut app, KeyCode::Enter);
+        assert!(matches!(app.overlay, Overlay::None));
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .starts_with("* TODO One\nSCHEDULED: <2026-10-16 Fri>\n")
+        );
+        let status = &app.status.as_ref().unwrap().text;
+        assert!(status.contains("scheduled Fri 16 Oct"), "{status}");
+    });
+}
+
+#[test]
+#[serial]
+fn a_prompt_that_would_change_nothing_says_so_and_stays_open() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('s'));
+        type_keys(&mut app, "today");
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(
+            screen.contains("already scheduled for Tue 13 Oct"),
+            "{screen}"
+        );
+        assert!(!screen.contains("no_change"), "{screen}");
+        press(&mut app, KeyCode::Enter);
+        assert!(matches!(app.overlay, Overlay::Prompt(_)));
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_TODAY);
+    });
+}
+
+#[test]
+#[serial]
+fn the_priority_prompt_refuses_values_outside_the_range() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char(','));
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("A to C; empty clears"), "{screen}");
+        type_keys(&mut app, "z");
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("priority is one of A to C"), "{screen}");
+        press(&mut app, KeyCode::Enter);
+        assert!(matches!(app.overlay, Overlay::Prompt(_)));
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_TODAY);
+
+        press(&mut app, KeyCode::Backspace);
+        type_keys(&mut app, "b");
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("+* TODO [#B] One"), "{screen}");
+        press(&mut app, KeyCode::Enter);
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .starts_with("* TODO [#B] One\n")
+        );
     });
 }
 

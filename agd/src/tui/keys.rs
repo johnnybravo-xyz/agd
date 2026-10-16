@@ -9,6 +9,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
+use super::actions::Prompt;
 use super::{App, Overlay, PromptKind, Screen, TriageState, capture, open_in_editor};
 
 type Term = Terminal<CrosstermBackend<Stdout>>;
@@ -524,10 +525,7 @@ fn run_list(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget
         }
         A::Context => cycle_context(app)?,
         A::Filter => {
-            app.overlay = Overlay::Prompt {
-                kind: PromptKind::Filter,
-                input: app.filter.clone(),
-            }
+            app.overlay = Overlay::Prompt(Prompt::new(PromptKind::Filter, app.filter.clone()))
         }
         A::Edit => {
             if let Some(form) = super::edit::EditForm::open(app) {
@@ -616,10 +614,7 @@ fn cycle_context(app: &mut App) -> Result<()> {
 
 fn prompt(app: &mut App, kind: PromptKind) {
     if app.selected_row().is_some() || !app.marks.is_empty() {
-        app.overlay = Overlay::Prompt {
-            kind,
-            input: String::new(),
-        };
+        app.overlay = Overlay::Prompt(Prompt::new(kind, String::new()));
     }
 }
 
@@ -756,13 +751,17 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
             KeyCode::PageUp => *scroll = scroll.saturating_sub(10),
             _ => app.overlay = Overlay::None,
         },
-        Overlay::Prompt { input, .. } => match key.code {
+        Overlay::Prompt(prompt) => match key.code {
             KeyCode::Esc => app.overlay = Overlay::None,
             KeyCode::Backspace => {
-                input.pop();
+                prompt.input.pop();
+                prompt.stale = true;
             }
             KeyCode::Enter => app.commit_prompt()?,
-            KeyCode::Char(character) => input.push(character),
+            KeyCode::Char(character) => {
+                prompt.input.push(character);
+                prompt.stale = true;
+            }
             _ => {}
         },
         Overlay::Refile(picker) => match key.code {

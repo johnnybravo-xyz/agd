@@ -2,10 +2,10 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use agd_core::{
-    Change, EditIntent, JournalStatus, PlanningTimestamp, WriteEngine, parse_date_input,
+    AgdError, Change, EditIntent, JournalStatus, PlanningTimestamp, WriteEngine, parse_date_input,
 };
 use anyhow::{Result, bail};
-use chrono::{Duration, NaiveDate};
+use chrono::{Datelike, Duration, NaiveDate};
 
 use super::{App, Overlay, PromptKind, Screen, write_context};
 
@@ -17,6 +17,123 @@ pub(super) const SOMEDAY: usize = 3;
 pub(super) const DONE: usize = 4;
 pub(super) const REFILED: usize = 5;
 pub(super) const OTHER: usize = 6;
+
+/// A one-line prompt over the cursor row or the marked rows, with a dry
+/// run of exactly what Enter writes.
+#[derive(Debug)]
+pub(super) struct Prompt {
+    pub kind: PromptKind,
+    pub input: String,
+    /// The changed lines Enter would write (and a count for marked rows),
+    /// or why it would write nothing, as a sentence.
+    pub preview: Result<Vec<String>, String>,
+    /// The preview is out of date; it is rebuilt once before the next draw.
+    pub stale: bool,
+}
+
+impl Prompt {
+    pub(super) fn new(kind: PromptKind, input: String) -> Self {
+        Self {
+            kind,
+            input,
+            preview: Ok(Vec::new()),
+            stale: true,
+        }
+    }
+}
+
+/// What a prompt writes: the edit, its triage outcome, the status label,
+/// and the sentence shown when it would change nothing.
+struct PromptEdit {
+    intent: EditIntent,
+    outcome: usize,
+    label: String,
+    unchanged: String,
+}
+
+/// Rebuilds a stale prompt preview with one dry run per target, as for the
+/// edit popup.
+pub(super) fn refresh_stale_prompt(app: &mut App) {
+    let Overlay::Prompt(prompt) = &app.overlay else {
+        return;
+    };
+    if !prompt.stale {
+        return;
+    }
+    let preview = app.prompt_preview(prompt.kind, &prompt.input);
+    if let Overlay::Prompt(prompt) = &mut app.overlay {
+        prompt.preview = preview;
+        prompt.stale = false;
+    }
+}
+
+/// The DEADLINE edit for an org date, with an optional warning (`-3d`).
+fn deadline_edit(value: &str, today: NaiveDate) -> Result<PromptEdit, String> {
+    let date = parse_date_input(value, today).map_err(|error| error.to_string())?;
+    let when = when(&date, today);
+    Ok(PromptEdit {
+        intent: EditIntent {
+            deadline: Change::Set(date),
+            ..EditIntent::default()
+        },
+        outcome: OTHER,
+        label: format!("deadline {when}"),
+        unchanged: format!("the deadline is already {when}"),
+    })
+}
+
+/// `+tag -tag` (also `tag`, `:tag:` or commas); None until a tag is typed.
+fn tags_edit(input: &str) -> Option<PromptEdit> {
+    let mut intent = EditIntent::default();
+    let mut words = Vec::new();
+    for word in input.split([',', ' ', ':']) {
+        let (remove, tag) = match word.strip_prefix('-') {
+            Some(tag) => (true, tag),
+            None => (false, word.trim_start_matches('+')),
+        };
+        if tag.is_empty() {
+            continue;
+        }
+        if remove {
+            intent.tags_remove.insert(tag.to_string());
+            words.push(format!("-{tag}"));
+        } else {
+            intent.tags_add.insert(tag.to_string());
+            words.push(format!("+{tag}"));
+        }
+    }
+    if words.is_empty() {
+        return None;
+    }
+    Some(PromptEdit {
+        intent,
+        outcome: OTHER,
+        label: format!("tags {}", words.join(" ")),
+        unchanged: "the tags already read that way".to_string(),
+    })
+}
+
+/// A planning date as people say it: `Fri 16 Oct`, with the time and, in
+/// another year, the year.
+fn when(timestamp: &PlanningTimestamp, today: NaiveDate) -> String {
+    let Ok(date) = timestamp.date.parse::<NaiveDate>() else {
+        return timestamp.date.clone();
+    };
+    let format = if date.year() == today.year() {
+        "%a %-d %b"
+    } else {
+        "%a %-d %b %Y"
+    };
+    match &timestamp.time {
+        Some(time) => format!("{} {time}", date.format(format)),
+        None => date.format(format).to_string(),
+    }
+}
+
+/// A date two weeks out, for prompt examples that never go stale.
+pub(super) fn example_date(today: NaiveDate) -> String {
+    (today + Duration::days(14)).format("%Y-%m-%d").to_string()
+}
 
 /// Fuzzy refile target picker over every heading, recent targets first.
 #[derive(Debug)]
@@ -159,10 +276,31 @@ impl App {
             .is_some_and(|keyword| keyword.done)
     }
 
-    /// Reschedules to an org date (`today`, `+1d`, `fri`, `2026-10-30`).
+    /// Reschedules to an org date (`today`, `+1d`, `fri`, `YYYY-MM-DD`).
+    /// A refusal is a sentence, such as the core's date error.
     pub(super) fn schedule(&mut self, value: &str) -> Result<()> {
-        let date = parse_date_input(value, self.today)?;
-        let planned = date.date.parse::<NaiveDate>()?;
+        let edit = self.schedule_edit(value).map_err(anyhow::Error::msg)?;
+        self.apply(edit)
+    }
+
+    /// Writes a prompt's edit; a change to nothing says what is already so.
+    fn apply(&mut self, edit: PromptEdit) -> Result<()> {
+        let unchanged = edit.unchanged;
+        self.edit_targets(edit.intent, edit.outcome, &edit.label)
+            .map_err(|error| match error.downcast_ref::<AgdError>() {
+                Some(refused) if refused.code() == "no_change" => anyhow::Error::msg(unchanged),
+                _ => error,
+            })
+    }
+
+    /// The SCHEDULED edit for an org date, counted for triage by how far
+    /// off it is.
+    fn schedule_edit(&self, value: &str) -> Result<PromptEdit, String> {
+        let date = parse_date_input(value, self.today).map_err(|error| error.to_string())?;
+        let planned = date
+            .date
+            .parse::<NaiveDate>()
+            .map_err(|error| error.to_string())?;
         let outcome = if planned <= self.today {
             TODAY
         } else if planned == self.today + Duration::days(1) {
@@ -172,15 +310,16 @@ impl App {
         } else {
             OTHER
         };
-        let label = format!("scheduled {}", planned.format("%a %-d %b"));
-        self.edit_targets(
-            EditIntent {
+        let when = when(&date, self.today);
+        Ok(PromptEdit {
+            intent: EditIntent {
                 scheduled: Change::Set(date),
                 ..EditIntent::default()
             },
             outcome,
-            &label,
-        )
+            label: format!("scheduled {when}"),
+            unchanged: format!("already scheduled for {when}"),
+        })
     }
 
     /// Someday: add the someday tag and, unless configured otherwise, drop
@@ -245,54 +384,139 @@ impl App {
         )
     }
 
-    pub(super) fn commit_prompt(&mut self) -> Result<()> {
-        let Overlay::Prompt { kind, input } = &self.overlay else {
-            return Ok(());
-        };
-        let (kind, input) = (*kind, input.trim().to_string());
-        self.overlay = Overlay::None;
+    /// The configured priority range as letters, highest first (`A`, `C`).
+    pub(super) fn priority_range(&self) -> (char, char) {
+        let letter = |value: &str| value.chars().next().unwrap_or('A');
+        (
+            letter(&self.settings.highest_priority),
+            letter(&self.settings.lowest_priority),
+        )
+    }
+
+    /// The edit a prompt's text asks for; None while there is nothing to
+    /// write (no date or tag typed yet, or the filter).
+    fn prompt_edit(&self, kind: PromptKind, input: &str) -> Result<Option<PromptEdit>, String> {
+        let input = input.trim();
         match kind {
-            PromptKind::Filter => {
-                self.filter = input;
-                self.reload_rows()
-            }
-            PromptKind::Schedule => self.schedule(&input),
-            PromptKind::Deadline => {
-                let date = parse_date_input(&input, self.today)?;
-                let label = format!("deadline {}", date.date);
-                self.edit_targets(
-                    EditIntent {
-                        deadline: Change::Set(date),
-                        ..EditIntent::default()
-                    },
-                    OTHER,
-                    &label,
-                )
-            }
-            PromptKind::Priority => self.edit_targets(
-                EditIntent {
-                    priority: if input.is_empty() {
-                        Change::Clear
-                    } else {
-                        Change::Set(input.to_ascii_uppercase())
-                    },
+            PromptKind::Filter => Ok(None),
+            PromptKind::Schedule | PromptKind::Deadline if input.is_empty() => Ok(None),
+            PromptKind::Schedule => self.schedule_edit(input).map(Some),
+            PromptKind::Deadline => deadline_edit(input, self.today).map(Some),
+            PromptKind::Priority => self.priority_edit(input).map(Some),
+            PromptKind::Tags => Ok(tags_edit(input)),
+        }
+    }
+
+    /// A priority in the configured range, or empty to clear it.
+    fn priority_edit(&self, input: &str) -> Result<PromptEdit, String> {
+        let (highest, lowest) = self.priority_range();
+        if input.is_empty() {
+            return Ok(PromptEdit {
+                intent: EditIntent {
+                    priority: Change::Clear,
                     ..EditIntent::default()
                 },
-                OTHER,
-                "priority",
-            ),
-            PromptKind::Tags => {
-                let mut intent = EditIntent::default();
-                for tag in input.split([',', ' ', ':']).filter(|tag| !tag.is_empty()) {
-                    if let Some(tag) = tag.strip_prefix('-') {
-                        intent.tags_remove.insert(tag.to_string());
-                    } else {
-                        intent
-                            .tags_add
-                            .insert(tag.trim_start_matches('+').to_string());
-                    }
+                outcome: OTHER,
+                label: "priority cleared".to_string(),
+                unchanged: "it has no priority".to_string(),
+            });
+        }
+        let letter = input.to_ascii_uppercase();
+        let mut characters = letter.chars();
+        let in_range = matches!(
+            (characters.next(), characters.next()),
+            (Some(value), None) if (highest..=lowest).contains(&value)
+        );
+        if !in_range {
+            return Err(format!(
+                "priority is one of {highest} to {lowest}; empty clears it"
+            ));
+        }
+        Ok(PromptEdit {
+            intent: EditIntent {
+                priority: Change::Set(letter.clone()),
+                ..EditIntent::default()
+            },
+            outcome: OTHER,
+            label: format!("priority {letter}"),
+            unchanged: format!("already priority {letter}"),
+        })
+    }
+
+    /// Dry-runs `edit` on every target: the first changed target's lines,
+    /// a count when rows are marked, or why nothing would be written.
+    fn dry_run(&self, edit: &PromptEdit) -> Result<Vec<String>, String> {
+        let engine = WriteEngine::with_default_journal(self.settings.clone())
+            .map_err(|error| super::error_sentence(&error))?;
+        let targets = self.targets();
+        let mut first = None;
+        let mut changing = 0;
+        for target in &targets {
+            match engine.edit(target, &edit.intent, true, &write_context()) {
+                Ok(mutation) => {
+                    changing += 1;
+                    first.get_or_insert_with(|| super::edit::changed_lines(&mutation.diff));
                 }
-                self.edit_targets(intent, OTHER, "tags")
+                Err(error) if error.code() == "no_change" => {}
+                Err(error) => return Err(super::error_sentence(&error)),
+            }
+        }
+        let Some(first) = first else {
+            return Err(edit.unchanged.clone());
+        };
+        let mut lines: Vec<String> = first.lines().map(str::to_string).collect();
+        if targets.len() > 1 {
+            lines.push(format!(
+                "{changing} of {} marked rows change",
+                targets.len()
+            ));
+        }
+        Ok(lines)
+    }
+
+    /// The preview a prompt shows: what Enter would write, or why not.
+    pub(super) fn prompt_preview(
+        &self,
+        kind: PromptKind,
+        input: &str,
+    ) -> Result<Vec<String>, String> {
+        match self.prompt_edit(kind, input)? {
+            Some(edit) => self.dry_run(&edit),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Enter in a prompt: writes exactly what the preview shows; a refusal
+    /// or a change to nothing keeps the prompt open with the reason.
+    pub(super) fn commit_prompt(&mut self) -> Result<()> {
+        let Overlay::Prompt(prompt) = &self.overlay else {
+            return Ok(());
+        };
+        let (kind, input) = (prompt.kind, prompt.input.trim().to_string());
+        if kind == PromptKind::Filter {
+            self.overlay = Overlay::None;
+            self.filter = input;
+            return self.reload_rows();
+        }
+        let checked = self.prompt_edit(kind, &input).and_then(|edit| match edit {
+            Some(edit) => self.dry_run(&edit).map(|_| Some(edit)),
+            None => Ok(None),
+        });
+        match checked {
+            Err(reason) => {
+                if let Overlay::Prompt(prompt) = &mut self.overlay {
+                    prompt.preview = Err(reason);
+                    prompt.stale = false;
+                }
+                Ok(())
+            }
+            Ok(None) => {
+                self.overlay = Overlay::None;
+                Ok(())
+            }
+            Ok(Some(edit)) => {
+                self.overlay = Overlay::None;
+                self.apply(edit)
             }
         }
     }

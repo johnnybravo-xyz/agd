@@ -419,10 +419,11 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             cursor(focused),
         ];
         if value.is_empty() && prompt.date {
+            let examples = format!("fri · +2d · {}", super::actions::example_date(app.today));
             let token = match prompt.planning.as_deref() {
-                Some("DEADLINE") => "fri · +2d · 2026-10-30, or due: above",
-                Some("SCHEDULED") => "fri · +2d · 2026-10-30, or on: above",
-                _ => "fri · +2d · 2026-10-30",
+                Some("DEADLINE") => format!("{examples}, or due: above"),
+                Some("SCHEDULED") => format!("{examples}, or on: above"),
+                _ => examples,
             };
             spans.push(Span::styled(token, theme.muted()));
         }
