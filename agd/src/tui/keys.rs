@@ -282,6 +282,7 @@ pub(super) const TRIAGE_KEYS: &[KeyGroup] = &[
         bindings: &[
             bind("n j ↓", &[Char('n'), Char('j'), Code(KeyCode::Down)], A::Next, "next card", "skip to the next card", "n"),
             bind("p k ↑", &[Char('p'), Char('k'), Code(KeyCode::Up)], A::Previous, "previous card", "back to the previous card", "p"),
+            bind("C-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", "RET"),
         ],
     },
     SWITCH,
@@ -593,7 +594,7 @@ pub(super) fn dispatch(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
             let Some(action) = action_for(TRIAGE_KEYS, key) else {
                 return Ok(None);
             };
-            run_triage(app, action, key).map(|()| None)
+            run_triage(app, action, key)
         }
         Screen::Review => {
             let Some(action) = action_for(AGENT_KEYS, key) else {
@@ -883,22 +884,24 @@ fn triage_undo(app: &mut App) -> Result<()> {
 
 /// Triage. A finished pass shows its summary, where `u` undoes all of it
 /// and `p` goes back to the last card; the other decisions have no card.
-fn run_triage(app: &mut App, action: Action, key: KeyEvent) -> Result<()> {
+fn run_triage(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget> {
     if run_switch(app, action, key)? || run_go(app, action)? {
-        return Ok(());
+        return Ok(None);
     }
     if action == A::Back {
         let back = app.back.clone();
-        return app.switch_screen(back);
+        return app.switch_screen(back).map(|()| None);
     }
     if app.rows.is_empty() {
-        return match action {
-            A::Undo => triage_undo(app),
-            A::Previous if !app.triage.queue.is_empty() => triage_move(app, -1),
-            _ => Ok(()),
-        };
+        match action {
+            A::Undo => triage_undo(app)?,
+            A::Previous if !app.triage.queue.is_empty() => triage_move(app, -1)?,
+            _ => {}
+        }
+        return Ok(None);
     }
     match action {
+        A::Editor => return Ok(selected_location(app)),
         A::Today => app.schedule("today")?,
         A::Tomorrow => app.schedule("+1d")?,
         A::NextWeek => app.schedule("+1w")?,
@@ -914,7 +917,7 @@ fn run_triage(app: &mut App, action: Action, key: KeyEvent) -> Result<()> {
         A::Previous => triage_move(app, -1)?,
         _ => {}
     }
-    Ok(())
+    Ok(None)
 }
 
 fn run_agents(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget> {

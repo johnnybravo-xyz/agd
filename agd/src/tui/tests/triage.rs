@@ -228,8 +228,17 @@ fn in_triage_q_quits_esc_goes_back_and_tab_switches_tabs() {
         assert!(!app.quit);
         assert_eq!(fs::read_to_string(&path).unwrap(), THREE_OVERDUE);
 
-        // On a card and on the finished pass, q quits.
+        // C-e opens the card's heading in $EDITOR, as in the lists.
         press(&mut app, KeyCode::Char('T'));
+        let card = app.selected_row().unwrap().item.clone();
+        let control_e = crossterm::event::KeyEvent::new(
+            KeyCode::Char('e'),
+            crossterm::event::KeyModifiers::CONTROL,
+        );
+        let opened = crate::tui::keys::dispatch(&mut app, control_e).unwrap();
+        assert_eq!(opened, Some((card.file, card.line)));
+
+        // On a card and on the finished pass, q quits.
         press(&mut app, KeyCode::Char('q'));
         assert!(app.quit);
         app.quit = false;
