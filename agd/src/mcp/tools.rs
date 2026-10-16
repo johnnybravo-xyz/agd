@@ -1,3 +1,8 @@
+//! The MCP tools: one request struct per tool, then the router with one
+//! `#[tool]` method each, then the helpers they share. Every tool answers
+//! with one JSON content block in an agd schema; a failure is an
+//! agd.error/v1 block with `isError` set.
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use agd_core::{
@@ -7,13 +12,14 @@ use agd_core::{
 use chrono::{Local, NaiveDate};
 use rmcp::{
     ErrorData as McpError, RoleServer,
-    handler::server::wrapper::Parameters,
-    model::{CallToolResult, ContentBlock, ErrorCode},
-    schemars,
+    handler::server::tool::{schema_for_input, schema_for_type},
+    model::{CallToolResult, ContentBlock, ErrorCode, JsonObject},
+    schemars::{self, JsonSchema},
     service::RequestContext,
     tool, tool_router,
 };
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
+use serde_json::Value;
 
 use crate::mcp::OrgModeRouter;
 
@@ -86,218 +92,315 @@ struct QueryRequest {
     expression: String,
 }
 
+/// Each tool takes its arguments as a raw object and parses them itself
+/// (`parse_arguments`), so a bad argument is an agd.error/v1 result rather
+/// than a JSON-RPC error; `input_schema` still publishes the request struct.
 #[tool_router(vis = "pub(crate)")]
 impl OrgModeRouter {
     #[tool(
         name = "agenda",
-        description = "Return native agenda-entry/v1 rows for a date span"
+        description = "Return native agenda-entry/v1 rows for a date span",
+        input_schema = input_schema::<AgendaRequest>()
     )]
-    async fn agenda(
-        &self,
-        Parameters(request): Parameters<AgendaRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let result = (|| {
-            let index = WorkspaceIndex::load(self.settings.clone())?;
-            let today = Local::now().date_naive();
-            let from = request
-                .from
-                .as_deref()
-                .map(|value| parse_day(value, today))
-                .transpose()?
-                .unwrap_or(today);
-            let span = match request
-                .span
-                .as_deref()
-                .unwrap_or(&self.settings.agenda_span)
-            {
-                "day" => AgendaSpan::Day,
-                "week" => AgendaSpan::Week,
-                "month" => AgendaSpan::Month,
-                value => {
-                    return Err(AgdError::new(
-                        "invalid_span",
-                        format!("unsupported agenda span: {value}"),
-                    ));
-                }
-            };
-            let (from, to) = span.bounds(from, &self.settings.week_start);
-            AgendaEngine::new(&index).agenda(&AgendaQuery {
-                from,
-                to,
-                today,
-                match_expression: request.match_expression,
-                log_mode: false,
-            })
-        })();
-        schema_result(result)
+    async fn agenda(&self, arguments: JsonObject) -> Result<CallToolResult, McpError> {
+        tool_result(
+            parse_arguments::<AgendaRequest>(arguments)
+                .and_then(|request| agenda(&self.settings, request)),
+        )
     }
 
     #[tool(
         name = "capture",
-        description = "Capture a literal item with a configured template"
+        description = "Capture a literal item with a configured template",
+        input_schema = input_schema::<CaptureRequest>()
     )]
     async fn capture(
         &self,
-        Parameters(request): Parameters<CaptureRequest>,
+        arguments: JsonObject,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        let result = (|| {
-            let today = Local::now().date_naive();
-            let draft = CaptureDraft {
-                title: request.title,
-                scheduled: parse_optional_date(request.scheduled.as_deref(), today)?,
-                deadline: parse_optional_date(request.deadline.as_deref(), today)?,
-                tags: request.tags,
-                priority: request.priority,
-                properties: request.properties,
-            };
-            WriteEngine::with_default_journal(self.settings.clone())?.capture(
-                &request.template,
-                &draft,
-                &request.body,
-                &request.prompts,
-                false,
-                &write_context(&context, &self.project),
-            )
-        })();
-        schema_result(result)
+        let write = write_context(&context, &self.project);
+        tool_result(
+            parse_arguments::<CaptureRequest>(arguments)
+                .and_then(|request| capture(&self.settings, request, &write)),
+        )
     }
 
     #[tool(
         name = "set_state",
-        description = "Set an item's TODO state after ref revalidation"
+        description = "Set an item's TODO state after ref revalidation",
+        input_schema = input_schema::<SetStateRequest>()
     )]
     async fn set_state(
         &self,
-        Parameters(request): Parameters<SetStateRequest>,
+        arguments: JsonObject,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        let intent = EditIntent {
-            state: Change::Set(request.state),
-            note: request.note,
-            ..EditIntent::default()
-        };
-        schema_result(edit(
-            &self.settings,
-            &request.item_ref,
-            intent,
-            &context,
-            &self.project,
-        ))
+        let write = write_context(&context, &self.project);
+        tool_result(
+            parse_arguments::<SetStateRequest>(arguments).and_then(|request| {
+                let intent = EditIntent {
+                    state: Change::Set(request.state),
+                    note: request.note,
+                    ..EditIntent::default()
+                };
+                edit(&self.settings, &request.item_ref, intent, &write)
+            }),
+        )
     }
 
     #[tool(
         name = "plan",
-        description = "Set an item's scheduled and/or deadline timestamp"
+        description = "Set an item's scheduled and/or deadline timestamp",
+        input_schema = input_schema::<PlanRequest>()
     )]
     async fn plan(
         &self,
-        Parameters(request): Parameters<PlanRequest>,
+        arguments: JsonObject,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        let result = (|| {
-            if request.scheduled.is_none() && request.deadline.is_none() {
-                return Err(AgdError::new(
-                    "invalid_plan",
-                    "scheduled or deadline is required",
-                ));
-            }
-            let today = Local::now().date_naive();
-            let intent = EditIntent {
-                scheduled: request
-                    .scheduled
-                    .as_deref()
-                    .map(|value| parse_date_input(value, today).map(Change::Set))
-                    .transpose()?
-                    .unwrap_or_default(),
-                deadline: request
-                    .deadline
-                    .as_deref()
-                    .map(|value| parse_date_input(value, today).map(Change::Set))
-                    .transpose()?
-                    .unwrap_or_default(),
-                note: request.note,
-                ..EditIntent::default()
-            };
-            edit(
-                &self.settings,
-                &request.item_ref,
-                intent,
-                &context,
-                &self.project,
-            )
-        })();
-        schema_result(result)
+        let write = write_context(&context, &self.project);
+        tool_result(
+            parse_arguments::<PlanRequest>(arguments)
+                .and_then(|request| plan(&self.settings, request, &write)),
+        )
     }
 
     #[tool(
         name = "edit",
-        description = "Edit item title, tags, priority, properties, or note"
+        description = "Edit item title, tags, priority, properties, or note",
+        input_schema = input_schema::<EditRequest>()
     )]
     async fn edit(
         &self,
-        Parameters(request): Parameters<EditRequest>,
+        arguments: JsonObject,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        let intent = EditIntent {
-            title: request.title.map(Change::Set).unwrap_or_default(),
-            priority: request.priority.map(Change::Set).unwrap_or_default(),
-            tags_add: request.tags_add.into_iter().collect::<BTreeSet<_>>(),
-            tags_remove: request.tags_remove.into_iter().collect::<BTreeSet<_>>(),
-            properties: request.properties,
-            note: request.note,
-            ..EditIntent::default()
-        };
-        schema_result(edit(
-            &self.settings,
-            &request.item_ref,
-            intent,
-            &context,
-            &self.project,
-        ))
+        let write = write_context(&context, &self.project);
+        tool_result(
+            parse_arguments::<EditRequest>(arguments).and_then(|request| {
+                let intent = EditIntent {
+                    title: request.title.map(Change::Set).unwrap_or_default(),
+                    priority: request.priority.map(Change::Set).unwrap_or_default(),
+                    tags_add: request.tags_add.into_iter().collect::<BTreeSet<_>>(),
+                    tags_remove: request.tags_remove.into_iter().collect::<BTreeSet<_>>(),
+                    properties: request.properties,
+                    note: request.note,
+                    ..EditIntent::default()
+                };
+                edit(&self.settings, &request.item_ref, intent, &write)
+            }),
+        )
     }
 
     #[tool(
         name = "query",
-        description = "Query items with the supported org-ql subset"
+        description = "Query items with the supported org-ql subset",
+        input_schema = input_schema::<QueryRequest>()
     )]
-    async fn query(
-        &self,
-        Parameters(request): Parameters<QueryRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let result = WorkspaceIndex::load(self.settings.clone()).and_then(|index| {
-            AgendaEngine::new(&index).query(&request.expression, Local::now().date_naive())
-        });
-        schema_result(result)
+    async fn query(&self, arguments: JsonObject) -> Result<CallToolResult, McpError> {
+        tool_result(
+            parse_arguments::<QueryRequest>(arguments).and_then(|request| {
+                let index = WorkspaceIndex::load(self.settings.clone())?;
+                AgendaEngine::new(&index).query(&request.expression, Local::now().date_naive())
+            }),
+        )
     }
+}
+
+fn agenda(
+    settings: &agd_core::Settings,
+    request: AgendaRequest,
+) -> Result<Vec<agd_core::AgendaEntry>, AgdError> {
+    let index = WorkspaceIndex::load(settings.clone())?;
+    let today = Local::now().date_naive();
+    let from = request
+        .from
+        .as_deref()
+        .map(|value| parse_day(value, today))
+        .transpose()?
+        .unwrap_or(today);
+    let span = match request.span.as_deref().unwrap_or(&settings.agenda_span) {
+        "day" => AgendaSpan::Day,
+        "week" => AgendaSpan::Week,
+        "month" => AgendaSpan::Month,
+        value => {
+            return Err(AgdError::new(
+                "invalid_span",
+                format!("unsupported agenda span: {value}"),
+            ));
+        }
+    };
+    let (from, to) = span.bounds(from, &settings.week_start);
+    AgendaEngine::new(&index).agenda(&AgendaQuery {
+        from,
+        to,
+        today,
+        match_expression: request.match_expression,
+        log_mode: false,
+    })
+}
+
+fn capture(
+    settings: &agd_core::Settings,
+    request: CaptureRequest,
+    context: &WriteContext,
+) -> Result<agd_core::Mutation, AgdError> {
+    let today = Local::now().date_naive();
+    let draft = CaptureDraft {
+        title: request.title,
+        scheduled: parse_optional_date(request.scheduled.as_deref(), today)?,
+        deadline: parse_optional_date(request.deadline.as_deref(), today)?,
+        tags: request.tags,
+        priority: request.priority,
+        properties: request.properties,
+    };
+    WriteEngine::with_default_journal(settings.clone())?.capture(
+        &request.template,
+        &draft,
+        &request.body,
+        &request.prompts,
+        false,
+        context,
+    )
+}
+
+fn plan(
+    settings: &agd_core::Settings,
+    request: PlanRequest,
+    context: &WriteContext,
+) -> Result<agd_core::Mutation, AgdError> {
+    if request.scheduled.is_none() && request.deadline.is_none() {
+        return Err(AgdError::new(
+            "invalid_plan",
+            "scheduled or deadline is required",
+        ));
+    }
+    let today = Local::now().date_naive();
+    let intent = EditIntent {
+        scheduled: request
+            .scheduled
+            .as_deref()
+            .map(|value| parse_date_input(value, today).map(Change::Set))
+            .transpose()?
+            .unwrap_or_default(),
+        deadline: request
+            .deadline
+            .as_deref()
+            .map(|value| parse_date_input(value, today).map(Change::Set))
+            .transpose()?
+            .unwrap_or_default(),
+        note: request.note,
+        ..EditIntent::default()
+    };
+    edit(settings, &request.item_ref, intent, context)
 }
 
 fn edit(
     settings: &agd_core::Settings,
     item_ref: &str,
     intent: EditIntent,
-    context: &RequestContext<RoleServer>,
-    project: &str,
+    context: &WriteContext,
 ) -> Result<agd_core::Mutation, AgdError> {
-    WriteEngine::with_default_journal(settings.clone())?.edit(
-        item_ref,
-        &intent,
-        false,
-        &write_context(context, project),
-    )
+    WriteEngine::with_default_journal(settings.clone())?.edit(item_ref, &intent, false, context)
 }
 
-fn schema_result<T: Serialize>(result: Result<T, AgdError>) -> Result<CallToolResult, McpError> {
-    let content = match result {
-        Ok(value) => ContentBlock::json(value),
-        Err(error) => ContentBlock::json(error.response()),
+/// A tool's JSON schema for its request struct, as `Parameters<T>` would
+/// publish it.
+fn input_schema<T: JsonSchema + 'static>() -> std::sync::Arc<JsonObject> {
+    schema_for_input::<T>()
+        .unwrap_or_else(|error| panic!("invalid input schema for a tool request: {error}"))
+}
+
+/// Reads a tool's arguments into its request struct. A bad argument is an
+/// `invalid_arguments` error naming it and listing the accepted arguments,
+/// so the model can correct its call.
+fn parse_arguments<T: DeserializeOwned + JsonSchema + 'static>(
+    arguments: JsonObject,
+) -> Result<T, AgdError> {
+    let error = match serde_json::from_value::<T>(Value::Object(arguments.clone())) {
+        Ok(request) => return Ok(request),
+        Err(error) => error.to_string(),
+    };
+    // serde names the argument in these two; a type error names only the
+    // type it expected.
+    let problem = if error.starts_with("unknown field") || error.starts_with("missing field") {
+        error
+    } else {
+        match invalid_argument::<T>(&arguments) {
+            Some(name) => format!("invalid `{name}`: {error}"),
+            None => error,
+        }
+    };
+    Err(AgdError::new(
+        "invalid_arguments",
+        format!(
+            "{problem}; accepted arguments: {}",
+            accepted_arguments::<T>()
+        ),
+    ))
+}
+
+/// The argument whose value fails to parse: the one that, left out, lets
+/// the rest parse or be missing only itself.
+fn invalid_argument<T: DeserializeOwned>(arguments: &JsonObject) -> Option<String> {
+    arguments
+        .keys()
+        .find(|name| {
+            let mut rest = arguments.clone();
+            rest.remove(name.as_str());
+            match serde_json::from_value::<T>(Value::Object(rest)) {
+                Ok(_) => true,
+                Err(error) => error.to_string() == format!("missing field `{name}`"),
+            }
+        })
+        .cloned()
+}
+
+/// `template (required), title (required), scheduled, ...` from the
+/// request's schema.
+fn accepted_arguments<T: JsonSchema + 'static>() -> String {
+    let schema = schema_for_type::<T>();
+    let required: Vec<&str> = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|names| names.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .map(|properties| {
+            properties
+                .keys()
+                .map(|name| {
+                    if required.contains(&name.as_str()) {
+                        format!("{name} (required)")
+                    } else {
+                        name.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default()
+}
+
+/// The tool's answer: the value as JSON on success; the agd.error/v1
+/// response with `isError` set on failure, so the client sees the call
+/// did not do what was asked.
+fn tool_result<T: Serialize>(result: Result<T, AgdError>) -> Result<CallToolResult, McpError> {
+    match result {
+        Ok(value) => Ok(CallToolResult::success(vec![json_block(value)?])),
+        Err(error) => Ok(CallToolResult::error(vec![json_block(error.response())?])),
     }
-    .map_err(|error| McpError {
+}
+
+fn json_block(value: impl Serialize) -> Result<ContentBlock, McpError> {
+    ContentBlock::json(value).map_err(|error| McpError {
         code: ErrorCode::INTERNAL_ERROR,
         message: format!("cannot serialize schema response: {error}").into(),
         data: None,
-    })?;
-    Ok(CallToolResult::success(vec![content]))
+    })
 }
 
 fn parse_optional_date(

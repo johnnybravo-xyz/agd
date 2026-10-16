@@ -68,6 +68,36 @@ fn content_json(value: &impl serde::Serialize) -> Value {
     serde_json::to_value(value).expect("MCP result JSON")
 }
 
+async fn call(
+    service: &rmcp::service::RunningService<rmcp::RoleClient, ()>,
+    tool: &'static str,
+    arguments: Value,
+) -> Result<rmcp::model::CallToolResult, Box<dyn std::error::Error>> {
+    let arguments = arguments.as_object().expect("arguments object").clone();
+    Ok(service
+        .call_tool(CallToolRequestParams::new(tool).with_arguments(arguments))
+        .await?)
+}
+
+/// The JSON a tool result carries in its first content block.
+fn first_block(result: &rmcp::model::CallToolResult) -> Value {
+    let text = result.content[0]
+        .as_text()
+        .expect("first content block is text")
+        .text
+        .as_str();
+    serde_json::from_str(text).expect("first content block is JSON")
+}
+
+/// The org files in the fixture directory, to show a refused call wrote none.
+fn org_files(directory: &tempfile::TempDir) -> usize {
+    fs::read_dir(directory.path())
+        .expect("fixture directory")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "org"))
+        .count()
+}
+
 #[tokio::test]
 async fn exposes_only_the_short_spec_tool_list() -> Result<(), Box<dyn std::error::Error>> {
     let directory = fixture();
@@ -150,6 +180,38 @@ async fn writes_return_mutations_and_failures_return_error_schemas()
     let encoded = content_json(&result).to_string();
     assert!(encoded.contains("agd.error/v1"));
     assert!(encoded.contains("stale_ref"));
+    // A refused write is a tool error, so the client knows nothing changed.
+    assert_eq!(result.is_error, Some(true));
+    service.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn bad_arguments_are_error_schemas_naming_the_argument()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = fixture();
+    let service = service(&directory).await?;
+
+    let result = call(&service, "set_state", json!({"ref": 3, "state": "DONE"})).await?;
+    assert_eq!(result.is_error, Some(true));
+    let error = first_block(&result);
+    assert_eq!(error["schema"], "agd.error/v1");
+    assert_eq!(error["code"], "invalid_arguments");
+    let message = error["message"].as_str().expect("message");
+    assert!(
+        message.starts_with("invalid `ref`: invalid type"),
+        "{message}"
+    );
+    assert!(
+        message.contains("accepted arguments: note, ref (required), state (required)"),
+        "{message}"
+    );
+
+    let result = call(&service, "capture", json!({"title": "Buy milk"})).await?;
+    assert_eq!(result.is_error, Some(true));
+    let message = first_block(&result)["message"].to_string();
+    assert!(message.contains("missing field `template`"), "{message}");
+    assert_eq!(org_files(&directory), 1);
     service.cancel().await?;
     Ok(())
 }
