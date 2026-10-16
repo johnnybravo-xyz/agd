@@ -440,7 +440,7 @@ pub fn apply_import(
     }
 
     // The written config must load; only its roots may not exist yet.
-    crate::settings::validate_values(&settings).map_err(|error| {
+    crate::config::validate_values(&settings).map_err(|error| {
         AgdError::new(
             "unsupported_import_shape",
             format!("the imported settings would not load: {error}"),

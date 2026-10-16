@@ -15,7 +15,7 @@ pub struct LoadedSettings {
 }
 
 pub fn default_config_path() -> Result<PathBuf, AgdError> {
-    Ok(crate::paths::config_dir()?.join("config.toml"))
+    Ok(crate::path::config_dir()?.join("config.toml"))
 }
 
 pub fn load_settings(
@@ -332,8 +332,8 @@ mod tests {
 
     use super::*;
     use crate::ViewBlock;
-    use crate::settings::model::strings;
-    use crate::settings::test_support::{load_body, load_error};
+    use crate::config::model::strings;
+    use crate::config::test_support::{load_body, load_error};
 
     #[test]
     fn flat_keys_and_records_load_and_unknown_keys_are_errors() {

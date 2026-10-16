@@ -99,7 +99,7 @@ impl WriteEngine {
     }
 
     pub fn with_default_journal(settings: Settings) -> Result<Self, AgdError> {
-        Self::new(settings, crate::paths::data_dir()?.join("journal.jsonl"))
+        Self::new(settings, crate::path::data_dir()?.join("journal.jsonl"))
     }
 
     pub fn settings(&self) -> &Settings {

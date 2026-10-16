@@ -125,7 +125,7 @@ impl WriteEngine {
         let path = self.roots.resolve_write(Path::new(file.as_ref()), true)?;
         // Canonical like every indexed path, so the journal, refs and the
         // index agree (on macOS /var is /private/var).
-        let path = crate::paths::resolve_existing_prefix(&path)?;
+        let path = crate::path::resolve_existing_prefix(&path)?;
         self.roots.resolve_write(&path, true)
     }
 

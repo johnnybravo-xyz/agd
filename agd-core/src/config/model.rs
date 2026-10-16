@@ -439,8 +439,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::config::test_support::{load_body, load_error};
     use crate::render_config;
-    use crate::settings::test_support::{load_body, load_error};
 
     #[test]
     fn editor_command_substitutes_every_placeholder_per_argument() {

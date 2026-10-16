@@ -2,12 +2,12 @@ pub mod agenda;
 pub mod capture_line;
 pub mod capture_template;
 pub mod check;
+pub mod config;
 pub mod date;
 pub mod document;
-pub mod imports;
+pub mod import;
 pub mod model;
-pub mod paths;
-pub mod settings;
+pub mod path;
 pub mod write;
 
 pub use agenda::{
@@ -20,12 +20,17 @@ pub use check::{
     CHECK_SCHEMA, CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError,
     IndexedHeadline, OrgDocument, SourceSpan, check_paths, check_settings, journal_problems,
 };
+pub use config::{
+    AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, LogMode, SORTING_KEYS,
+    Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, WeekStart,
+    default_config_path, load_settings, parse_agenda_day, parse_config_file, render_config,
+};
 pub use date::{date_preview, format_active_timestamp, now_local_naive, parse_date_input};
 pub use document::{
     ByteSpan, HeadlineSpan, LogKind, LogSettings, OrgDocument as IndexedDocument, PriorityRange,
     PropertySpan, SourceLine, TimestampSpan, TodoKeyword, WorkspaceIndex, parse_timestamp,
 };
-pub use imports::{
+pub use import::{
     ConfigEditor, ConfigSources, ImportDiagnostic, ImportResult, ImportStatus, ImportedCapture,
     ImportedCommand, ResolvedEditorConfig, apply_import, find_config_sources, import_root,
 };
@@ -34,12 +39,7 @@ pub use model::{
     ITEM_SCHEMA, Item, MUTATION_SCHEMA, Mutation, Occurrence, OccurrenceType, Planning,
     PlanningTimestamp, Repeat, VIEW_SECTION_SCHEMA, VIEWS_SCHEMA,
 };
-pub use paths::{OrgFiles, RootSet, SkipReason};
-pub use settings::{
-    AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, LogMode, SORTING_KEYS,
-    Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, WeekStart,
-    default_config_path, load_settings, parse_agenda_day, parse_config_file, render_config,
-};
+pub use path::{OrgFiles, RootSet, SkipReason};
 pub use write::{
     BatchMutation, Change, EditIntent, ItemEdit, JournalRecord, JournalStatus, Patch, RefileResult,
     StoredPatch, UndoResult, WriteContext, WriteEngine, apply_patches,

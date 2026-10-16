@@ -28,6 +28,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `answered_by` tells whether a capture line's `due:`/`on:` gives it.
 - `ResolvedEditorConfig::capture` is a list in the editor's order, each
   `ImportedCapture` with its `key`.
+- Modules are named with singular nouns for what they own: `agenda_engine`
+  is `agenda`, `settings` is `config`, `imports` is `import` and `paths` is
+  `path`, and the capture line and capture templates moved from `date` to
+  `capture_line` and `capture_template`. Every item the crate root
+  re-exports keeps its name and its `agd_core::Name` path.
 
 ## [0.1.0] - 2026-10-14
 

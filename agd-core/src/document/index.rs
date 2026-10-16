@@ -122,7 +122,7 @@ impl WorkspaceIndex {
     /// ignored.
     pub fn refresh_path(&mut self, path: &Path) -> Result<(), AgdError> {
         if !path.exists() {
-            let removed = crate::paths::resolve_existing_prefix(path)?;
+            let removed = crate::path::resolve_existing_prefix(path)?;
             self.forget_paths_under(&removed);
             self.rebuild_ids();
             return Ok(());

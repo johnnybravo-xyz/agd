@@ -362,7 +362,7 @@ fn validate_agent_profiles(profiles: &[AgentProfile]) -> Result<(), AgdError> {
 mod tests {
     use chrono::NaiveDate;
 
-    use crate::settings::test_support::{load_body, load_error};
+    use crate::config::test_support::{load_body, load_error};
 
     #[test]
     fn unknown_start_view_says_how_to_open_today() {
