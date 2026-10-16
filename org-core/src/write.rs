@@ -300,6 +300,7 @@ impl WriteEngine {
                 )
             })?;
         let (template, draft) = apply_agent_capture_gate(template, draft, &self.settings, context);
+        let template = with_template_file_text(template)?;
         let input = CaptureInput {
             template: &template,
             draft: &draft,
@@ -353,7 +354,9 @@ impl WriteEngine {
                 ),
             )
         })?;
-        let path = self.roots.resolve_write(Path::new(file), true)?;
+        // `~` expands as in roots, before the path is confined to them.
+        let file = shellexpand::tilde(file);
+        let path = self.roots.resolve_write(Path::new(file.as_ref()), true)?;
         // Canonical like every indexed path, so the journal, refs and the
         // index agree (on macOS /var is /private/var).
         let path = crate::paths::resolve_existing_prefix(&path)?;
@@ -2189,6 +2192,26 @@ fn capture_id_error(template_key: &str, id: &str, error: AgdError) -> AgdError {
     )
 }
 
+/// The template with its text read from `template_file` when it names one
+/// (`~` expanded), as org-capture's `(file "...")` template.
+fn with_template_file_text(mut template: CaptureTemplate) -> Result<CaptureTemplate, AgdError> {
+    let Some(file) = &template.template_file else {
+        return Ok(template);
+    };
+    let path = shellexpand::tilde(file).into_owned();
+    template.template = fs::read_to_string(&path).map_err(|error| {
+        AgdError::with_source(
+            "template_unreadable",
+            format!(
+                "capture template '{}' reads its text from {path}, which cannot be read: {error}",
+                template.key
+            ),
+            error,
+        )
+    })?;
+    Ok(template)
+}
+
 // With agents.capture_to = "inbox", an agent capture always lands in the
 // inbox template without planning, so it reaches the day only through triage.
 fn apply_agent_capture_gate(
@@ -2280,6 +2303,9 @@ fn refuse_emacs_lock(path: &Path) -> Result<(), AgdError> {
     Ok(())
 }
 
+/// Replaces `path` through a same-directory temporary file and a rename.
+/// A replaced file keeps its mode; a new one gets the default mode (0666
+/// less the umask), as an editor would create it.
 fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), AgdError> {
     let parent = path
         .parent()
@@ -2287,22 +2313,33 @@ fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), AgdError> {
     let permissions = fs::metadata(path)
         .ok()
         .map(|metadata| metadata.permissions());
-    let mut temporary = tempfile::Builder::new()
-        .prefix(".agd-")
-        .tempfile_in(parent)
-        .map_err(AgdError::from)?;
-    temporary.write_all(bytes).map_err(AgdError::from)?;
-    if let Some(permissions) = permissions {
-        temporary
-            .as_file()
-            .set_permissions(permissions)
-            .map_err(AgdError::from)?;
+    let temporary = parent.join(format!(".agd-{}.tmp", uuid::Uuid::new_v4()));
+    let written = write_synced_new_file(&temporary, bytes, permissions)
+        .and_then(|()| fs::rename(&temporary, path).map_err(AgdError::from));
+    if let Err(error) = written {
+        let _ = fs::remove_file(&temporary);
+        return Err(error);
     }
-    temporary.as_file().sync_all().map_err(AgdError::from)?;
-    temporary
-        .persist(path)
-        .map_err(|error| AgdError::from(error.error))?;
     sync_parent_directory(parent)
+}
+
+/// Creates `path` (which must not exist) with the default mode, or with
+/// `permissions` when given, and syncs its bytes to disk.
+fn write_synced_new_file(
+    path: &Path,
+    bytes: &[u8],
+    permissions: Option<fs::Permissions>,
+) -> Result<(), AgdError> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(AgdError::from)?;
+    file.write_all(bytes).map_err(AgdError::from)?;
+    if let Some(permissions) = permissions {
+        file.set_permissions(permissions).map_err(AgdError::from)?;
+    }
+    file.sync_all().map_err(AgdError::from)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -2907,6 +2944,93 @@ mod tests {
             .capture("m", &draft, "", &BTreeMap::new(), false, &context())
             .unwrap_err();
         assert_eq!(error.code(), "capture_target_not_found");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_files_get_the_default_mode_and_rewrites_keep_theirs() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let probe = temp.path().join("probe.txt");
+        fs::File::create(&probe).unwrap();
+        let default_mode = fs::metadata(&probe).unwrap().permissions().mode() & 0o777;
+        let mut settings = settings(temp.path());
+        settings.captures[0].file = Some("inbox.org".to_string());
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "First".to_string(),
+            ..CaptureDraft::default()
+        };
+        engine
+            .capture("t", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap();
+        let inbox = temp.path().join("inbox.org");
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&inbox), default_mode);
+        fs::set_permissions(&inbox, fs::Permissions::from_mode(0o640)).unwrap();
+        engine
+            .capture("t", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap();
+        assert_eq!(mode(&inbox), 0o640);
+        let leftovers: Vec<String> = tree(temp.path())
+            .into_iter()
+            .filter(|path| path.starts_with(".agd-"))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    #[test]
+    fn a_template_file_supplies_the_template_text() {
+        let temp = tempfile::tempdir().unwrap();
+        let template_file = temp.path().join("meeting.txt");
+        fs::write(&template_file, "* MEETING %?\nAgenda:").unwrap();
+        let mut settings = settings(temp.path());
+        settings.todo_keywords = vec![vec![
+            "MEETING".to_string(),
+            "|".to_string(),
+            "DONE".to_string(),
+        ]];
+        settings.captures = vec![
+            CaptureTemplate {
+                key: "m".to_string(),
+                file: Some("meetings.org".to_string()),
+                heading: None,
+                template: String::new(),
+                template_file: Some(template_file.to_string_lossy().into_owned()),
+                ..CaptureTemplate::default()
+            },
+            CaptureTemplate {
+                key: "x".to_string(),
+                file: Some("meetings.org".to_string()),
+                heading: None,
+                template: String::new(),
+                template_file: Some(
+                    temp.path()
+                        .join("missing.txt")
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                ..CaptureTemplate::default()
+            },
+        ];
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "Planning".to_string(),
+            ..CaptureDraft::default()
+        };
+        engine
+            .capture("m", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(temp.path().join("meetings.org")).unwrap(),
+            "* MEETING Planning\nAgenda:\n"
+        );
+        let error = engine
+            .capture("x", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap_err();
+        assert_eq!(error.code(), "template_unreadable");
+        assert!(error.to_string().contains("missing.txt"), "{error}");
     }
 
     #[test]

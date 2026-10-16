@@ -376,11 +376,28 @@ pub fn load_settings(
     if let Some(root) = root_override {
         settings.roots = vec![root.to_string_lossy().into_owned()];
     }
+    resolve_template_files(&mut settings, &config_path);
     validate_settings(&settings)?;
     Ok(LoadedSettings {
         settings,
         config_path,
     })
+}
+
+/// A relative `template_file` names a file beside config.toml; `~` paths
+/// are left for the capture to expand.
+fn resolve_template_files(settings: &mut Settings, config_path: &Path) {
+    let Some(directory) = config_path.parent() else {
+        return;
+    };
+    for template in &mut settings.captures {
+        if let Some(file) = &template.template_file
+            && !file.starts_with('~')
+            && Path::new(file).is_relative()
+        {
+            template.template_file = Some(directory.join(file).to_string_lossy().into_owned());
+        }
+    }
 }
 
 /// Parses a config file without validating roots, so `agd setup import` can
