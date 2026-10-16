@@ -999,9 +999,15 @@ pub(crate) fn validate_values(settings: &Settings) -> Result<(), AgdError> {
         }
     }
     if !settings.start_view.is_empty() && settings.view(&settings.start_view).is_none() {
+        let keys: Vec<&str> = settings
+            .all_views()
+            .iter()
+            .map(|view| view.key.as_str())
+            .collect();
         return Err(config_error(format!(
-            "start_view '{}' is not a [[view]] key; use one of the view keys or leave it empty for Today",
-            settings.start_view
+            "start_view '{}' is not a view; use one of {}, or remove start_view to open Today",
+            settings.start_view,
+            keys.join(", ")
         )));
     }
     let mut capture_keys = BTreeSet::new();
@@ -1294,6 +1300,14 @@ mod tests {
         assert_eq!(replaced.all_views().len(), 1);
         assert_eq!(replaced.view("n").unwrap().desc, "Next");
         assert!(!replaced.is_builtin_view("n"));
+    }
+
+    #[test]
+    fn unknown_start_view_says_how_to_open_today() {
+        assert_eq!(
+            load_error("start_view = \"d\"\n"),
+            "start_view 'd' is not a view; use one of n, or remove start_view to open Today"
+        );
     }
 
     fn capture_error(fields: &str) -> String {
