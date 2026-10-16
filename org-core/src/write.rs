@@ -378,6 +378,8 @@ impl WriteEngine {
             input.now,
         )?;
         let newline = line_ending(&pre_image);
+        let rendered =
+            append_body_without_escape(rendered, &input.template.template, input.body, newline);
         let placement = place_capture(
             path,
             &pre_image,
@@ -2109,6 +2111,36 @@ fn previous_line_blank(text: &str, region_start: usize, line_start: usize) -> bo
         .is_empty()
 }
 
+/// A body given without a `%i` in the template becomes the entry's body,
+/// after the template's text and any properties drawer, instead of being
+/// dropped.
+fn append_body_without_escape(
+    rendered: String,
+    template: &str,
+    body: &str,
+    newline: &str,
+) -> String {
+    let body = body.trim_end_matches(['\n', '\r']);
+    if body.is_empty() || template_inserts_body(template) {
+        return rendered;
+    }
+    let mut entry = rendered.trim_end_matches(['\n', '\r']).to_string();
+    entry.push_str(newline);
+    entry.push_str(body);
+    entry
+}
+
+/// Whether the template has a `%i` escape (`%%i` is a literal `%i`).
+fn template_inserts_body(template: &str) -> bool {
+    let mut characters = template.chars();
+    while let Some(character) = characters.next() {
+        if character == '%' && characters.next() == Some('i') {
+            return true;
+        }
+    }
+    false
+}
+
 /// The rendered template as an entry at `level`: every heading in it moved
 /// by the same number of levels (org-paste-subtree), a template without a
 /// leading heading made one (`* `), ending in a newline.
@@ -3031,6 +3063,50 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code(), "template_unreadable");
         assert!(error.to_string().contains("missing.txt"), "{error}");
+    }
+
+    #[test]
+    fn a_body_is_appended_when_the_template_has_no_escape_for_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut settings = settings(temp.path());
+        settings.captures = vec![
+            CaptureTemplate {
+                key: "t".to_string(),
+                file: Some("inbox.org".to_string()),
+                heading: None,
+                template: "* TODO %?\n:PROPERTIES:\n:SOURCE: agent\n:END:".to_string(),
+                ..CaptureTemplate::default()
+            },
+            CaptureTemplate {
+                key: "i".to_string(),
+                file: Some("inbox.org".to_string()),
+                heading: None,
+                template: "* TODO %?\nContext: %i\nLiteral 100%%i".to_string(),
+                ..CaptureTemplate::default()
+            },
+        ];
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "Follow up".to_string(),
+            ..CaptureDraft::default()
+        };
+        engine
+            .capture(
+                "t",
+                &draft,
+                "Line one\nLine two\n",
+                &BTreeMap::new(),
+                false,
+                &context(),
+            )
+            .unwrap();
+        engine
+            .capture("i", &draft, "inline", &BTreeMap::new(), false, &context())
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(temp.path().join("inbox.org")).unwrap(),
+            "* TODO Follow up\n:PROPERTIES:\n:SOURCE: agent\n:END:\nLine one\nLine two\n* TODO Follow up\nContext: inline\nLiteral 100%i\n"
+        );
     }
 
     #[test]
