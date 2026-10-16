@@ -202,23 +202,33 @@ impl App {
     /// org-agenda does, naming the targets:
     /// `work.org:142  TODO → DONE · Pay rent · u undo`.
     fn edit_targets(&mut self, intent: EditIntent, outcome: usize, change: &str) -> Result<()> {
+        let edits = self
+            .targets()
+            .into_iter()
+            .map(|item_ref| ItemEdit {
+                item_ref,
+                intent: intent.clone(),
+            })
+            .collect();
+        self.edit_each(edits, outcome, change)
+    }
+
+    /// edit_targets with an edit of each target's own.
+    fn edit_each(&mut self, targets: Vec<ItemEdit>, outcome: usize, change: &str) -> Result<()> {
         let engine = WriteEngine::with_default_journal(self.settings.clone())?;
-        let targets = self.targets();
         if targets.is_empty() {
             return Ok(());
         }
+        let several = targets.len() > 1;
         let mut edits = Vec::new();
-        for item_ref in targets.iter().cloned() {
-            let unchanged = targets.len() > 1
+        for edit in targets {
+            let unchanged = several
                 && matches!(
-                    engine.edit(&item_ref, &intent, true, &write_context()),
+                    engine.edit(&edit.item_ref, &edit.intent, true, &write_context()),
                     Err(error) if error.code() == "no_change"
                 );
             if !unchanged {
-                edits.push(ItemEdit {
-                    item_ref,
-                    intent: intent.clone(),
-                });
+                edits.push(edit);
             }
         }
         if edits.is_empty() {
@@ -492,32 +502,38 @@ impl App {
 
     /// Someday: add the someday tag and, unless configured otherwise, drop
     /// the date that made it show up (SCHEDULED, or an overdue DEADLINE), so
-    /// the task leaves the agenda without being deleted. Marked rows share
-    /// one edit, so they keep their deadlines: only the cursor row is known
-    /// to be overdue.
+    /// the task leaves the agenda without being deleted. Each marked row
+    /// drops its own missed deadline, as the cursor row does.
     pub(super) fn someday(&mut self) -> Result<()> {
         let tag = self.settings.someday_tag.clone();
         let clears = self.settings.someday_clears_scheduled;
-        let overdue_deadline = self.marks.is_empty()
-            && self.selected_row().is_some_and(|row| {
-                row.occurrence
-                    .as_ref()
-                    .is_some_and(|occurrence| occurrence.extra.ends_with("ago:"))
-            });
-        self.edit_targets(
-            EditIntent {
-                scheduled: if clears { Change::Clear } else { Change::Keep },
-                deadline: if clears && overdue_deadline {
-                    Change::Clear
-                } else {
-                    Change::Keep
-                },
-                tags_add: BTreeSet::from([tag.clone()]),
-                ..EditIntent::default()
-            },
-            SOMEDAY,
-            &format!("→ :{tag}:"),
-        )
+        let edits = self
+            .targets()
+            .into_iter()
+            .map(|item_ref| {
+                let missed = self.rows.iter().any(|row| {
+                    row.item.item_ref == item_ref
+                        && row
+                            .occurrence
+                            .as_ref()
+                            .is_some_and(|occurrence| occurrence.extra.ends_with("ago:"))
+                });
+                ItemEdit {
+                    item_ref,
+                    intent: EditIntent {
+                        scheduled: if clears { Change::Clear } else { Change::Keep },
+                        deadline: if clears && missed {
+                            Change::Clear
+                        } else {
+                            Change::Keep
+                        },
+                        tags_add: BTreeSet::from([tag.clone()]),
+                        ..EditIntent::default()
+                    },
+                }
+            })
+            .collect();
+        self.edit_each(edits, SOMEDAY, &format!("→ {}", words::tag(&tag)))
     }
 
     /// `+`/`-`: raise or lower priority within the configured range, as

@@ -119,6 +119,27 @@ fn refused_write_reports_the_error_and_keeps_rows() {
 
 #[test]
 #[serial]
+fn someday_drops_each_marked_rows_missed_deadline_as_it_does_one_rows() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, FIVE_OVERDUE).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        // The two missed deadlines lead OVERDUE.
+        type_keys(&mut app, "mm");
+        press(&mut app, KeyCode::Char('S'));
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(!written.contains("DEADLINE"), "{written}");
+        assert_eq!(written.matches(":someday:").count(), 2, "{written}");
+        assert!(written.contains("SCHEDULED: <2026-10-01 Thu>"), "{written}");
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert!(status.contains("2 items  → #someday"), "{status}");
+    });
+}
+
+#[test]
+#[serial]
 fn a_heading_without_a_keyword_reads_as_none_with_one_glyph() {
     with_home(|root| {
         fs::write(root.join("tasks.org"), TASKS).unwrap();
