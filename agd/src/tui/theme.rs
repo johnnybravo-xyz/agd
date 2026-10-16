@@ -643,6 +643,16 @@ pub(super) fn truncate(text: &str, width: usize) -> String {
     cut
 }
 
+/// Where a framed list's scrollbar runs: its right border between the
+/// corners, which stay rounded.
+pub(super) fn scrollbar_track(frame: Rect) -> Rect {
+    Rect {
+        y: frame.y + 1,
+        height: frame.height.saturating_sub(2),
+        ..frame
+    }
+}
+
 /// A centred rectangle of at most `width` by `height`, for popups.
 pub(super) fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let width = width.min(area.width.saturating_sub(2));

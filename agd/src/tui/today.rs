@@ -10,7 +10,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::input::TextInput;
 use super::rows::days_since;
-use super::theme::{Theme, centered, truncate};
+use super::theme::{Theme, centered, scrollbar_track, truncate};
 use super::{
     App, DOING, DUE, DisplayRow, Header, INBOX, OVERDUE, Overlay, PromptKind, SCHEDULE, Screen,
     actions, keys, peek, review, triage,
@@ -388,7 +388,7 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
         .collect();
     if total > inner.height as usize {
         let mut scrollbar = ScrollbarState::new(total).position(selected_line.unwrap_or(0));
-        frame.render_stateful_widget(theme.scrollbar(), area, &mut scrollbar);
+        frame.render_stateful_widget(theme.scrollbar(), scrollbar_track(area), &mut scrollbar);
     }
 }
 

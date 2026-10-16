@@ -2374,6 +2374,9 @@ fn the_scrollbar_reads_as_the_border() {
             .find(|cell| cell.symbol() == "│")
             .expect("track");
         assert_eq!(track.fg, app.theme.border);
+        // The corners stay rounded: the track runs between them.
+        assert_eq!(buffer[(99, 1)].symbol(), "╮");
+        assert_eq!(buffer[(99, 10)].symbol(), "╯");
     });
 }
 

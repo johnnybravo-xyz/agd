@@ -13,7 +13,7 @@ use ratatui::widgets::{Clear, Paragraph, ScrollbarState};
 use super::App;
 use super::input::TextInput;
 use super::keys::{self, Binding};
-use super::theme::{Theme, centered};
+use super::theme::{Theme, centered, scrollbar_track};
 
 /// Gap between the key, help and org-agenda columns.
 const GAP: usize = 2;
@@ -185,7 +185,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     );
     if max_scroll > 0 {
         let mut state = ScrollbarState::new(max_scroll).position(scroll as usize);
-        frame.render_stateful_widget(theme.scrollbar(), popup, &mut state);
+        frame.render_stateful_widget(theme.scrollbar(), scrollbar_track(popup), &mut state);
     }
 }
 
@@ -303,20 +303,26 @@ fn binding_lines(
     for (row, text) in wrap(binding.help, help_width).into_iter().enumerate() {
         let key = if row == 0 { binding.label } else { "" };
         let bar = if selected && row == 0 { "▌" } else { " " };
+        // Another screen's action names that screen after what it does,
+        // in place of org-agenda's key.
+        let screen = elsewhere
+            .filter(|_| row == 0)
+            .map(|title| format!(" · {}", title.split(" · ").next().unwrap_or(title)))
+            .unwrap_or_default();
+        let padding = help_width.saturating_sub(text.chars().count() + screen.chars().count());
         let mut spans = vec![
             Span::styled(bar, theme.fg(theme.accent)),
             Span::styled(
                 format!("{key:<key_width$}{:GAP$}", ""),
                 theme.strong(theme.accent),
             ),
-            Span::raw(format!("{text:<help_width$}")),
+            Span::raw(text),
+            Span::styled(screen, theme.muted()),
+            Span::raw(" ".repeat(padding)),
         ];
-        if columns.org.is_some() && row == 0 && !binding.org.is_empty() {
+        if columns.org.is_some() && row == 0 && elsewhere.is_none() && !binding.org.is_empty() {
             spans.push(Span::raw(" ".repeat(GAP)));
             spans.push(Span::styled(binding.org.to_string(), theme.muted()));
-        }
-        if let Some(screen) = elsewhere.filter(|_| row == 0) {
-            spans.push(Span::styled(format!("  · {screen}"), theme.muted()));
         }
         let line = Line::from(spans);
         lines.push(if selected {
