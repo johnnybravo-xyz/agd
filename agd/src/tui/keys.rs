@@ -15,6 +15,8 @@
 //!   templates, the refile picker, `?`'s filter, the edit popup's fields),
 //!   only `↓ C-n C-j` and `↑ C-p C-k` move, as in fzf and Emacs.
 //! - Footers show a key's first label; help shows every label.
+//! - One notation: Emacs's for chords (`C-e`, `C-c C-w`, `S-tab`, `M-DEL`),
+//!   words or glyphs for named keys (`⏎`, `esc`, `tab`, `SPC`, `PgDn`, `↓`).
 
 use std::io::Stdout;
 use std::time::Instant;
@@ -205,7 +207,7 @@ const CHANGE: KeyGroup = KeyGroup {
     title: "Change (marked rows, else the cursor row)",
     bindings: &[
         bind("⏎ e", &[Code(KeyCode::Enter), Char('e')], A::Edit, "edit", "edit title, state, dates in a popup", ""),
-        bind("ctrl-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", "RET"),
+        bind("C-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", "RET"),
         bind("t", &[Char('t')], A::State, "state", "next TODO state", "t"),
         bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
         bind("X", &[Char('X')], A::Cancel, "cancel", "cancel: the file's last done state", ""),
@@ -275,7 +277,7 @@ pub(super) const AGENT_KEYS: &[KeyGroup] = &[
             bind("u", &[Char('u')], A::Undo, "undo", "undo the change if its bytes are unchanged", ""),
             bind("d", &[Char('d')], A::Diff, "diff", "show the raw diff", ""),
             bind("SPC", &[Char(' ')], A::Peek, "peek", "peek at the changed task", ""),
-            bind("⏎ ctrl-e", &[Code(KeyCode::Enter), Ctrl('e')], A::Editor, "open", "open the changed heading in $EDITOR", ""),
+            bind("⏎ C-e", &[Code(KeyCode::Enter), Ctrl('e')], A::Editor, "open", "open the changed heading in $EDITOR", ""),
             bind("f", &[Char('f')], A::FilterAgent, "filter by agent", "show one agent, cycling", ""),
             bind("esc q", &[Code(KeyCode::Esc), Char('q')], A::Back, "back", "close the diff or peek, else go back", ""),
         ],
@@ -311,7 +313,7 @@ pub(super) const PANE_KEYS: &[KeyGroup] = &[KeyGroup {
         bind("X", &[Char('X')], A::Cancel, "cancel", "cancel", ""),
         bind("u", &[Char('u')], A::Undo, "undo", "undo the last write", ""),
         bind("c", &[Char('c')], A::Capture, "capture", "capture a task", ""),
-        bind("ctrl-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", ""),
+        bind("C-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", ""),
         bind("⏎", &[Code(KeyCode::Enter)], A::FullView, "full view", "the full view, at 60+ columns", ""),
         bind("T", &[Char('T')], A::Triage, "triage", "triage, at 60+ columns", ""),
         bind("?", &[Char('?')], A::Help, "help", "these keys", ""),
@@ -346,8 +348,7 @@ pub(super) const SCREENS: [(&str, &[KeyGroup]); 6] = [
 ];
 
 /// One line under help's keys: how moving works everywhere.
-pub(super) const MOVING: &str =
-    "j/k move like n/p everywhere; ctrl-n/ctrl-p or ctrl-j/ctrl-k move in pickers";
+pub(super) const MOVING: &str = "j/k move like n/p everywhere; C-n/C-p or C-j/C-k move in pickers";
 
 /// +1 or -1 when `key` moves in a picker (PICKER_KEYS), else None.
 pub(super) fn picker_step(key: KeyEvent) -> Option<isize> {
@@ -583,6 +584,9 @@ pub(super) fn dispatch(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
     }
 }
 
+/// What `C-c` waits for, said the same before and after a wrong key.
+pub(super) const CHORD_HINT: &str = "C-c C-w refiles · C-c C-c quits";
+
 /// `C-c` in the lists and Triage starts Org's `C-c C-w` refile chord;
 /// anywhere else, or pressed twice, it quits. Returns true when the key
 /// belonged to the chord.
@@ -593,7 +597,7 @@ fn chord_key(app: &mut App, key: KeyEvent) -> bool {
         match key.code {
             KeyCode::Char('w') if control => app.open_refile(),
             KeyCode::Char('c') if control => app.quit = true,
-            _ => app.set_status("C-c C-w refiles, C-c C-c quits"),
+            _ => app.set_status(CHORD_HINT),
         }
         return true;
     }
@@ -604,7 +608,7 @@ fn chord_key(app: &mut App, key: KeyEvent) -> bool {
         !app.pane && matches!(app.overlay, Overlay::None) && app.screen != Screen::Review;
     if chord_screen {
         app.chord = Some(Instant::now());
-        app.set_status("C-c-  C-w refile · C-c quit");
+        app.set_status(CHORD_HINT);
     } else {
         app.quit = true;
     }
@@ -996,7 +1000,7 @@ fn first_key(binding: &Binding) -> Option<KeyEvent> {
 }
 
 /// A prompt's keys. The filter is live: rows narrow as you type, and esc
-/// or ctrl-g puts back the filter it started with.
+/// or C-g puts back the filter it started with.
 fn prompt_key(app: &mut App, key: KeyEvent) -> Result<()> {
     let Overlay::Prompt(prompt) = &mut app.overlay else {
         return Ok(());

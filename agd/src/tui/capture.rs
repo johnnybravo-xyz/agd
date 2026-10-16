@@ -198,7 +198,7 @@ pub(super) fn handle_key(
         return Ok(());
     };
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
-    // In the text fields ctrl-e is end of line, so the body editor is ctrl-o.
+    // In the text fields C-e is end of line, so the body editor is C-o.
     match key.code {
         KeyCode::Esc => return close(app),
         KeyCode::Char('o') if control => edit_body(terminal, app, &mut draft)?,
@@ -308,7 +308,7 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
     app.reload_rows()
 }
 
-/// ctrl-o: the body goes through $EDITOR as a temporary file.
+/// C-o: the body goes through $EDITOR as a temporary file.
 fn edit_body(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
@@ -465,7 +465,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Paragraph::new(Line::from(
             [
                 theme.key_hint("⏎", "save"),
-                theme.key_hint("ctrl-o", "body in $EDITOR"),
+                theme.key_hint("C-o", "body in $EDITOR"),
                 theme.key_hint("esc", "cancel"),
             ]
             .concat(),

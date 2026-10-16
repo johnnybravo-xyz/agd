@@ -248,6 +248,26 @@ fn ctrl_c_ctrl_w_refiles_and_ctrl_c_twice_quits() {
 
 #[test]
 #[serial]
+fn the_chord_hint_reads_the_same_before_and_after_a_wrong_key() {
+    with_home(|root| {
+        fs::write(root.join("work.org"), THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press_control(&mut app, 'c');
+        let waiting = app.status.as_ref().unwrap().text.clone();
+        assert_eq!(waiting, "C-c C-w refiles · C-c C-c quits");
+        press(&mut app, crossterm::event::KeyCode::Char('x'));
+        assert_eq!(app.status.as_ref().unwrap().text, waiting);
+        assert!(!app.quit);
+        assert_eq!(
+            fs::read_to_string(root.join("work.org")).unwrap(),
+            THREE_TODAY
+        );
+    });
+}
+
+#[test]
+#[serial]
 fn the_footer_keeps_help_visible_at_80_columns_with_whole_hints() {
     with_home(|root| {
         fs::write(root.join("tasks.org"), TASKS).unwrap();

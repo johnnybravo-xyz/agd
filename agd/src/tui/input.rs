@@ -22,7 +22,7 @@ pub(super) struct TextInput {
 pub(super) enum Edit {
     /// The text or cursor changed.
     Changed,
-    /// ctrl-g: leave the input without doing anything, like esc.
+    /// C-g: leave the input without doing anything, like esc.
     Cancel,
     /// Not an editing key; the popup decides what it means.
     Other,
@@ -55,9 +55,8 @@ impl TextInput {
     }
 
     /// Applies one key: characters insert at the cursor; ←/→, Home/End and
-    /// ctrl-a/ctrl-e move; Backspace, Delete and ctrl-d delete; ctrl-u
-    /// clears; ctrl-w and alt-Backspace delete the word before the cursor;
-    /// ctrl-g cancels.
+    /// C-a/C-e move; Backspace, Delete and C-d delete; C-u clears; C-w and
+    /// M-DEL delete the word before the cursor; C-g cancels.
     pub(super) fn handle(&mut self, key: KeyEvent) -> Edit {
         let control = key.modifiers.contains(KeyModifiers::CONTROL);
         let alt = key.modifiers.contains(KeyModifiers::ALT);
@@ -111,7 +110,7 @@ impl TextInput {
     }
 
     /// Deletes back to the start of the word before the cursor, as
-    /// readline's ctrl-w does.
+    /// readline's C-w does.
     fn delete_word(&mut self) {
         let before: Vec<char> = self.text.chars().take(self.cursor).collect();
         let mut start = before.len();

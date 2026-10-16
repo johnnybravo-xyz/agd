@@ -178,3 +178,28 @@ fn help_is_a_palette_that_runs_the_action_it_finds() {
         assert_eq!(fs::read_to_string(&path).unwrap(), THREE_TODAY);
     });
 }
+
+#[test]
+fn every_key_label_reads_in_one_notation() {
+    // Emacs's notation for chords (C-e, S-tab), words or glyphs for named
+    // keys; never `ctrl-`, `Ctrl+` or `shift-`.
+    for (title, groups) in crate::tui::keys::SCREENS {
+        for binding in groups.iter().flat_map(|group| group.bindings.iter()) {
+            for key in binding.label.split(' ') {
+                let lowered = key.to_lowercase();
+                assert!(
+                    !lowered.contains("ctrl") && !lowered.contains("shift") && !key.contains('+')
+                        || key == "+",
+                    "{title}: {} is not in Emacs notation",
+                    binding.label
+                );
+                assert!(
+                    key != "RET" && key != "Enter" && key != "ESC" && key != "TAB",
+                    "{title}: {} names a key two ways",
+                    binding.label
+                );
+            }
+        }
+    }
+    assert!(!crate::tui::keys::MOVING.contains("ctrl"));
+}

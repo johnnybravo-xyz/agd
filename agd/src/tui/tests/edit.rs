@@ -86,7 +86,9 @@ fn ctrl_o_in_the_edit_popup_hands_over_to_the_editor_without_writing() {
         app.reload_rows().unwrap();
         app.overlay = Overlay::Edit(Box::new(crate::tui::edit::EditForm::open(&app).unwrap()));
         key(&mut app, KeyCode::Char('x'));
-        // In a field ctrl-e is end of line, as in the minibuffer.
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("C-o open in $EDITOR"), "{screen}");
+        // In a field C-e is end of line, as in the minibuffer.
         let control = |character| KeyEvent::new(KeyCode::Char(character), KeyModifiers::CONTROL);
         assert!(!crate::tui::edit::handle_key(&mut app, control('e')).unwrap());
         assert!(matches!(app.overlay, Overlay::Edit(_)));
