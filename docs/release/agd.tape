@@ -41,7 +41,7 @@ Escape Sleep 800ms
 # Capture: tokens become chips, the preview is the exact org text.
 Type "c" Sleep 400ms
 Type "t" Sleep 300ms
-Type "Renew passport due:fri on:+1d +personal #A" Sleep 3s
+Type "Renew passport due:fri on:+1d #personal !A" Sleep 3s
 Enter Sleep 2s
 
 # Saved views, like C-c a.

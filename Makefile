@@ -35,8 +35,12 @@ version: ## Set VERSION=x.y.z in every manifest and date both changelogs
 	perl -pi -e 's/"version": "\Q$(CURRENT)\E"/"version": "$(VERSION)"/' agd/claude-plugin/.claude-plugin/plugin.json
 	perl -pi -e 's/^## \[Unreleased\]$$/## [Unreleased]\n\n## [$(VERSION)] - $(TODAY)/' agd/CHANGELOG.md agd-core/CHANGELOG.md
 	$(CARGO) update --workspace
+	$(CARGO) update --manifest-path fuzz/Cargo.toml -p agd-core
 	@echo "$(CURRENT) -> $(VERSION); review the diff and commit it"
 
+# agd is packaged against agd-core from crates.io, so its publish dry run can
+# pass only once this version of agd-core is published; release-check runs
+# agd-core's alone.
 release-check: ## Check that v$(VERSION) is ready to tag, changing nothing
 	@git diff --quiet && git diff --cached --quiet || { echo "commit or stash your changes first"; exit 1; }
 	@test "$$(git rev-parse --abbrev-ref HEAD)" = main || { echo "release from main"; exit 1; }
@@ -49,6 +53,7 @@ release-check: ## Check that v$(VERSION) is ready to tag, changing nothing
 		grep -q '^## \[$(VERSION)\]' $$file || { echo "$$file has no $(VERSION) entry"; exit 1; }; \
 	done
 	just check
+	$(CARGO) publish --dry-run -p agd-core
 
 tag: release-check ## Sign and tag v$(VERSION) at HEAD
 	git tag -s $(TAG) -m "agd $(VERSION)"

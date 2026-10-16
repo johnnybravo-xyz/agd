@@ -1,67 +1,93 @@
 # Org and editor compatibility
 
-Compatibility claims are fixture-backed. The agenda suite runs the same Org
-files through pinned Emacs/Org and `agd`, normalizes only documented transport
-differences, and compares CSV rows. The write suite compares resulting bytes
-and untouched ranges. The import suite reads fixture configs with agd's
-editor readers and compares their output.
+Every compatibility claim here has a fixture behind it, checked against a
+pinned Emacs 30.2 and the Org it ships (9.7).
 
-## Agenda semantics
+- **Agenda.** Each case under `conformance/agenda/` holds Org files, a
+  fixed today and a date range. Emacs's `org-batch-agenda` text and
+  `org-batch-agenda-csv` rows for it are recorded, and agd's text agenda
+  and `--csv` must equal them byte for byte. The only adjustments: the
+  fixtures are read with CRLF turned into LF, so a Windows checkout
+  compares the same; and for a tags match, the two lines Emacs prints
+  above the rows (the match header and its `C-u r` hint) are left out,
+  since agd prints the rows alone.
+- **Writes.** Each case under `conformance/edit/` applies one change to an
+  Org file with a fixed clock, in Emacs and in agd, and the files must be
+  identical.
+- **Round trips.** Every file under `conformance/roundtrip/` must parse and
+  print back byte for byte.
+- **Import.** Each case under `conformance/import/` records what agd's
+  editor reader reads from a sample config in pinned Emacs or Neovim
+  0.12.6, and the import of that result is checked.
 
-`Exact` means the checked fixture currently produces zero semantic drift from
-Emacs `org-batch-agenda-csv`. `Native` means supported by `agd` but not claimed
-as a byte-for-byte Emacs display clone. `Unsupported` is detected or ignored
-without executing editor code.
+The cases run in `cargo test`. The Conformance workflow in CI also runs
+the pinned Emacs and Neovim on every case again and fails when their
+output differs from the recorded one. It runs on changes to `agd-core`,
+the fixtures, the editor readers or the oracle scripts, and once a week;
+the weekly run also round-trips every Org file in pinned checkouts of the
+Org and Worg repositories. It tests one Emacs version, the pinned one.
+
+## Agenda
+
+`Exact` means agd's output equals pinned Emacs's for the fixtures named.
+`Native` means agd supports it, without an Emacs fixture. `Unsupported`
+means agd leaves it alone and never evaluates it.
 
 | Org behavior | Status | Evidence or boundary |
 | --- | --- | --- |
-| Scheduled, deadline, and active timestamp rows | Exact | `conformance/agenda/plain` |
-| Past scheduled carry-over | Exact | Plain and generated oracle cases |
-| Overdue repeating deadlines, repeats only on base date and after today | Exact | `conformance/agenda/overdue-repeats` |
-| Habit repeaters, Unicode tags and weekdays, ignored block/link timestamps | Exact | `conformance/agenda/syntax-edges` |
-| Planning only on the line after the headline | Exact | `conformance/agenda/planning-lines` |
-| Deadline warning window and per-timestamp warning | Exact | `conformance/agenda/warnings` |
-| `+`, `++`, and `.+` day/week/month/year repeaters | Exact | `conformance/agenda/repeaters` and generated cases |
-| Active timestamp ranges and range progress | Exact | `conformance/agenda/ranges` |
-| Inherited file and ancestor tags | Exact | `conformance/agenda/inheritance` |
-| Done-item skip settings for planning/timestamps | Exact | `conformance/agenda/done-skipping` |
-| In-file `#+TODO` and `#+SEQ_TODO` workflows | Exact for parsing and writes | Round-trip and edit oracle fixtures |
-| Row order: urgency, priority, time, category, alpha, todo-state keys | Exact | All cases compare Emacs's own row order; `conformance/agenda/sorting` sets a custom strategy |
-| Custom agenda commands as views (agenda, todo, alltodo, tags, tags-todo blocks) | Exact rows | `agd setup import <emacs config> --verify` runs each view in Emacs and agd |
-| Tags/TODO match expressions, with property terms | Exact | `conformance/agenda/match-*`: `work`, `+a-b`, `a\|b`, `/!`, `/-WAIT`, and `TODO="DONE"`, `PRIORITY="A"`, `LEVEL=2`, `CATEGORY="home"`, `Effort<15`, `CLOSED>="<-3w>"`, `DEADLINE<="<+1w>"`, `-STATUS="review"` with Org's string, number and time comparisons; regexp terms (`{...}`) are rejected |
-| org-super-agenda groups in view blocks | Native | First matching group takes a row, `discard`, `order` (equal non-zero orders by name), `effort_max`/`effort_min` (inclusive, the heading's own `:Effort:` read as org-duration-to-minutes does), `by` category, parent, todo or priority, "Other items" last at order 99, empty groups hidden; no oracle, since the pinned Emacs has no org-super-agenda |
-| org-ql `and`, `or`, `not`, `todo`, `tags`, `priority`, `category`, `text`, `deadline`, `scheduled`, `done` | Native subset | Unknown predicates fail explicitly |
-| Plain day/week/month lists and CSV | Native | CSV fields follow the Emacs oracle schema |
+| `agd agenda` text and `--csv` (Emacs's eleven columns, with `;` for commas inside a field) | Exact | Every case compares both; on a terminal the text adds color, piped it is Emacs's bytes |
+| Scheduled, deadline and active timestamp rows | Exact | `plain` |
+| Past scheduled carry-over and missed deadlines | Exact | `overdue-repeats`, `repeaters`, `export-columns` |
+| Overdue repeating deadlines; repeats only on the base date and after today | Exact | `overdue-repeats` |
+| Habit repeaters, Unicode tags and weekdays, ignored block and link timestamps | Exact | `syntax-edges` |
+| Planning only on the line after the heading | Exact | `planning-lines` |
+| Deadline warning window, per-timestamp warnings and their units (`-3d`, `-1w`, `-1m`) | Exact | `warnings`, `warning-units` |
+| `+`, `++` and `.+` repeaters by day, week, month and year | Exact | `repeaters`, `generated` |
+| Times with one-digit hours and time ranges | Exact | `short-hours`, `export-columns` |
+| Active timestamp ranges and range progress | Exact | `ranges` |
+| Inherited file and ancestor tags | Exact | `inheritance` |
+| Skipping done items' scheduled, deadline and timestamp rows | Exact | `done-skipping` |
+| Day, week, month and N-day spans; log mode (CLOSED entries) | Exact | `month-span`, `export-columns` |
+| Row order: Org's default sorting strategy and a configured one | Exact | Every case compares Emacs's order; `sorting` sets its own strategy |
+| A seeded mix of dates, states, repeaters and ranges | Exact | `generated` (from `scripts/generate-agenda-cases.py`) |
+| Tags/TODO matches with property terms, string, number and time comparisons, and `-` negation | Exact | `match-*`: `PRIORITY="A"+Emacs/!SOMEDAY`, `TODO="DONE"+CLOSED>="<-3w>"`, `DEADLINE>="<today>"+DEADLINE<="<+1w>"`, `TODO="NEXT"+Effort<15+Effort>0`, `LEVEL=2+CATEGORY="home"\|LEVEL=1+chores`, `-TODO="WAIT"+STATUS="review"`; regexp terms (`{...}`) are refused (`invalid_match`) |
+| In-file `#+TODO`, `#+SEQ_TODO` and `#+TYP_TODO` workflows | Exact | Round-trip and edit cases |
+| Custom agenda commands as saved views (agenda, todo, alltodo, tags, tags-todo blocks) | Exact rows | `agd setup import <emacs config> --verify` runs each view in Emacs and agd and compares the rows |
+| Letter priorities and per-file `#+PRIORITIES` | Native | Numeric priorities are not supported; `agd setup check` reports a `#+PRIORITIES` line agd cannot use, and the configured range applies |
+| org-super-agenda groups in view blocks | Native | The first matching group takes a row; `discard`; `order` (equal orders by name); `effort_max`/`effort_min` (inclusive, the heading's own `:Effort:` read as `org-duration-to-minutes` does); `by` category, parent, todo or priority; "Other items" last; empty groups hidden. No Emacs fixture, since the pinned Emacs has no org-super-agenda |
+| org-ql queries (MCP `query`) | Native subset | `and`, `or`, `not`, `(todo)` for any not-done keyword, `(todo "NEXT" "WAIT")`, `done`, `tags`, `priority`, `category`, `text`, `(deadline :to N)` and `(scheduled :to N)`, where `:to` includes past dates as in org-ql; anything else is `invalid_query` |
 | Effort totals | Native | Today sums `:Effort:`; no column view |
-| Clock table and clocking UI | Unsupported | Org source is preserved; no clock evaluator |
-| Habit graph and habit consistency calculations | Unsupported | Preserved as source, not interpreted |
+| Time grid | Not drawn | The Emacs fixtures run with `org-agenda-use-time-grid` off |
+| Clock tables and clocking | Unsupported | Kept as Org text; never evaluated |
+| Habit graphs and consistency | Unsupported | Kept as Org text |
 | Diary sexps and `%%(...)` | Unsupported | Never evaluated |
-| Arbitrary custom agenda skip functions | Unsupported | Never evaluated |
-| Executable Lisp in agenda definitions | Unsupported | Never evaluated |
-| Calendar grid rendering | Unsupported | Day-grouped agenda only |
+| Skip functions and executable Lisp in agenda commands | Unsupported | Never evaluated; import reports them |
+| Calendar grid | Unsupported | Day-grouped agenda only |
 
-Emacs's formatted agenda buffer is not the oracle. Prefix text, faces, time-grid
-lines, and custom display functions are presentation behavior. The oracle uses
-structured rows: category, title, type, TODO, tags, date, time, extra, and
-priority.
+Faces and custom display functions are presentation in Emacs's
+interactive buffer and are not compared; agd prints Org's default prefix
+format.
 
-## Write compatibility
+## Writes
 
-| Mutation | Contract |
+`conformance/edit/` holds 23 cases: state changes with and without
+`!`/`@` markers, CLOSED, repeats (inline, in a drawer, habits, unlogged),
+schedules, deadlines and their logs, priorities, `#+STARTUP` options, and
+tags kept at `org-tags-column`.
+
+| Change | Contract |
 | --- | --- |
-| TODO state | Every `#+TODO`/`#+SEQ_TODO`/`#+TYP_TODO` line or the configured sequences; `!`/`@` keyword markers, `org-log-done`, `org-log-repeat`, `org-log-into-drawer` and `#+STARTUP` log options write the same CLOSED, LAST_REPEAT and LOGBOOK lines as Emacs; repeats return to the head of the keyword's sequence |
-| Schedule/deadline | Replaces only the planning timestamp and keeps the old repeater and warning cookie, as `org-schedule` does; `org-log-reschedule`/`org-log-redeadline` add Emacs's "Rescheduled from" and "New deadline from" notes |
-| Title/tags/priority/properties | Patches the smallest source span and preserves surrounding bytes |
-| Capture | Literal templates and supported placeholders render exact Org text before insertion |
-| Refile | Moves the original subtree bytes; destination identity is revalidated under locks |
-| Undo | Replays inverse byte patches where their bytes and surrounding lines are unchanged; anything else is a conflict |
-| Tags | Realigned to `org-tags-column` whenever a headline is rewritten, as Emacs does |
+| TODO state | The file's `#+TODO`/`#+SEQ_TODO`/`#+TYP_TODO` lines or the configured `todo_keywords`; `!`/`@` markers, `org-log-done`, `org-log-repeat`, `org-log-into-drawer` and `#+STARTUP` options write the same CLOSED, LAST_REPEAT and LOGBOOK lines as Emacs; a repeat returns to the first keyword of its sequence |
+| Schedule and deadline | Planning keywords go where `org-add-planning-info` puts them; the old repeater and warning stay, as `org-schedule` keeps them; `org-log-reschedule`/`org-log-redeadline` add Emacs's "Rescheduled from" and "New deadline from" notes; setting a date drops CLOSED |
+| Title, tags, priority, properties | Only the smallest span changes; untouched property lines stay byte for byte |
+| Tags | Realigned to `org-tags-column` whenever a heading line is rewritten, as Emacs does |
+| Capture | Templates render the exact Org text before it is written; entries are placed as org-capture places them for `file`, `file+headline`, `file+olp`, `id` and datetree targets |
+| Refile | Moves the subtree's own bytes; both files are written as one transaction |
+| Undo | Puts the old bytes back only where the file still holds what agd wrote; anything else is a conflict (see [SAFETY.md](SAFETY.md)) |
 
-The edit oracle covers no-op round trips, state changes, planning changes,
-repeater completion, logbook behavior, and preservation of unrelated byte
-ranges. Symlink writes remain intentionally unsupported.
+Writes through symlinks are refused.
 
-## Import compatibility
+## Import
 
 `agd setup import` reads your editor config files; it never runs your
 editor's startup. [IMPORTING.md](IMPORTING.md) lists every setting and every
@@ -71,19 +97,16 @@ case that does not import.
 | --- | --- | --- |
 | Emacs config files (`.el`, literate `config.org`) | Org settings assigned at the top level or in `after!`, `with-eval-after-load`, `use-package` and Spacemacs's user-config; their values evaluated in `emacs -Q` | Values that call your own or a package's functions; defaults set by Doom modules or packages; settings inside `let`, hooks or your own functions |
 | nvim-orgmode (`setup()` call or lazy.nvim spec) | Every option agd uses, with nvim-orgmode's defaults for the rest; agenda globs kept | No `setup()` in the files read; options built from other plugins' APIs |
-| Capture templates | `entry` templates with `file`, `file+headline`, `file+olp`, datetree or `id` targets | Other types, computed targets or bodies, `%(sexp)` |
-| Custom agenda commands | agenda, todo, alltodo, tags and tags-todo blocks with literal span and header, including property matches | Lambdas, search/stuck views, regexp matches (the view is left out); other options |
+| Capture templates | `entry` templates with `file`, `file+headline`, `file+olp`, datetree or `id` targets; a `(file "...")` body as `template_file` | Other types, computed targets or bodies, `%(sexp)` |
+| Custom agenda commands | agenda, todo, alltodo, tags and tags-todo blocks with literal span and header, including property matches | Lambdas, search and stuck views, regexp matches (the view is left out); other options |
 | org-super-agenda groups (a block's `org-super-agenda-groups`, literal or a variable) | `:name`, `:order`, `:discard`, `:todo`, `:tag`, `:category`, `:priority`, `:deadline`/`:scheduled` `t`/`nil`/`past`/`today`/`future`, `:property`, `:anything`, `:and`, `:not`, `:effort<`/`:effort>` (alone or in `:and`), `:auto-category`/`-parent`/`-todo`/`-priority` | `:pred`, `:time-grid`, `:effort<`/`>` ORed with other selectors, `:log`, `:habit`, `:regexp`, other `:auto-*` (the block imports ungrouped); `:face`, `:transformer`; a global `org-super-agenda-groups` |
-| org-ql | Nothing | Each setting, as not used by agd |
+| Tag lists (`org-tag-alist`, `org-tag-persistent-alist`), org-ql | Nothing | Each setting, as not used by agd |
 
-## Tested editor paths
+## Tested editor configs
 
-- Emacs configs in vanilla, use-package and Doom (`after!`) styles, read by the
-  reader in the pinned Emacs 30.2 image.
-- nvim-orgmode configured by a plain `setup()` call and by a lazy.nvim spec,
-  and a config without `setup()`, read in the pinned Neovim 0.12.6.
-- First imports deriving roots, re-imports keeping them, and entries outside
-  the roots.
-
-The scheduled conformance workflow runs current and previous pinned Org
-versions to expose upstream semantic drift before release.
+- Emacs configs in vanilla, use-package and Doom (`after!`) styles, and
+  one with org-super-agenda groups, read in the pinned Emacs 30.2.
+- nvim-orgmode configured by a plain `setup()` call and by a lazy.nvim
+  spec, and a config without `setup()`, read in the pinned Neovim 0.12.6.
+- First imports deriving roots, re-imports keeping them, and entries
+  outside the roots.

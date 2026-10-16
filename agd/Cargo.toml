@@ -33,7 +33,7 @@ tokio = { workspace = true, features = ["macros", "process", "time"] }
 
 [package]
 name = "agd"
-description = "Local-first CLI and stdio MCP server for org-mode files"
+description = "An org-agenda for the terminal and for coding agents"
 edition = "2024"
 rust-version = "1.89"
 authors.workspace = true
@@ -45,6 +45,9 @@ documentation.workspace = true
 repository.workspace = true
 keywords = ["org-mode", "agenda", "productivity", "cli", "knowledge-management"]
 categories = ["command-line-utilities"]
+# The binary embeds only the plugin's skill (`agd setup install`); the rest
+# of the Claude Code plugin ships through its marketplace, not this crate.
+exclude = ["claude-plugin/*", "!claude-plugin/skills/"]
 
 [[bin]]
 name = "agd"
