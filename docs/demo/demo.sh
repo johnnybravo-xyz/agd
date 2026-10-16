@@ -8,6 +8,8 @@
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 agd=${AGD:-$(command -v agd || echo "$here/../../target/debug/agd")}
+# Absolute, so it still runs after the seed below changes directory.
+case $agd in */*) agd=$(cd "$(dirname "$agd")" && pwd)/$(basename "$agd") ;; esac
 demo=$(mktemp -d "${TMPDIR:-/tmp}/agd-demo.XXXXXX")
 python3 "$here/render.py" "$demo/org"
 cat > "$demo/config.toml" <<CONFIG
@@ -36,6 +38,7 @@ blocks = [
 ]
 CONFIG
 export HOME="$demo/home" XDG_DATA_HOME="$demo/home/.local/share"
-mkdir -p "$HOME"
-python3 "$here/seed_agents.py" "$agd" "$demo/config.toml"
+# The agents worked in a project of their own, which the Agents tab names.
+mkdir -p "$HOME/code/app"
+(cd "$HOME/code/app" && python3 "$here/seed_agents.py" "$agd" "$demo/config.toml")
 exec "$agd" --config "$demo/config.toml" "$@"
