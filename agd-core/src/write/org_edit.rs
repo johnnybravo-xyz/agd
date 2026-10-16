@@ -455,43 +455,75 @@ fn render_timestamp(timestamp: &PlanningTimestamp, active: bool) -> Result<Strin
     Ok(format!("[{}]", &active[1..active.len() - 1]))
 }
 
+/// The properties drawer after `changes`, as Org edits it: every line agd
+/// does not change keeps its exact bytes (the drawer's own `:PROPERTIES:`
+/// and `:END:` lines too), and a changed or new property is written the
+/// way Org writes one, in `org-property-format` (`%-10s %s`).
 fn render_properties(
     source: &str,
     headline: &HeadlineSpan,
     changes: &BTreeMap<String, Option<String>>,
     newline: &str,
 ) -> String {
-    let mut properties: Vec<(String, String)> = headline
-        .properties
-        .iter()
-        .map(|property| (property.key.clone(), property.value.clone()))
-        .collect();
-    for (key, value) in changes {
-        let position = properties
-            .iter()
-            .position(|(existing, _)| existing.eq_ignore_ascii_case(key));
-        match (position, value) {
-            (Some(index), Some(value)) => properties[index].1 = value.clone(),
-            (Some(index), None) => {
-                properties.remove(index);
-            }
-            (None, Some(value)) => properties.push((key.clone(), value.clone())),
-            (None, None) => {}
-        }
-    }
-    if properties.is_empty() {
-        return String::new();
-    }
     let indent = headline
         .drawer_span
         .or(headline.planning_span)
         .map_or("", |span| leading_indent(source, span.start));
-    let mut output = format!("{indent}:PROPERTIES:{newline}");
-    for (key, value) in properties {
-        output.push_str(&format!("{indent}:{key}: {value}{newline}"));
+    let written =
+        |key: &str, value: &str| format!("{indent}{:<10} {value}{newline}", format!(":{key}:"));
+    let mut lines: Vec<(String, String)> = headline
+        .properties
+        .iter()
+        .map(|property| {
+            (
+                property.key.clone(),
+                source[property.line.start..property.line.end].to_string(),
+            )
+        })
+        .collect();
+    for (key, value) in changes {
+        let position = lines
+            .iter()
+            .position(|(existing, _)| existing.eq_ignore_ascii_case(key));
+        match (position, value) {
+            (Some(index), Some(value)) => {
+                let line = written(&lines[index].0, value);
+                lines[index].1 = line;
+            }
+            (Some(index), None) => {
+                lines.remove(index);
+            }
+            (None, Some(value)) => lines.push((key.clone(), written(key, value))),
+            (None, None) => {}
+        }
     }
-    output.push_str(&format!("{indent}:END:{newline}"));
+    if lines.is_empty() {
+        return String::new();
+    }
+    let (open, close) = match headline.drawer_span {
+        Some(drawer) => drawer_fences(&source[drawer.start..drawer.end]),
+        None => (
+            format!("{indent}:PROPERTIES:{newline}"),
+            format!("{indent}:END:{newline}"),
+        ),
+    };
+    let mut output = open;
+    for (_, line) in lines {
+        output.push_str(&line);
+    }
+    output.push_str(&close);
     output
+}
+
+/// A drawer's first and last lines, `:PROPERTIES:` and `:END:`, as written.
+fn drawer_fences(drawer: &str) -> (String, String) {
+    let open_end = drawer.find('\n').map_or(drawer.len(), |end| end + 1);
+    let body = drawer.trim_end_matches(['\n', '\r']);
+    let close_start = body.rfind('\n').map_or(0, |start| start + 1);
+    (
+        drawer[..open_end].to_string(),
+        drawer[close_start..].to_string(),
+    )
 }
 
 fn advance_repeater(timestamp: &mut PlanningTimestamp, today: NaiveDate) -> Result<(), AgdError> {
@@ -616,6 +648,46 @@ mod tests {
         assert!(
             written.contains(&format!(":ID:       {id}"))
                 || written.contains(&format!(":ID: {id}"))
+        );
+    }
+
+    #[test]
+    fn a_property_edit_keeps_every_other_drawer_line_byte_exact() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("tasks.org");
+        fs::write(
+            &path,
+            "* TODO Stretch\n:PROPERTIES:\n:STYLE:    habit\n:Effort: 0:15\n:END:\nBody.\n",
+        )
+        .unwrap();
+        let settings = settings(temp.path());
+        let item_ref = WorkspaceIndex::load(settings.clone())
+            .unwrap()
+            .items()
+            .next()
+            .unwrap()
+            .item_ref
+            .clone();
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        engine
+            .edit(
+                &item_ref,
+                &EditIntent {
+                    properties: BTreeMap::from([
+                        ("OWNER".to_string(), Some("me".to_string())),
+                        ("Effort".to_string(), Some("0:30".to_string())),
+                    ]),
+                    ..EditIntent::default()
+                },
+                false,
+                &context(),
+            )
+            .unwrap();
+        // STYLE keeps its bytes; the changed Effort and the new OWNER are
+        // written as Org writes them.
+        assert_eq!(
+            fs::read_to_string(path).unwrap(),
+            "* TODO Stretch\n:PROPERTIES:\n:STYLE:    habit\n:Effort:   0:30\n:OWNER:    me\n:END:\nBody.\n"
         );
     }
 
