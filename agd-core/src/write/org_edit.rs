@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::{Duration, Months, NaiveDate, NaiveDateTime};
+use chrono::{NaiveDate, NaiveDateTime};
 
 use crate::{
     AgdError, ByteSpan, ErrorCode, HeadlineSpan, IdPolicy, IndexedDocument, LogKind,
@@ -18,6 +18,7 @@ use crate::{
 
 use super::edit::{Change, EditIntent};
 use super::patch::{Patch, line_ending};
+use crate::agenda::{add_period, parse_repeater};
 
 pub(super) fn build_edit_patches(
     document: &IndexedDocument,
@@ -531,26 +532,8 @@ fn advance_repeater(timestamp: &mut PlanningTimestamp, today: NaiveDate) -> Resu
         .repeater
         .as_deref()
         .ok_or_else(|| AgdError::new(ErrorCode::InvalidRepeater, "timestamp has no repeater"))?;
-    let (kind, amount_and_unit) = if let Some(value) = repeater.strip_prefix("++") {
-        ("++", value)
-    } else if let Some(value) = repeater.strip_prefix(".+") {
-        (".+", value)
-    } else if let Some(value) = repeater.strip_prefix('+') {
-        ("+", value)
-    } else {
-        return Err(AgdError::new(
-            ErrorCode::InvalidRepeater,
-            format!("invalid repeater: {repeater}"),
-        ));
-    };
-    let split = amount_and_unit.len().saturating_sub(1);
-    let amount = amount_and_unit[..split].parse::<u64>().map_err(|_| {
-        AgdError::new(
-            ErrorCode::InvalidRepeater,
-            format!("invalid repeater: {repeater}"),
-        )
-    })?;
-    let unit = &amount_and_unit[split..];
+    // A habit's maximum interval (`.+2d/3d`) stays in the repeater text.
+    let (kind, amount, unit) = parse_repeater(repeater)?;
     let original = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d").map_err(|_| {
         AgdError::new(
             ErrorCode::InvalidDate,
@@ -570,17 +553,6 @@ fn advance_repeater(timestamp: &mut PlanningTimestamp, today: NaiveDate) -> Resu
     timestamp.date = next.format("%Y-%m-%d").to_string();
     timestamp.raw = None;
     Ok(())
-}
-
-fn add_period(date: NaiveDate, amount: u64, unit: &str) -> Result<NaiveDate, AgdError> {
-    let result = match unit {
-        "d" => date.checked_add_signed(Duration::days(amount as i64)),
-        "w" => date.checked_add_signed(Duration::weeks(amount as i64)),
-        "m" => date.checked_add_months(Months::new(amount as u32)),
-        "y" => date.checked_add_months(Months::new((amount * 12) as u32)),
-        _ => None,
-    };
-    result.ok_or_else(|| AgdError::new(ErrorCode::InvalidRepeater, "repeater date is out of range"))
 }
 
 fn after_headline_line(source: &str, content_end: usize) -> usize {
@@ -611,7 +583,7 @@ fn leading_indent(source: &str, offset: usize) -> &str {
 mod tests {
     use std::fs;
 
-    use chrono::Local;
+    use chrono::{Duration, Local};
 
     use super::*;
     use crate::write::test_support::{context, settings};

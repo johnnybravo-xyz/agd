@@ -67,7 +67,10 @@ pub(super) fn planning_dates(
     Ok(dates)
 }
 
-fn parse_repeater(input: &str) -> Result<(&str, u64, char), AgdError> {
+/// A repeater's kind (`+`, `++` or `.+`), interval and unit (`d`, `w`,
+/// `m`, `y`): `.+2d/3d` is `(".+", 2, 'd')`. The one reader of repeater
+/// text, for the agenda's dates and for completing a repeating task.
+pub(crate) fn parse_repeater(input: &str) -> Result<(&str, u64, char), AgdError> {
     // Habit repeaters carry a maximum interval, e.g. `.+2d/3d`; only the
     // repeat interval matters for agenda dates.
     let input = input.split('/').next().unwrap_or(input);
@@ -106,7 +109,8 @@ fn parse_repeater(input: &str) -> Result<(&str, u64, char), AgdError> {
     Ok((kind, amount, unit))
 }
 
-fn add_period(date: NaiveDate, amount: u64, unit: char) -> Result<NaiveDate, AgdError> {
+/// `date` moved on by `amount` units of a repeater's unit.
+pub(crate) fn add_period(date: NaiveDate, amount: u64, unit: char) -> Result<NaiveDate, AgdError> {
     let next = match unit {
         'd' => date.checked_add_signed(Duration::days(amount as i64)),
         'w' => date.checked_add_signed(Duration::weeks(amount as i64)),

@@ -1,0 +1,9 @@
+#+TODO: TODO | DONE
+* TODO Stretch
+SCHEDULED: <2026-10-15 Thu .+2d/3d>
+:PROPERTIES:
+:ID: task-id
+:STYLE:    habit
+:LAST_REPEAT: [2026-10-13 Tue 14:22]
+:END:
+- State "DONE"       from "TODO"       [2026-10-13 Tue 14:22]

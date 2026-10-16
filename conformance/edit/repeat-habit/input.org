@@ -1,0 +1,7 @@
+#+TODO: TODO | DONE
+* TODO Stretch
+SCHEDULED: <2026-10-11 Sun .+2d/3d>
+:PROPERTIES:
+:ID: task-id
+:STYLE:    habit
+:END:
