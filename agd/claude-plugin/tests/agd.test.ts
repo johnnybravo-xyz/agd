@@ -486,7 +486,8 @@ test('/capture runs agd capture and says what it wrote as agd does', async ($, o
     on,
     {
       'agenda --status': { stdout: '1 today · 1 inbox\n' },
-      'capture t buy milk due:fri --json': { stdout: JSON.stringify(mutation) },
+      'capture --json -- t buy milk due:fri': { stdout: JSON.stringify(mutation) },
+      'capture --json -- t -1 point': { stdout: JSON.stringify({ ...mutation, item: item('TODO', '-1 point') }) },
     },
     calls,
   )
@@ -494,7 +495,9 @@ test('/capture runs agd capture and says what it wrote as agd does', async ($, o
   expect(captured.text).toBe(
     'inbox.org:7  captured · buy milk · scheduled Mon 4 Jan 2027 09:00 · deadline Fri 16 Oct',
   )
-  expect(calls).toContain('capture t buy milk due:fri --json')
+  expect(calls).toContain('capture --json -- t buy milk due:fri')
+  // After `--` a text that starts with `-` is text, not an option.
+  expect((await $.command.run(typed('capture', 't -1 point'))).text).toBe('tasks.org:1  captured · -1 point')
 })
 
 test('/capture reports agd\'s own error as a sentence, and its usage', async ($, on) => {
@@ -503,12 +506,22 @@ test('/capture reports agd\'s own error as a sentence, and its usage', async ($,
     code: 'unknown_template',
     message: "capture template 'zz' is not configured",
   }
+  const stale = { schema: 'agd.error/v1', code: 'stale_ref', message: 'ref /org/a.org:3#sha256:0 is stale' }
   agd(on, {
     'agenda --status': { stdout: '' },
-    'capture zz nothing --json': { exitCode: 1, stderr: JSON.stringify(refused) },
+    // A skipped file is a warning line before agd's error.
+    'capture --json -- zz nothing': {
+      exitCode: 1,
+      stderr: 'warning: skipped /org/bad.org: not UTF-8\n' + JSON.stringify(refused) + '\n',
+    },
+    'capture --json -- t stale': { exitCode: 1, stderr: JSON.stringify(stale) + '\n' },
   })
   expect((await $.command.run(typed('capture', 'zz nothing'))).text).toBe(
     "capture template 'zz' is not configured",
+  )
+  // The same sentence rule as the TUI's: a stale ref is said plainly.
+  expect((await $.command.run(typed('capture', 't stale'))).text).toBe(
+    'this heading changed on disk since agd read it',
   )
   expect((await $.command.run(typed('capture', ''))).text).toMatch(/^usage: \/capture KEY text/)
 })
