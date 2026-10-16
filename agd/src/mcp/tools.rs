@@ -134,9 +134,11 @@ struct EditRequest {
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct QueryRequest {
-    /// org-ql expression, such as (and (todo "TODO") (deadline :to 7)).
-    /// Predicates: and, or, not, todo, done, tags, priority, category,
-    /// text, deadline :to N, scheduled :to N.
+    /// org-ql expression, such as (and (todo) (deadline :to 7)): open
+    /// tasks due within a week, overdue ones included. Predicates: and,
+    /// or, not, (todo) for any not-done keyword or (todo "NEXT" "WAIT"),
+    /// done, tags, priority, category, text, deadline :to DAYS,
+    /// scheduled :to DAYS.
     expression: String,
 }
 

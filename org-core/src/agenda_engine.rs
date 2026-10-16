@@ -1182,12 +1182,22 @@ fn parse_property_term(
     })
 }
 
+/// The org-ql predicates `AgendaEngine::query` supports, as its errors list
+/// them.
+const QL_PREDICATES: &str = "(and ...), (or ...), (not ...), (todo), (todo \"KEYWORD\" ...), \
+(done), (tags \"TAG\"), (priority \"A\"), (category \"NAME\"), (text \"WORDS\"), \
+(deadline :to DAYS), (scheduled :to DAYS)";
+
+/// An org-ql expression, with org-ql's meanings: bare `(todo)` is any
+/// not-done TODO keyword, and `:to DAYS` is on or before today plus DAYS,
+/// past dates included.
 #[derive(Clone, Debug)]
 enum QlExpr {
     And(Vec<QlExpr>),
     Or(Vec<QlExpr>),
     Not(Box<QlExpr>),
-    Todo(String),
+    /// Empty: any not-done TODO keyword; else one of these keywords.
+    Todo(Vec<String>),
     Tags(String),
     Priority(String),
     Category(String),
@@ -1203,9 +1213,8 @@ impl QlExpr {
         let mut cursor = 0;
         let expression = parse_ql_expression(&tokens, &mut cursor)?;
         if cursor != tokens.len() {
-            return Err(AgdError::new(
-                "invalid_query",
-                "unexpected tokens after query",
+            return Err(invalid_query(
+                "expected the query to end after its first predicate; combine predicates with (and ...) or (or ...)",
             ));
         }
         Ok(expression)
@@ -1220,7 +1229,11 @@ impl QlExpr {
                 .iter()
                 .any(|expression| expression.matches(item, today)),
             Self::Not(expression) => !expression.matches(item, today),
-            Self::Todo(todo) => item.todo.as_ref() == Some(todo),
+            Self::Todo(keywords) if keywords.is_empty() => item.todo.is_some() && !item.done,
+            Self::Todo(keywords) => item
+                .todo
+                .as_ref()
+                .is_some_and(|todo| keywords.contains(todo)),
             Self::Tags(tag) => item
                 .tags
                 .iter()
@@ -1234,13 +1247,13 @@ impl QlExpr {
                 .deadline
                 .as_ref()
                 .and_then(|timestamp| parse_date(&timestamp.date).ok())
-                .is_some_and(|date| date >= today && date <= today + Duration::days(*days)),
+                .is_some_and(|date| date <= today + Duration::days(*days)),
             Self::Scheduled(days) => item
                 .planning
                 .scheduled
                 .as_ref()
                 .and_then(|timestamp| parse_date(&timestamp.date).ok())
-                .is_some_and(|date| date >= today && date <= today + Duration::days(*days)),
+                .is_some_and(|date| date <= today + Duration::days(*days)),
             Self::Done => item.done,
         }
     }
@@ -1279,7 +1292,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, AgdError> {
                     }
                 }
                 if !closed {
-                    return Err(AgdError::new("invalid_query", "unterminated string"));
+                    return Err(invalid_query("expected a closing `\"` for a string"));
                 }
                 tokens.push(Token::String(value));
             }
@@ -1301,19 +1314,18 @@ fn tokenize(input: &str) -> Result<Vec<Token>, AgdError> {
 }
 
 fn parse_ql_expression(tokens: &[Token], cursor: &mut usize) -> Result<QlExpr, AgdError> {
-    expect(tokens, cursor, Token::Open)?;
-    let operator = word(tokens, cursor)?;
+    expect(tokens, cursor, Token::Open, "`(` to start a predicate")?;
+    let operator = word(tokens, cursor, "a predicate name after `(`")?;
     let expression = match operator.as_str() {
         "and" | "or" => {
             let mut children = Vec::new();
-            while tokens.get(*cursor) != Some(&Token::Close) {
+            while !matches!(tokens.get(*cursor), Some(Token::Close) | None) {
                 children.push(parse_ql_expression(tokens, cursor)?);
             }
             if children.is_empty() {
-                return Err(AgdError::new(
-                    "invalid_query",
-                    format!("{operator} needs operands"),
-                ));
+                return Err(invalid_query(format!(
+                    "expected one or more predicates inside ({operator} ...)"
+                )));
             }
             if operator == "and" {
                 QlExpr::And(children)
@@ -1322,23 +1334,27 @@ fn parse_ql_expression(tokens: &[Token], cursor: &mut usize) -> Result<QlExpr, A
             }
         }
         "not" => QlExpr::Not(Box::new(parse_ql_expression(tokens, cursor)?)),
-        "todo" => QlExpr::Todo(string_value(tokens, cursor)?),
-        "tags" => QlExpr::Tags(string_value(tokens, cursor)?),
-        "priority" => QlExpr::Priority(string_value(tokens, cursor)?),
-        "category" => QlExpr::Category(string_value(tokens, cursor)?),
-        "text" => QlExpr::Text(string_value(tokens, cursor)?),
+        "todo" => {
+            let mut keywords = Vec::new();
+            while let Some(Token::String(keyword)) = tokens.get(*cursor) {
+                keywords.push(keyword.clone());
+                *cursor += 1;
+            }
+            QlExpr::Todo(keywords)
+        }
+        "tags" => QlExpr::Tags(string_value(tokens, cursor, "(tags \"work\")")?),
+        "priority" => QlExpr::Priority(string_value(tokens, cursor, "(priority \"A\")")?),
+        "category" => QlExpr::Category(string_value(tokens, cursor, "(category \"home\")")?),
+        "text" => QlExpr::Text(string_value(tokens, cursor, "(text \"report\")")?),
         "done" => QlExpr::Done,
         "deadline" | "scheduled" => {
-            let keyword = word(tokens, cursor)?;
-            if keyword != ":to" {
-                return Err(AgdError::new(
-                    "invalid_query",
-                    format!("{operator} supports only :to"),
-                ));
+            let usage = format!("`:to DAYS`, as in ({operator} :to 7)");
+            if word(tokens, cursor, &usage)? != ":to" {
+                return Err(invalid_query(format!("expected {usage}")));
             }
-            let days = word(tokens, cursor)?.parse::<i64>().map_err(|_| {
-                AgdError::new("invalid_query", format!("{operator} :to needs an integer"))
-            })?;
+            let days = word(tokens, cursor, &usage)?
+                .parse::<i64>()
+                .map_err(|_| invalid_query(format!("expected {usage}")))?;
             if operator == "deadline" {
                 QlExpr::Deadline(days)
             } else {
@@ -1346,45 +1362,60 @@ fn parse_ql_expression(tokens: &[Token], cursor: &mut usize) -> Result<QlExpr, A
             }
         }
         _ => {
-            return Err(AgdError::new(
-                "invalid_query",
-                format!("unsupported selector: {operator}"),
-            ));
+            return Err(invalid_query(format!("unknown predicate `{operator}`")));
         }
     };
-    expect(tokens, cursor, Token::Close)?;
+    expect(
+        tokens,
+        cursor,
+        Token::Close,
+        &format!("`)` to close ({operator} ...)"),
+    )?;
     Ok(expression)
 }
 
-fn expect(tokens: &[Token], cursor: &mut usize, expected: Token) -> Result<(), AgdError> {
+/// An `invalid_query` error: what was expected, then the supported
+/// predicates.
+fn invalid_query(problem: impl std::fmt::Display) -> AgdError {
+    AgdError::new(
+        "invalid_query",
+        format!("{problem}; supported predicates: {QL_PREDICATES}"),
+    )
+}
+
+fn expect(
+    tokens: &[Token],
+    cursor: &mut usize,
+    expected: Token,
+    what: &str,
+) -> Result<(), AgdError> {
     if tokens.get(*cursor) == Some(&expected) {
         *cursor += 1;
         Ok(())
     } else {
-        Err(AgdError::new(
-            "invalid_query",
-            format!("expected {expected:?}"),
-        ))
+        Err(invalid_query(format!("expected {what}")))
     }
 }
 
-fn word(tokens: &[Token], cursor: &mut usize) -> Result<String, AgdError> {
+fn word(tokens: &[Token], cursor: &mut usize, what: &str) -> Result<String, AgdError> {
     match tokens.get(*cursor) {
         Some(Token::Word(value)) => {
             *cursor += 1;
             Ok(value.clone())
         }
-        _ => Err(AgdError::new("invalid_query", "expected a word")),
+        _ => Err(invalid_query(format!("expected {what}"))),
     }
 }
 
-fn string_value(tokens: &[Token], cursor: &mut usize) -> Result<String, AgdError> {
+fn string_value(tokens: &[Token], cursor: &mut usize, example: &str) -> Result<String, AgdError> {
     match tokens.get(*cursor) {
         Some(Token::String(value)) => {
             *cursor += 1;
             Ok(value.clone())
         }
-        _ => Err(AgdError::new("invalid_query", "expected a quoted string")),
+        _ => Err(invalid_query(format!(
+            "expected a quoted string, as in {example}"
+        ))),
     }
 }
 
@@ -2054,6 +2085,54 @@ mod tests {
             .unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].title, "Report");
+    }
+
+    #[test]
+    fn org_ql_deadline_to_includes_past_dates_and_bare_todo_means_not_done() {
+        let (_temp, index) = fixture(
+            "#+TODO: TODO NEXT WAIT | DONE\n* TODO Overdue\nDEADLINE: <2026-10-11 Sun>\n* NEXT Soon\nDEADLINE: <2026-10-20 Tue>\n* WAIT Later\nDEADLINE: <2026-10-21 Wed>\n* DONE Finished\nDEADLINE: <2026-10-12 Mon>\n* Plain note\n",
+        );
+        let today = NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+        let titles = |expression: &str| -> Vec<String> {
+            AgendaEngine::new(&index)
+                .query(expression, today)
+                .unwrap()
+                .into_iter()
+                .map(|item| item.title)
+                .collect()
+        };
+        // Two days past is within `:to 7`, as in org-ql; so is a done item.
+        assert_eq!(titles("(deadline :to 7)"), ["Overdue", "Soon", "Finished"]);
+        assert_eq!(titles("(scheduled :to 7)"), Vec::<String>::new());
+        assert_eq!(titles("(todo)"), ["Overdue", "Soon", "Later"]);
+        assert_eq!(titles("(and (todo) (deadline :to 7))"), ["Overdue", "Soon"]);
+        assert_eq!(titles("(todo \"NEXT\" \"WAIT\")"), ["Soon", "Later"]);
+    }
+
+    #[test]
+    fn org_ql_errors_say_what_was_expected_and_list_the_predicates() {
+        let (_temp, index) = fixture("* TODO Task\n");
+        let today = NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+        let error = |expression: &str| {
+            let error = AgendaEngine::new(&index)
+                .query(expression, today)
+                .unwrap_err();
+            assert_eq!(error.code(), "invalid_query");
+            error.to_string()
+        };
+        let unknown = error("(heading \"x\")");
+        assert!(
+            unknown.starts_with("unknown predicate `heading`; supported predicates: (and ...)")
+        );
+        assert!(unknown.contains("(todo \"KEYWORD\" ...)"));
+        assert!(unknown.contains("(deadline :to DAYS)"));
+        assert!(
+            error("(tags work)").starts_with("expected a quoted string, as in (tags \"work\")")
+        );
+        assert!(error("(deadline 7)").starts_with("expected `:to DAYS`, as in (deadline :to 7)"));
+        assert!(error("todo").starts_with("expected `(` to start a predicate"));
+        assert!(error("(and (todo)").starts_with("expected `)` to close (and ...)"));
+        assert!(error("(todo) (done)").starts_with("expected the query to end"));
     }
 
     #[test]
