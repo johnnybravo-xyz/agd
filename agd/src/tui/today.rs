@@ -192,13 +192,24 @@ fn footer_hints(app: &App, room: usize) -> Vec<Span<'static>> {
 
 fn list_title(app: &App) -> String {
     match &app.screen {
-        Screen::Today if app.classic => format!("Today · {}", app.day.format("%A %-d %B")),
+        Screen::Today if app.classic => {
+            let date = app.day.format("%A %-d %B").to_string();
+            match relative_day(app) {
+                Some(word) => format!("{word} · {date}"),
+                None => date,
+            }
+        }
         Screen::Today => {
             let effort = total_effort(app);
             if effort > 0 {
-                format!("Today · {}:{:02} effort", effort / 60, effort % 60)
+                format!(
+                    "{} · {}:{:02} effort",
+                    day_name(app),
+                    effort / 60,
+                    effort % 60
+                )
             } else {
-                "Today".to_string()
+                day_name(app)
             }
         }
         Screen::Week => format!("Week {}", app.day.format("%V")),
@@ -208,6 +219,26 @@ fn list_title(app: &App) -> String {
             .view(key)
             .map_or_else(|| key.clone(), |view| view.desc.clone()),
         Screen::Triage | Screen::Review => String::new(),
+    }
+}
+
+/// The day `f`/`b` moved the list to: Today, else its date, after
+/// Tomorrow or Yesterday when it is one.
+fn day_name(app: &App) -> String {
+    let date = app.day.format("%a %-d %b").to_string();
+    match relative_day(app) {
+        Some("Today") => "Today".to_string(),
+        Some(word) => format!("{word} · {date}"),
+        None => date,
+    }
+}
+
+fn relative_day(app: &App) -> Option<&'static str> {
+    match (app.day - app.today).num_days() {
+        0 => Some("Today"),
+        1 => Some("Tomorrow"),
+        -1 => Some("Yesterday"),
+        _ => None,
     }
 }
 

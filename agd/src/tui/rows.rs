@@ -59,7 +59,25 @@ impl App {
         self.selected = 0;
         self.marks.clear();
         self.overdue_expanded = false;
-        self.reload_rows()
+        self.reload_rows()?;
+        self.cursor_to_today();
+        Ok(())
+    }
+
+    /// Week opens on its first day, with the cursor on today's first row,
+    /// or the first row after today when today has none.
+    pub(super) fn cursor_to_today(&mut self) {
+        if self.screen != Screen::Week {
+            return;
+        }
+        let today = self.today.format("%Y-%m-%d").to_string();
+        if let Some(index) = self.rows.iter().position(|row| {
+            row.occurrence
+                .as_ref()
+                .is_some_and(|occurrence| occurrence.date >= today)
+        }) {
+            self.selected = index;
+        }
     }
 
     /// The task under the cursor; None on Today's "+N more" row, so no key

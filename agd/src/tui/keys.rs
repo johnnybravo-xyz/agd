@@ -527,6 +527,7 @@ fn run_list(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget
         A::GoToday => {
             app.day = app.today;
             app.reload_rows()?;
+            app.cursor_to_today();
         }
         A::Peek => app.peek = !app.peek,
         A::Views => app.overlay = Overlay::Views { selected: 0 },

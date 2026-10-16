@@ -1166,6 +1166,41 @@ fn agent_cards_name_the_changed_headings_line_and_enter_opens_it() {
 
 #[test]
 #[serial]
+fn the_list_title_follows_f_and_b_and_week_opens_on_today() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* TODO Monday task\nSCHEDULED: <2026-10-12 Mon>\n\
+* TODO Tuesday task\nSCHEDULED: <2026-10-13 Tue>\n\
+* TODO Thursday task\nSCHEDULED: <2026-10-15 Thu>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        assert!(render(&mut app, 100, 20)[1].contains(" Today "));
+        press(&mut app, KeyCode::Char('f'));
+        let title = render(&mut app, 100, 20)[1].clone();
+        assert!(title.contains("Tomorrow · Wed 14 Oct"), "{title}");
+        press(&mut app, KeyCode::Char('f'));
+        let title = render(&mut app, 100, 20)[1].clone();
+        assert!(title.contains("Thu 15 Oct"), "{title}");
+        press(&mut app, KeyCode::Char('.'));
+
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(app.screen, Screen::Week);
+        let row = app.selected_row().unwrap();
+        assert_eq!(row.occurrence.as_ref().unwrap().date, "2026-10-13");
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(
+            screen.contains("Monday task"),
+            "the week still starts Monday"
+        );
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {
