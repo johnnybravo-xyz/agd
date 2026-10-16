@@ -115,14 +115,14 @@ impl RootSet {
             let canonical = PathBuf::from(&expanded).canonicalize().map_err(|error| {
                 AgdError::with_source(
                     ErrorCode::InvalidRoot,
-                    format!("cannot resolve approved root '{configured}': {error}"),
+                    format!("cannot resolve root '{configured}': {error}"),
                     error,
                 )
             })?;
             if !canonical.is_dir() {
                 return Err(AgdError::new(
                     ErrorCode::InvalidRoot,
-                    format!("approved root is not a directory: {configured}"),
+                    format!("root '{configured}' is not a directory"),
                 ));
             }
             roots.push(canonical);
@@ -132,7 +132,7 @@ impl RootSet {
         if roots.is_empty() {
             return Err(AgdError::new(
                 ErrorCode::InvalidRoot,
-                "at least one root is required",
+                "roots must contain at least one directory",
             ));
         }
         Ok(Self {
@@ -196,16 +196,13 @@ impl RootSet {
         match matches.len() {
             0 => Err(AgdError::new(
                 ErrorCode::FileNotFound,
-                format!(
-                    "file is not present under an approved root: {}",
-                    requested.display()
-                ),
+                format!("file is not under a root: {}", requested.display()),
             )),
             1 => Ok(matches.into_iter().next().expect("one path")),
             _ => Err(AgdError::new(
                 ErrorCode::PathConflict,
                 format!(
-                    "relative path matches multiple approved roots: {}",
+                    "relative path matches more than one root: {}",
                     requested.display()
                 ),
             )),
@@ -236,17 +233,14 @@ impl RootSet {
                 [] => {
                     return Err(AgdError::new(
                         ErrorCode::FileNotFound,
-                        format!(
-                            "file is not present under an approved root: {}",
-                            requested.display()
-                        ),
+                        format!("file is not under a root: {}", requested.display()),
                     ));
                 }
                 _ => {
                     return Err(AgdError::new(
                         ErrorCode::PathConflict,
                         format!(
-                            "relative path matches multiple approved roots: {}",
+                            "relative path matches more than one root: {}",
                             requested.display()
                         ),
                     ));
@@ -279,7 +273,7 @@ impl RootSet {
         if !self.contains(&canonical_parent) {
             return Err(AgdError::new(
                 ErrorCode::InvalidPath,
-                format!("path escapes approved roots: {}", lexical.display()),
+                format!("path is outside the roots: {}", lexical.display()),
             ));
         }
         if lexical.exists() && !lexical.is_file() {
@@ -411,7 +405,7 @@ impl RootSet {
         if !self.contains(&resolve_existing_prefix(path)?) {
             return Err(AgdError::new(
                 ErrorCode::InvalidPath,
-                format!("resolved path escapes approved roots: {}", path.display()),
+                format!("resolved path is outside the roots: {}", path.display()),
             ));
         }
         let canonical = path.canonicalize().map_err(|error| {
@@ -424,7 +418,7 @@ impl RootSet {
         if !self.contains(&canonical) {
             return Err(AgdError::new(
                 ErrorCode::InvalidPath,
-                format!("resolved path escapes approved roots: {}", path.display()),
+                format!("resolved path is outside the roots: {}", path.display()),
             ));
         }
         if !canonical.is_file() {
@@ -510,7 +504,7 @@ fn build_globset(patterns: &[String]) -> Result<GlobSet, AgdError> {
         if Path::new(pattern).is_absolute() {
             return Err(AgdError::new(
                 ErrorCode::InvalidAgendaPattern,
-                format!("agenda pattern must be relative to an approved root: {pattern}"),
+                format!("agenda pattern must be relative to a root: {pattern}"),
             ));
         }
         builder.add(Glob::new(pattern).map_err(|error| {

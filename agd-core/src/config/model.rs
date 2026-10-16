@@ -367,6 +367,53 @@ impl Settings {
         self.captures.iter().find(|template| template.key == key)
     }
 
+    /// The template `key` names, or an `unknown_template` error that lists
+    /// the templates there are.
+    pub fn find_capture_template(&self, key: &str) -> Result<&CaptureTemplate, AgdError> {
+        self.capture_template(key).ok_or_else(|| {
+            let keys = self.captures.iter().map(|template| template.key.as_str());
+            let known = if self.captures.is_empty() {
+                "no [[capture]] template is configured".to_string()
+            } else {
+                format!("the templates are {}", quoted_list(keys))
+            };
+            AgdError::new(
+                ErrorCode::UnknownTemplate,
+                format!("unknown capture template '{key}'; {known}"),
+            )
+        })
+    }
+
+    /// The view `key` runs, or an `unknown_view` error that lists every
+    /// view, the built-in ones too.
+    pub fn find_view(&self, key: &str) -> Result<&ViewSettings, AgdError> {
+        self.view(key).ok_or_else(|| {
+            AgdError::new(
+                ErrorCode::UnknownView,
+                format!("unknown view '{key}'; the views are {}", self.view_keys()),
+            )
+        })
+    }
+
+    /// The view `agd agenda --view` without a key runs: start_view.
+    pub fn find_start_view(&self) -> Result<&ViewSettings, AgdError> {
+        if self.start_view.is_empty() {
+            return Err(AgdError::new(
+                ErrorCode::UnknownView,
+                format!(
+                    "--view without a key runs start_view, which is not set; name one of {}",
+                    self.view_keys()
+                ),
+            ));
+        }
+        self.find_view(&self.start_view)
+    }
+
+    /// Every view's key, quoted, for messages: `'w' and 'n'`.
+    pub(super) fn view_keys(&self) -> String {
+        quoted_list(self.all_views().iter().map(|view| view.key.as_str()))
+    }
+
     /// The view `key` runs: the user's `[[view]]`, else a built-in one.
     pub fn view(&self, key: &str) -> Option<&ViewSettings> {
         self.all_views().into_iter().find(|view| view.key == key)
@@ -393,6 +440,42 @@ impl Settings {
             .find(|profile| profile.name == name)
     }
 
+    /// Narrows these settings to `[[agent_profile]]` `name`, as `agd
+    /// agenda --profile` and MCP `agenda` do: its files replace
+    /// agenda_files, and its match is the match unless `match_expression`
+    /// gives one, which this returns.
+    pub fn apply_agent_profile(
+        &mut self,
+        name: &str,
+        match_expression: Option<String>,
+    ) -> Result<Option<String>, AgdError> {
+        let profile = self.find_agent_profile(name)?.clone();
+        if !profile.files.is_empty() {
+            self.agenda_files = profile.files;
+        }
+        Ok(match_expression.or(profile.match_expression))
+    }
+
+    /// The `[[agent_profile]]` `name` names, or an `unknown_profile` error
+    /// that lists the profiles there are.
+    pub fn find_agent_profile(&self, name: &str) -> Result<&AgentProfile, AgdError> {
+        self.agent_profile(name).ok_or_else(|| {
+            let names = self
+                .agent_profiles
+                .iter()
+                .map(|profile| profile.name.as_str());
+            let known = if self.agent_profiles.is_empty() {
+                "no [[agent_profile]] is configured".to_string()
+            } else {
+                format!("the profiles are {}", quoted_list(names))
+            };
+            AgdError::new(
+                ErrorCode::UnknownProfile,
+                format!("unknown agent profile '{name}'; {known}"),
+            )
+        })
+    }
+
     /// The editor program and its arguments with `{file}`, `{line}` and
     /// `{col}` (both 1-based) substituted inside each argument. The result
     /// goes straight to the process API, never to a shell, so file names
@@ -406,6 +489,17 @@ impl Settings {
         });
         let program = parts.next().unwrap_or_else(|| "vi".to_string());
         (program, parts.collect())
+    }
+}
+
+/// Names for a message, each in single quotes: `'a'`, `'a' and 'b'`,
+/// `'a', 'b' and 'c'`.
+pub(crate) fn quoted_list<'a>(names: impl IntoIterator<Item = &'a str>) -> String {
+    let quoted: Vec<String> = names.into_iter().map(|name| format!("'{name}'")).collect();
+    match quoted.split_last() {
+        None => String::new(),
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
     }
 }
 
@@ -464,6 +558,49 @@ mod tests {
                 strings(&["-n", "+42:1", "/org/my tasks.org"])
             )
         );
+    }
+
+    #[test]
+    fn unknown_names_list_what_is_configured_or_say_nothing_is() {
+        let settings = Settings {
+            agent_profiles: vec![AgentProfile {
+                name: "coding".to_string(),
+                ..AgentProfile::default()
+            }],
+            ..Settings::default()
+        };
+        let message = |error: AgdError| (error.code(), error.to_string());
+        assert_eq!(
+            message(settings.find_view("x").unwrap_err()),
+            (
+                ErrorCode::UnknownView,
+                "unknown view 'x'; the views are 'n'".to_string()
+            )
+        );
+        assert_eq!(
+            message(settings.find_start_view().unwrap_err()).1,
+            "--view without a key runs start_view, which is not set; name one of 'n'"
+        );
+        assert_eq!(
+            message(settings.find_agent_profile("x").unwrap_err()).1,
+            "unknown agent profile 'x'; the profiles are 'coding'"
+        );
+        assert_eq!(
+            message(Settings::default().find_agent_profile("x").unwrap_err()).1,
+            "unknown agent profile 'x'; no [[agent_profile]] is configured"
+        );
+        let none = Settings {
+            captures: Vec::new(),
+            ..Settings::default()
+        };
+        assert_eq!(
+            message(none.find_capture_template("t").unwrap_err()),
+            (
+                ErrorCode::UnknownTemplate,
+                "unknown capture template 't'; no [[capture]] template is configured".to_string()
+            )
+        );
+        assert_eq!(quoted_list(["a", "b", "c"]), "'a', 'b' and 'c'");
     }
 
     #[test]

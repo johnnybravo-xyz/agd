@@ -105,8 +105,8 @@ pub(super) fn describe(
             default: settings.default_priority.clone(),
         },
         views: settings
-            .views
-            .iter()
+            .all_views()
+            .into_iter()
             .map(|view| ViewDescription {
                 key: view.key.clone(),
                 desc: view.desc.clone(),

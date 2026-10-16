@@ -171,7 +171,9 @@ fn builtin_n_view_runs_beside_configured_views() {
         .args(["agenda", "--view", "x"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("unknown view 'x'; views: w, n"));
+        .stderr(predicate::str::contains(
+            "unknown view 'x'; the views are 'w' and 'n'",
+        ));
 }
 
 #[test]
@@ -261,7 +263,10 @@ fn errors_name_the_valid_choices() {
     .unwrap();
     let failures: [(&[&str], &str); 3] = [
         (&["capture", "x", "Buy milk"], "templates: t, m"),
-        (&["agenda", "--profile", "nope"], "profiles: coding"),
+        (
+            &["agenda", "--profile", "nope"],
+            "the profiles are 'coding'",
+        ),
         (&["capture", "m", "Budget"], "--prompt 'Who=...'"),
     ];
     for (arguments, hint) in failures {

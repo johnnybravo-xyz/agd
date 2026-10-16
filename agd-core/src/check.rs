@@ -213,7 +213,7 @@ pub fn check_paths(roots: &[PathBuf]) -> CheckReport {
                     file: display_path.clone(),
                     line: Some(headline.line),
                     code: "duplicate_id",
-                    message: format!("ID {id:?} first appears at {first_file}:{first_line}"),
+                    message: format!("ID '{id}' first appears at {first_file}:{first_line}"),
                 });
             } else {
                 ids.insert(id.to_owned(), (display_path.clone(), headline.line));
@@ -305,7 +305,7 @@ pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgdError> {
                         file: display_path.clone(),
                         line: Some(headline.item.line),
                         code: ErrorCode::IdConflict.as_str(),
-                        message: format!("ID {id:?} first appears at {first_file}:{first_line}"),
+                        message: format!("ID '{id}' first appears at {first_file}:{first_line}"),
                     });
                 } else {
                     ids.insert(id.clone(), (display_path.clone(), headline.item.line));
@@ -322,7 +322,7 @@ pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgdError> {
                     line: Some(headline.item.line),
                     code: ErrorCode::InvalidTodo.as_str(),
                     message: format!(
-                        "TODO keyword {first:?} is not enabled by this file's #+TODO settings"
+                        "TODO keyword '{first}' is not enabled by this file's #+TODO settings"
                     ),
                 });
             }

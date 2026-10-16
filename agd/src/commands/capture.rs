@@ -13,8 +13,7 @@ use clap::Args;
 use super::write_stdout;
 use crate::words;
 
-const USAGE: &str =
-    "usage: agd capture [KEY] TEXT (KEY defaults to the first template), or agd capture -i";
+const USAGE: &str = "capture needs text: agd capture [KEY] TEXT (KEY defaults to the first template), or agd capture -i";
 
 #[derive(Args, Debug)]
 pub struct CaptureCommand {

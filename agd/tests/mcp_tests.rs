@@ -493,7 +493,10 @@ async fn agenda_runs_views_and_profiles_from_agenda_start_day_as_the_cli_does()
     let result = call(&service, "agenda", json!({"view": "x"})).await?;
     let error = first_block(&result);
     assert_eq!(error["code"], "unknown_view");
-    assert_eq!(error["message"], "unknown view 'x'; configured views: w");
+    assert_eq!(
+        error["message"],
+        "unknown view 'x'; the views are 'w' and 'n'"
+    );
     let result = call(&service, "agenda", json!({"profile": "work"})).await?;
     assert_eq!(first_block(&result)["code"], "unknown_profile");
     service.cancel().await?;
@@ -634,7 +637,10 @@ blocks = [{ kind = "tags-todo", match = "work" }]
                 "overrides": [{"sequences": ["OPEN | SHUT"], "files": null}]
             },
             "priorities": {"highest": "A", "lowest": "E", "default": "C"},
-            "views": [{"key": "w", "desc": "Work", "start": true}],
+            "views": [
+                {"key": "w", "desc": "Work", "start": true},
+                {"key": "n", "desc": "Agenda and all TODOs", "start": false}
+            ],
             "tags": ["phone", "proj", "work"],
             "date_grammar": "today, tomorrow, a weekday (fri), +2d (also +1w, +1m, +1y), 2026-10-30 or 2026-10-30T14:00"
         })

@@ -354,17 +354,10 @@ fn with_profile(
     request: &AgendaRequest,
 ) -> Result<(agd_core::Settings, Option<String>), AgdError> {
     let mut settings = settings.clone();
-    let mut match_expression = request.match_expression.clone();
-    if let Some(name) = request.profile.as_deref() {
-        let profile = settings
-            .agent_profile(name)
-            .cloned()
-            .ok_or_else(|| unknown_profile(&settings, name))?;
-        if !profile.files.is_empty() {
-            settings.agenda_files = profile.files;
-        }
-        match_expression = match_expression.or(profile.match_expression);
-    }
+    let match_expression = match request.profile.as_deref() {
+        Some(name) => settings.apply_agent_profile(name, request.match_expression.clone())?,
+        None => request.match_expression.clone(),
+    };
     Ok((settings, match_expression))
 }
 
@@ -398,39 +391,7 @@ fn view_settings<'a>(
             "a view runs its own spans and matches; leave span and match out",
         ));
     }
-    settings.view(key).ok_or_else(|| {
-        let keys: Vec<&str> = settings
-            .views
-            .iter()
-            .map(|view| view.key.as_str())
-            .collect();
-        AgdError::new(
-            ErrorCode::UnknownView,
-            format!(
-                "unknown view '{key}'; configured views: {}",
-                keys.join(", ")
-            ),
-        )
-    })
-}
-
-fn unknown_profile(settings: &agd_core::Settings, name: &str) -> AgdError {
-    let names: Vec<&str> = settings
-        .agent_profiles
-        .iter()
-        .map(|profile| profile.name.as_str())
-        .collect();
-    AgdError::new(
-        ErrorCode::UnknownProfile,
-        if names.is_empty() {
-            format!("unknown agent profile '{name}'; config.toml has no [[agent_profile]]")
-        } else {
-            format!(
-                "unknown agent profile '{name}'; configured profiles: {}",
-                names.join(", ")
-            )
-        },
-    )
+    settings.find_view(key)
 }
 
 /// Cuts a view to `limit` rows in display order (each section's entries

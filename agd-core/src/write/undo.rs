@@ -53,8 +53,9 @@ impl WriteEngine {
             return Err(AgdError::new(
                 ErrorCode::InvalidJournalState,
                 format!(
-                    "journal entry {} is {:?}, not a committed change; nothing to undo",
-                    record.id, record.status
+                    "journal entry {} is {}, not a committed change; nothing to undo",
+                    record.id,
+                    format!("{:?}", record.status).to_lowercase()
                 ),
             ));
         }

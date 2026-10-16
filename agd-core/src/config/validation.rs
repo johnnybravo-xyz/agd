@@ -10,7 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use crate::{AgdError, ErrorCode};
+use crate::{AgdError, ErrorCode, RootSet};
 
 use super::file::config_error;
 use super::model::{
@@ -26,23 +26,15 @@ pub(super) fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
 /// Every root resolves to a distinct directory; a bad root is the same
 /// `invalid_root` error the write engine gives.
 pub(super) fn validate_roots(roots: &[String]) -> Result<(), AgdError> {
-    let root_error = |message: String| AgdError::new(ErrorCode::InvalidRoot, message);
-    if roots.is_empty() {
-        return Err(root_error(
-            "roots must contain at least one directory".to_string(),
-        ));
-    }
+    RootSet::new(roots, &[])?;
     let mut canonical_roots = BTreeSet::new();
     for root in roots {
-        let expanded = shellexpand::tilde(root).into_owned();
-        let canonical = PathBuf::from(&expanded)
-            .canonicalize()
-            .map_err(|error| root_error(format!("cannot resolve root '{root}': {error}")))?;
-        if !canonical.is_dir() {
-            return Err(root_error(format!("root '{root}' is not a directory")));
-        }
-        if !canonical_roots.insert(canonical) {
-            return Err(root_error(format!("root '{root}' is listed twice")));
+        let canonical = PathBuf::from(shellexpand::tilde(root).into_owned()).canonicalize();
+        if canonical.is_ok_and(|canonical| !canonical_roots.insert(canonical)) {
+            return Err(AgdError::new(
+                ErrorCode::InvalidRoot,
+                format!("root '{root}' is listed twice"),
+            ));
         }
     }
     Ok(())
@@ -164,17 +156,9 @@ fn validate_editor(editor: &[String]) -> Result<(), AgdError> {
 /// `agent_inbox`, when set, is a `[[capture]]` key.
 fn validate_agent_inbox(settings: &Settings) -> Result<(), AgdError> {
     if let Some(key) = &settings.agent_inbox
-        && settings.capture_template(key).is_none()
+        && let Err(error) = settings.find_capture_template(key)
     {
-        let keys: Vec<&str> = settings
-            .captures
-            .iter()
-            .map(|template| template.key.as_str())
-            .collect();
-        return Err(config_error(format!(
-            "agent_inbox names capture template '{key}', which is not a [[capture]] key; use one of {}",
-            keys.join(", ")
-        )));
+        return Err(config_error(format!("agent_inbox: {error}")));
     }
     Ok(())
 }
@@ -293,16 +277,11 @@ fn validate_group(view_key: &str, group: &ViewGroup) -> Result<(), AgdError> {
 
 /// `start_view`, when set, names a view.
 fn validate_start_view(settings: &Settings) -> Result<(), AgdError> {
-    if !settings.start_view.is_empty() && settings.view(&settings.start_view).is_none() {
-        let keys: Vec<&str> = settings
-            .all_views()
-            .iter()
-            .map(|view| view.key.as_str())
-            .collect();
+    if !settings.start_view.is_empty()
+        && let Err(error) = settings.find_view(&settings.start_view)
+    {
         return Err(config_error(format!(
-            "start_view '{}' is not a view; use one of {}, or remove start_view to open Today",
-            settings.start_view,
-            keys.join(", ")
+            "start_view: {error}; or remove start_view to open Today"
         )));
     }
     Ok(())
@@ -381,7 +360,7 @@ mod tests {
     fn unknown_start_view_says_how_to_open_today() {
         assert_eq!(
             load_error("start_view = \"d\"\n"),
-            "start_view 'd' is not a view; use one of n, or remove start_view to open Today"
+            "start_view: unknown view 'd'; the views are 'n'; or remove start_view to open Today"
         );
     }
 
@@ -443,7 +422,7 @@ mod tests {
         assert_eq!(load_body("").unwrap().agent_inbox, None);
         assert_eq!(
             load_error("agent_inbox = \"i\"\n"),
-            "agent_inbox names capture template 'i', which is not a [[capture]] key; use one of t"
+            "agent_inbox: unknown capture template 'i'; the templates are 't'"
         );
     }
 

@@ -1,10 +1,9 @@
 use std::path::Path;
 
 use agd_core::{
-    AgdError, AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, ErrorCode, OccurrenceType,
-    Settings, VIEWS_SCHEMA, ViewSection, ViewSettings, WorkspaceIndex, WriteEngine, agenda_csv,
-    agenda_row, agenda_text, agenda_title, item_row, items_csv, keyword_colors, load_settings,
-    parse_agenda_day,
+    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, OccurrenceType, Settings, VIEWS_SCHEMA,
+    ViewSection, WorkspaceIndex, WriteEngine, agenda_csv, agenda_row, agenda_text, agenda_title,
+    item_row, items_csv, keyword_colors, load_settings, parse_agenda_day,
 };
 use anyhow::Result;
 
@@ -88,7 +87,7 @@ impl AgendaCommand {
             return Ok(write_stdout(&views_output(&settings, self.json)?)?);
         }
         let match_expression = match self.profile.as_deref() {
-            Some(name) => apply_profile(&mut settings, name, self.match_expression)?,
+            Some(name) => settings.apply_agent_profile(name, self.match_expression)?,
             None => self.match_expression,
         };
         let index = load_index(settings.clone())?;
@@ -103,7 +102,11 @@ impl AgendaCommand {
         };
         let color = !self.json && !self.csv && super::color_stdout();
         if let Some(key) = self.view.as_deref() {
-            let view = find_view(&settings, key)?;
+            let view = if key.is_empty() {
+                settings.find_start_view()?
+            } else {
+                settings.find_view(key)?
+            };
             let sections = AgendaEngine::new(&index).view(view, start, today, self.log)?;
             let mut output = view_output(&sections, self.json, self.csv, today, &index)?;
             if color {
@@ -272,59 +275,6 @@ fn paint_row(line: &str, row: &RowFacts) -> String {
         after = format!("{}{FAINT}{}{RESET}", &after[..at], &after[at..]);
     }
     format!("{indent}{FAINT}{category}{RESET}{after}")
-}
-
-/// Applies a `[[agent_profile]]`: its files replace agenda_files, and its
-/// match is the match unless --match gives one.
-fn apply_profile(
-    settings: &mut Settings,
-    name: &str,
-    match_expression: Option<String>,
-) -> Result<Option<String>, AgdError> {
-    let profile = settings.agent_profile(name).cloned().ok_or_else(|| {
-        let names: Vec<&str> = settings
-            .agent_profiles
-            .iter()
-            .map(|profile| profile.name.as_str())
-            .collect();
-        AgdError::new(
-            ErrorCode::UnknownProfile,
-            format!(
-                "unknown agent profile '{name}'; profiles: {}",
-                names.join(", ")
-            ),
-        )
-    })?;
-    if !profile.files.is_empty() {
-        settings.agenda_files = profile.files;
-    }
-    Ok(match_expression.or(profile.match_expression))
-}
-
-/// The view `--view KEY` names; an empty key is the configured start_view.
-fn find_view<'a>(settings: &'a Settings, key: &str) -> Result<&'a ViewSettings, AgdError> {
-    let key = if key.is_empty() {
-        if settings.start_view.is_empty() {
-            return Err(AgdError::new(
-                ErrorCode::UnknownView,
-                "--view without a key runs start_view, which is not set",
-            ));
-        }
-        settings.start_view.as_str()
-    } else {
-        key
-    };
-    settings.view(key).ok_or_else(|| {
-        let keys: Vec<&str> = settings
-            .all_views()
-            .iter()
-            .map(|view| view.key.as_str())
-            .collect();
-        AgdError::new(
-            ErrorCode::UnknownView,
-            format!("unknown view '{key}'; views: {}", keys.join(", ")),
-        )
-    })
 }
 
 /// A view's output: its sections as JSON, their CSV rows, or the text.

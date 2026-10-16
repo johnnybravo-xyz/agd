@@ -59,24 +59,7 @@ impl WriteEngine {
         dry_run: bool,
         context: &WriteContext,
     ) -> Result<Mutation, AgdError> {
-        let template = self
-            .settings
-            .capture_template(template_key)
-            .ok_or_else(|| {
-                let keys: Vec<&str> = self
-                    .settings
-                    .captures
-                    .iter()
-                    .map(|t| t.key.as_str())
-                    .collect();
-                AgdError::new(
-                    ErrorCode::UnknownTemplate,
-                    format!(
-                        "capture template '{template_key}' is not configured; templates: {}",
-                        keys.join(", ")
-                    ),
-                )
-            })?;
+        let template = self.settings.find_capture_template(template_key)?;
         let (template, draft) = apply_agent_capture_gate(template, draft, &self.settings, context);
         validate_capture_input(&draft, body, prompts)?;
         let input = CaptureInput {
