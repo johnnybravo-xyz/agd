@@ -482,7 +482,7 @@ fn section_header(app: &App, header: &Header, rows: &[usize], width: usize) -> L
         theme.strong(color)
     };
     let mut spans = vec![Span::styled(section.to_uppercase(), style)];
-    if count > 0 {
+    if count > 0 && header.counted {
         spans.push(Span::styled(format!("  {count}"), theme.muted()));
     }
     if section == OVERDUE {

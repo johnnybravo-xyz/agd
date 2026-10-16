@@ -95,6 +95,9 @@ struct Header {
     day: bool,
     /// A view's configured color name (COLOR_NAMES); None follows the rows.
     color: Option<String>,
+    /// agd's own sections show how many rows they hold; an agenda block's
+    /// title (`Day-agenda (W42):`) is Org's own text and shows none.
+    counted: bool,
 }
 
 impl Header {
@@ -103,6 +106,15 @@ impl Header {
             text,
             day: false,
             color,
+            counted: true,
+        }
+    }
+
+    /// An agenda block's title, as Org prints it, with day lines under it.
+    fn agenda_block(text: String, color: Option<String>) -> Self {
+        Self {
+            counted: false,
+            ..Self::section(text, color)
         }
     }
 }

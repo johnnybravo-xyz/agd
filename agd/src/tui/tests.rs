@@ -1540,6 +1540,35 @@ fn the_filter_narrows_rows_as_you_type_and_esc_restores_them() {
 
 #[test]
 #[serial]
+fn org_agenda_block_titles_carry_no_count_but_groups_do() {
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.settings.views = toml::from_str::<ViewsOnly>(
+            r#"[[view]]
+key = "d"
+desc = "Day"
+blocks = [
+  { kind = "agenda", span = "day" },
+  { kind = "alltodo", header = "Waiting", groups = [{ name = "Vendors", match = "/WAIT" }] },
+]"#,
+        )
+        .unwrap()
+        .view;
+        app.switch_screen(Screen::View("d".to_string())).unwrap();
+        let screen = render(&mut app, 100, 40).join("\n");
+        let title = screen
+            .lines()
+            .find(|line| line.contains("DAY-AGENDA"))
+            .unwrap_or_else(|| panic!("{screen}"));
+        let after = title.split("):").nth(1).unwrap_or_default();
+        assert!(!after.chars().any(|c| c.is_ascii_digit()), "{title}");
+        assert!(screen.contains("VENDORS  1"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {

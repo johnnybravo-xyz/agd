@@ -257,7 +257,7 @@ impl App {
                             } else {
                                 section.header.clone()
                             };
-                            headers.push(Header::section(title, Some(section.color.clone())));
+                            headers.push(Header::agenda_block(title, Some(section.color.clone())));
                             headers.extend(day_labels(from, to));
                             rows.extend(day_grouped(section.entries));
                         }
@@ -540,6 +540,7 @@ fn day_labels(from: NaiveDate, to: NaiveDate) -> Vec<Header> {
             text: day_label(day),
             day: true,
             color: None,
+            counted: false,
         });
         day += Duration::days(1);
     }
