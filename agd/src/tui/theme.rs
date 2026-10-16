@@ -1,12 +1,57 @@
+//! The visual system. Every screen, the pane, the Claude Code pane (which
+//! reads these palettes from `agd agenda --views --json`) and the CLI's
+//! terminal colours follow these rules; new code uses them instead of
+//! choosing its own.
+//!
+//! Colour roles, each for one meaning:
+//! - accent: focus, keys, scheduled rows and NEXT
+//! - overdue (red): lateness only
+//! - due (amber): deadlines, priority and TODO
+//! - done (green): done and DOING
+//! - yellow: WAIT; dim_red: CANCELLED
+//! - muted: metadata (category, tags, ages, file:line, provenance)
+//! - text: titles
+//! - agent hues: only on the ● before an agent's name
+//! - border, surface, selection: frames, pill fills and the cursor row
+//!
+//! Keywords take the user's `todo_keyword_colors` through `named`; the
+//! defaults are TODO orange, NEXT blue, in-progress states green, WAIT
+//! yellow and CANCELLED dim-red.
+//!
+//! Fills (pills) only for the Agenda badge, the footer mode pill and
+//! active filters, overdue badges, priority, and parsed chips (capture's
+//! tokens, a triage card's facts). In 16 colours a pill is its hue
+//! reversed, so it keeps it on the reversed cursor row, and a pill without
+//! a meaning colour is bold text with no fill. Under NO_COLOR only pills
+//! that carry state (lateness, deadline, priority, done) are reversed.
+//!
+//! Layout: the 6-cell lead after the marker column always means "when"
+//! (time, `in 3d`, `12d`, `-2d`); on sectioned screens the keyword column
+//! is padded to the widest visible keyword (at most 9); tags show from 100
+//! columns; the right meta column is right-aligned, at most 14 cells, with
+//! at least one blank cell before it. One blank line above each section
+//! header. Popups have two columns and one row of padding, a blank row
+//! between sections and their key hints on the last row.
+//!
+//! Type: UPPERCASE only for section headers and pills; bold for keys, the
+//! active tab, the next item and open non-TODO keywords; dim and struck
+//! through for done; underline only for the active tab and today's date
+//! (and, under NO_COLOR, the cursor row, which cannot be tinted); no
+//! italics.
+//!
+//! Glyphs: ▌ selection and focus, ▸ next, ✓ done (only where the keyword
+//! is hidden), ↻ repeat, ● agent, * bulk mark, → destination or new state,
+//! › breadcrumb and prompt, ↗ link, … truncation. Nerd Font caps only
+//! decorate pills; no width depends on them.
+
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
 use ratatui::widgets::{Block, BorderType, Borders, Padding};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-/// The few colour roles the design allows: accent for focus and keys, red
-/// for overdue, amber for due and priority, green for done, one hue per
-/// agent. Built once at startup from the terminal and the `theme` setting.
+/// The colour roles above, built once at startup from the terminal and the
+/// `theme` setting.
 #[derive(Clone, Debug)]
 pub(super) struct Theme {
     pub accent: Color,
@@ -21,9 +66,17 @@ pub(super) struct Theme {
     /// Named in COLOR_NAMES for keywords and view sections only.
     yellow: Color,
     dim_red: Color,
-    agents: [Color; 5],
+    pink: Color,
+    teal: Color,
+    purple: Color,
+    /// One per agent, by name; never teal or orange, which read as done
+    /// and due.
+    agents: [Color; 3],
+    /// 16 colours: pills are reversed hues and muted text is dimmed.
+    basic: bool,
     /// NO_COLOR: no colours at all; state is carried by bold, dim,
-    /// reversed and strike-through instead.
+    /// reversed and strike-through instead. The roles keep the dark
+    /// palette's values only so a pill knows whether it carries state.
     pub plain: bool,
     /// Pills get round caps from Nerd Font glyphs (`nerd_font = true`).
     pub rounded: bool,
@@ -54,7 +107,7 @@ impl Theme {
         }
     }
 
-    fn dark() -> Self {
+    pub(super) fn dark() -> Self {
         Self {
             accent: Color::Rgb(110, 168, 254),
             overdue: Color::Rgb(240, 113, 120),
@@ -65,21 +118,23 @@ impl Theme {
             border: Color::Rgb(66, 74, 88),
             surface: Color::Rgb(32, 37, 46),
             selection: Color::Rgb(37, 52, 74),
-            yellow: Color::Rgb(236, 214, 120),
+            yellow: Color::Rgb(220, 214, 100),
             dim_red: Color::Rgb(176, 112, 118),
+            pink: Color::Rgb(232, 121, 176),
+            teal: Color::Rgb(94, 196, 160),
+            purple: Color::Rgb(176, 148, 245),
             agents: [
                 Color::Rgb(232, 121, 176),
-                Color::Rgb(94, 196, 160),
                 Color::Rgb(176, 148, 245),
-                Color::Rgb(240, 160, 90),
                 Color::Rgb(100, 190, 230),
             ],
+            basic: false,
             plain: false,
             rounded: false,
         }
     }
 
-    fn light() -> Self {
+    pub(super) fn light() -> Self {
         Self {
             accent: Color::Rgb(37, 99, 196),
             overdue: Color::Rgb(197, 48, 48),
@@ -90,22 +145,26 @@ impl Theme {
             border: Color::Rgb(196, 201, 208),
             surface: Color::Rgb(238, 240, 243),
             selection: Color::Rgb(214, 226, 242),
-            yellow: Color::Rgb(150, 122, 0),
+            yellow: Color::Rgb(120, 118, 0),
             dim_red: Color::Rgb(184, 120, 120),
+            pink: Color::Rgb(200, 60, 130),
+            teal: Color::Rgb(20, 140, 100),
+            purple: Color::Rgb(110, 80, 200),
             agents: [
                 Color::Rgb(200, 60, 130),
-                Color::Rgb(20, 140, 100),
                 Color::Rgb(110, 80, 200),
-                Color::Rgb(200, 100, 20),
                 Color::Rgb(20, 120, 170),
             ],
+            basic: false,
             plain: false,
             rounded: false,
         }
     }
 
-    /// 16-colour palette for terminals without truecolor.
-    fn basic() -> Self {
+    /// 16-colour palette for terminals without truecolor. Text keeps the
+    /// terminal's own foreground; muted and border are that foreground
+    /// dimmed (DarkGray is only their name here, see `fg`).
+    pub(super) fn basic() -> Self {
         Self {
             accent: Color::LightBlue,
             overdue: Color::Red,
@@ -119,13 +178,11 @@ impl Theme {
             selection: Color::Reset,
             yellow: Color::LightYellow,
             dim_red: Color::Red,
-            agents: [
-                Color::Magenta,
-                Color::Cyan,
-                Color::LightMagenta,
-                Color::LightYellow,
-                Color::LightCyan,
-            ],
+            pink: Color::Magenta,
+            teal: Color::Cyan,
+            purple: Color::LightMagenta,
+            agents: [Color::Magenta, Color::LightMagenta, Color::LightCyan],
+            basic: true,
             plain: false,
             rounded: false,
         }
@@ -133,26 +190,19 @@ impl Theme {
 
     fn plain() -> Self {
         Self {
-            accent: Color::Reset,
-            overdue: Color::Reset,
-            due: Color::Reset,
-            done: Color::Reset,
-            text: Color::Reset,
-            muted: Color::Reset,
-            border: Color::Reset,
-            surface: Color::Reset,
-            selection: Color::Reset,
-            yellow: Color::Reset,
-            dim_red: Color::Reset,
-            agents: [Color::Reset; 5],
             plain: true,
-            rounded: false,
+            ..Self::dark()
         }
     }
 
+    /// A role's foreground. NO_COLOR draws none; in 16 colours muted text
+    /// is the terminal's foreground dimmed, which stays readable where dark
+    /// grey would vanish or turn into a grey bar on the reversed row.
     pub(super) fn fg(&self, color: Color) -> Style {
         if self.plain {
             Style::default()
+        } else if self.basic && color == self.muted {
+            Style::default().add_modifier(Modifier::DIM)
         } else {
             Style::default().fg(color)
         }
@@ -180,18 +230,19 @@ impl Theme {
     /// the list's highlight symbol. Truecolor tints the background. With 16
     /// colours no background is dark enough and distinct from the muted
     /// grey, so the row is reversed and every role keeps its hue. NO_COLOR
-    /// badges are already reverse video, so the row is underlined instead.
+    /// state pills are already reverse video, so the row is underlined
+    /// instead.
     pub(super) fn selected(&self) -> Style {
         if self.plain {
             Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-        } else if self.selection == Color::Reset {
+        } else if self.basic {
             Style::default().add_modifier(Modifier::REVERSED)
         } else {
             Style::default().bg(self.selection)
         }
     }
 
-    /// A rounded badge such as `12x`, `A` or `agents 2`.
+    /// A rounded badge such as `12d`, `A` or `ctx work`.
     /// Round pill caps need these Nerd Font glyphs; without one they would
     /// render as missing-glyph boxes, so they are opt-in.
     pub(super) fn rounded_pills(mut self, on: bool) -> Self {
@@ -199,18 +250,36 @@ impl Theme {
         self
     }
 
-    /// A pill: the label on a tinted background, with round caps when
-    /// `rounded`.
+    /// Whether a pill in `color` says something about the task: late, due,
+    /// prioritised or done, rather than marking a key or a filter.
+    fn carries_state(&self, color: Color) -> bool {
+        [self.overdue, self.due, self.done].contains(&color)
+    }
+
+    /// A pill: the label on a fill, with round caps when `rounded`. The
+    /// label and its padding or caps are always two cells wider than the
+    /// text.
     pub(super) fn pill(&self, text: impl Into<String>, color: Color) -> Vec<Span<'static>> {
         let text = text.into();
+        let padded = |style: Style| vec![Span::styled(format!(" {text} "), style)];
+        let bold = Style::default().add_modifier(Modifier::BOLD);
         if self.plain {
-            return vec![Span::styled(
-                format!(" {text} "),
-                Style::default().add_modifier(Modifier::REVERSED),
-            )];
+            return if self.carries_state(color) {
+                padded(bold.add_modifier(Modifier::REVERSED))
+            } else {
+                padded(bold)
+            };
         }
-        let (label, fill) = if self.surface == Color::Reset {
-            (Style::default().fg(Color::Black).bg(color), color)
+        if self.basic && color == self.muted {
+            return padded(bold);
+        }
+        // 16 colours reverse the hue, so the fill is the hue itself and
+        // the label the terminal's background.
+        let (label, fill) = if self.basic {
+            (
+                Style::default().fg(color).add_modifier(Modifier::REVERSED),
+                color,
+            )
         } else {
             (Style::default().fg(color).bg(self.surface), self.surface)
         };
@@ -222,7 +291,7 @@ impl Theme {
                 Span::styled("\u{e0b4}", Style::default().fg(fill)),
             ]
         } else {
-            vec![Span::styled(format!(" {text} "), label)]
+            padded(label)
         }
     }
 
@@ -289,9 +358,9 @@ impl Theme {
             "green" => self.done,
             "red" => self.overdue,
             "dim-red" => self.dim_red,
-            "pink" => self.agents[0],
-            "teal" => self.agents[1],
-            "purple" => self.agents[2],
+            "pink" => self.pink,
+            "teal" => self.teal,
+            "purple" => self.purple,
             "grey" => self.muted,
             _ => self.accent,
         }

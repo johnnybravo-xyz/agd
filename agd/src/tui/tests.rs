@@ -1934,3 +1934,84 @@ fn priority_keys_step_through_the_files_own_range() {
         assert!(written.contains("* TODO [#E] Low"), "{written}");
     });
 }
+
+#[test]
+fn wait_yellow_and_agent_hues_stay_clear_of_due_and_done() {
+    use super::theme::Theme;
+    for theme in [Theme::dark(), Theme::light(), Theme::basic()] {
+        assert_ne!(theme.named("yellow"), theme.due);
+        for agent in ["claude-code", "codex", "opencode", "gemini", "cursor"] {
+            let hue = theme.agent(agent);
+            for meaning in [theme.due, theme.done, theme.overdue, theme.named("teal")] {
+                assert_ne!(hue, meaning, "{agent} looks like a meaning colour");
+            }
+        }
+    }
+    // Hue angles: WAIT yellow sits well apart from due amber.
+    let hue = |color: ratatui::style::Color| {
+        let ratatui::style::Color::Rgb(r, g, b) = color else {
+            panic!("truecolor")
+        };
+        let (r, g, b) = (f64::from(r), f64::from(g), f64::from(b));
+        let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+        let degrees = if max == r {
+            60.0 * ((g - b) / (max - min))
+        } else if max == g {
+            60.0 * ((b - r) / (max - min) + 2.0)
+        } else {
+            60.0 * ((r - g) / (max - min) + 4.0)
+        };
+        degrees.rem_euclid(360.0)
+    };
+    let dark = Theme::dark();
+    assert!(hue(dark.named("yellow")) - hue(dark.due) > 18.0);
+}
+
+#[test]
+#[serial]
+fn sixteen_colours_draw_no_grey_bars_and_muted_text_dims() {
+    use ratatui::style::{Color, Modifier};
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(None);
+        app.context = Some("tasks".to_string());
+        app.reload_rows().unwrap();
+        let buffer = render_buffer(&mut app, 120, 30);
+        for cell in buffer.content() {
+            assert_ne!(cell.fg, Color::DarkGray, "{:?}", cell.symbol());
+            assert_ne!(cell.bg, Color::DarkGray, "{:?}", cell.symbol());
+        }
+        // A pill with a meaning keeps its hue reversed, so the cursor row's
+        // reverse video leaves it filled.
+        let y = row_of(&buffer, "Migrate cron jobs");
+        let badge = &buffer[(column_of(&buffer, y, "12d"), y)];
+        assert_eq!(badge.fg, Color::Red);
+        assert!(badge.modifier.contains(Modifier::REVERSED));
+        // The count after a section header is muted: dimmed, not grey.
+        let y = row_of(&buffer, "SCHEDULE");
+        let count = &buffer[(column_of(&buffer, y, "SCHEDULE") + 10, y)];
+        assert!(count.modifier.contains(Modifier::DIM), "{count:?}");
+    });
+}
+
+#[test]
+#[serial]
+fn no_color_reverses_only_pills_that_carry_state() {
+    use ratatui::style::Modifier;
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let buffer = render_buffer(&mut app, 120, 30);
+        let reversed = |needle: &str| {
+            let y = row_of(&buffer, needle);
+            buffer[(column_of(&buffer, y, needle), y)]
+                .modifier
+                .contains(Modifier::REVERSED)
+        };
+        assert!(reversed("12d"), "an overdue badge carries state");
+        assert!(!reversed("Agenda"), "the badge is chrome");
+        assert!(!reversed("TODAY"), "the mode pill is chrome");
+    });
+}
