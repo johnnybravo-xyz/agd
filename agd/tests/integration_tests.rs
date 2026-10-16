@@ -333,6 +333,66 @@ fn capture_parses_tokens_and_keeps_body_literal() {
 }
 
 #[test]
+fn capture_takes_a_key_and_unquoted_words_or_the_text_alone() {
+    let fixture = Fixture::new();
+    // Unquoted words after the key are the text.
+    fixture
+        .command()
+        .args([
+            "capture",
+            "t",
+            "Water",
+            "the",
+            "plants",
+            "due:fri",
+            "--dry-run",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("** TODO Water the plants\n"));
+    // One argument is the text for the first template; a pipe gets the ref.
+    let output = fixture
+        .command()
+        .args(["capture", "Renew visa due:fri"])
+        .output()
+        .expect("capture");
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.starts_with(
+            &fixture
+                .tasks
+                .canonicalize()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        ),
+        "{stdout}"
+    );
+    assert_eq!(stdout.lines().count(), 1, "{stdout}");
+    assert!(
+        fs::read_to_string(&fixture.tasks)
+            .unwrap()
+            .contains("** TODO Renew visa\nDEADLINE: <")
+    );
+    // Unquoted words without a key would file the first word as a key.
+    fixture
+        .command()
+        .args(["capture", "Renew", "visa"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "quote the text: agd capture \"Renew visa\"",
+        ));
+    fixture
+        .command()
+        .args(["capture", "t"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("needs text"));
+}
+
+#[test]
 fn help_lists_only_the_five_surfaces() {
     let assertion = cargo::cargo_bin_cmd!("agd")
         .arg("--help")
