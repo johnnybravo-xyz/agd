@@ -155,6 +155,17 @@ impl App {
         self.move_selection(1);
     }
 
+    /// `*`: marks every task row shown, as org-agenda-bulk-mark-all; the
+    /// overdue rows folded under "+N more" stay unmarked, being out of view.
+    pub(super) fn mark_all(&mut self) {
+        self.marks = self
+            .rows
+            .iter()
+            .filter(|row| row.more == 0)
+            .map(|row| row.item.item_ref.clone())
+            .collect();
+    }
+
     /// Marked rows when any are marked (bulk mode), else the selected row.
     pub(super) fn targets(&self) -> Vec<String> {
         if self.marks.is_empty() {

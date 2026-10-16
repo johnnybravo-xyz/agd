@@ -8,7 +8,8 @@
 //!   `C-c C-w` refile, `u` undo, `c` capture, `?` keys, `esc` back one
 //!   level.
 //! - Keys follow org-agenda wherever it has one (`t`, `C-c C-s`, `f b .`,
-//!   `l`, `<`, `/`, `m U B` for marks); the help shows its key beside ours.
+//!   `l`, `<`, `/`, `m * U B` for marks); the help shows its key beside
+//!   ours.
 //! - Triage and the bulk menu add one-key outcomes: `.` today (in the
 //!   lists `.` goes to today), `>` tomorrow, `w` next week, `N` make NEXT.
 //!   `m` only ever marks.
@@ -103,6 +104,7 @@ pub(super) enum Action {
     Undo,
     CopyLink,
     Mark,
+    MarkAll,
     UnmarkAll,
     Bulk,
     Triage,
@@ -224,6 +226,7 @@ const CHANGE: KeyGroup = KeyGroup {
         bind("u", &[Char('u')], A::Undo, "undo", "undo the last write", "C-_"),
         bind("y", &[Char('y')], A::CopyLink, "copy link", "copy the entry's link", ""),
         bind("m", &[Char('m')], A::Mark, "mark", "mark or unmark the row", "m"),
+        bind("*", &[Char('*')], A::MarkAll, "mark all", "mark every row shown", "*"),
         bind("U", &[Char('U')], A::UnmarkAll, "unmark all", "unmark every row", "U"),
         bind("B", &[Char('B')], A::Bulk, "bulk", "act on the marked rows, from a menu", "B"),
     ],
@@ -711,6 +714,7 @@ fn run_change(app: &mut App, action: Action) -> Result<()> {
         A::Undo => app.undo()?,
         A::CopyLink => app.copy_link()?,
         A::Mark => app.toggle_mark(),
+        A::MarkAll => app.mark_all(),
         A::UnmarkAll => app.marks.clear(),
         A::Bulk if app.marks.is_empty() => app.set_status("mark rows with m first; B acts on them"),
         A::Bulk => app.overlay = Overlay::Bulk,

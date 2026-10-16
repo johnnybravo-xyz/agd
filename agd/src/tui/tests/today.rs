@@ -439,6 +439,26 @@ fn shift_b_opens_a_bulk_menu_for_the_marked_rows_and_shift_u_unmarks_all() {
 
 #[test]
 #[serial]
+fn star_marks_every_row_shown_and_leaves_folded_rows_out() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, FIVE_OVERDUE).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        // Three overdue rows show; "+2 more" stands for the rest.
+        press(&mut app, KeyCode::Char('*'));
+        assert_eq!(app.marks.len(), 3);
+        let footer = render(&mut app, 100, 20).last().unwrap().clone();
+        assert!(footer.contains("3 marked"), "{footer}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), FIVE_OVERDUE);
+        press(&mut app, KeyCode::Char('U'));
+        assert!(app.marks.is_empty());
+    });
+}
+
+#[test]
+#[serial]
 fn the_list_title_follows_f_and_b_and_week_opens_on_today() {
     use crossterm::event::KeyCode;
     with_home(|root| {
