@@ -6,8 +6,6 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{LineGauge, Padding, Paragraph, Wrap};
 
-use agd_core::OccurrenceType;
-
 use super::actions::{DONE, NEXT_WEEK, REFILED, SOMEDAY, TODAY, TOMORROW, when};
 use super::keys::{self, Action};
 use super::rows::days_since;
@@ -265,22 +263,11 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
     );
 }
 
-/// Days the item has been overdue: from org's `Sched.12x:` or `3 d. ago:`
-/// leader, else from its SCHEDULED date.
+/// Days the item has been overdue: its late row's days, else from its
+/// SCHEDULED date.
 fn overdue_days(row: &DisplayRow, today: chrono::NaiveDate) -> i64 {
-    if let Some(occurrence) = &row.occurrence {
-        let digits: String = occurrence
-            .extra
-            .chars()
-            .filter(char::is_ascii_digit)
-            .collect();
-        if matches!(
-            occurrence.kind,
-            OccurrenceType::PastScheduled | OccurrenceType::Deadline
-        ) && let Ok(days) = digits.parse()
-        {
-            return days;
-        }
+    if let Some(occurrence) = row.occurrence.as_ref().filter(|occurrence| occurrence.late) {
+        return occurrence.days;
     }
     row.item
         .planning

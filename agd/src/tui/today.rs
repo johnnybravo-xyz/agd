@@ -10,7 +10,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, ScrollbarState};
 
-use agd_core::{OccurrenceType, keyword_color};
+use agd_core::{Occurrence, OccurrenceType, keyword_color};
 use chrono::{NaiveTime, Timelike};
 use unicode_width::UnicodeWidthStr;
 
@@ -584,7 +584,7 @@ fn row_line(app: &App, index: usize, columns: &RowColumns) -> Line<'static> {
         if !occurrence.extra.is_empty() {
             spans.push(Span::styled(
                 format!("{:<11} ", occurrence.extra),
-                lead_style(theme, occurrence.kind, &occurrence.extra),
+                lead_style(theme, occurrence),
             ));
         }
         if let Some(todo) = &item.todo {
@@ -737,34 +737,16 @@ pub(super) fn lead_cell(app: &App, row: &DisplayRow, clock: Clock) -> Vec<Span<'
         }
         return vec![Span::raw(" ".repeat(6))];
     };
+    let days = occurrence.days;
     match occurrence.kind {
-        OccurrenceType::PastScheduled => {
-            let days = occurrence
-                .extra
-                .trim_start_matches("Sched.")
-                .trim()
-                .trim_end_matches("x:")
-                .to_string();
-            // The age in days: `12x` would read as "twelve times" beside
-            // "rescheduled 3x". The classic view keeps Org's `Sched.12x:`.
-            badge(theme, format!("{days}d"))
-        }
-        OccurrenceType::Deadline if occurrence.extra.ends_with("ago:") => {
-            let days = occurrence.extra.split_whitespace().next().unwrap_or("?");
-            badge(theme, format!("-{days}d"))
-        }
-        OccurrenceType::UpcomingDeadline => {
-            let days = occurrence
-                .extra
-                .trim_start_matches("In")
-                .split_whitespace()
-                .next()
-                .unwrap_or("?");
-            vec![Span::styled(
-                format!("{:<6}", format!("in {days}d")),
-                theme.fg(theme.due),
-            )]
-        }
+        // The age in days: `12x` would read as "twelve times" beside
+        // "rescheduled 3x". The classic view keeps Org's `Sched.12x:`.
+        OccurrenceType::PastScheduled => badge(theme, format!("{days}d")),
+        OccurrenceType::Deadline if occurrence.late => badge(theme, format!("-{days}d")),
+        OccurrenceType::UpcomingDeadline => vec![Span::styled(
+            format!("{:<6}", format!("in {}d", -days)),
+            theme.fg(theme.due),
+        )],
         OccurrenceType::Deadline => vec![Span::styled(
             format!("{:<6}", "due"),
             theme.strong(theme.due),
@@ -790,10 +772,10 @@ fn badge(theme: &Theme, text: String) -> Vec<Span<'static>> {
     theme.pill(format!("{text:>4}"), theme.overdue)
 }
 
-fn lead_style(theme: &Theme, kind: OccurrenceType, extra: &str) -> Style {
-    match kind {
-        OccurrenceType::PastScheduled => theme.fg(theme.overdue),
-        OccurrenceType::Deadline if extra.ends_with("ago:") => theme.fg(theme.overdue),
+/// Org's leader in its role: red when late, amber on a deadline.
+fn lead_style(theme: &Theme, occurrence: &Occurrence) -> Style {
+    match occurrence.kind {
+        _ if occurrence.late => theme.fg(theme.overdue),
         OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline => theme.fg(theme.due),
         _ => theme.muted(),
     }

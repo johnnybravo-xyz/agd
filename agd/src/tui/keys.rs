@@ -446,7 +446,7 @@ pub(super) fn stepped(index: usize, step: Option<isize>, count: usize) -> usize 
 /// with refiling it, a missed deadline with moving the deadline.
 pub(super) fn triage_chips(row: &super::DisplayRow) -> [&'static [Action]; 2] {
     let missed_deadline = row.occurrence.as_ref().is_some_and(|occurrence| {
-        occurrence.kind == agd_core::OccurrenceType::Deadline && occurrence.extra.ends_with("ago:")
+        occurrence.kind == agd_core::OccurrenceType::Deadline && occurrence.late
     });
     if row.section == super::INBOX {
         [
@@ -521,10 +521,10 @@ fn row_hints(app: &App) -> &'static [Hint] {
     let Some(row) = app.selected_row() else {
         return &[(A::Capture, "capture"), (A::Views, "views")];
     };
-    let overdue = row.occurrence.as_ref().is_some_and(|occurrence| {
-        occurrence.kind == agd_core::OccurrenceType::PastScheduled
-            || occurrence.extra.ends_with("ago:")
-    });
+    let overdue = row
+        .occurrence
+        .as_ref()
+        .is_some_and(|occurrence| occurrence.late);
     if row.item.done {
         &[(A::State, "reopen"), (A::Undo, "undo")]
     } else if overdue {

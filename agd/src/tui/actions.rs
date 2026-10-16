@@ -10,7 +10,7 @@ use std::path::Path;
 
 use agd_core::{
     AgdError, Change, EditIntent, ErrorCode, Item, ItemEdit, JournalStatus, LogKind,
-    PlanningTimestamp, PriorityRange, WriteEngine, parse_date_input,
+    OccurrenceType, PlanningTimestamp, PriorityRange, WriteEngine, parse_date_input,
 };
 use anyhow::{Result, bail};
 use chrono::{Duration, NaiveDate};
@@ -517,10 +517,9 @@ impl App {
             .map(|item_ref| {
                 let missed = self.rows.iter().any(|row| {
                     row.item.item_ref == item_ref
-                        && row
-                            .occurrence
-                            .as_ref()
-                            .is_some_and(|occurrence| occurrence.extra.ends_with("ago:"))
+                        && row.occurrence.as_ref().is_some_and(|occurrence| {
+                            occurrence.kind == OccurrenceType::Deadline && occurrence.late
+                        })
                 });
                 ItemEdit {
                     item_ref,
