@@ -82,6 +82,8 @@ removes with `+tag` and `-tag` in both notations.
   letters are typed, `C-n`/`C-j` and `C-p`/`C-k` move.
 - `x` means done: the task on a row, the box on a checklist line in the
   edit popup. In capture, `M-⏎` adds a checklist line.
+- `H`/`L` step through the edit popup's State and Priority as `←`/`→` do,
+  so the hands stay on the home row.
 - `C-e` opens `$EDITOR` from the lists, Triage, Agents and the pane; in a
   popup with a text field it ends the line, so `$EDITOR` there is `C-o`.
 - `esc` goes back one level; `q` quits.

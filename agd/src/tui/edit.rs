@@ -239,15 +239,16 @@ impl EditForm {
         self.values[self.field].set(choice);
     }
 
-    /// State and Priority are choices: ←/→ step, a letter picks the first
-    /// choice starting with it, Backspace picks none.
+    /// State and Priority are choices: H/L or ←/→ step, a letter picks the
+    /// first choice starting with it (so `h` still picks HOLD), Backspace
+    /// picks none.
     fn choose(&mut self, key: KeyEvent) {
         let control = key.modifiers.contains(KeyModifiers::CONTROL);
-        match key.code {
-            KeyCode::Left => self.cycle(-1),
-            KeyCode::Right => self.cycle(1),
-            KeyCode::Backspace => self.values[self.field].set(""),
-            KeyCode::Char(character) if !control => {
+        match (keys::popup_action(key), key.code) {
+            (Some(Action::PreviousChoice), _) => self.cycle(-1),
+            (Some(Action::NextChoice), _) => self.cycle(1),
+            (_, KeyCode::Backspace) => self.values[self.field].set(""),
+            (_, KeyCode::Char(character)) if !control => {
                 let choices = if self.field == STATE {
                     &self.keywords
                 } else {
@@ -440,7 +441,15 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 value.text().to_string(),
                 theme.strong(theme.text),
             ));
-            spans.push(Span::styled("  ←/→", theme.muted()));
+            let key = |action| keys::key_label(keys::POPUP_KEYS, action);
+            spans.push(Span::styled(
+                format!(
+                    "  {}/{} ←/→",
+                    key(Action::PreviousChoice),
+                    key(Action::NextChoice)
+                ),
+                theme.muted(),
+            ));
         } else {
             spans.extend(value.spans(theme, focused));
         }

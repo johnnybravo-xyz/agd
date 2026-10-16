@@ -191,6 +191,8 @@ As on Today · Week · Inbox · views.
 | `M-⏎` `S-⏎` | in capture, add a checklist line |  |
 | `⏎` | save what the preview shows |  |
 | `x` `SPC` | check or uncheck a checklist line |  |
+| `H` `←` | previous State or Priority choice |  |
+| `L` `→` | next State or Priority choice |  |
 | `tab` | next field; in capture, the next template |  |
 | `S-tab` | previous field |  |
 | `esc` `C-g` | close without writing |  |

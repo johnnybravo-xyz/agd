@@ -86,6 +86,14 @@ fn enter_edits_title_and_state_in_place_and_keeps_untouched_dates() {
         }
         key(&mut app, KeyCode::Tab);
         key(&mut app, KeyCode::Right);
+        // H and L step as ← and → do, without leaving the home row.
+        key(&mut app, KeyCode::Char('H'));
+        assert!(
+            render(&mut app, 100, 30)
+                .join("\n")
+                .contains("State      TODO  H/L ←/→")
+        );
+        key(&mut app, KeyCode::Char('L'));
 
         let screen = render(&mut app, 100, 30).join("\n");
         assert!(screen.contains("-* TODO Draft report"), "{screen}");

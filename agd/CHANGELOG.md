@@ -28,6 +28,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dates.
 - Marks and bulk actions follow org-agenda (`m`, `*`, `U`, `B`) and write
   as one change.
+- In the edit popup, `H` and `L` step through State and Priority as `←`
+  and `→` do.
 - `?` filters the screen's actions as you type, and
   [docs/KEYS.md](https://github.com/johnnybravo-xyz/agd/blob/main/docs/KEYS.md)
   lists every key.
