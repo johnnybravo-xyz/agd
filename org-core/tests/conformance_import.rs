@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use agd_core::{AgendaSpan, ImportResult, ResolvedEditorConfig, Settings, apply_import};
+use agd_core::{AgendaSpan, ImportResult, ResolvedEditorConfig, Settings, WeekStart, apply_import};
 
 /// Applies a case's resolved.json (the editor reader's output, with its
 /// files under /fixture) as a first import into a fresh directory.
@@ -50,7 +50,7 @@ fn emacs_vanilla_keeps_what_agd_runs_and_reports_the_rest() {
         ["TODO(t) NEXT(n!) WAIT(w@) | DONE(d!) CANCELLED(c@)"]
     );
     assert_eq!(result.settings.deadline_warning_days, 5);
-    assert_eq!(result.settings.week_start, "sunday");
+    assert_eq!(result.settings.week_start, WeekStart::Sunday);
     assert!(result.settings.capture_template("t").is_some());
     assert!(result.settings.capture_template("x").is_none());
     assert!(reported(&result, "capture x", "computed capture target"));
@@ -147,7 +147,7 @@ fn emacs_deferred_settings_win_over_top_level_ones() {
 fn neovim_setup_call_imports_options_and_property_matches() {
     let (_temp, result) = import_fixture("nvim/vanilla");
     assert_eq!(result.settings.deadline_warning_days, 6);
-    assert_eq!(result.settings.week_start, "sunday");
+    assert_eq!(result.settings.week_start, WeekStart::Sunday);
     assert_eq!(result.settings.lowest_priority, "D");
     assert!(result.settings.log_into_drawer);
     assert!(result.settings.capture_template("x").is_none());

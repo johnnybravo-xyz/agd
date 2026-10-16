@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AgdError, AgendaSpan, CaptureTemplate, SORTING_KEYS, Settings, ViewBlock, ViewSettings,
+    WeekStart,
 };
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -79,7 +80,7 @@ pub struct ResolvedEditorConfig {
     pub deadline_warning_days: i64,
     pub agenda_span: String,
     pub agenda_start_day: Option<String>,
-    pub week_start: String,
+    pub week_start: WeekStart,
     pub skip_scheduled_if_done: bool,
     pub skip_deadline_if_done: bool,
     pub skip_timestamp_if_done: bool,
@@ -348,7 +349,7 @@ pub fn apply_import(
         }),
     }
     settings.agenda_start_day = resolved.agenda_start_day.clone();
-    settings.week_start = resolved.week_start.clone();
+    settings.week_start = resolved.week_start;
     settings.deadline_warning_days = resolved.deadline_warning_days;
     settings.skip_scheduled_if_done = resolved.skip_scheduled_if_done;
     settings.skip_deadline_if_done = resolved.skip_deadline_if_done;
@@ -558,12 +559,6 @@ fn validate_resolved(resolved: &ResolvedEditorConfig) -> Result<(), AgdError> {
                 format!("{name} must be one character"),
             ));
         }
-    }
-    if resolved.week_start != "monday" && resolved.week_start != "sunday" {
-        return Err(AgdError::new(
-            "unsupported_import_shape",
-            format!("unsupported week start: {}", resolved.week_start),
-        ));
     }
     Ok(())
 }

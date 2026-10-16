@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, HeadlineSpan, Item, Occurrence, OccurrenceType,
-    PlanningTimestamp, Settings, ViewBlock, ViewGroup, ViewSettings, WorkspaceIndex,
+    PlanningTimestamp, Settings, ViewBlock, ViewGroup, ViewSettings, WeekStart, WorkspaceIndex,
 };
 
 /// Checks a view block's match the way `AgendaEngine::view` will use it.
@@ -152,7 +152,7 @@ impl AgendaSpan {
     }
 
     /// The first and last day shown for an agenda that starts at `from`.
-    pub fn bounds(self, from: NaiveDate, week_start: &str) -> (NaiveDate, NaiveDate) {
+    pub fn bounds(self, from: NaiveDate, week_start: WeekStart) -> (NaiveDate, NaiveDate) {
         match self {
             Self::Day => (from, from),
             Self::Week => {
@@ -180,11 +180,10 @@ impl AgendaSpan {
 }
 
 /// The week start on or before `day`.
-fn week_containing(day: NaiveDate, week_start: &str) -> NaiveDate {
-    let desired = if week_start.eq_ignore_ascii_case("sunday") {
-        6
-    } else {
-        0
+fn week_containing(day: NaiveDate, week_start: WeekStart) -> NaiveDate {
+    let desired = match week_start {
+        WeekStart::Monday => 0,
+        WeekStart::Sunday => 6,
     };
     let current = day.weekday().num_days_from_monday() as i64;
     day - Duration::days((current - desired).rem_euclid(7))
@@ -441,7 +440,7 @@ impl<'a> AgendaEngine<'a> {
             let section = match block.kind.as_str() {
                 "agenda" => {
                     let span = block.span.unwrap_or(settings.agenda_span);
-                    let (from, to) = span.bounds(start, &settings.week_start);
+                    let (from, to) = span.bounds(start, settings.week_start);
                     ViewSection {
                         header: block.header.clone().unwrap_or_default(),
                         from: Some(from),
@@ -2157,12 +2156,12 @@ mod tests {
         // 2026-10-15 is a Thursday.
         let thursday = date("2026-10-15");
         assert_eq!(
-            AgendaSpan::Days(10).bounds(thursday, "monday"),
+            AgendaSpan::Days(10).bounds(thursday, WeekStart::Monday),
             (thursday, date("2026-10-24"))
         );
         // 14 days start on the week start, as 7 (a week) do.
         assert_eq!(
-            AgendaSpan::Days(14).bounds(thursday, "sunday"),
+            AgendaSpan::Days(14).bounds(thursday, WeekStart::Sunday),
             (date("2026-10-11"), date("2026-10-24"))
         );
         assert_eq!(AgendaSpan::days(1), Ok(AgendaSpan::Day));

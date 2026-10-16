@@ -217,7 +217,7 @@ fn verify_import(
     let engine = AgendaEngine::new(&index);
     let today = Local::now().date_naive();
     let start = verification_start(&settings, today);
-    let (from, to) = settings.agenda_span.bounds(start, &settings.week_start);
+    let (from, to) = settings.agenda_span.bounds(start, settings.week_start);
     let mut results = Vec::new();
     let native_default = engine
         .agenda(&AgendaQuery {

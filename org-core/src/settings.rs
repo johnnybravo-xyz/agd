@@ -45,8 +45,8 @@ pub struct Settings {
     /// (`agenda_span = 10`).
     pub agenda_span: AgendaSpan,
     pub agenda_start_day: Option<String>,
-    /// monday or sunday.
-    pub week_start: String,
+    /// org-agenda-start-on-weekday: "monday" or "sunday".
+    pub week_start: WeekStart,
     pub deadline_warning_days: i64,
     pub skip_scheduled_if_done: bool,
     pub skip_deadline_if_done: bool,
@@ -200,6 +200,15 @@ pub enum IdPolicy {
     AddOnWrite,
 }
 
+/// The day a week agenda starts on.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WeekStart {
+    #[default]
+    Monday,
+    Sunday,
+}
+
 /// Agenda sorting keys agd implements; habit-* and category-keep keep
 /// collection order.
 pub const SORTING_KEYS: [&str; 15] = [
@@ -251,7 +260,7 @@ impl Default for Settings {
             default_priority: "B".to_string(),
             agenda_span: AgendaSpan::Week,
             agenda_start_day: None,
-            week_start: "monday".to_string(),
+            week_start: WeekStart::Monday,
             deadline_warning_days: 14,
             skip_scheduled_if_done: false,
             skip_deadline_if_done: false,
@@ -982,6 +991,22 @@ mod tests {
 
     fn load_error(body: &str) -> String {
         load_body(body).unwrap_err()
+    }
+
+    #[test]
+    fn week_start_is_monday_or_sunday() {
+        let settings = load_body("week_start = \"sunday\"\n").unwrap();
+        assert_eq!(settings.week_start, WeekStart::Sunday);
+        assert_eq!(
+            load_error("week_start = \"friday\"\n"),
+            concat!(
+                "cannot parse CONFIG: TOML parse error at line 2, column 14\n",
+                "  |\n",
+                "2 | week_start = \"friday\"\n",
+                "  |              ^^^^^^^^\n",
+                "unknown variant `friday`, expected `monday` or `sunday`\n",
+            )
+        );
     }
 
     #[test]

@@ -109,7 +109,7 @@ impl OrgModeRouter {
                 Some(value) => value.parse::<AgendaSpan>()?,
                 None => self.settings.agenda_span,
             };
-            let (from, to) = span.bounds(from, &self.settings.week_start);
+            let (from, to) = span.bounds(from, self.settings.week_start);
             AgendaEngine::new(&index).agenda(&AgendaQuery {
                 from,
                 to,

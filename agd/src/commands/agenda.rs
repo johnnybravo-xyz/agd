@@ -126,7 +126,7 @@ impl AgendaCommand {
             return Ok(());
         }
         let span = self.span.unwrap_or(settings.agenda_span);
-        let (from, to) = span.bounds(start, &settings.week_start);
+        let (from, to) = span.bounds(start, settings.week_start);
         let entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
             from,
             to,
@@ -309,7 +309,7 @@ fn item_line(item: &Item) -> String {
 fn span_for_bounds(from: NaiveDate, to: NaiveDate, settings: &Settings) -> AgendaSpan {
     if from == to {
         AgendaSpan::Day
-    } else if AgendaSpan::Week.bounds(from, &settings.week_start) == (from, to) {
+    } else if AgendaSpan::Week.bounds(from, settings.week_start) == (from, to) {
         AgendaSpan::Week
     } else {
         AgendaSpan::Month

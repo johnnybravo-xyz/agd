@@ -164,7 +164,7 @@ impl App {
                 &self.index,
             ),
             Screen::Week => {
-                let (from, to) = AgendaSpan::Week.bounds(self.day, &self.settings.week_start);
+                let (from, to) = AgendaSpan::Week.bounds(self.day, self.settings.week_start);
                 headers.extend(day_labels(from, to));
                 day_grouped(engine.agenda(&self.query(from, to))?)
             }
