@@ -431,6 +431,8 @@ pub fn load_settings(
     };
     if let Some(root) = root_override {
         settings.roots = vec![root.to_string_lossy().into_owned()];
+    } else if !config_path.exists() && validate_roots(&settings.roots).is_err() {
+        return Err(first_run_error(&config_path, &settings.roots));
     }
     validate_settings(&settings)?;
     read_template_files(&mut settings.captures, &settings.roots)?;
@@ -438,6 +440,16 @@ pub fn load_settings(
         settings,
         config_path,
     })
+}
+
+/// With neither a config file nor the default root there is nothing to
+/// read, so the error names both and the ways to start.
+fn first_run_error(config_path: &Path, roots: &[String]) -> AgdError {
+    let root = roots.join(", ");
+    config_error(format!(
+        "no config at {} and no {root} to read. Start with one of:\n  mkdir {root}    agd then reads it with its defaults\n  agd setup import <your Emacs or Neovim config directory>\n  agd -r DIR    read another directory for this run",
+        config_path.display()
+    ))
 }
 
 /// Parses a config file without validating roots, so `agd setup import` can

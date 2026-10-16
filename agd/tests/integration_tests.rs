@@ -336,6 +336,48 @@ fn default_paths_follow_xdg_on_every_unix() {
     assert!(home.path().join("xdg-data/agd/journal.jsonl").is_file());
 }
 
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn first_run_without_config_or_org_says_how_to_start() {
+    let home = tempfile::tempdir().expect("home directory");
+    let config = home.path().join(".config/agd/config.toml");
+    cargo::cargo_bin_cmd!("agd")
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join(".config"))
+        .env("XDG_DATA_HOME", home.path().join(".local/share"))
+        .args(["agenda"])
+        .assert()
+        .failure()
+        .stderr(format!(
+            concat!(
+                "Error: no config at {} and no ~/org to read. Start with one of:\n",
+                "  mkdir ~/org    agd then reads it with its defaults\n",
+                "  agd setup import <your Emacs or Neovim config directory>\n",
+                "  agd -r DIR    read another directory for this run\n",
+            ),
+            config.display()
+        ));
+    let output = cargo::cargo_bin_cmd!("agd")
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join(".config"))
+        .args(["agenda", "--json"])
+        .output()
+        .expect("agenda command");
+    let error: Value = serde_json::from_slice(&output.stderr).expect("error JSON");
+    assert_eq!(error["code"], "config");
+
+    // `mkdir ~/org` is enough.
+    fs::create_dir(home.path().join("org")).expect("org directory");
+    cargo::cargo_bin_cmd!("agd")
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join(".config"))
+        .env("XDG_DATA_HOME", home.path().join(".local/share"))
+        .args(["agenda", "--views"])
+        .assert()
+        .success()
+        .stdout("n   Agenda and all TODOs  (built-in)\n");
+}
+
 #[test]
 fn import_without_a_path_asks_for_the_editor_config() {
     let home = tempfile::tempdir().expect("home directory");
