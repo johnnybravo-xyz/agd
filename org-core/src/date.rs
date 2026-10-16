@@ -675,13 +675,12 @@ fn valid_tag(tag: &str) -> bool {
             .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
 }
 
-/// An Org priority cookie's value: one uppercase letter, or a number of at
-/// most two digits (Org's numeric priorities run 0-64). Whether it is in the
-/// configured range is checked when the capture is written.
+/// A capture line's priority cookie: one uppercase letter, as in `#A`. A
+/// number stays text, so `Fix #42` keeps its issue number; numeric
+/// priorities are set from the edit popup instead. Whether the letter is in
+/// the configured range is checked when the capture is written.
 fn priority_cookie(value: &str) -> bool {
-    let letter = value.len() == 1 && value.bytes().all(|byte| byte.is_ascii_uppercase());
-    let number = (1..=2).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_digit());
-    letter || number
+    value.len() == 1 && value.bytes().all(|byte| byte.is_ascii_uppercase())
 }
 
 fn insert_before_title(line: &mut String, value: &str) {
@@ -864,10 +863,10 @@ mod tests {
         assert_eq!(draft.title, "Price is +5 dollars #a note");
         assert!(draft.tags.is_empty());
         assert_eq!(draft.priority, None);
-        let numeric = parse_capture_line("Triage +v2 #5", today).unwrap();
-        assert_eq!(numeric.title, "Triage");
+        let numeric = parse_capture_line("Fix #42 +v2", today).unwrap();
+        assert_eq!(numeric.title, "Fix #42");
         assert_eq!(numeric.tags, vec!["v2"]);
-        assert_eq!(numeric.priority.as_deref(), Some("5"));
+        assert_eq!(numeric.priority, None);
         let issue = parse_capture_line("Fix issue #123", today).unwrap();
         assert_eq!(
             (issue.title.as_str(), issue.priority),
