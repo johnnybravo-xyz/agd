@@ -29,7 +29,7 @@ while IFS='|' read -r name description; do
   page "docs/$name.md" "$content/docs/$lower.md" "weight = $weight
 description = \"$description\""
 done <<'EOF'
-IMPORTING|Bring settings over from a running Emacs or nvim-orgmode, and verify them
+IMPORTING|Bring settings over from an Emacs or nvim-orgmode configuration, and verify them
 COMPATIBILITY|What matches Emacs exactly, and what is reported instead
 SAFETY|Roots, locks, the journal, atomic writes and undo
 EOF
