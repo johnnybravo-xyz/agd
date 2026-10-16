@@ -92,7 +92,8 @@ function errorSentence(stderr) {
 
 // A saved view's sections, or Today as two: agd's overdue rows in its order
 // (`agd agenda --status --json`, as the TUI's Today and Triage list them),
-// then the day's other rows, each with the status band's count.
+// then today's rows, each with the status band's count. A deadline's warning
+// (`in 3d`) is not today's, as the band and the TUI's pane count it.
 async function readSections($, key) {
   if (key !== TODAY) {
     const view = await agd($, ['agenda', '--view', key, '--json'])
@@ -106,7 +107,7 @@ async function readSections($, key) {
     const counts = JSON.parse(status.stdout)
     return [
       { header: 'Overdue', count: counts.overdue, entries: counts.overdue_entries, color: 'red' },
-      { header: 'Today', count: counts.today, entries: entries.filter((entry) => !entry.occurrence.late), color: 'blue' },
+      { header: 'Today', count: counts.today, entries: entries.filter(isToday), color: 'blue' },
     ]
   })
 }
@@ -311,6 +312,12 @@ function pill(Text, text, color) {
   ]
 }
 
+// Whether an agenda row of today is today's: not late, and not a deadline's
+// warning.
+function isToday(entry) {
+  return !entry.occurrence.late && entry.occurrence.type !== 'upcoming-deadline'
+}
+
 // The lead's color, as the TUI's: late rows red, deadlines amber; null for
 // the rest, which are muted.
 function leadColor(occurrence) {
@@ -329,15 +336,12 @@ function leadMinutes(occurrence) {
 
 // The six-cell lead that always says when, as the TUI's lead_cell, from
 // agd's `days` and `late`: an overdue badge (`12d`, a missed deadline `-2d`,
-// right-aligned), a countdown (`in 3d`), `due` on a deadline's day, or the
-// time: muted once past or done, bold on the next timed task, accent later.
+// right-aligned), `due` on a deadline's day, or the time: muted once past or
+// done, bold on the next timed task, accent later.
 function leadCell(Text, occurrence, done, clock) {
   if (occurrence.late) {
     const missed = occurrence.type === 'deadline' ? '-' : ''
     return pill(Text, (missed + occurrence.days + 'd').padStart(4), palette.overdue)
-  }
-  if (occurrence.type === 'upcoming-deadline') {
-    return [Text(colored(palette.due, { children: [('in ' + -occurrence.days + 'd').padEnd(6)] }))]
   }
   if (occurrence.type === 'deadline') return [Text(colored(palette.due, { bold: true, children: ['due   '] }))]
   if (!occurrence.time) return [Text({ children: ['      '] })]

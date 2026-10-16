@@ -387,7 +387,8 @@ test('the Today tab draws the TUI pane\'s compact rows: lead, title, right mark'
   expect(badge?.props.color).toBe('#f07178')
   expect(badge?.props.backgroundColor).toBe('#20252e')
   expect((await ui.find(exactly('  -1d ')))?.props.color).toBe('#f07178')
-  expect((await ui.find(exactly('in 3d ')))?.props.color).toBe('#e5b567')
+  // A deadline's warning is not today's: the TUI's Today has it.
+  expect(await ui.find(exactly('Quarterly report'))).toBeUndefined()
   const due = await ui.find(exactly('due   '))
   expect(due?.props.color).toBe('#e5b567')
   expect(due?.props.bold).toBe(true)

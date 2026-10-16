@@ -513,11 +513,15 @@ fn collapse_overdue(mut rows: Vec<DisplayRow>, expanded: bool) -> Vec<DisplayRow
 }
 
 /// The pane: today's dated rows, timed ones by clock time, then untimed,
-/// with done rows last; overdue rows are only counted.
+/// with done rows last. Overdue rows are only counted, and a deadline's
+/// warning (`in 3d`) is not today's, as the status band counts them; Today
+/// lists both.
 fn pane_rows(entries: Vec<AgendaEntry>) -> Vec<DisplayRow> {
     let mut rows: Vec<DisplayRow> = entries
         .into_iter()
-        .filter(|entry| !entry.occurrence.late)
+        .filter(|entry| {
+            !entry.occurrence.late && entry.occurrence.kind != OccurrenceType::UpcomingDeadline
+        })
         .map(|entry| DisplayRow {
             section: SCHEDULE.to_string(),
             item: entry.item,

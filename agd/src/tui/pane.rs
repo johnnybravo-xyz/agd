@@ -12,10 +12,11 @@ use super::today::{self, Clock};
 use super::{App, DisplayRow, FULL_WIDTH};
 
 /// The 2-second glance for a herdr or tmux split: overdue collapses to a
-/// count, timed items sort by clock time with ▸ on the next one, done items
-/// stay dimmed, and the footer carries the only cross-screen signals. The
-/// counts are the status band's (AgendaSummary), each item once. Rows use
-/// Today's marker and lead cells, so the two read alike.
+/// count, today's items follow (a deadline's warning is Today's DUE SOON,
+/// not today's), timed items sort by clock time with ▸ on the next one,
+/// done items stay dimmed, and the footer carries the only cross-screen
+/// signals. The counts are the status band's (AgendaSummary), each item
+/// once. Rows use Today's marker and lead cells, so the two read alike.
 pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     let theme = app.theme.clone();
     let block = theme.panel("agd");
