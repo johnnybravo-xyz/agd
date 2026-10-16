@@ -8,7 +8,7 @@ use clap::Args;
 pub struct CheckCommand {
     /// Emit a machine-readable report
     #[arg(long)]
-    json: bool,
+    pub json: bool,
 }
 
 impl CheckCommand {

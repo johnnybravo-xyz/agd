@@ -126,6 +126,42 @@ fn from_takes_a_negative_offset_as_its_value() {
 }
 
 #[test]
+fn json_mode_reports_every_error_as_agd_error() {
+    let fixture = Fixture::new();
+    let failures: [(&[&str], &str); 7] = [
+        (&["agenda", "--view", "zz", "--json"], "unknown_view"),
+        (&["agenda", "--view", "--json"], "no_start_view"),
+        (
+            &["agenda", "--profile", "nope", "--json"],
+            "unknown_profile",
+        ),
+        (&["agenda", "--from", "someday", "--json"], "invalid_date"),
+        (&["capture", "--json"], "usage"),
+        (
+            &["capture", "t", "Hi", "--prompt", "bad", "--json"],
+            "invalid_prompt",
+        ),
+        // Clap refuses this before any command runs.
+        (&["agenda", "--bogus", "--json"], "usage"),
+    ];
+    for (arguments, code) in failures {
+        let output = fixture.command().args(arguments).output().expect("agd");
+        assert!(!output.status.success(), "{arguments:?}");
+        let error: Value = serde_json::from_slice(&output.stderr)
+            .unwrap_or_else(|_| panic!("{arguments:?}: {output:?}"));
+        assert_eq!(error["schema"], "agd.error/v1", "{arguments:?}");
+        assert_eq!(error["code"], code, "{arguments:?}: {error}");
+    }
+    // Without --json the same error is a plain line.
+    fixture
+        .command()
+        .args(["agenda", "--view", "zz"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::starts_with("Error: unknown view 'zz'"));
+}
+
+#[test]
 fn flags_a_command_would_ignore_are_usage_errors() {
     let fixture = Fixture::new();
     let refused: [&[&str]; 11] = [

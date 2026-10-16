@@ -1,11 +1,11 @@
 use std::path::Path;
 
 use agd_core::{
-    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, JournalStatus, Settings, ViewSection,
-    WorkspaceIndex, WriteEngine, agenda_csv, agenda_row, agenda_text, agenda_title, item_row,
-    items_csv, keyword_colors, load_settings, parse_date_input,
+    AgdError, AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, JournalStatus, Settings,
+    ViewSection, ViewSettings, WorkspaceIndex, WriteEngine, agenda_csv, agenda_row, agenda_text,
+    agenda_title, item_row, items_csv, keyword_colors, load_settings, parse_date_input,
 };
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result};
 use chrono::{Local, NaiveDate};
 use clap::{Args, ValueEnum};
 
@@ -72,6 +72,11 @@ pub struct AgendaCommand {
 }
 
 impl AgendaCommand {
+    /// True when the output, and so any error, is JSON.
+    pub fn json(&self) -> bool {
+        self.json
+    }
+
     pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<()> {
         let mut settings = load_settings(
             config.as_deref().map(Path::new),
@@ -81,17 +86,10 @@ impl AgendaCommand {
         if self.views {
             return print_views(&settings, self.json);
         }
-        let mut match_expression = self.match_expression;
-        if let Some(name) = self.profile.as_deref() {
-            let profile = settings
-                .agent_profile(name)
-                .cloned()
-                .ok_or_else(|| anyhow!("unknown agent agenda profile: {name}"))?;
-            if !profile.files.is_empty() {
-                settings.agenda_files = profile.files;
-            }
-            match_expression = match_expression.or(profile.match_expression);
-        }
+        let match_expression = match self.profile.as_deref() {
+            Some(name) => apply_profile(&mut settings, name, self.match_expression)?,
+            None => self.match_expression,
+        };
         let index = load_index(settings.clone())?;
         let today = Local::now().date_naive();
         if self.status {
@@ -103,47 +101,9 @@ impl AgendaCommand {
             None => default_start(&settings, today)?,
         };
         if let Some(key) = self.view.as_deref() {
-            let key = if key.is_empty() {
-                if settings.start_view.is_empty() {
-                    bail!("--view without a key runs start_view, which is not set");
-                }
-                settings.start_view.as_str()
-            } else {
-                key
-            };
-            let view = settings.view(key).ok_or_else(|| {
-                let keys: Vec<&str> = settings
-                    .views
-                    .iter()
-                    .map(|view| view.key.as_str())
-                    .collect();
-                anyhow!(
-                    "unknown view '{key}'; configured views: {}",
-                    keys.join(", ")
-                )
-            })?;
+            let view = find_view(&settings, key)?;
             let sections = AgendaEngine::new(&index).view(view, start, today, self.log)?;
-            if self.json {
-                println!("{}", serde_json::to_string_pretty(&sections)?);
-            } else if self.csv {
-                for section in &sections {
-                    print!(
-                        "{}{}",
-                        agenda_csv(&section.entries, today, &settings),
-                        items_csv(&section.items, &section.kind, &settings)
-                    );
-                    for group in &section.groups {
-                        print!(
-                            "{}{}",
-                            agenda_csv(&group.entries, today, &settings),
-                            items_csv(&group.items, &section.kind, &settings)
-                        );
-                    }
-                }
-            } else {
-                print!("{}", render_view(&sections));
-            }
-            return Ok(());
+            return print_view(&sections, self.json, self.csv, today, &settings);
         }
         let span = match self.span {
             Some(SpanArg::Day) => AgendaSpan::Day,
@@ -172,6 +132,81 @@ impl AgendaCommand {
         }
         Ok(())
     }
+}
+
+/// Applies a `[[agent_profile]]`: its files replace agenda_files, and its
+/// match is the match unless --match gives one.
+fn apply_profile(
+    settings: &mut Settings,
+    name: &str,
+    match_expression: Option<String>,
+) -> Result<Option<String>, AgdError> {
+    let profile = settings.agent_profile(name).cloned().ok_or_else(|| {
+        AgdError::new("unknown_profile", format!("unknown agent profile '{name}'"))
+    })?;
+    if !profile.files.is_empty() {
+        settings.agenda_files = profile.files;
+    }
+    Ok(match_expression.or(profile.match_expression))
+}
+
+/// The view `--view KEY` names; an empty key is the configured start_view.
+fn find_view<'a>(settings: &'a Settings, key: &str) -> Result<&'a ViewSettings, AgdError> {
+    let key = if key.is_empty() {
+        if settings.start_view.is_empty() {
+            return Err(AgdError::new(
+                "no_start_view",
+                "--view without a key runs start_view, which is not set",
+            ));
+        }
+        settings.start_view.as_str()
+    } else {
+        key
+    };
+    settings.view(key).ok_or_else(|| {
+        let keys: Vec<&str> = settings
+            .views
+            .iter()
+            .map(|view| view.key.as_str())
+            .collect();
+        AgdError::new(
+            "unknown_view",
+            format!(
+                "unknown view '{key}'; configured views: {}",
+                keys.join(", ")
+            ),
+        )
+    })
+}
+
+fn print_view(
+    sections: &[ViewSection],
+    json: bool,
+    csv: bool,
+    today: NaiveDate,
+    settings: &Settings,
+) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(sections)?);
+    } else if csv {
+        for section in sections {
+            print!(
+                "{}{}",
+                agenda_csv(&section.entries, today, settings),
+                items_csv(&section.items, &section.kind, settings)
+            );
+            for group in &section.groups {
+                print!(
+                    "{}{}",
+                    agenda_csv(&group.entries, today, settings),
+                    items_csv(&group.items, &section.kind, settings)
+                );
+            }
+        }
+    } else {
+        print!("{}", render_view(sections));
+    }
+    Ok(())
 }
 
 /// Blocks separated by a rule of `=`, as in an Emacs block agenda. An agenda
