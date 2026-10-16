@@ -356,7 +356,7 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
         Overlay::Views { selected } => {
             let keys: Vec<String> = app
                 .settings
-                .views
+                .all_views()
                 .iter()
                 .map(|view| view.key.clone())
                 .collect();

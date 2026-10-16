@@ -137,6 +137,38 @@ fn agenda_span_takes_a_number_of_days_from_config_or_flag() {
 }
 
 #[test]
+fn builtin_n_view_runs_beside_configured_views() {
+    let fixture = Fixture::new();
+    let config = fs::read_to_string(&fixture.config).unwrap();
+    fs::write(
+        &fixture.config,
+        format!(
+            "{config}[[view]]\nkey = \"w\"\ndesc = \"Work\"\nblocks = [{{ kind = \"tags-todo\", match = \"work\" }}]\n"
+        ),
+    )
+    .unwrap();
+    fixture
+        .command()
+        .args(["agenda", "--view", "n", "--from", "2026-10-13"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Week-agenda (W42):"))
+        .stdout(predicate::str::contains("NEXT File paperwork"));
+    fixture
+        .command()
+        .args(["agenda", "--views"])
+        .assert()
+        .success()
+        .stdout("w   Work\nn   Agenda and all TODOs  (built-in)\n");
+    fixture
+        .command()
+        .args(["agenda", "--view", "x"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unknown view 'x'; views: w, n"));
+}
+
+#[test]
 fn status_line_counts_today_for_a_status_bar() {
     let fixture = Fixture::new();
     let today = chrono::Local::now().format("%Y-%m-%d %a").to_string();
@@ -186,10 +218,14 @@ fn views_json_carries_what_a_client_draws_them_with() {
         .expect("views command");
     assert!(output.status.success(), "{output:?}");
     let payload: Value = serde_json::from_slice(&output.stdout).expect("views JSON");
-    // start_view first, then config order.
+    // start_view first, then config order, then Org's built-in n.
     assert_eq!(payload["views"][0]["key"], "w");
     assert_eq!(payload["views"][0]["start"], true);
+    assert_eq!(payload["views"][0]["builtin"], false);
     assert_eq!(payload["views"][1]["key"], "d");
+    assert_eq!(payload["views"][2]["key"], "n");
+    assert_eq!(payload["views"][2]["builtin"], true);
+    assert_eq!(payload["views"].as_array().unwrap().len(), 3);
     assert_eq!(payload["theme"], "light");
     assert_eq!(payload["nerd_font"], true);
     // The file's #+TODO keywords: a configured color, the sequence's first

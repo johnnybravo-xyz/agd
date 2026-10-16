@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -70,8 +71,8 @@ pub struct Settings {
     /// Round pill and chip caps with Nerd Font glyphs; turn on when your
     /// terminal font has them (Ghostty, WezTerm and kitty bundle them).
     pub nerd_font: bool,
-    /// The `[[view]]` key `agd` opens on, such as your dashboard; empty
-    /// opens Today.
+    /// The view key `agd` opens on, such as your dashboard or the built-in
+    /// `n`; empty opens Today.
     pub start_view: String,
     /// A `[[capture]]` key: every agent capture goes through that template
     /// without dates, so agent work reaches your day only through triage.
@@ -85,6 +86,8 @@ pub struct Settings {
 
     #[serde(rename = "capture")]
     pub captures: Vec<CaptureTemplate>,
+    /// The user's own views only; `all_views` and `view` add the built-in
+    /// ones.
     #[serde(rename = "view")]
     pub views: Vec<ViewSettings>,
     #[serde(rename = "agent_profile")]
@@ -303,33 +306,30 @@ impl Default for Settings {
             someday_clears_scheduled: true,
             reschedule_nudge: 3,
             captures: vec![CaptureTemplate::default()],
-            // Org's built-in `n` command: "Agenda and all TODOs".
-            views: vec![ViewSettings {
-                key: "n".to_string(),
-                desc: "Agenda and all TODOs".to_string(),
-                blocks: vec![
-                    ViewBlock {
-                        kind: "agenda".to_string(),
-                        match_expression: None,
-                        span: None,
-                        header: None,
-                        color: None,
-                        groups: Vec::new(),
-                    },
-                    ViewBlock {
-                        kind: "alltodo".to_string(),
-                        match_expression: None,
-                        span: None,
-                        header: None,
-                        color: None,
-                        groups: Vec::new(),
-                    },
-                ],
-            }],
+            views: Vec::new(),
             agent_profiles: Vec::new(),
         }
     }
 }
+
+/// Org's built-in agenda commands that agd runs, beside the user's
+/// `[[view]]`s: `n`, "Agenda and all TODOs". A `[[view]]` with the same key
+/// replaces one.
+static BUILTIN_VIEWS: LazyLock<Vec<ViewSettings>> = LazyLock::new(|| {
+    let block = |kind: &str| ViewBlock {
+        kind: kind.to_string(),
+        match_expression: None,
+        span: None,
+        header: None,
+        color: None,
+        groups: Vec::new(),
+    };
+    vec![ViewSettings {
+        key: "n".to_string(),
+        desc: "Agenda and all TODOs".to_string(),
+        blocks: vec![block("agenda"), block("alltodo")],
+    }]
+});
 
 /// The default `t` template: a TODO in inbox.org under Inbox, stamped with
 /// its creation time.
@@ -366,8 +366,24 @@ impl Settings {
         self.captures.iter().find(|template| template.key == key)
     }
 
+    /// The view `key` runs: the user's `[[view]]`, else a built-in one.
     pub fn view(&self, key: &str) -> Option<&ViewSettings> {
-        self.views.iter().find(|view| view.key == key)
+        self.all_views().into_iter().find(|view| view.key == key)
+    }
+
+    /// Every view a key can run: the user's `[[view]]`s in config order,
+    /// then the built-in views they do not replace.
+    pub fn all_views(&self) -> Vec<&ViewSettings> {
+        let builtins = BUILTIN_VIEWS
+            .iter()
+            .filter(|builtin| self.views.iter().all(|view| view.key != builtin.key));
+        self.views.iter().chain(builtins).collect()
+    }
+
+    /// Whether `key` runs a built-in view rather than one of the user's.
+    pub fn is_builtin_view(&self, key: &str) -> bool {
+        self.views.iter().all(|view| view.key != key)
+            && BUILTIN_VIEWS.iter().any(|builtin| builtin.key == key)
     }
 
     pub fn agent_profile(&self, name: &str) -> Option<&AgentProfile> {
@@ -982,7 +998,7 @@ pub(crate) fn validate_values(settings: &Settings) -> Result<(), AgdError> {
             }
         }
     }
-    if !settings.start_view.is_empty() && !view_keys.contains(settings.start_view.as_str()) {
+    if !settings.start_view.is_empty() && settings.view(&settings.start_view).is_none() {
         return Err(config_error(format!(
             "start_view '{}' is not a [[view]] key; use one of the view keys or leave it empty for Today",
             settings.start_view
@@ -1244,6 +1260,40 @@ mod tests {
                 assert!(is_top_level_key(key), "{key} is missing from CONFIG_GROUPS");
             }
         }
+    }
+
+    #[test]
+    fn builtin_n_stays_beside_user_views_until_replaced() {
+        let defaults = Settings::default();
+        assert!(defaults.views.is_empty());
+        assert_eq!(defaults.view("n").unwrap().desc, "Agenda and all TODOs");
+        assert!(defaults.is_builtin_view("n"));
+
+        let settings = load_body(concat!(
+            "start_view = \"n\"\n",
+            "[[view]]\nkey = \"w\"\ndesc = \"Work\"\n",
+            "blocks = [{ kind = \"tags-todo\", match = \"work\" }]\n",
+        ))
+        .unwrap();
+        let keys: Vec<&str> = settings
+            .all_views()
+            .iter()
+            .map(|view| view.key.as_str())
+            .collect();
+        assert_eq!(keys, ["w", "n"]);
+        assert!(!settings.is_builtin_view("w"));
+        let rendered = render_config(&settings, "views").unwrap();
+        assert!(rendered.contains("key = \"w\""), "{rendered}");
+        assert!(!rendered.contains("key = \"n\""), "{rendered}");
+
+        let replaced = load_body(concat!(
+            "[[view]]\nkey = \"n\"\ndesc = \"Next\"\n",
+            "blocks = [{ kind = \"todo\", match = \"NEXT\" }]\n",
+        ))
+        .unwrap();
+        assert_eq!(replaced.all_views().len(), 1);
+        assert_eq!(replaced.view("n").unwrap().desc, "Next");
+        assert!(!replaced.is_builtin_view("n"));
     }
 
     fn capture_error(fields: &str) -> String {
