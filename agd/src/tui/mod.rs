@@ -7,6 +7,7 @@ mod actions;
 mod capture;
 mod edit;
 mod help;
+mod input;
 mod keys;
 mod pane;
 mod peek;
@@ -62,19 +63,23 @@ enum PromptKind {
     Priority,
     Tags,
     Filter,
+    /// The note Org asks for when a state change is logged with `@`.
+    Note,
 }
 
 #[derive(Debug)]
 enum Overlay {
     None,
-    Help,
+    /// Every screen's keys; `scroll` is the first line shown.
+    Help {
+        scroll: u16,
+    },
     Capture(capture::Draft),
     Edit(Box<edit::EditForm>),
-    Prompt {
-        kind: PromptKind,
-        input: String,
-    },
+    Prompt(actions::Prompt),
     Refile(actions::RefilePicker),
+    /// `B`: what to do with every marked row (keys::BULK_KEYS).
+    Bulk,
     /// org-agenda's dispatcher: saved views by key.
     Views {
         selected: usize,
@@ -90,6 +95,9 @@ struct Header {
     day: bool,
     /// A view's configured color name (COLOR_NAMES); None follows the rows.
     color: Option<String>,
+    /// agd's own sections show how many rows they hold; an agenda block's
+    /// title (`Day-agenda (W42):`) is Org's own text and shows none.
+    counted: bool,
 }
 
 impl Header {
@@ -98,6 +106,15 @@ impl Header {
             text,
             day: false,
             color,
+            counted: true,
+        }
+    }
+
+    /// An agenda block's title, as Org prints it, with day lines under it.
+    fn agenda_block(text: String, color: Option<String>) -> Self {
+        Self {
+            counted: false,
+            ..Self::section(text, color)
         }
     }
 }
@@ -109,7 +126,13 @@ struct DisplayRow {
     section: String,
     item: Item,
     occurrence: Option<Occurrence>,
+    /// Overdue rows folded under this one: when above zero the row is
+    /// Today's "+N more" line, which ⏎ expands, and no key acts on `item`.
+    more: usize,
 }
+
+/// The full layout needs this many columns; under it only the pane fits.
+const FULL_WIDTH: u16 = 60;
 
 const OVERDUE: &str = "OVERDUE";
 const SCHEDULE: &str = "SCHEDULE";
@@ -169,12 +192,28 @@ struct Counts {
     agents: usize,
 }
 
-/// Progress of one triage pass; outcomes index TriageOutcome.
+/// Progress of one triage pass; outcomes index the actions::TODAY… slots.
 #[derive(Debug, Default)]
 struct TriageState {
     started: Option<Instant>,
+    /// When the last decision was written, for the pass's duration.
+    last_decision: Option<Instant>,
     outcomes: [usize; 7],
     undo: Vec<actions::TriageStep>,
+    /// The cards as the pass began. A decision never adds, drops or
+    /// reorders them, so a task still overdue after `m` (a missed
+    /// deadline) does not come back, and the counter stays `3 / 8`.
+    queue: Vec<DisplayRow>,
+    /// The card on view; `queue.len()` once the pass is through.
+    position: usize,
+    /// The position of each decision, in order, for undo to return to.
+    decided: Vec<usize>,
+}
+
+impl TriageState {
+    fn finished(&self) -> bool {
+        self.position >= self.queue.len()
+    }
 }
 
 struct App {
@@ -194,6 +233,10 @@ struct App {
     journals: Vec<JournalRecord>,
     selected: usize,
     marks: BTreeSet<String>,
+    /// Today shows every OVERDUE row, not the first few; reset on leaving.
+    overdue_expanded: bool,
+    /// Tomorrow's open (scheduled, due) counts, which an empty Today shows.
+    tomorrow: (usize, usize),
     /// Context filter cycled with `<`: None is all categories.
     context: Option<String>,
     filter: String,
@@ -201,9 +244,11 @@ struct App {
     log_mode: bool,
     peek: bool,
     /// The narrow pane is showing: asked for with --pane, or the terminal
-    /// is under 60 columns.
+    /// is under FULL_WIDTH columns.
     pane: bool,
     pane_requested: bool,
+    /// Terminal columns at the last draw.
+    width: u16,
     capture_only: bool,
     overlay: Overlay,
     status: Option<Status>,
@@ -211,10 +256,10 @@ struct App {
     /// (screen row, row index) of the drawn list, for mouse clicks.
     click_rows: Vec<(u16, usize)>,
     counts: Counts,
-    /// Reschedules per item ref: LOGBOOK "Rescheduled from" notes, else
+    /// Reschedules per stable_ref: LOGBOOK "Rescheduled from" notes, else
     /// agd's own journal.
     reschedules: BTreeMap<String, usize>,
-    /// item ref -> (actor, HH:MM) of the capture that created it.
+    /// stable_ref -> (actor, HH:MM) of the capture that created it.
     provenance: BTreeMap<String, (String, String)>,
     recent_targets: Vec<String>,
     /// Writes this TUI made, newest last, for `u`.
@@ -222,6 +267,9 @@ struct App {
     triage: TriageState,
     review_diff: bool,
     agent_filter: Option<String>,
+    /// When `C-c` started a chord in the lists or Triage: `C-w` next
+    /// refiles, as in Org; `C-c` again, or a second without a key, quits.
+    chord: Option<Instant>,
     quit: bool,
 }
 
@@ -241,6 +289,8 @@ impl App {
             journals: Vec::new(),
             selected: 0,
             marks: BTreeSet::new(),
+            overdue_expanded: false,
+            tomorrow: (0, 0),
             context: None,
             filter: String::new(),
             classic: false,
@@ -248,6 +298,7 @@ impl App {
             peek: false,
             pane: false,
             pane_requested: false,
+            width: 0,
             capture_only: false,
             overlay: Overlay::None,
             status: None,
@@ -261,8 +312,29 @@ impl App {
             triage: TriageState::default(),
             review_diff: false,
             agent_filter: None,
+            chord: None,
             quit: false,
         }
+    }
+
+    /// Leaves the pane for the full view, or says why it cannot: under
+    /// FULL_WIDTH columns the event loop would switch straight back.
+    fn leave_pane(&mut self) -> Result<bool> {
+        if self.width < FULL_WIDTH {
+            self.set_status(format!("widen to {FULL_WIDTH}+ columns for the full view"));
+            return Ok(false);
+        }
+        self.pane = false;
+        // From now on a narrow terminal brings the pane back.
+        self.pane_requested = false;
+        self.reload_rows()?;
+        Ok(true)
+    }
+
+    /// A lone `C-c` still quits, a second after it was pressed.
+    fn chord_expired(&self) -> bool {
+        self.chord
+            .is_some_and(|started| started.elapsed() > StdDuration::from_secs(1))
     }
 
     fn set_status(&mut self, text: impl Into<String>) {
@@ -273,9 +345,10 @@ impl App {
         });
     }
 
+    /// A refused write or a failure, as a sentence without error codes.
     fn set_error(&mut self, error: &anyhow::Error) {
         let text = match error.downcast_ref::<AgdError>() {
-            Some(error) => format!("✗ {}: {error}", error.code()),
+            Some(error) => format!("✗ {}", error_sentence(error)),
             None => format!("✗ {error:#}"),
         };
         self.status = Some(Status {
@@ -383,9 +456,9 @@ fn event_loop(
             app.today = today;
             changed = true;
         }
-        // Under 60 columns the full layout cannot fit; switch to the pane
-        // (and back when the terminal grows again).
-        let narrow = terminal.size()?.width < 60;
+        // Under FULL_WIDTH columns the full layout cannot fit; switch to the
+        // pane (and back when the terminal grows again).
+        let narrow = terminal.size()?.width < FULL_WIDTH;
         if !app.pane_requested && app.pane != narrow {
             app.pane = narrow;
             changed = true;
@@ -398,6 +471,9 @@ fn event_loop(
         });
         if expired {
             app.status = None;
+        }
+        if app.chord_expired() {
+            break;
         }
         terminal.draw(|frame| draw(frame, app))?;
         if !event::poll(StdDuration::from_millis(200))? {
@@ -430,11 +506,11 @@ fn handle_event(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App
                     let already = index == app.selected;
                     app.selected = index;
                     // Clicking the selected pane row opens the full TUI there.
-                    if app.pane && already {
-                        app.pane = false;
-                        if let Err(error) = app.reload_rows() {
-                            app.set_error(&error);
-                        }
+                    if app.pane
+                        && already
+                        && let Err(error) = app.leave_pane()
+                    {
+                        app.set_error(&error);
                     }
                 }
             }
@@ -449,7 +525,9 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
     // once per key.
     capture::refresh_stale(app);
     edit::refresh_stale(app);
+    actions::refresh_stale_prompt(app);
     let area = frame.area();
+    app.width = area.width;
     if app.capture_only {
         capture::draw(frame, app, area);
         return;
@@ -461,10 +539,10 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
     }
     match &app.overlay {
         Overlay::None => {}
-        Overlay::Help => help::draw(frame, app, area),
+        Overlay::Help { .. } => help::draw(frame, app, area),
         Overlay::Capture(_) => capture::draw(frame, app, area),
         Overlay::Edit(_) => edit::draw(frame, app, area),
-        Overlay::Prompt { .. } | Overlay::Refile(_) | Overlay::Views { .. } => {
+        Overlay::Prompt(_) | Overlay::Refile(_) | Overlay::Bulk | Overlay::Views { .. } => {
             today::draw_overlay(frame, app, area)
         }
     }
@@ -562,6 +640,30 @@ fn stop_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()
     )?;
     terminal.show_cursor()?;
     Ok(())
+}
+
+/// An item ref without its line hint (`file#sha256:digest`), or the ID
+/// itself: what stays the same while lines above the heading come and go,
+/// so labels keyed by it survive edits elsewhere in the file.
+fn stable_ref(item_ref: &str) -> String {
+    match item_ref.rsplit_once("#sha256:") {
+        Some((location, digest)) => {
+            let file = location.rsplit_once(':').map_or(location, |(file, _)| file);
+            format!("{file}#sha256:{digest}")
+        }
+        None => item_ref.to_string(),
+    }
+}
+
+/// What a core error means for the person at the keyboard. Most messages
+/// already read as sentences; a stale ref's names the raw ref, so it is
+/// said plainly.
+fn error_sentence(error: &AgdError) -> String {
+    match error.code() {
+        "stale_ref" => "this heading changed on disk since agd read it; r refreshes".to_string(),
+        "no_change" => "nothing would change".to_string(),
+        _ => error.to_string(),
+    }
 }
 
 fn write_context() -> WriteContext {

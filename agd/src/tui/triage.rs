@@ -7,7 +7,7 @@ use agd_core::OccurrenceType;
 
 use super::actions::{DONE, NEXT_WEEK, REFILED, SOMEDAY, TODAY, TOMORROW, short_date};
 use super::rows::days_since;
-use super::{App, DisplayRow, INBOX, peek};
+use super::{App, DisplayRow, INBOX, keys, peek};
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
@@ -22,13 +22,10 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             Constraint::Min(0),
         ])
         .split(area);
-    let completed: usize = app.triage.outcomes.iter().sum();
-    let total = completed + app.rows.len();
-    let position = if app.rows.is_empty() {
-        total
-    } else {
-        completed + app.selected + 1
-    };
+    // The queue is fixed for the pass, so the counter only moves forward.
+    let total = app.triage.queue.len();
+    let decided = app.triage.decided.len();
+    let position = (app.triage.position + 1).min(total);
     frame.render_widget(
         Paragraph::new(Span::styled(
             format!("{position} / {total} "),
@@ -44,7 +41,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             .ratio(if total == 0 {
                 1.0
             } else {
-                completed as f64 / total as f64
+                (decided as f64 / total as f64).min(1.0)
             })
             .label(""),
         parts[1],
@@ -57,7 +54,8 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 .block(
                     theme
                         .panel("Triage done")
-                        .border_style(theme.fg(theme.done)),
+                        .border_style(theme.fg(theme.done))
+                        .padding(ratatui::widgets::Padding::horizontal(1)),
                 ),
             card_area,
         );
@@ -65,34 +63,29 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     };
     draw_card(frame, app, row, card_area);
     let indent = card_area.x.saturating_sub(area.x) as usize;
-    let chips = |pairs: &[(&str, &str)]| {
+    let rows = keys::triage_chips(row);
+    // Both rows share one column width: the card's longest label.
+    let label_width = rows
+        .iter()
+        .flat_map(|actions| keys::hints(keys::TRIAGE_KEYS, actions))
+        .map(|(_, action)| action.chars().count())
+        .max()
+        .unwrap_or(0)
+        + 2;
+    let chips = |actions: &[keys::Action]| {
         let mut spans = vec![Span::raw(" ".repeat(indent))];
-        for (key, action) in pairs {
+        for (key, action) in keys::hints(keys::TRIAGE_KEYS, actions) {
             spans.extend(theme.pill(key.to_string(), theme.accent));
-            spans.push(Span::styled(format!(" {action:<12}"), theme.fg(theme.text)));
+            spans.push(Span::styled(
+                format!(" {action:<label_width$}"),
+                theme.fg(theme.text),
+            ));
         }
         Line::from(spans)
     };
-    frame.render_widget(
-        Paragraph::new(chips(&[
-            (".", "today"),
-            ("m", "tomorrow"),
-            ("w", "next week"),
-            ("p", "pick date"),
-            ("x", "done"),
-        ])),
-        parts[3],
-    );
-    frame.render_widget(
-        Paragraph::new(chips(&[
-            ("n", "make NEXT"),
-            ("s", "someday"),
-            ("k", "cancel"),
-            ("r", "refile"),
-            ("u", "undo"),
-        ])),
-        parts[4],
-    );
+    for (actions, area) in rows.iter().zip([parts[3], parts[4]]) {
+        frame.render_widget(Paragraph::new(chips(actions)), area);
+    }
 }
 
 /// Card rows: heading, path, chips, body line and the nudge, with spacing.
@@ -113,7 +106,7 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
     let item = &row.item;
     let inbox = row.section == INBOX;
     let title = if inbox {
-        match app.provenance.get(&item.item_ref) {
+        match app.provenance.get(&super::stable_ref(&item.item_ref)) {
             Some((actor, time)) => format!("Inbox · from {actor} {time}"),
             None => "Inbox".to_string(),
         }
@@ -170,7 +163,11 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
         Line::default(),
     ];
 
-    let reschedules = app.reschedules.get(&item.item_ref).copied().unwrap_or(0);
+    let reschedules = app
+        .reschedules
+        .get(&super::stable_ref(&item.item_ref))
+        .copied()
+        .unwrap_or(0);
     let nudge = reschedules >= app.settings.reschedule_nudge;
     let mut chips = theme.pill(
         item.planning
@@ -266,12 +263,13 @@ fn overdue_days(row: &DisplayRow, today: chrono::NaiveDate) -> i64 {
 fn summary(app: &App) -> Vec<Line<'static>> {
     let theme = &app.theme;
     let outcomes = &app.triage.outcomes;
-    let total: usize = outcomes.iter().sum();
-    let elapsed = app
-        .triage
-        .started
-        .map(|started| started.elapsed().as_secs())
-        .unwrap_or(0);
+    let decided = app.triage.decided.len();
+    // From the start to the last decision, so the time does not keep
+    // running while the summary is on screen.
+    let elapsed = match (app.triage.started, app.triage.last_decision) {
+        (Some(started), Some(last)) => last.duration_since(started).as_secs(),
+        _ => 0,
+    };
     let mut parts = Vec::new();
     for (index, label) in [
         (TODAY, "today"),
@@ -285,25 +283,36 @@ fn summary(app: &App) -> Vec<Line<'static>> {
             parts.push(format!("{} {label}", outcomes[index]));
         }
     }
-    vec![
+    let headline = if app.triage.queue.is_empty() {
         Line::from(vec![
-            Span::styled("Triage done", theme.strong(theme.done)),
+            Span::styled("Nothing to triage", theme.strong(theme.done)),
+            Span::raw(": no overdue items, inbox empty."),
+        ])
+    } else {
+        let lead = if app.counts.inbox == 0 {
+            "Inbox zero"
+        } else {
+            "Triage done"
+        };
+        Line::from(vec![
+            Span::styled(lead, theme.strong(theme.done)),
             Span::raw(format!(
-                ", {total} item{} in {}m {}s{}{}.",
-                if total == 1 { "" } else { "s" },
+                " · {decided} decided in {}m {}s{}{}",
                 elapsed / 60,
                 elapsed % 60,
                 if parts.is_empty() { "" } else { ": " },
                 parts.join(", ")
             )),
-        ]),
-        Line::default(),
-        Line::from(
-            [
-                app.theme.key_hint("u", "undoes all"),
-                app.theme.key_hint("⏎", "returns to Today"),
-            ]
-            .concat(),
-        ),
-    ]
+        ])
+    };
+    // `u` is offered only when the pass wrote something it can undo.
+    let mut keys = Vec::new();
+    if !app.triage.undo.is_empty() {
+        keys.extend(theme.key_hint("u", "undoes all"));
+    }
+    if !app.triage.queue.is_empty() {
+        keys.extend(theme.key_hint("k", "last card"));
+    }
+    keys.extend(theme.key_hint("⏎", "returns to Today"));
+    vec![headline, Line::default(), Line::from(keys)]
 }

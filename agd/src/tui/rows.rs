@@ -1,14 +1,16 @@
 use std::collections::BTreeSet;
+use std::time::Instant;
 
 use agd_core::{
     AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalRecord, JournalStatus,
-    OccurrenceType, WorkspaceIndex, WriteEngine,
+    Occurrence, OccurrenceType, WorkspaceIndex, WriteEngine,
 };
 use anyhow::Result;
 use chrono::{Datelike, Duration, NaiveDate};
 
 use super::{
     App, DOING, DUE, DisplayRow, Header, INBOX, OVERDUE, SCHEDULE, Screen, SelectionAnchor,
+    TriageState,
 };
 
 /// Rows shown under OVERDUE on Today; the rest wait in Triage.
@@ -26,11 +28,33 @@ impl App {
             .selected_row()
             .map(|row| SelectionAnchor::from_item(&row.item));
         self.rebuild_rows()?;
+        if self.screen == Screen::Triage {
+            // Triage's cursor is the pass's position in its frozen queue.
+            self.selected = self.triage.position.min(self.rows.len().saturating_sub(1));
+            return Ok(());
+        }
         self.selected = anchor
             .and_then(|anchor| anchor.find(&self.rows))
             .unwrap_or(previous)
             .min(self.row_count().saturating_sub(1));
         Ok(())
+    }
+
+    /// `T`: overdue tasks, most days late first, then the inbox, frozen as
+    /// the pass's queue.
+    pub(super) fn start_triage(&mut self) -> Result<()> {
+        let engine = AgendaEngine::new(&self.index);
+        let entries = engine.agenda(&self.query(self.today, self.today))?;
+        let someday = &self.settings.someday_tag;
+        let mut queue = triage_rows(entries, engine.inbox());
+        // Demoted tasks are done being triaged.
+        queue.retain(|row| !row.item.tags.contains(someday) && self.visible(&row.item));
+        self.triage = TriageState {
+            started: Some(Instant::now()),
+            queue,
+            ..TriageState::default()
+        };
+        self.switch_screen(Screen::Triage)
     }
 
     /// The header tabs in order: the start view first when one is set.
@@ -58,11 +82,44 @@ impl App {
         self.rows.clear();
         self.selected = 0;
         self.marks.clear();
-        self.reload_rows()
+        self.overdue_expanded = false;
+        self.reload_rows()?;
+        self.cursor_to_today();
+        Ok(())
     }
 
+    /// Week opens on its first day, with the cursor on today's first row,
+    /// or the first row after today when today has none.
+    pub(super) fn cursor_to_today(&mut self) {
+        if self.screen != Screen::Week {
+            return;
+        }
+        let today = self.today.format("%Y-%m-%d").to_string();
+        if let Some(index) = self.rows.iter().position(|row| {
+            row.occurrence
+                .as_ref()
+                .is_some_and(|occurrence| occurrence.date >= today)
+        }) {
+            self.selected = index;
+        }
+    }
+
+    /// The task under the cursor; None on Today's "+N more" row, so no key
+    /// acts on a task it hides.
     pub(super) fn selected_row(&self) -> Option<&DisplayRow> {
-        self.rows.get(self.selected)
+        self.rows.get(self.selected).filter(|row| row.more == 0)
+    }
+
+    /// ⏎ on Today's "+N more" row shows every overdue row; returns false
+    /// when the cursor is on a task.
+    pub(super) fn expand_overdue(&mut self) -> Result<bool> {
+        let on_more_row = self.rows.get(self.selected).is_some_and(|row| row.more > 0);
+        if !on_more_row {
+            return Ok(false);
+        }
+        self.overdue_expanded = true;
+        self.reload_rows()?;
+        Ok(true)
     }
 
     pub(super) fn row_count(&self) -> usize {
@@ -118,7 +175,7 @@ impl App {
         let journals = WriteEngine::with_default_journal(self.settings.clone())?.journal()?;
         self.provenance.clear();
         for record in &journals {
-            if record.diff.lines().any(|line| line.starts_with("+*"))
+            if is_capture(record)
                 && let Some(item_ref) = &record.item_ref
             {
                 let actor = record
@@ -127,7 +184,8 @@ impl App {
                     .unwrap_or("you")
                     .to_string();
                 let time = record.timestamp.get(11..16).unwrap_or_default().to_string();
-                self.provenance.insert(item_ref.clone(), (actor, time));
+                self.provenance
+                    .insert(super::stable_ref(item_ref), (actor, time));
             }
         }
         self.counts.agents = journals
@@ -157,11 +215,18 @@ impl App {
                 headers.extend(day_labels(self.day, self.day));
                 self.day_rows(&engine)?
             }
+            // Filtered before OVERDUE folds, so "+N more" counts what the
+            // filters let through.
             Screen::Today => today_rows(
-                engine.agenda(&self.query(self.day, self.day))?,
+                engine
+                    .agenda(&self.query(self.day, self.day))?
+                    .into_iter()
+                    .filter(|entry| self.visible(&entry.item))
+                    .collect(),
                 &engine.todo(None, self.today)?,
                 &inbox,
                 &self.index,
+                self.overdue_expanded,
             ),
             Screen::Week => {
                 let (from, to) = AgendaSpan::Week.bounds(self.day, self.settings.week_start);
@@ -174,6 +239,7 @@ impl App {
                     section: INBOX.to_string(),
                     item,
                     occurrence: None,
+                    more: 0,
                 })
                 .collect(),
             Screen::View(key) => {
@@ -196,11 +262,13 @@ impl App {
                                     section: group.name.clone(),
                                     item: entry.item,
                                     occurrence: Some(entry.occurrence),
+                                    more: 0,
                                 }));
                                 rows.extend(group.items.into_iter().map(|item| DisplayRow {
                                     section: group.name.clone(),
                                     item,
                                     occurrence: None,
+                                    more: 0,
                                 }));
                             }
                             continue;
@@ -213,7 +281,7 @@ impl App {
                             } else {
                                 section.header.clone()
                             };
-                            headers.push(Header::section(title, Some(section.color.clone())));
+                            headers.push(Header::agenda_block(title, Some(section.color.clone())));
                             headers.extend(day_labels(from, to));
                             rows.extend(day_grouped(section.entries));
                         }
@@ -227,6 +295,7 @@ impl App {
                             section: section.header.clone(),
                             item,
                             occurrence: None,
+                            more: 0,
                         }));
                     }
                 }
@@ -234,11 +303,20 @@ impl App {
             }
             Screen::Triage => {
                 self.reschedules = reschedule_counts(&journals, &self.index);
-                let someday = self.settings.someday_tag.clone();
-                let mut rows = triage_rows(today_entries, inbox);
-                // Demoted tasks are done being triaged.
-                rows.retain(|row| !row.item.tags.contains(&someday));
-                rows
+                // Cards show each task as the files read now, in the order
+                // the pass began with; a finished pass has no rows.
+                for card in &mut self.triage.queue {
+                    if let Some(item) = current_item(&self.index, &card.item) {
+                        card.item = item;
+                    }
+                }
+                self.rows = if self.triage.finished() {
+                    Vec::new()
+                } else {
+                    self.triage.queue.clone()
+                };
+                self.headers.clear();
+                return Ok(());
             }
         };
         rows.retain(|row| self.visible(&row.item));
@@ -247,6 +325,25 @@ impl App {
             if !headers.iter().any(|header| header.text == row.section) {
                 headers.push(Header::section(row.section.clone(), None));
             }
+        }
+        // An empty Today says what tomorrow holds.
+        self.tomorrow = (0, 0);
+        if self.screen == Screen::Today && !self.pane && rows.is_empty() {
+            let tomorrow = self.today + Duration::days(1);
+            let open: Vec<AgendaEntry> = engine
+                .agenda(&self.query(tomorrow, tomorrow))?
+                .into_iter()
+                .filter(|entry| !entry.item.done)
+                .collect();
+            let count = |kind: OccurrenceType| {
+                open.iter()
+                    .filter(|entry| entry.occurrence.kind == kind)
+                    .count()
+            };
+            self.tomorrow = (
+                count(OccurrenceType::Scheduled),
+                count(OccurrenceType::Deadline),
+            );
         }
         self.headers = headers;
         self.rows = rows;
@@ -287,12 +384,14 @@ impl App {
 }
 
 /// Today's sections in the order you act on them. OVERDUE shows only the
-/// first few; DOING lists in-progress TODOs without a date today.
+/// first few unless expanded; DOING lists in-progress TODOs without a date
+/// today.
 fn today_rows(
     entries: Vec<AgendaEntry>,
     todos: &[Item],
     inbox: &[Item],
     index: &WorkspaceIndex,
+    overdue_expanded: bool,
 ) -> Vec<DisplayRow> {
     let mut sections: [(&str, Vec<DisplayRow>); 5] = [
         (OVERDUE, Vec::new()),
@@ -318,9 +417,11 @@ fn today_rows(
             section: sections[slot].0.to_string(),
             item: entry.item,
             occurrence: Some(entry.occurrence),
+            more: 0,
         });
     }
-    sections[0].1.truncate(OVERDUE_ON_TODAY);
+    let overdue = std::mem::take(&mut sections[0].1);
+    sections[0].1 = collapse_overdue(overdue, overdue_expanded);
     for item in todos {
         if !shown.contains(&item.item_ref) && is_in_progress(item, index) {
             shown.insert(item.item_ref.clone());
@@ -328,6 +429,7 @@ fn today_rows(
                 section: DOING.to_string(),
                 item: item.clone(),
                 occurrence: None,
+                more: 0,
             });
         }
     }
@@ -337,10 +439,46 @@ fn today_rows(
                 section: INBOX.to_string(),
                 item: item.clone(),
                 occurrence: None,
+                more: 0,
             });
         }
     }
     sections.into_iter().flat_map(|(_, rows)| rows).collect()
+}
+
+/// Missed deadlines before old scheduled items, most days late first;
+/// unless expanded, the first few and a "+N more" row standing for the
+/// rest. One hidden row is simply shown.
+fn collapse_overdue(mut rows: Vec<DisplayRow>, expanded: bool) -> Vec<DisplayRow> {
+    rows.sort_by_key(|row| {
+        let occurrence = row.occurrence.as_ref();
+        let scheduled =
+            occurrence.is_some_and(|occurrence| occurrence.kind == OccurrenceType::PastScheduled);
+        (
+            scheduled,
+            std::cmp::Reverse(occurrence.map_or(0, days_late)),
+        )
+    });
+    if expanded || rows.len() <= OVERDUE_ON_TODAY + 1 {
+        return rows;
+    }
+    let hidden = rows.len() - OVERDUE_ON_TODAY;
+    rows.truncate(OVERDUE_ON_TODAY + 1);
+    if let Some(more) = rows.last_mut() {
+        more.more = hidden;
+    }
+    rows
+}
+
+/// Days late from org's `Sched.12x:` or `3 d. ago:` leader.
+fn days_late(occurrence: &Occurrence) -> i64 {
+    occurrence
+        .extra
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .unwrap_or(0)
 }
 
 /// The pane: today's dated rows, timed ones by clock time, then untimed,
@@ -353,6 +491,7 @@ fn pane_rows(entries: Vec<AgendaEntry>) -> Vec<DisplayRow> {
             section: SCHEDULE.to_string(),
             item: entry.item,
             occurrence: Some(entry.occurrence),
+            more: 0,
         })
         .collect();
     rows.sort_by_key(|row| {
@@ -388,7 +527,7 @@ fn reschedule_counts(
                 .lines()
                 .any(|line| line.starts_with('+') && line.contains("SCHEDULED:"));
         if moved && let Some(item_ref) = &record.item_ref {
-            *counts.entry(item_ref.clone()).or_default() += 1;
+            *counts.entry(super::stable_ref(item_ref)).or_default() += 1;
         }
     }
     for document in index.documents() {
@@ -397,7 +536,7 @@ fn reschedule_counts(
                 &document.source()[headline.section_span.start..headline.section_span.end];
             let logged = section.matches("- Rescheduled from").count();
             if logged > 0 {
-                counts.insert(headline.item.item_ref.clone(), logged);
+                counts.insert(super::stable_ref(&headline.item.item_ref), logged);
             }
         }
     }
@@ -434,6 +573,7 @@ fn day_labels(from: NaiveDate, to: NaiveDate) -> Vec<Header> {
             text: day_label(day),
             day: true,
             color: None,
+            counted: false,
         });
         day += Duration::days(1);
     }
@@ -455,9 +595,22 @@ fn day_grouped(entries: Vec<AgendaEntry>) -> Vec<DisplayRow> {
                 section,
                 item: entry.item,
                 occurrence: Some(entry.occurrence),
+                more: 0,
             }
         })
         .collect()
+}
+
+/// The task a card shows, as the files read now: by ID, else by file and
+/// outline path, which state, date and tag changes leave alone.
+fn current_item(index: &WorkspaceIndex, item: &Item) -> Option<Item> {
+    index
+        .items()
+        .find(|candidate| match &item.id {
+            Some(id) => candidate.id.as_ref() == Some(id),
+            None => candidate.file == item.file && candidate.olpath == item.olpath,
+        })
+        .cloned()
 }
 
 /// Overdue items first (most days late first), then the inbox.
@@ -471,6 +624,7 @@ fn triage_rows(entries: Vec<AgendaEntry>, inbox: Vec<Item>) -> Vec<DisplayRow> {
             section: OVERDUE.to_string(),
             item: entry.item,
             occurrence: Some(entry.occurrence),
+            more: 0,
         })
         .collect();
     rows.extend(
@@ -481,6 +635,7 @@ fn triage_rows(entries: Vec<AgendaEntry>, inbox: Vec<Item>) -> Vec<DisplayRow> {
                 section: INBOX.to_string(),
                 item,
                 occurrence: None,
+                more: 0,
             }),
     );
     rows
@@ -512,6 +667,21 @@ fn is_in_progress(item: &Item, index: &WorkspaceIndex) -> bool {
         .iter()
         .find(|candidate| candidate.sequence == keyword.sequence);
     !item.done && head.is_some_and(|head| head.name != todo)
+}
+
+/// A journal entry that added a heading and removed none: a capture. A
+/// state change rewrites its heading line (`-*` then `+*`), and an undo or
+/// a refile moves one, so none of those name who captured the task.
+fn is_capture(record: &JournalRecord) -> bool {
+    let changed = || {
+        record
+            .diff
+            .lines()
+            .filter(|line| !line.starts_with("+++") && !line.starts_with("---"))
+    };
+    record.transaction.is_none()
+        && changed().any(|line| line.starts_with("+*"))
+        && !changed().any(|line| line.starts_with("-*"))
 }
 
 fn is_agent(record: &JournalRecord) -> bool {

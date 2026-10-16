@@ -2,6 +2,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
 use ratatui::widgets::{Block, BorderType, Borders, Padding};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// The few colour roles the design allows: accent for focus and keys, red
 /// for overdue, amber for due and priority, green for done, one hue per
@@ -32,7 +33,8 @@ impl Theme {
     /// `setting` is `auto`, `dark` or `light`. Auto reads COLORFGBG, which
     /// most terminals set; without it, dark is assumed.
     pub(super) fn detect(setting: &str) -> Self {
-        if std::env::var_os("NO_COLOR").is_some() {
+        // no-color.org: only a non-empty NO_COLOR turns colour off.
+        if std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty()) {
             return Self::plain();
         }
         let truecolor = std::env::var("COLORTERM")
@@ -113,7 +115,8 @@ impl Theme {
             muted: Color::DarkGray,
             border: Color::DarkGray,
             surface: Color::Reset,
-            selection: Color::DarkGray,
+            // Reset: the selected row is reversed (see `selected`).
+            selection: Color::Reset,
             yellow: Color::LightYellow,
             dim_red: Color::Red,
             agents: [
@@ -174,9 +177,14 @@ impl Theme {
     }
 
     /// Full-width highlight of the selected row; the accent bar comes from
-    /// the list's highlight symbol.
+    /// the list's highlight symbol. Truecolor tints the background. With 16
+    /// colours no background is dark enough and distinct from the muted
+    /// grey, so the row is reversed and every role keeps its hue. NO_COLOR
+    /// badges are already reverse video, so the row is underlined instead.
     pub(super) fn selected(&self) -> Style {
         if self.plain {
+            Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else if self.selection == Color::Reset {
             Style::default().add_modifier(Modifier::REVERSED)
         } else {
             Style::default().bg(self.selection)
@@ -297,6 +305,29 @@ impl Theme {
             % self.agents.len();
         self.agents[index]
     }
+}
+
+/// `text` cut to `width` terminal columns, ending in "…" when cut. Widths
+/// are display widths, so CJK and emoji count two columns.
+pub(super) fn truncate(text: &str, width: usize) -> String {
+    if text.width() <= width {
+        return text.to_string();
+    }
+    if width == 0 {
+        return String::new();
+    }
+    let mut cut = String::new();
+    let mut used = 0;
+    for character in text.chars() {
+        let columns = character.width().unwrap_or(0);
+        if used + columns + 1 > width {
+            break;
+        }
+        cut.push(character);
+        used += columns;
+    }
+    cut.push('…');
+    cut
 }
 
 /// A centred rectangle of at most `width` by `height`, for popups.

@@ -28,6 +28,7 @@ dependencies = [
  "toml_edit",
  "tracing",
  "tracing-subscriber",
+ "unicode-width",
 ]
 
 [[package]]

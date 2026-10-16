@@ -8,11 +8,12 @@ use ratatui::widgets::{
 
 use agd_core::{OccurrenceType, keyword_color};
 
+use super::input::TextInput;
 use super::rows::days_since;
-use super::theme::{Theme, centered};
+use super::theme::{Theme, centered, truncate};
 use super::{
     App, DOING, DUE, DisplayRow, Header, INBOX, OVERDUE, Overlay, PromptKind, SCHEDULE, Screen,
-    peek, review, triage,
+    actions, keys, peek, review, triage,
 };
 
 /// Width at which peek sits beside the list and tags get their column.
@@ -55,69 +56,113 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     draw_footer(frame, app, parts[2]);
 }
 
+/// The Agenda badge and tabs at the left; the active filters and the date
+/// at the right, in the room the tabs leave.
 fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
-    let theme = &app.theme;
-    // The name is a filled badge; the current tab is bold and underlined,
-    // so the two never look alike.
-    let tab = |label: String, active: bool| -> Vec<Span<'static>> {
-        let style = if active {
-            theme.strong(theme.text).add_modifier(Modifier::UNDERLINED)
-        } else {
-            theme.muted()
-        };
-        vec![Span::raw(" "), Span::styled(label, style), Span::raw(" ")]
+    let width = area.width as usize;
+    let left = if app.screen == Screen::Triage {
+        let mut left = app.theme.pill("TRIAGE", app.theme.due);
+        left.push(Span::styled("  overdue, then inbox", app.theme.muted()));
+        left
+    } else {
+        header_tabs(app, width)
     };
-    let mut left = theme.pill("Agenda", theme.accent);
-    left.push(Span::raw(" "));
-    let view_desc = |key: &str| {
-        app.settings
-            .view(key)
-            .map_or_else(|| key.to_string(), |view| view.desc.clone())
-    };
-    let tabs = app.tabs();
-    for screen in &tabs {
-        let label = match screen {
-            Screen::View(key) => view_desc(key),
-            Screen::Week => "Week".to_string(),
-            Screen::Inbox => format!("Inbox {}", app.counts.inbox),
-            Screen::Review if app.counts.agents > 0 => format!("Agents ● {}", app.counts.agents),
-            Screen::Review => "Agents".to_string(),
-            _ => "Today".to_string(),
-        };
-        left.extend(tab(label, app.screen == *screen));
-    }
-    // Another saved view shows as an extra tab while it is open.
-    if let Screen::View(key) = &app.screen
-        && !tabs.contains(&app.screen)
-    {
-        left.extend(tab(format!("{key} {}", view_desc(key)), true));
-    }
-    if app.screen == Screen::Triage {
-        left = theme.pill("TRIAGE", theme.due);
-        left.push(Span::styled("  overdue, then inbox", theme.muted()));
-    }
-    let mut right = vec![];
-    if app.log_mode {
-        right.extend(theme.pill("log", theme.done));
-        right.push(Span::raw(" "));
-    }
-    if !app.filter.is_empty() {
-        right.extend(theme.pill(format!("/{}", app.filter), theme.accent));
-        right.push(Span::raw(" "));
-    }
-    right.extend(theme.pill(
-        format!("ctx {}", app.context.as_deref().unwrap_or("all")),
-        theme.muted,
-    ));
-    right.push(Span::styled(
-        format!("  {} ", app.day.format("%a %-d %b")),
-        theme.fg(theme.text),
-    ));
+    let right = header_pills(app, width.saturating_sub(span_width(&left) + 1));
     frame.render_widget(Paragraph::new(Line::from(left)), area);
     frame.render_widget(
         Paragraph::new(Line::from(right)).alignment(Alignment::Right),
         area,
     );
+}
+
+/// The badge and one tab per screen, plus an open view that is not a tab.
+/// When they do not fit, inactive tabs go from the right; the active tab
+/// always stays.
+fn header_tabs(app: &App, width: usize) -> Vec<Span<'static>> {
+    let theme = &app.theme;
+    // The name is a filled badge; the current tab is bold and underlined,
+    // so the two never look alike.
+    let tab = |label: String, active: bool| -> (Vec<Span<'static>>, bool) {
+        let style = if active {
+            theme.strong(theme.text).add_modifier(Modifier::UNDERLINED)
+        } else {
+            theme.muted()
+        };
+        let spans = vec![Span::raw(" "), Span::styled(label, style), Span::raw(" ")];
+        (spans, active)
+    };
+    let view_desc = |key: &str| {
+        app.settings
+            .view(key)
+            .map_or_else(|| key.to_string(), |view| view.desc.clone())
+    };
+    let screens = app.tabs();
+    let mut tabs: Vec<(Vec<Span<'static>>, bool)> = screens
+        .iter()
+        .map(|screen| {
+            let label = match screen {
+                Screen::View(key) => view_desc(key),
+                Screen::Week => "Week".to_string(),
+                Screen::Inbox => format!("Inbox {}", app.counts.inbox),
+                Screen::Review if app.counts.agents > 0 => {
+                    format!("Agents ● {}", app.counts.agents)
+                }
+                Screen::Review => "Agents".to_string(),
+                _ => "Today".to_string(),
+            };
+            tab(label, app.screen == *screen)
+        })
+        .collect();
+    if let Screen::View(key) = &app.screen
+        && !screens.contains(&app.screen)
+    {
+        tabs.push(tab(format!("{key} {}", view_desc(key)), true));
+    }
+    let mut left = theme.pill("Agenda", theme.accent);
+    left.push(Span::raw(" "));
+    let total = |tabs: &[(Vec<Span<'static>>, bool)]| {
+        span_width(&left)
+            + tabs
+                .iter()
+                .map(|(spans, _)| span_width(spans))
+                .sum::<usize>()
+    };
+    while total(&tabs) > width
+        && let Some(inactive) = tabs.iter().rposition(|(_, active)| !active)
+    {
+        tabs.remove(inactive);
+    }
+    left.extend(tabs.into_iter().flat_map(|(spans, _)| spans));
+    left
+}
+
+/// Log mode, the text filter, the context (only when one is set) and the
+/// day, dropped date first when `room` is short.
+fn header_pills(app: &App, room: usize) -> Vec<Span<'static>> {
+    let theme = &app.theme;
+    let mut pills: Vec<Vec<Span<'static>>> = Vec::new();
+    if !app.filter.is_empty() {
+        pills.push(theme.pill(format!("/{}", app.filter), theme.accent));
+    }
+    if app.log_mode {
+        pills.push(theme.pill("log", theme.done));
+    }
+    if let Some(context) = &app.context {
+        pills.push(theme.pill(format!("ctx {context}"), theme.muted));
+    }
+    pills.push(vec![Span::styled(
+        format!(" {} ", app.day.format("%a %-d %b")),
+        theme.fg(theme.text),
+    )]);
+    let mut right: Vec<Span<'static>> = Vec::new();
+    for pill in pills {
+        if span_width(&right) + span_width(&pill) + 1 > room {
+            break;
+        }
+        right.push(Span::raw(" "));
+        right.extend(pill);
+    }
+    right
 }
 
 fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
@@ -130,6 +175,13 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Screen::Triage => "TRIAGE",
         Screen::Review => "AGENTS",
     };
+    // `? help` is reserved at the right, so it shows at any width and
+    // beside any status message.
+    let help = Line::from(vec![
+        Span::styled("?", theme.strong(theme.accent)),
+        Span::styled(" keys ", theme.muted()),
+    ]);
+    let room = (area.width as usize).saturating_sub(help.width() + 1);
     let mut spans = theme.pill(mode, theme.accent);
     spans.push(Span::raw("  "));
     if let Some(status) = &app.status {
@@ -139,67 +191,64 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
             theme.done
         };
         spans.push(Span::styled(status.text.clone(), theme.strong(color)));
-        frame.render_widget(Paragraph::new(Line::from(spans)), area);
-        return;
+    } else {
+        spans.extend(footer_hints(app, room.saturating_sub(span_width(&spans))));
     }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    frame.render_widget(Paragraph::new(help).alignment(Alignment::Right), area);
+}
+
+fn span_width(spans: &[Span<'_>]) -> usize {
+    spans.iter().map(Span::width).sum()
+}
+
+/// The cursor row's location, the marked count and the most-used keys
+/// (`?` lists the rest), as many whole hints as fit in `room` columns.
+fn footer_hints(app: &App, room: usize) -> Vec<Span<'static>> {
+    let theme = &app.theme;
+    let mut spans = Vec::new();
     if let Some(row) = app.selected_row()
         && !matches!(app.screen, Screen::Review)
     {
         spans.push(Span::styled(app.short_location(&row.item), theme.muted()));
         spans.push(Span::styled("  │  ", theme.fg(theme.border)));
     }
-    // Only the most-used keys; ? lists the rest.
-    let keys: &[(&str, &str)] = match app.screen {
-        Screen::Triage => &[("?", "keys")],
-        Screen::Review => &[
-            ("a", "accept"),
-            ("u", "undo"),
-            ("d", "diff"),
-            ("p", "peek"),
-            ("A", "accept all"),
-            ("f", "filter by agent"),
-            ("esc", "back"),
-        ],
-        _ if !app.marks.is_empty() => &[
-            (".", "today"),
-            ("m", "tomorrow"),
-            ("w", "next week"),
-            ("s", "someday"),
-            ("space", "unmark"),
-        ],
-        _ => &[
-            ("x", "done"),
-            ("t", "state"),
-            ("s", "sched"),
-            ("d", "due"),
-            ("T", "triage"),
-            ("c", "capture"),
-            ("a", "views"),
-            ("X", "cancel"),
-            ("?", "help"),
-        ],
-    };
     if !app.marks.is_empty() {
         spans.push(Span::styled(
             format!("{} marked  ", app.marks.len()),
             theme.strong(theme.accent),
         ));
     }
-    for (key, action) in keys {
-        spans.extend(theme.key_hint(key, action));
+    for (key, action) in keys::footer_hints(app) {
+        let hint = theme.key_hint(&key, action);
+        if span_width(&spans) + span_width(&hint) > room {
+            break;
+        }
+        spans.extend(hint);
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    spans
 }
 
 fn list_title(app: &App) -> String {
     match &app.screen {
-        Screen::Today if app.classic => format!("Today · {}", app.day.format("%A %-d %B")),
+        Screen::Today if app.classic => {
+            let date = app.day.format("%A %-d %B").to_string();
+            match relative_day(app) {
+                Some(word) => format!("{word} · {date}"),
+                None => date,
+            }
+        }
         Screen::Today => {
             let effort = total_effort(app);
             if effort > 0 {
-                format!("Today · {}:{:02} effort", effort / 60, effort % 60)
+                format!(
+                    "{} · {}:{:02} effort",
+                    day_name(app),
+                    effort / 60,
+                    effort % 60
+                )
             } else {
-                "Today".to_string()
+                day_name(app)
             }
         }
         Screen::Week => format!("Week {}", app.day.format("%V")),
@@ -212,11 +261,31 @@ fn list_title(app: &App) -> String {
     }
 }
 
+/// The day `f`/`b` moved the list to: Today, else its date, after
+/// Tomorrow or Yesterday when it is one.
+fn day_name(app: &App) -> String {
+    let date = app.day.format("%a %-d %b").to_string();
+    match relative_day(app) {
+        Some("Today") => "Today".to_string(),
+        Some(word) => format!("{word} · {date}"),
+        None => date,
+    }
+}
+
+fn relative_day(app: &App) -> Option<&'static str> {
+    match (app.day - app.today).num_days() {
+        0 => Some("Today"),
+        1 => Some("Tomorrow"),
+        -1 => Some("Yesterday"),
+        _ => None,
+    }
+}
+
 /// Sum of `:Effort:` (h:mm) over today's unfinished rows.
 fn total_effort(app: &App) -> u32 {
     app.rows
         .iter()
-        .filter(|row| !row.item.done)
+        .filter(|row| !row.item.done && row.more == 0)
         .filter_map(|row| {
             let (_, headline) = app.index.resolve(&row.item.item_ref).ok()?;
             let effort = headline
@@ -290,10 +359,7 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
         }
     }
     if app.rows.is_empty() {
-        items.push(ListItem::new(Line::from(Span::styled(
-            empty_message(app),
-            theme.muted(),
-        ))));
+        items.extend(empty_message(app).into_iter().map(ListItem::new));
     }
     let total = items.len();
     let mut state = ListState::default().with_selected(selected_line);
@@ -320,11 +386,65 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
     }
 }
 
-fn empty_message(app: &App) -> String {
+/// Why a list is empty, most fundamental reason first: no files at all,
+/// then a filter that matches nothing, then the screen's own state.
+pub(super) fn empty_message(app: &App) -> Vec<Line<'static>> {
+    let theme = &app.theme;
+    let muted = |text: String| Line::from(Span::styled(text, theme.muted()));
+    if app.index.documents().next().is_none() {
+        let root = app
+            .settings
+            .roots
+            .first()
+            .map_or(String::new(), |root| home_relative(root));
+        // Two lines, so a long root does not push the advice out of view.
+        return vec![
+            Line::from(format!("No .org files under {root} yet —")),
+            Line::from(vec![
+                Span::raw("press "),
+                Span::styled("c", theme.strong(theme.accent)),
+                Span::raw(" to capture your first task"),
+            ]),
+        ];
+    }
+    if !app.filter.is_empty() {
+        return vec![muted(format!(
+            "Nothing matches /{} · esc clears",
+            app.filter
+        ))];
+    }
+    if let Some(context) = &app.context {
+        return vec![muted(format!(
+            "Nothing in {context} · < shows the next category"
+        ))];
+    }
     match app.screen {
-        Screen::Today => format!("Nothing scheduled today. {} in inbox.", app.counts.inbox),
-        Screen::Inbox => "Inbox is empty.".to_string(),
-        _ => "Nothing here.".to_string(),
+        Screen::Today if app.day == app.today => {
+            let (scheduled, due) = app.tomorrow;
+            vec![
+                Line::from(Span::styled(
+                    "All clear for today.",
+                    theme.strong(theme.done),
+                )),
+                muted(format!("Tomorrow: {scheduled} scheduled, {due} due")),
+            ]
+        }
+        Screen::Today => vec![muted(format!(
+            "Nothing on {}.",
+            app.day.format("%a %-d %b")
+        ))],
+        Screen::Inbox => vec![muted("Inbox is empty.".to_string())],
+        _ => vec![muted("Nothing here.".to_string())],
+    }
+}
+
+/// A path with the home directory written as `~`.
+fn home_relative(path: &str) -> String {
+    match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() && path.starts_with(&home) => {
+            format!("~{}", &path[home.len()..])
+        }
+        _ => path.to_string(),
     }
 }
 
@@ -348,19 +468,15 @@ fn section_header(app: &App, header: &Header, rows: &[usize], width: usize) -> L
         (None, DOING) => theme.done,
         (None, _) => theme.accent,
     };
-    // OVERDUE counts every overdue item; it shows only the first rows.
-    let count = if section == OVERDUE {
-        app.counts.overdue
-    } else {
-        rows.len()
-    };
+    // A "+N more" row stands for N rows.
+    let count: usize = rows.iter().map(|index| app.rows[*index].more.max(1)).sum();
     let style = if count == 0 {
         theme.muted().add_modifier(Modifier::BOLD)
     } else {
         theme.strong(color)
     };
     let mut spans = vec![Span::styled(section.to_uppercase(), style)];
-    if count > 0 {
+    if count > 0 && header.counted {
         spans.push(Span::styled(format!("  {count}"), theme.muted()));
     }
     if section == OVERDUE {
@@ -379,6 +495,13 @@ fn section_header(app: &App, header: &Header, rows: &[usize], width: usize) -> L
 /// title, priority and tags, and a right-aligned context column.
 fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'static> {
     let theme = &app.theme;
+    if row.more > 0 {
+        return Line::from(vec![
+            Span::raw(" ".repeat(7)),
+            Span::styled(format!("+{} more", row.more), theme.strong(theme.overdue)),
+            Span::styled("  ⏎ shows them", theme.muted()),
+        ]);
+    }
     let item = &row.item;
     let mut spans = Vec::new();
     if app.marks.contains(&item.item_ref) {
@@ -421,30 +544,66 @@ fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'stat
     } else {
         theme.fg(theme.text)
     };
-    spans.push(Span::styled(peek::display_title(item), title_style));
-    if let Some(priority) = &item.priority {
-        spans.push(Span::raw(" "));
-        spans.extend(theme.pill(priority.clone(), theme.due));
+    let mut priority = Vec::new();
+    if let Some(letter) = &item.priority {
+        priority.push(Span::raw(" "));
+        priority.extend(theme.pill(letter.clone(), theme.due));
     }
-    if wide && !item.tags.is_empty() {
-        spans.push(Span::styled(
+    let tags = (wide && !item.tags.is_empty()).then(|| {
+        Span::styled(
             format!("  #{}", item.tags.join(" #")),
             theme.fg(theme.accent),
-        ));
-    }
-    let right = right_cell(app, row);
-    let used: usize = spans.iter().map(Span::width).sum();
-    let right_width = right.width();
-    if used + right_width + 2 <= width {
-        spans.push(Span::raw(" ".repeat(width - used - right_width)));
-        spans.push(right);
-    }
+        )
+    });
+    let used = span_width(&spans);
+    spans.extend(fit_row(
+        width,
+        used,
+        Span::styled(peek::display_title(item), title_style),
+        priority,
+        tags,
+        right_cell(app, row),
+    ));
     let line = Line::from(spans);
     if item.done {
         line.style(Style::default().add_modifier(Modifier::DIM))
     } else {
         line
     }
+}
+
+/// The title, priority, tags and right column in the `width - used`
+/// columns left: the right column gives way first, then the tags (when
+/// they would leave the title under MIN_TITLE columns), and only then is
+/// the title cut, ending in "…".
+fn fit_row(
+    width: usize,
+    used: usize,
+    title: Span<'static>,
+    priority: Vec<Span<'static>>,
+    tags: Option<Span<'static>>,
+    right: Span<'static>,
+) -> Vec<Span<'static>> {
+    const MIN_TITLE: usize = 12;
+    let title_width = title.width();
+    let tags_width = tags.as_ref().map_or(0, Span::width);
+    let base = used + span_width(&priority);
+    let keep_right = base + title_width + tags_width + right.width() + 2 <= width;
+    let keep_tags = keep_right || base + title_width.min(MIN_TITLE) + tags_width <= width;
+    let room = width.saturating_sub(base + if keep_tags { tags_width } else { 0 });
+    let mut spans = vec![Span::styled(truncate(&title.content, room), title.style)];
+    spans.extend(priority);
+    if keep_tags {
+        spans.extend(tags);
+    }
+    if keep_right {
+        let filled = span_width(&spans) + used;
+        spans.push(Span::raw(
+            " ".repeat(width.saturating_sub(filled + right.width())),
+        ));
+        spans.push(right);
+    }
+    spans
 }
 
 /// Six-character lead: overdue days as a red badge, clock time, a
@@ -470,7 +629,9 @@ fn lead_cell(app: &App, row: &DisplayRow) -> Vec<Span<'static>> {
                 .trim()
                 .trim_end_matches("x:")
                 .to_string();
-            badge(theme, format!("{days}x"))
+            // The age in days: `12x` would read as "twelve times" beside
+            // "rescheduled 3x". The classic view keeps Org's `Sched.12x:`.
+            badge(theme, format!("{days}d"))
         }
         OccurrenceType::Deadline if occurrence.extra.ends_with("ago:") => {
             let days = occurrence.extra.split_whitespace().next().unwrap_or("?");
@@ -543,7 +704,7 @@ fn right_cell(app: &App, row: &DisplayRow) -> Span<'static> {
         return Span::styled("✓ ", theme.strong(theme.done));
     }
     if row.section == INBOX {
-        return match app.provenance.get(&item.item_ref) {
+        return match app.provenance.get(&super::stable_ref(&item.item_ref)) {
             Some((actor, time)) if actor != "you" => {
                 Span::styled(format!("{actor} {time} "), theme.fg(theme.agent(actor)))
             }
@@ -583,19 +744,154 @@ fn state_age(app: &App, row: &DisplayRow) -> Option<i64> {
     days_since(&line[start..], app.today)
 }
 
+/// What a prompt is for, and examples of what it takes.
+fn prompt_text(app: &App, kind: PromptKind) -> (&'static str, String) {
+    let date = actions::example_date(app.today);
+    let range = app.prompt_priority_range();
+    match kind {
+        PromptKind::Schedule => ("Schedule", format!("tomorrow · fri · +2d · {date} 14:00")),
+        PromptKind::Deadline => ("Deadline", format!("fri · +2d · {date} -3d")),
+        PromptKind::Priority => (
+            "Priority",
+            format!("{} to {}; empty clears", range.highest, range.lowest),
+        ),
+        PromptKind::Tags => ("Tags", "+tag adds · -tag removes".to_string()),
+        PromptKind::Filter => ("Filter", "text or tag; empty clears".to_string()),
+        PromptKind::Note => (
+            "Note",
+            "one line, logged with the change; empty logs it alone".to_string(),
+        ),
+    }
+}
+
+/// A prompt: the input, the exact change Enter writes (or why it would
+/// write nothing), examples and keys.
+fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area: Rect) {
+    let theme = &app.theme;
+    let (title, hint) = prompt_text(app, prompt.kind);
+    let target = if app.marks.is_empty() {
+        app.selected_row()
+            .map(|row| app.short_location(&row.item))
+            .unwrap_or_default()
+    } else {
+        format!("{} marked rows", app.marks.len())
+    };
+    let title = if prompt.kind == PromptKind::Filter || target.is_empty() {
+        title.to_string()
+    } else if prompt.kind == PromptKind::Note {
+        format!("{title} for {} · {target}", prompt.state)
+    } else {
+        format!("{title} · {target}")
+    };
+    let preview: Vec<Line<'static>> = match &prompt.preview {
+        Ok(lines) => lines
+            .iter()
+            .map(|line| {
+                let style = match line.chars().next() {
+                    Some('+') => theme.fg(theme.done),
+                    Some('-') => theme.fg(theme.overdue),
+                    _ => theme.muted(),
+                };
+                Line::from(Span::styled(line.clone(), style))
+            })
+            .collect(),
+        Err(reason) => vec![Line::from(Span::styled(
+            reason.clone(),
+            theme.fg(theme.overdue),
+        ))],
+    };
+    let preview_rows = preview.len() as u16;
+    let gap = u16::from(preview_rows > 0);
+    // border + top padding, input, preview, gap, hint, gap, footer, border
+    let height = 2 + 3 + preview_rows + gap + 1 + 1 + 1 + 1;
+    let popup = centered(area, area.width.saturating_sub(4).clamp(60, 84), height);
+    frame.render_widget(Clear, popup);
+    let block = theme.popup(title);
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let parts = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([3, preview_rows, gap, 1, 1, 1].map(Constraint::Length))
+        .split(inner);
+    frame.render_widget(
+        Paragraph::new(input_line(theme, &prompt.input)).block(theme.input(true)),
+        parts[0],
+    );
+    frame.render_widget(Paragraph::new(preview), parts[1]);
+    frame.render_widget(Paragraph::new(Span::styled(hint, theme.muted())), parts[3]);
+    frame.render_widget(
+        Paragraph::new(Line::from(
+            [
+                theme.key_hint("⏎", "apply"),
+                theme.key_hint("esc", "cancel"),
+            ]
+            .concat(),
+        )),
+        parts[5],
+    );
+}
+
+/// `/` as a minibuffer on the bottom row: the text, a count of what
+/// matches, and its keys.
+fn draw_filter_line(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area: Rect) {
+    let theme = &app.theme;
+    let row = Rect {
+        y: area.y + area.height.saturating_sub(1),
+        height: 1,
+        ..area
+    };
+    let mut spans = vec![Span::styled("/", theme.strong(theme.accent))];
+    spans.extend(prompt.input.spans(theme, true));
+    spans.push(Span::styled(
+        format!("  {} rows  ", app.rows.len()),
+        theme.muted(),
+    ));
+    spans.extend(theme.key_hint("⏎", "keep"));
+    spans.extend(theme.key_hint("esc", "restore"));
+    frame.render_widget(Clear, row);
+    frame.render_widget(Paragraph::new(Line::from(spans)), row);
+}
+
+/// A focused one-line input after its `›` marker.
+fn input_line(theme: &Theme, input: &TextInput) -> Line<'static> {
+    let mut spans = vec![Span::styled("› ", theme.strong(theme.accent))];
+    spans.extend(input.spans(theme, true));
+    Line::from(spans)
+}
+
+/// `B`: the bulk menu, one row per key from keys::BULK_KEYS.
+fn draw_bulk(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let theme = &app.theme;
+    let bindings = keys::BULK_KEYS[0].bindings;
+    let rows: Vec<Line<'static>> = bindings
+        .iter()
+        .map(|binding| {
+            Line::from(vec![
+                Span::styled(format!("{:<9}", binding.label), theme.strong(theme.accent)),
+                Span::raw(binding.help),
+            ])
+        })
+        .collect();
+    // border + top padding, rows, border
+    let popup = centered(area, 52, 2 + rows.len() as u16 + 1);
+    frame.render_widget(Clear, popup);
+    let block = theme.popup(format!("Bulk · {} marked rows", app.marks.len()));
+    frame.render_widget(Paragraph::new(rows).block(block), popup);
+}
+
 /// Prompts, the refile picker and the views dispatcher.
 pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
+    // The filter applies as you type, so it stays out of the list's way:
+    // a minibuffer on the footer row, nothing dimmed.
+    if let Overlay::Prompt(prompt) = &app.overlay
+        && prompt.kind == PromptKind::Filter
+    {
+        return draw_filter_line(frame, app, prompt, area);
+    }
     frame
         .buffer_mut()
         .set_style(area, Style::default().add_modifier(Modifier::DIM));
-    let input_line = |text: &str| {
-        Line::from(vec![
-            Span::styled("› ", theme.strong(theme.accent)),
-            Span::raw(text.to_string()),
-            Span::styled("▏", theme.fg(theme.accent)),
-        ])
-    };
     let footer = |hints: &[(&str, &str)]| {
         Line::from(
             hints
@@ -605,34 +901,7 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
         )
     };
     match &app.overlay {
-        Overlay::Prompt { kind, input } => {
-            let (title, hint) = match kind {
-                PromptKind::Schedule => ("Schedule", "fri · +2d · 2026-10-30 · 14:00"),
-                PromptKind::Deadline => ("Deadline", "fri · +2d · 2026-10-30 -3d"),
-                PromptKind::Priority => ("Priority", "A–C, empty clears"),
-                PromptKind::Tags => ("Tags", "+tag -tag"),
-                PromptKind::Filter => ("Filter", "text or tag; empty clears"),
-            };
-            // border + top padding, input, gap, hint, gap, footer, border
-            let popup = centered(area, 60, 2 + 3 + 1 + 1 + 1 + 1 + 1);
-            frame.render_widget(Clear, popup);
-            let block = theme.popup(title);
-            let inner = block.inner(popup);
-            frame.render_widget(block, popup);
-            let parts = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([3, 1, 1, 1, 1].map(Constraint::Length))
-                .split(inner);
-            frame.render_widget(
-                Paragraph::new(input_line(input)).block(theme.input(true)),
-                parts[0],
-            );
-            frame.render_widget(Paragraph::new(Span::styled(hint, theme.muted())), parts[2]);
-            frame.render_widget(
-                Paragraph::new(footer(&[("⏎", "apply"), ("esc", "cancel")])),
-                parts[4],
-            );
-        }
+        Overlay::Prompt(prompt) => draw_prompt(frame, app, prompt, area),
         Overlay::Refile(picker) => {
             let popup = centered(area, 84, area.height.saturating_sub(6).max(12));
             frame.render_widget(Clear, popup);
@@ -650,7 +919,7 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 ])
                 .split(inner);
             frame.render_widget(
-                Paragraph::new(input_line(&picker.input)).block(theme.input(true)),
+                Paragraph::new(input_line(theme, &picker.input)).block(theme.input(true)),
                 parts[0],
             );
             let items: Vec<ListItem<'_>> = picker
@@ -676,6 +945,7 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 parts[4],
             );
         }
+        Overlay::Bulk => draw_bulk(frame, app, area),
         Overlay::Views { selected } => {
             let views = app.settings.all_views();
             // border + top padding, views, gap, footer, border
@@ -717,7 +987,11 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 &mut state,
             );
             frame.render_widget(
-                Paragraph::new(footer(&[("key", "open"), ("⏎", "open"), ("esc", "close")])),
+                Paragraph::new(footer(&[
+                    ("key", "opens its view"),
+                    ("↑↓ ⏎", "choose"),
+                    ("esc q", "close"),
+                ])),
                 parts[2],
             );
         }
