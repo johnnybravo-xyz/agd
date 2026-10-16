@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use chrono::{NaiveDate, NaiveDateTime};
 
 use crate::{
-    AgdError, ByteSpan, ErrorCode, HeadlineSpan, IdPolicy, IndexedDocument, LogKind,
+    AgdError, ByteSpan, ErrorCode, HeadlineSpan, IdPolicy, IndexedDocument, LogKind, Planning,
     PlanningTimestamp, Settings, format_active_timestamp,
 };
 
@@ -45,6 +45,10 @@ pub(super) fn build_edit_patches(
     let mut scheduled = planning_change(&headline.item.planning.scheduled, &intent.scheduled);
     let mut deadline = planning_change(&headline.item.planning.deadline, &intent.deadline);
     let mut closed = headline.item.planning.closed.clone();
+    // org-schedule and org-deadline remove CLOSED as they set a date.
+    if matches!(intent.scheduled, Change::Set(_)) || matches!(intent.deadline, Change::Set(_)) {
+        closed = None;
+    }
     let mut properties = intent.properties.clone();
     if settings.ids == IdPolicy::AddOnWrite
         && headline.item.id.is_none()
@@ -211,13 +215,34 @@ pub(super) fn build_edit_patches(
         });
     }
 
-    if !matches!(intent.scheduled, Change::Keep)
-        || !matches!(intent.deadline, Change::Keep)
-        || closed != headline.item.planning.closed
-        || repeating
-    {
-        let replacement =
-            render_planning_line(scheduled.as_ref(), deadline.as_ref(), closed.as_ref())?;
+    let planning = &headline.item.planning;
+    // Applied in this order, so dates an edit sets on an empty line read
+    // SCHEDULED then DEADLINE, and CLOSED leads.
+    let updates = [
+        PlanningUpdate {
+            keyword: PlanningKeyword::Deadline,
+            old: planning.deadline.as_ref(),
+            new: deadline.as_ref(),
+            set: matches!(intent.deadline, Change::Set(_)),
+        },
+        PlanningUpdate {
+            keyword: PlanningKeyword::Scheduled,
+            old: planning.scheduled.as_ref(),
+            new: scheduled.as_ref(),
+            set: matches!(intent.scheduled, Change::Set(_)),
+        },
+        PlanningUpdate {
+            keyword: PlanningKeyword::Closed,
+            old: planning.closed.as_ref(),
+            new: closed.as_ref(),
+            set: closed != planning.closed,
+        },
+    ];
+    if updates.iter().any(PlanningUpdate::changes) {
+        let current_line = headline
+            .planning_span
+            .map_or("", |span| &source[span.start..span.end]);
+        let replacement = planning_line(current_line, planning, &updates)?;
         let indent = headline
             .planning_span
             .map_or("", |span| leading_indent(source, span.start));
@@ -430,22 +455,96 @@ pub(super) fn align_tags(rendered: String, has_tags: bool, column: i64) -> Strin
     format!("{head}{}{tags}", " ".repeat(gap))
 }
 
-fn render_planning_line(
-    scheduled: Option<&PlanningTimestamp>,
-    deadline: Option<&PlanningTimestamp>,
-    closed: Option<&PlanningTimestamp>,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PlanningKeyword {
+    Scheduled,
+    Deadline,
+    Closed,
+}
+
+impl PlanningKeyword {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Scheduled => "SCHEDULED:",
+            Self::Deadline => "DEADLINE:",
+            Self::Closed => "CLOSED:",
+        }
+    }
+}
+
+/// One planning keyword's timestamp before and after an edit. `set` means
+/// Org removes the keyword and inserts it again at the front of the line,
+/// as org-add-planning-info does for a date the edit sets and for CLOSED.
+struct PlanningUpdate<'a> {
+    keyword: PlanningKeyword,
+    old: Option<&'a PlanningTimestamp>,
+    new: Option<&'a PlanningTimestamp>,
+    set: bool,
+}
+
+impl PlanningUpdate<'_> {
+    fn changes(&self) -> bool {
+        self.set || self.old != self.new
+    }
+}
+
+/// The planning line after `updates`, as Org writes it: a keyword an
+/// update sets goes to the front, one it clears is removed, one a repeater
+/// moved on changes in place, and every other keyword keeps its place and
+/// its timestamp's bytes. None when no keyword is left.
+fn planning_line(
+    current_line: &str,
+    planning: &Planning,
+    updates: &[PlanningUpdate<'_>],
 ) -> Result<Option<String>, AgdError> {
-    let mut fields = Vec::new();
-    if let Some(timestamp) = scheduled {
-        fields.push(format!("SCHEDULED: {}", render_timestamp(timestamp, true)?));
+    let mut written: Vec<(usize, PlanningKeyword, &PlanningTimestamp)> = [
+        (PlanningKeyword::Scheduled, &planning.scheduled),
+        (PlanningKeyword::Deadline, &planning.deadline),
+        (PlanningKeyword::Closed, &planning.closed),
+    ]
+    .into_iter()
+    .filter_map(|(keyword, timestamp)| {
+        let at = current_line.find(keyword.label())?;
+        Some((at, keyword, timestamp.as_ref()?))
+    })
+    .collect();
+    written.sort_by_key(|(at, _, _)| *at);
+    let mut fields: Vec<(PlanningKeyword, String)> = Vec::new();
+    for (_, keyword, timestamp) in written {
+        let text = match &timestamp.raw {
+            Some(raw) => raw.clone(),
+            None => render_timestamp(timestamp, keyword != PlanningKeyword::Closed)?,
+        };
+        fields.push((keyword, format!("{} {text}", keyword.label())));
     }
-    if let Some(timestamp) = deadline {
-        fields.push(format!("DEADLINE: {}", render_timestamp(timestamp, true)?));
+    for update in updates.iter().filter(|update| update.changes()) {
+        let position = fields
+            .iter()
+            .position(|(keyword, _)| *keyword == update.keyword);
+        let Some(timestamp) = update.new else {
+            if let Some(at) = position {
+                fields.remove(at);
+            }
+            continue;
+        };
+        let active = update.keyword != PlanningKeyword::Closed;
+        let field = format!(
+            "{} {}",
+            update.keyword.label(),
+            render_timestamp(timestamp, active)?
+        );
+        match position {
+            Some(at) if !update.set => fields[at].1 = field,
+            _ => {
+                if let Some(at) = position {
+                    fields.remove(at);
+                }
+                fields.insert(0, (update.keyword, field));
+            }
+        }
     }
-    if let Some(timestamp) = closed {
-        fields.push(format!("CLOSED: {}", render_timestamp(timestamp, false)?));
-    }
-    Ok((!fields.is_empty()).then(|| fields.join(" ")))
+    let line: Vec<String> = fields.into_iter().map(|(_, field)| field).collect();
+    Ok((!line.is_empty()).then(|| line.join(" ")))
 }
 
 fn render_timestamp(timestamp: &PlanningTimestamp, active: bool) -> Result<String, AgdError> {
