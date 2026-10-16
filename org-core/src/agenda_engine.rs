@@ -10,7 +10,8 @@ use serde::Serialize;
 
 use crate::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, HeadlineSpan, Item, Occurrence, OccurrenceType,
-    PlanningTimestamp, Settings, ViewBlock, ViewGroup, ViewSettings, WorkspaceIndex,
+    PlanningTimestamp, Settings, VIEW_SECTION_SCHEMA, ViewBlock, ViewGroup, ViewSettings,
+    WorkspaceIndex,
 };
 
 /// Checks a view block's match the way `AgendaEngine::view` will use it.
@@ -37,6 +38,8 @@ pub fn validate_view_block(block: &ViewBlock) -> Result<(), AgdError> {
 /// groups has its rows in `groups` and none in `entries` or `items`.
 #[derive(Clone, Debug, Serialize)]
 pub struct ViewSection {
+    /// VIEW_SECTION_SCHEMA.
+    pub schema: String,
     /// The block's kind: agenda, alltodo, todo, tags or tags-todo.
     pub kind: String,
     pub header: String,
@@ -44,7 +47,7 @@ pub struct ViewSection {
     pub to: Option<NaiveDate>,
     pub entries: Vec<AgendaEntry>,
     pub items: Vec<Item>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    /// Empty unless the block has groups.
     pub groups: Vec<ViewSectionGroup>,
     /// The header's color name (COLOR_NAMES): the block's configured color,
     /// or the one its rows' keywords share (see `keyword_color`).
@@ -351,6 +354,7 @@ impl<'a> AgendaEngine<'a> {
                     let span = block.span.as_deref().unwrap_or(&settings.agenda_span);
                     let (from, to) = span_days(span, start, &settings.week_start)?;
                     ViewSection {
+                        schema: VIEW_SECTION_SCHEMA.to_string(),
                         kind: block.kind.clone(),
                         header: block.header.clone().unwrap_or_default(),
                         from: Some(from),
@@ -394,6 +398,7 @@ impl<'a> AgendaEngine<'a> {
                         ),
                     };
                     ViewSection {
+                        schema: VIEW_SECTION_SCHEMA.to_string(),
                         kind: block.kind.clone(),
                         header: block.header.clone().unwrap_or(default_header),
                         from: None,

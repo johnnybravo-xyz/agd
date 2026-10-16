@@ -2,8 +2,9 @@ use std::path::Path;
 
 use agd_core::{
     AgdError, AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, JournalStatus, Settings,
-    ViewSection, ViewSettings, WorkspaceIndex, WriteEngine, agenda_csv, agenda_row, agenda_text,
-    agenda_title, item_row, items_csv, keyword_colors, load_settings, parse_date_input,
+    VIEWS_SCHEMA, ViewSection, ViewSettings, WorkspaceIndex, WriteEngine, agenda_csv, agenda_row,
+    agenda_text, agenda_title, item_row, items_csv, keyword_colors, load_settings,
+    parse_date_input,
 };
 use anyhow::{Context, Result};
 use chrono::{Local, NaiveDate};
@@ -282,6 +283,7 @@ fn print_views(settings: &Settings, json: bool) -> Result<()> {
             .collect();
         let index = load_index(settings.clone())?;
         let payload = serde_json::json!({
+            "schema": VIEWS_SCHEMA,
             "views": rows,
             "theme": settings.theme,
             "nerd_font": settings.nerd_font,

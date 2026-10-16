@@ -31,6 +31,7 @@ pub use imports::{
 pub use model::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ERROR_SCHEMA, ErrorResponse, ITEM_SCHEMA, Item,
     MUTATION_SCHEMA, Mutation, Occurrence, OccurrenceType, Planning, PlanningTimestamp,
+    VIEW_SECTION_SCHEMA, VIEWS_SCHEMA,
 };
 pub use paths::RootSet;
 pub use settings::{

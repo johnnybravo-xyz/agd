@@ -287,6 +287,19 @@ fn views_json_carries_what_a_client_draws_them_with() {
     assert_eq!(payload["views"][1]["key"], "d");
     assert_eq!(payload["theme"], "light");
     assert_eq!(payload["nerd_font"], true);
+    assert_eq!(payload["schema"], "agd.views/v1");
+
+    // Every section names its schema and carries groups, empty or not.
+    let output = fixture
+        .command()
+        .args(["agenda", "--view", "w", "--json"])
+        .output()
+        .expect("view command");
+    assert!(output.status.success(), "{output:?}");
+    let sections: Value = serde_json::from_slice(&output.stdout).expect("view JSON");
+    assert_eq!(sections[0]["schema"], "agd.view-section/v1");
+    assert_eq!(sections[0]["kind"], "tags-todo");
+    assert_eq!(sections[0]["groups"], serde_json::json!([]));
     // The file's #+TODO keywords: a configured color, the sequence's first
     // keyword orange, done green.
     assert_eq!(
