@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use agd_core::{Change, EditIntent, PlanningTimestamp, WriteEngine, parse_date_input};
+use agd_core::{Change, EditIntent, Item, PlanningTimestamp, WriteEngine, parse_date_input};
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Frame;
@@ -16,7 +16,7 @@ use ratatui::widgets::{Clear, Paragraph, Wrap};
 
 use super::input::{self, TextInput};
 use super::theme::centered;
-use super::{App, Overlay, keys, write_context};
+use super::{App, Overlay, Screen, keys, write_context};
 
 const TITLE: usize = 0;
 const STATE: usize = 1;
@@ -41,6 +41,9 @@ const LABELS: [&str; 6] = [
 #[derive(Debug)]
 pub(super) struct EditForm {
     item_ref: String,
+    /// The heading's file and line, for C-o.
+    file: String,
+    line: usize,
     location: String,
     keywords: Vec<String>,
     priorities: Vec<String>,
@@ -55,8 +58,9 @@ pub(super) struct EditForm {
 }
 
 impl EditForm {
-    pub(super) fn open(app: &App) -> Option<Self> {
-        let item = &app.selected_row()?.item;
+    /// The popup for `item`: the cursor row's task in the lists, the
+    /// changed task on the Agents tab.
+    pub(super) fn open(app: &App, item: &Item) -> Self {
         let date = |timestamp: &Option<PlanningTimestamp>| {
             timestamp.as_ref().map(date_text).unwrap_or_default()
         };
@@ -70,7 +74,7 @@ impl EditForm {
         ];
         let mut keywords = vec![String::new()];
         keywords.extend(
-            app.selected_keywords()
+            app.keywords_of(item)
                 .into_iter()
                 .map(|(keyword, _)| keyword),
         );
@@ -78,6 +82,8 @@ impl EditForm {
         priorities.extend(app.priority_range(item).cookies());
         let mut form = Self {
             item_ref: item.item_ref.clone(),
+            file: item.file.clone(),
+            line: item.line,
             location: app.short_location(item),
             keywords,
             priorities,
@@ -88,7 +94,7 @@ impl EditForm {
             stale: false,
         };
         form.focus(TITLE);
-        Some(form)
+        form
     }
 
     /// Moves to `field` with its text selected.
@@ -236,23 +242,22 @@ pub(super) fn changed_lines(diff: &str) -> String {
         .join("\n")
 }
 
-/// Returns true when the caller should open the entry in $EDITOR (C-o; in
-/// a field C-e is end of line), which closes the popup without
-/// writing.
-pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<bool> {
+/// Returns the heading to open in $EDITOR on C-o (in a field C-e is end of
+/// line), which closes the popup without writing.
+pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<keys::EditorTarget> {
     let Overlay::Edit(mut form) = std::mem::replace(&mut app.overlay, Overlay::None) else {
-        return Ok(false);
+        return Ok(None);
     };
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('o') {
-        return Ok(true);
+        return Ok(Some((form.file, form.line)));
     }
     match key.code {
-        KeyCode::Esc => return Ok(false),
+        KeyCode::Esc => return Ok(None),
         KeyCode::Enter => {
             if !form.unchanged() {
                 commit(app, form)?;
             }
-            return Ok(false);
+            return Ok(None);
         }
         KeyCode::Tab => form.focus((form.field + 1) % LABELS.len()),
         KeyCode::BackTab => form.focus((form.field + LABELS.len() - 1) % LABELS.len()),
@@ -262,19 +267,19 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<bool> {
         }
         _ if form.field == STATE || form.field == PRIORITY => {
             if !form.choose(key) {
-                return Ok(false);
+                return Ok(None);
             }
         }
         _ => {
             let field = form.field;
             if form.values[field].handle(key) == input::Edit::Cancel {
-                return Ok(false);
+                return Ok(None);
             }
         }
     }
     form.stale = true;
     app.overlay = Overlay::Edit(form);
-    Ok(false)
+    Ok(None)
 }
 
 /// Rebuilds a stale preview with one dry run, as for capture.
@@ -308,10 +313,13 @@ fn commit(app: &mut App, form: Box<EditForm>) -> Result<()> {
         &location,
         format!("edit · {}", mutation.item.title),
     );
-    app.set_status(format!(
-        "{} · u undo",
-        crate::words::change(&location, "edited", &mutation.item.title)
-    ));
+    let line = crate::words::change(&location, "edited", &mutation.item.title);
+    // On the Agents tab `u` undoes the agent's change, not this one.
+    app.set_status(if app.screen == Screen::Review {
+        line
+    } else {
+        format!("{line} · u undo")
+    });
     app.reload_rows()
 }
 

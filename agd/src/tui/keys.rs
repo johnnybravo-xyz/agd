@@ -301,7 +301,8 @@ pub(super) const AGENT_KEYS: &[KeyGroup] = &[
             bind("U", &[Char('U')], A::UnmarkAll, "unmark all", "unmark every change", "U"),
             bind("u", &[Char('u')], A::Undo, "undo", "undo the change if its bytes are unchanged", ""),
             bind("SPC", &[Char(' ')], A::Peek, "peek", "peek: the change's diff, then its task", "SPC"),
-            bind("⏎ C-e", &[Code(KeyCode::Enter), Ctrl('e')], A::Editor, "open", "open the changed heading in $EDITOR", ""),
+            bind("⏎ e", &[Code(KeyCode::Enter), Char('e')], A::Edit, "edit", "edit the changed task in a popup", ""),
+            bind("C-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the changed heading in $EDITOR", "RET"),
             bind("<", &[Char('<')], A::FilterAgent, "agent", "show one agent's changes, cycling", ""),
         ],
     },
@@ -573,10 +574,7 @@ pub(super) fn dispatch(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
         Overlay::None => {}
         Overlay::Help(_) => return help_key(app, key),
         Overlay::Capture(_) => return Ok(None),
-        Overlay::Edit(_) => {
-            let editor = super::edit::handle_key(app, key)?;
-            return Ok(if editor { selected_location(app) } else { None });
-        }
+        Overlay::Edit(_) => return super::edit::handle_key(app, key),
         _ => {
             handle_overlay(app, key)?;
             return Ok(None);
@@ -731,8 +729,9 @@ fn run_list(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget
         A::Filter => app.overlay = Overlay::Prompt(Prompt::filter(&app.filter)),
         A::Edit => {
             if !app.expand_overdue()?
-                && let Some(form) = super::edit::EditForm::open(app)
+                && let Some(row) = app.selected_row()
             {
+                let form = super::edit::EditForm::open(app, &row.item);
                 app.overlay = Overlay::Edit(Box::new(form));
             }
         }
@@ -931,11 +930,27 @@ fn run_agents(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarg
         A::Undo => app.undo_selected_change()?,
         A::Peek => app.peek = !app.peek,
         A::FilterAgent => app.cycle_agent_filter()?,
+        A::Edit => edit_changed_task(app),
         A::Editor => return Ok(changed_location(app)),
         A::Back => agents_back(app)?,
         _ => {}
     }
     Ok(None)
+}
+
+/// ⏎ on the Agents tab: the edit popup on the task the change touched, as
+/// ⏎ on a row; a change no heading holds any more says so.
+fn edit_changed_task(app: &mut App) {
+    let Some(record) = app.journals.get(app.selected) else {
+        return;
+    };
+    match super::review::subject(app, record) {
+        Some(item) => {
+            let form = super::edit::EditForm::open(app, &item);
+            app.overlay = Overlay::Edit(Box::new(form));
+        }
+        None => app.set_status("no heading holds this change now; C-e opens where it was"),
+    }
 }
 
 /// The heading the selected agent change touched, for $EDITOR.

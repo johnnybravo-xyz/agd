@@ -152,9 +152,34 @@ fn agent_cards_name_the_changed_headings_line_and_enter_opens_it() {
         app.switch_screen(Screen::Review).unwrap();
         let screen = render(&mut app, 120, 30).join("\n");
         assert!(screen.contains("work.org:20"), "{screen}");
-        let (file, line) = press(&mut app, KeyCode::Enter).unwrap();
+        // C-e opens the changed heading in $EDITOR, as on a row.
+        let control_e = crossterm::event::KeyEvent::new(
+            KeyCode::Char('e'),
+            crossterm::event::KeyModifiers::CONTROL,
+        );
+        let (file, line) = crate::tui::keys::dispatch(&mut app, control_e)
+            .unwrap()
+            .unwrap();
         assert!(file.ends_with("work.org"), "{file}");
         assert_eq!(line, 20);
+
+        // ⏎ opens the edit popup on the changed task, as on a row.
+        assert_eq!(press(&mut app, KeyCode::Enter), None);
+        let screen = render(&mut app, 120, 30).join("\n");
+        assert!(screen.contains("Edit · work.org:20"), "{screen}");
+        type_keys(&mut app, "Pay the rent");
+        press(&mut app, KeyCode::Enter);
+        assert!(matches!(app.overlay, Overlay::None));
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("* DONE Pay the rent")
+        );
+        // Here `u` undoes the agent's change, so the line offers no undo.
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert!(status.contains("edited · Pay the rent"), "{status}");
+        assert!(!status.contains("u undo"), "{status}");
+        assert_eq!(app.screen, Screen::Review);
     });
 }
 

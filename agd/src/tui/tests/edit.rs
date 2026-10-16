@@ -4,7 +4,14 @@
 use super::*;
 
 fn key(app: &mut App, code: crossterm::event::KeyCode) {
-    assert!(!crate::tui::edit::handle_key(app, crossterm::event::KeyEvent::from(code)).unwrap());
+    let editor = crate::tui::edit::handle_key(app, crossterm::event::KeyEvent::from(code)).unwrap();
+    assert_eq!(editor, None);
+}
+
+/// The edit popup on the cursor row's task, as ⏎ opens it.
+fn open_edit(app: &mut App) {
+    let item = app.selected_row().unwrap().item.clone();
+    app.overlay = Overlay::Edit(Box::new(crate::tui::edit::EditForm::open(app, &item)));
 }
 
 #[test]
@@ -20,7 +27,7 @@ fn enter_edits_title_and_state_in_place_and_keeps_untouched_dates() {
         .unwrap();
         let mut app = test_app(root);
         app.reload_rows().unwrap();
-        app.overlay = Overlay::Edit(Box::new(crate::tui::edit::EditForm::open(&app).unwrap()));
+        open_edit(&mut app);
         for _ in "Draft report".chars() {
             key(&mut app, KeyCode::Backspace);
         }
@@ -58,7 +65,7 @@ fn an_invalid_date_keeps_the_popup_open_with_the_reason() {
         fs::write(&path, original).unwrap();
         let mut app = test_app(root);
         app.reload_rows().unwrap();
-        app.overlay = Overlay::Edit(Box::new(crate::tui::edit::EditForm::open(&app).unwrap()));
+        open_edit(&mut app);
         for _ in 0..4 {
             key(&mut app, KeyCode::Tab);
         }
@@ -84,16 +91,22 @@ fn ctrl_o_in_the_edit_popup_hands_over_to_the_editor_without_writing() {
         fs::write(&path, original).unwrap();
         let mut app = test_app(root);
         app.reload_rows().unwrap();
-        app.overlay = Overlay::Edit(Box::new(crate::tui::edit::EditForm::open(&app).unwrap()));
+        open_edit(&mut app);
         key(&mut app, KeyCode::Char('x'));
         let screen = render(&mut app, 100, 30).join("\n");
         assert!(screen.contains("C-o open in $EDITOR"), "{screen}");
         // In a field C-e is end of line, as in the minibuffer.
         let control = |character| KeyEvent::new(KeyCode::Char(character), KeyModifiers::CONTROL);
-        assert!(!crate::tui::edit::handle_key(&mut app, control('e')).unwrap());
+        assert_eq!(
+            crate::tui::edit::handle_key(&mut app, control('e')).unwrap(),
+            None
+        );
         assert!(matches!(app.overlay, Overlay::Edit(_)));
-        let open_editor = crate::tui::edit::handle_key(&mut app, control('o')).unwrap();
-        assert!(open_editor);
+        let (file, line) = crate::tui::edit::handle_key(&mut app, control('o'))
+            .unwrap()
+            .expect("C-o opens the heading");
+        assert!(file.ends_with("work.org"), "{file}");
+        assert_eq!(line, 1);
         assert!(matches!(app.overlay, Overlay::None));
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
     });
@@ -109,7 +122,7 @@ fn typing_into_a_focused_edit_field_replaces_it_and_end_keeps_it() {
         fs::write(&path, original).unwrap();
         let mut app = test_app(root);
         app.reload_rows().unwrap();
-        app.overlay = Overlay::Edit(Box::new(crate::tui::edit::EditForm::open(&app).unwrap()));
+        open_edit(&mut app);
         for _ in 0..4 {
             key(&mut app, KeyCode::Tab);
         }

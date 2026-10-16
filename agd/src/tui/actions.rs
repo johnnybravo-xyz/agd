@@ -413,14 +413,17 @@ impl App {
 
     /// (keyword, done) for the selected row's TODO sequence in its file.
     pub(super) fn selected_keywords(&self) -> Vec<(String, bool)> {
-        let Some(row) = self.selected_row() else {
+        self.selected_row()
+            .map(|row| self.keywords_of(&row.item))
+            .unwrap_or_default()
+    }
+
+    /// (keyword, done) for `item`'s TODO sequence in its file.
+    pub(super) fn keywords_of(&self, item: &Item) -> Vec<(String, bool)> {
+        let Some(document) = self.index.document(Path::new(&item.file)) else {
             return Vec::new();
         };
-        let Some(document) = self.index.document(Path::new(&row.item.file)) else {
-            return Vec::new();
-        };
-        let sequence = row
-            .item
+        let sequence = item
             .todo
             .as_deref()
             .and_then(|todo| document.todo_keyword(todo))
@@ -848,7 +851,7 @@ impl App {
                 if error.code() == ErrorCode::UndoConflict.as_str() {
                     AgdError::new(
                         ErrorCode::UndoConflict,
-                        format!("{error} or press ⏎ to open it"),
+                        format!("{error}: ⏎ here, C-e in $EDITOR"),
                     )
                 } else {
                     error

@@ -303,12 +303,11 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
             theme.fg(theme.accent),
         )));
     }
-    // The keys of the screen underneath; on the Agents tab ⏎ opens the
-    // changed heading rather than the edit popup.
+    // The keys of the screen underneath.
     let (groups, actions) = if app.screen == Screen::Review {
         (
             keys::AGENT_KEYS,
-            [Action::Editor, Action::Accept, Action::Undo],
+            [Action::Edit, Action::Editor, Action::Accept],
         )
     } else {
         (
