@@ -132,6 +132,8 @@ fn typing_into_a_focused_edit_field_replaces_it_and_end_keeps_it() {
         let screen = render(&mut app, 100, 30).join("\n");
         assert!(screen.contains("+SCHEDULED: <2026-10-16 Fri>"), "{screen}");
         assert!(!screen.contains("10:00fri"), "{screen}");
+        // Beside the date as typed, how agd says it.
+        assert!(screen.contains("fri▏  Fri 16 Oct"), "{screen}");
 
         // Back on Title, End keeps the text and typing appends.
         for _ in 0..2 {

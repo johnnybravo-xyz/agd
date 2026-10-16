@@ -408,7 +408,7 @@ impl Card {
             reviewed: record.status != JournalStatus::Committed,
             agent: agent_name(record).to_string(),
             project: shorten_project(&record.project),
-            time: record.timestamp.get(11..16).unwrap_or_default().to_string(),
+            time: crate::words::moment(&record.timestamp, app.today),
             kind: change.kind(),
             change: change_parts.iter().map(|(text, _)| text.as_str()).collect(),
             change_parts,

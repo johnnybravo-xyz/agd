@@ -2,7 +2,8 @@
 //! terminal sentences, so the same fact always reads the same:
 //!
 //! - a date is `Fri 16 Oct`, with the year when it is not this year's, and
-//!   a time after it (`Fri 16 Oct 14:00`);
+//!   a time after it (`Fri 16 Oct 14:00`); when something happened is its
+//!   time today (`17:22`), else the same date and time;
 //! - a countdown is `in 3d`, an age `12d`, a missed deadline `-2d`;
 //! - a change is `<file:line or N items>  <change> · <title>`, which the
 //!   TUI ends with ` · u undo` while it can be undone;
@@ -34,6 +35,19 @@ pub fn when(date: &str, time: Option<&str>, today: NaiveDate) -> String {
     match time {
         Some(time) => format!("{} {time}", day(parsed, today)),
         None => day(parsed, today),
+    }
+}
+
+/// When something happened, from a local RFC 3339 time as the journal
+/// writes it: `17:22` today, else `when`'s `Thu 15 Oct 17:22`.
+pub fn moment(timestamp: &str, today: NaiveDate) -> String {
+    let (Some(date), Some(time)) = (timestamp.get(..10), timestamp.get(11..16)) else {
+        return timestamp.to_string();
+    };
+    if date.parse::<NaiveDate>() == Ok(today) {
+        time.to_string()
+    } else {
+        when(date, Some(time), today)
     }
 }
 
@@ -163,6 +177,15 @@ mod tests {
         assert_eq!(day(date("2027-01-04"), today), "Mon 4 Jan 2027");
         assert_eq!(when("2026-10-16", Some("14:00"), today), "Fri 16 Oct 14:00");
         assert_eq!(when("someday", None, today), "someday");
+        assert_eq!(moment("2026-10-16T17:22:05+02:00", today), "17:22");
+        assert_eq!(
+            moment("2026-10-15T17:22:05+02:00", today),
+            "Thu 15 Oct 17:22"
+        );
+        assert_eq!(
+            moment("2025-12-31T09:05:00+00:00", today),
+            "Wed 31 Dec 2025 09:05"
+        );
     }
 
     #[test]

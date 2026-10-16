@@ -228,9 +228,10 @@ impl App {
                     .strip_prefix("mcp:")
                     .unwrap_or("you")
                     .to_string();
-                let time = record.timestamp.get(11..16).unwrap_or_default().to_string();
-                self.provenance
-                    .insert(super::stable_ref(item_ref), (actor, time));
+                self.provenance.insert(
+                    super::stable_ref(item_ref),
+                    (actor, record.timestamp.clone()),
+                );
             }
         }
         self.counts.agents = journals

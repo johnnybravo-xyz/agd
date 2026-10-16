@@ -262,7 +262,8 @@ struct App {
     /// Reschedules per stable_ref: LOGBOOK "Rescheduled from" notes, else
     /// agd's own journal.
     reschedules: BTreeMap<String, usize>,
-    /// stable_ref -> (actor, HH:MM) of the capture that created it.
+    /// stable_ref -> (actor, journal timestamp) of the capture that
+    /// created it.
     provenance: BTreeMap<String, (String, String)>,
     recent_targets: Vec<String>,
     /// Writes this TUI made, newest last, for `u`.

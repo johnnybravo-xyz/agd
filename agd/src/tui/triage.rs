@@ -134,7 +134,10 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
     let inbox = row.section == INBOX;
     let title = if inbox {
         match app.provenance.get(&super::stable_ref(&item.item_ref)) {
-            Some((actor, time)) => format!("Inbox · from {actor} {time}"),
+            Some((actor, time)) => format!(
+                "Inbox · from {actor} {}",
+                crate::words::moment(time, app.today)
+            ),
             None => "Inbox".to_string(),
         }
     } else {

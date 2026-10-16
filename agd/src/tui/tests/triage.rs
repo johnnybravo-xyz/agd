@@ -5,6 +5,29 @@ use super::*;
 
 #[test]
 #[serial]
+fn an_inbox_card_says_who_captured_it_and_when_as_words_say_it() {
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        agent_capture(&app, root, "Agent task");
+        app.index = WorkspaceIndex::load(app.settings.clone()).unwrap();
+        app.reload_rows().unwrap();
+        press(&mut app, crossterm::event::KeyCode::Char('T'));
+        let journal = agd_core::WriteEngine::with_default_journal(app.settings.clone())
+            .unwrap()
+            .journal()
+            .unwrap();
+        let when = crate::words::moment(&journal[0].timestamp, today());
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(
+            screen.contains(&format!("Inbox · from test-agent {when}")),
+            "{screen}"
+        );
+    });
+}
+
+#[test]
+#[serial]
 fn triage_k_moves_back_a_card_and_shift_x_cancels() {
     use crossterm::event::KeyCode;
     with_home(|root| {

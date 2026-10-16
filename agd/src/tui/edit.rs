@@ -387,6 +387,15 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         } else {
             spans.extend(value.spans(theme, focused));
         }
+        // A date field is typed as Org writes it; beside it, how agd says it.
+        if (field == SCHEDULED || field == DEADLINE)
+            && let Ok(date) = parse_date_input(value.text().trim(), app.today)
+        {
+            spans.push(Span::styled(
+                format!("  {}", super::actions::when(&date, app.today)),
+                theme.muted(),
+            ));
+        }
         if form.changed(field).is_some() {
             spans.push(Span::styled("  •", theme.fg(theme.due)));
         }

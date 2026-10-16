@@ -234,6 +234,9 @@ fn every_agent_card_has_the_same_two_line_shape() {
         assert!(screen[task - 1].contains("● test-agent"), "{text}");
         // A long name is cut to 13 characters and "…".
         assert!(text.contains("codex-with-a-…"), "{text}");
+        // When, as words::moment says it: the time today, else the date too.
+        let when = crate::words::moment(&app.journals[0].timestamp, today());
+        assert!(text.contains(&format!(" · {when}")), "{text}");
         assert!(text.contains("TODO → DONE  Rotate staging certs"), "{text}");
         // No raw planning lines; peek has the diff.
         assert!(!text.contains("CLOSED:"), "{text}");
