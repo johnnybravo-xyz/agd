@@ -54,7 +54,8 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 .block(
                     theme
                         .panel("Triage done")
-                        .border_style(theme.fg(theme.done)),
+                        .border_style(theme.fg(theme.done))
+                        .padding(ratatui::widgets::Padding::horizontal(1)),
                 ),
             card_area,
         );
@@ -62,15 +63,27 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     };
     draw_card(frame, app, row, card_area);
     let indent = card_area.x.saturating_sub(area.x) as usize;
+    let rows = keys::triage_chips(row);
+    // Both rows share one column width: the card's longest label.
+    let label_width = rows
+        .iter()
+        .flat_map(|actions| keys::hints(keys::TRIAGE_KEYS, actions))
+        .map(|(_, action)| action.chars().count())
+        .max()
+        .unwrap_or(0)
+        + 2;
     let chips = |actions: &[keys::Action]| {
         let mut spans = vec![Span::raw(" ".repeat(indent))];
         for (key, action) in keys::hints(keys::TRIAGE_KEYS, actions) {
             spans.extend(theme.pill(key.to_string(), theme.accent));
-            spans.push(Span::styled(format!(" {action:<12}"), theme.fg(theme.text)));
+            spans.push(Span::styled(
+                format!(" {action:<label_width$}"),
+                theme.fg(theme.text),
+            ));
         }
         Line::from(spans)
     };
-    for (actions, area) in keys::triage_chips(row).iter().zip([parts[3], parts[4]]) {
+    for (actions, area) in rows.iter().zip([parts[3], parts[4]]) {
         frame.render_widget(Paragraph::new(chips(actions)), area);
     }
 }
