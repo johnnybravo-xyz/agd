@@ -173,13 +173,21 @@ impl SelectionAnchor {
     }
 }
 
-/// Status line text; writes confirm for three seconds, errors stay a
-/// little longer.
+/// Status line text; it stays three seconds, an error a little longer.
 #[derive(Debug)]
 struct Status {
     text: String,
-    error: bool,
+    tone: Tone,
     at: Instant,
+}
+
+/// What a status line says, and so its colour: information in the text
+/// colour, a finished write in the done colour, an error in red.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Tone {
+    Info,
+    Done,
+    Error,
 }
 
 /// Cross-screen signals shown in tabs, the footer and the pane.
@@ -346,10 +354,20 @@ impl App {
             .is_some_and(|started| started.elapsed() > StdDuration::from_secs(1))
     }
 
+    /// Information: a hint, or why a key did nothing.
     fn set_status(&mut self, text: impl Into<String>) {
         self.status = Some(Status {
             text: text.into(),
-            error: false,
+            tone: Tone::Info,
+            at: Instant::now(),
+        });
+    }
+
+    /// A write that went through, as `words::change` says it.
+    fn set_done(&mut self, text: impl Into<String>) {
+        self.status = Some(Status {
+            text: text.into(),
+            tone: Tone::Done,
             at: Instant::now(),
         });
     }
@@ -366,7 +384,7 @@ impl App {
         };
         self.status = Some(Status {
             text,
-            error: true,
+            tone: Tone::Error,
             at: Instant::now(),
         });
     }
@@ -473,12 +491,12 @@ fn event_loop(
                 Ok(event) => {
                     for path in event.paths {
                         if let Err(error) = app.index.refresh_path(&path) {
-                            app.set_status(format!("reload failed: {error}"));
+                            app.set_error(&anyhow::Error::from(error).context("reload failed"));
                         }
                     }
                     changed = true;
                 }
-                Err(error) => app.set_status(format!("watch failed: {error}")),
+                Err(error) => app.set_error(&anyhow::Error::from(error).context("watch failed")),
             }
         }
         let now = Local::now();
@@ -501,7 +519,8 @@ fn event_loop(
             app.set_error(&error);
         }
         let expired = app.status.as_ref().is_some_and(|status| {
-            status.at.elapsed() > StdDuration::from_secs(if status.error { 6 } else { 3 })
+            let seconds = if status.tone == Tone::Error { 6 } else { 3 };
+            status.at.elapsed() > StdDuration::from_secs(seconds)
         });
         if expired {
             app.status = None;
@@ -624,7 +643,7 @@ fn open_in_editor(
     terminal.clear()?;
     let status = status?;
     if !status.success() {
-        app.set_status(format!("editor exited with {status}"));
+        app.set_error(&anyhow::anyhow!("editor exited with {status}"));
     }
     if Path::new(file).exists() {
         app.index.refresh_path(Path::new(file))?;

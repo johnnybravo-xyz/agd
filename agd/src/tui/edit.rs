@@ -288,7 +288,7 @@ fn commit(app: &mut App, form: Box<EditForm>) -> Result<()> {
     let intent = match form.intent(app) {
         Ok(intent) => intent,
         Err(error) => {
-            app.set_status(error);
+            app.set_error(&anyhow::Error::msg(error));
             app.overlay = Overlay::Edit(form);
             return Ok(());
         }
@@ -304,7 +304,7 @@ fn commit(app: &mut App, form: Box<EditForm>) -> Result<()> {
     );
     let line = crate::words::change(&location, "edited", &mutation.item.title);
     // On the Agents tab `u` undoes the agent's change, not this one.
-    app.set_status(if app.screen == Screen::Review {
+    app.set_done(if app.screen == Screen::Review {
         line
     } else {
         format!("{line} · u undo")

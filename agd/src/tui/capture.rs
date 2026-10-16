@@ -296,7 +296,7 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
         &location,
         format!("captured · {}", mutation.item.title),
     );
-    app.set_status(format!(
+    app.set_done(format!(
         "{} · u undo",
         crate::words::captured(&mutation.item, &location, app.today)
     ));

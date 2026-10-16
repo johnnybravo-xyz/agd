@@ -256,7 +256,7 @@ impl App {
         };
         let titles: Vec<String> = items.iter().map(|item| item.title.clone()).collect();
         let summary = titles_summary(&titles);
-        self.set_status(format!(
+        self.set_done(format!(
             "{} · u undo",
             words::change(&location, &change, &summary)
         ));
@@ -735,7 +735,7 @@ impl App {
             .undo(&step.journal_id, &write_context())?;
         let step = self.undo_steps.pop().expect("the step just undone");
         self.refresh_files(&result.file)?;
-        self.set_status(format!("{}  undid {}", step.location, step.label));
+        self.set_done(format!("{}  undid {}", step.location, step.label));
         self.reload_rows()
     }
 
@@ -766,9 +766,9 @@ impl App {
         }
         match undone {
             Some(step) if !undo_all => {
-                self.set_status(format!("{}  undid {}", step.location, step.label))
+                self.set_done(format!("{}  undid {}", step.location, step.label))
             }
-            _ => self.set_status(format!(
+            _ => self.set_done(format!(
                 "{}  undid the whole triage pass",
                 crate::commands::counted(count, "item", "items")
             )),
@@ -817,7 +817,7 @@ impl App {
             engine.review(id)?;
         }
         self.marks.clear();
-        self.set_status(format!(
+        self.set_done(format!(
             "{} · nothing written",
             words::change(&location, "accepted", &titles_summary(&titles))
         ));
@@ -847,7 +847,7 @@ impl App {
                 }
             })?;
         self.refresh_files(&result.file)?;
-        self.set_status(words::change(&location, &change, &title));
+        self.set_done(words::change(&location, &change, &title));
         self.reload_rows()
     }
 
@@ -951,7 +951,7 @@ impl App {
                 format!("{change} · {}", result.item.title),
             );
         }
-        self.set_status(format!(
+        self.set_done(format!(
             "{} · u undo",
             words::change(&location, &change, &result.item.title)
         ));

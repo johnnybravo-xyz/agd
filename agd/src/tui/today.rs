@@ -206,17 +206,23 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let mut spans = theme.pill(mode, theme.accent);
     spans.push(Span::raw("  "));
     if let Some(status) = &app.status {
-        let color = if status.error {
-            theme.overdue
-        } else {
-            theme.done
-        };
-        spans.push(Span::styled(status.text.clone(), theme.strong(color)));
+        spans.push(Span::styled(status.text.clone(), status_style(app, status)));
     } else {
         spans.extend(footer_hints(app, room.saturating_sub(span_width(&spans))));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
     frame.render_widget(Paragraph::new(help).alignment(Alignment::Right), area);
+}
+
+/// A status line in its tone's colour: the text colour for information,
+/// green for a finished write, red for an error. The pane uses it too.
+pub(super) fn status_style(app: &App, status: &super::Status) -> Style {
+    let theme = &app.theme;
+    match status.tone {
+        super::Tone::Info => theme.fg(theme.text),
+        super::Tone::Done => theme.strong(theme.done),
+        super::Tone::Error => theme.strong(theme.overdue),
+    }
 }
 
 fn span_width(spans: &[Span<'_>]) -> usize {

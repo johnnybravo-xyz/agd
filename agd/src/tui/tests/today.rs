@@ -119,6 +119,28 @@ fn refused_write_reports_the_error_and_keeps_rows() {
 
 #[test]
 #[serial]
+fn the_status_line_is_green_only_for_a_finished_write() {
+    with_home(|root| {
+        fs::write(root.join("work.org"), THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(Some("truecolor"));
+        app.reload_rows().unwrap();
+        let colour = |app: &mut App, text: &str| {
+            let buffer = render_buffer(app, 100, 20);
+            let y = buffer.area.height - 1;
+            buffer[(column_of(&buffer, y, text), y)].fg
+        };
+        app.undo().unwrap();
+        assert_eq!(colour(&mut app, "nothing to undo"), app.theme.text);
+        app.schedule("fri").unwrap();
+        assert_eq!(colour(&mut app, "scheduled Fri 16 Oct"), app.theme.done);
+        app.set_error(&anyhow::anyhow!("editor exited with 1"));
+        assert_eq!(colour(&mut app, "✗ editor exited"), app.theme.overdue);
+    });
+}
+
+#[test]
+#[serial]
 fn a_refused_write_names_its_file_relative_to_the_root() {
     with_home(|root| {
         let mut app = test_app(root);

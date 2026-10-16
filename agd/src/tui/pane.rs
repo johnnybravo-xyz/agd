@@ -124,11 +124,7 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let line = match &app.status {
         Some(status) => Line::from(Span::styled(
             status.text.clone(),
-            theme.strong(if status.error {
-                theme.overdue
-            } else {
-                theme.done
-            }),
+            today::status_style(app, status),
         )),
         None => {
             let mut spans = vec![Span::styled(
