@@ -1,7 +1,10 @@
-//! The MCP tools: one request struct per tool, then the router with one
-//! `#[tool]` method each, then the helpers they share. Every tool answers
-//! with one JSON content block in an agd schema; a failure is an
-//! agd.error/v1 block with `isError` set.
+//! The MCP tools, in sections: one request struct per tool; the router with
+//! one `#[tool]` method each; the reads (agenda, query); the writes
+//! (capture, set_state, plan, edit); then argument parsing and results,
+//! shared by all. `describe` lives in its own module. Every tool answers
+//! with one JSON content block in an agd schema (a read cut short by
+//! `limit` adds a text block saying so); a failure is an agd.error/v1
+//! block with `isError` set.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -23,6 +26,8 @@ use serde_json::Value;
 
 use crate::mcp::{OrgModeRouter, describe};
 
+// ---- Requests: one struct per tool ----
+//
 // Request structs refuse unknown arguments, so a misspelled or invented one
 // (`due` for `deadline`) is an error instead of being silently ignored; the
 // published schema says so with `additionalProperties: false`. Each field's
@@ -177,6 +182,8 @@ struct DescribeRequest {}
 /// agenda's full week runs to hundreds of kilobytes.
 const DEFAULT_LIMIT: usize = 100;
 
+// ---- The tools: what the client lists, each calling its function below ----
+
 /// Each tool takes its arguments as a raw object and parses them itself
 /// (`parse_arguments`), so a bad argument is an agd.error/v1 result rather
 /// than a JSON-RPC error; `input_schema` still publishes the request struct.
@@ -308,10 +315,43 @@ impl OrgModeRouter {
     }
 }
 
+// ---- agenda and query: reads, cut to `limit` rows ----
+
 /// `agenda`, as `agd agenda --json` runs it: a profile narrows the files,
 /// the start day defaults to agenda_start_day, and a view returns its
 /// sections instead of rows.
 fn agenda(settings: &agd_core::Settings, request: AgendaRequest) -> Result<Rows, AgdError> {
+    let (settings, match_expression) = with_profile(settings, &request)?;
+    let index = WorkspaceIndex::load(settings.clone())?;
+    let today = Local::now().date_naive();
+    let start = start_day(&settings, request.from.as_deref(), today)?;
+    let limit = request.limit.unwrap_or(DEFAULT_LIMIT);
+    let bodies = request.with_body.then_some(&index);
+    if let Some(key) = request.view.as_deref() {
+        let view = view_settings(&settings, key, &request)?;
+        let mut sections = AgendaEngine::new(&index).view(view, start, today, request.log)?;
+        let (shown, total) = truncate_sections(&mut sections, limit);
+        return Rows::new(&sections, shown, total, bodies);
+    }
+    let (from, to) = agenda_span(request.span.as_deref())?.bounds(start, &settings.week_start);
+    let mut entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
+        from,
+        to,
+        today,
+        match_expression,
+        log_mode: request.log,
+    })?;
+    let total = entries.len();
+    entries.truncate(limit);
+    Rows::new(&entries, entries.len(), total, bodies)
+}
+
+/// The settings and match an agenda runs with: the call's `profile`, when
+/// it names one, replaces the agenda files and supplies a missing match.
+fn with_profile(
+    settings: &agd_core::Settings,
+    request: &AgendaRequest,
+) -> Result<(agd_core::Settings, Option<String>), AgdError> {
     let mut settings = settings.clone();
     let mut match_expression = request.match_expression.clone();
     if let Some(name) = request.profile.as_deref() {
@@ -324,51 +364,38 @@ fn agenda(settings: &agd_core::Settings, request: AgendaRequest) -> Result<Rows,
         }
         match_expression = match_expression.or(profile.match_expression);
     }
-    let index = WorkspaceIndex::load(settings.clone())?;
-    let today = Local::now().date_naive();
-    let start = match (
-        request.from.as_deref(),
-        settings.agenda_start_day.as_deref(),
-    ) {
-        (Some(from), _) => parse_day(from, today)?,
+    Ok((settings, match_expression))
+}
+
+/// The agenda's first day: `from`, else agenda_start_day, else today.
+fn start_day(
+    settings: &agd_core::Settings,
+    from: Option<&str>,
+    today: NaiveDate,
+) -> Result<NaiveDate, AgdError> {
+    match (from, settings.agenda_start_day.as_deref()) {
+        (Some(from), _) => parse_day(from, today),
         (None, Some(start_day)) => parse_day(start_day, today).map_err(|error| {
             AgdError::new(
                 "config",
                 format!("invalid agenda_start_day {start_day:?}: {error}"),
             )
-        })?,
-        (None, None) => today,
-    };
-    let limit = request.limit.unwrap_or(DEFAULT_LIMIT);
-    let bodies = request.with_body.then_some(&index);
-    if let Some(key) = request.view.as_deref() {
-        let view = view_settings(&settings, key, &request)?;
-        let mut sections = AgendaEngine::new(&index).view(view, start, today, request.log)?;
-        let (shown, total) = truncate_sections(&mut sections, limit);
-        return Rows::new(&sections, shown, total, bodies);
+        }),
+        (None, None) => Ok(today),
     }
-    let span = match request.span.as_deref().unwrap_or("day") {
-        "day" => AgendaSpan::Day,
-        "week" => AgendaSpan::Week,
-        "month" => AgendaSpan::Month,
-        value => {
-            return Err(AgdError::new(
-                "invalid_span",
-                format!("unsupported agenda span: {value}; use day, week or month"),
-            ));
-        }
-    };
-    let (from, to) = span.bounds(start, &settings.week_start);
-    let mut entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
-        from,
-        to,
-        today,
-        match_expression,
-        log_mode: request.log,
-    })?;
-    let total = entries.len();
-    entries.truncate(limit);
-    Rows::new(&entries, entries.len(), total, bodies)
+}
+
+/// The call's span; a day when it gives none.
+fn agenda_span(span: Option<&str>) -> Result<AgendaSpan, AgdError> {
+    match span.unwrap_or("day") {
+        "day" => Ok(AgendaSpan::Day),
+        "week" => Ok(AgendaSpan::Week),
+        "month" => Ok(AgendaSpan::Month),
+        value => Err(AgdError::new(
+            "invalid_span",
+            format!("unsupported agenda span: {value}; use day, week or month"),
+        )),
+    }
 }
 
 /// The saved view `key` names. A view runs its own spans and matches, so a
@@ -520,6 +547,8 @@ fn item_body(item: &JsonObject, index: &WorkspaceIndex) -> Option<String> {
         .map(str::to_string)
 }
 
+// ---- capture, set_state, plan, edit: writes through WriteEngine ----
+
 /// `capture`'s agd.mutation/v1 result, with a `notes` array when the agent
 /// inbox changed what was asked.
 fn capture(
@@ -629,6 +658,8 @@ fn edit(
 ) -> Result<agd_core::Mutation, AgdError> {
     WriteEngine::with_default_journal(settings.clone())?.edit(item_ref, &intent, false, context)
 }
+
+// ---- Arguments in, results out: shared by every tool ----
 
 /// A tool's JSON schema for its request struct, as `Parameters<T>` would
 /// publish it, always with `properties`: some clients refuse an object
@@ -762,6 +793,8 @@ fn json_block(value: impl Serialize) -> Result<ContentBlock, McpError> {
         data: None,
     })
 }
+
+// ---- Dates, and who the journal says wrote ----
 
 fn parse_optional_date(
     value: Option<&str>,
