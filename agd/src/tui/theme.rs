@@ -114,7 +114,8 @@ impl Theme {
             muted: Color::DarkGray,
             border: Color::DarkGray,
             surface: Color::Reset,
-            selection: Color::DarkGray,
+            // Reset: the selected row is reversed (see `selected`).
+            selection: Color::Reset,
             yellow: Color::LightYellow,
             dim_red: Color::Red,
             agents: [
@@ -175,9 +176,14 @@ impl Theme {
     }
 
     /// Full-width highlight of the selected row; the accent bar comes from
-    /// the list's highlight symbol.
+    /// the list's highlight symbol. Truecolor tints the background. With 16
+    /// colours no background is dark enough and distinct from the muted
+    /// grey, so the row is reversed and every role keeps its hue. NO_COLOR
+    /// badges are already reverse video, so the row is underlined instead.
     pub(super) fn selected(&self) -> Style {
         if self.plain {
+            Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else if self.selection == Color::Reset {
             Style::default().add_modifier(Modifier::REVERSED)
         } else {
             Style::default().bg(self.selection)

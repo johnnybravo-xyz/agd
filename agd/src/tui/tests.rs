@@ -27,9 +27,7 @@ fn test_app(root: &Path) -> App {
 
 /// Renders the app into a text grid, one string per terminal row.
 fn render(app: &mut App, width: u16, height: u16) -> Vec<String> {
-    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal.draw(|frame| draw(frame, app)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
+    let buffer = render_buffer(app, width, height);
     (0..height)
         .map(|y| {
             (0..width)
@@ -37,6 +35,47 @@ fn render(app: &mut App, width: u16, height: u16) -> Vec<String> {
                 .collect::<String>()
         })
         .collect()
+}
+
+/// Renders the app and returns the cells, for checking styles.
+fn render_buffer(app: &mut App, width: u16, height: u16) -> ratatui::buffer::Buffer {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| draw(frame, app)).unwrap();
+    terminal.backend().buffer().clone()
+}
+
+/// The terminal row whose text contains `needle`.
+fn row_of(buffer: &ratatui::buffer::Buffer, needle: &str) -> u16 {
+    let area = buffer.area;
+    (0..area.height)
+        .find(|y| {
+            (0..area.width)
+                .map(|x| buffer[(x, *y)].symbol())
+                .collect::<String>()
+                .contains(needle)
+        })
+        .unwrap_or_else(|| panic!("no row contains {needle}"))
+}
+
+/// The first column of `needle` on row `y` (one cell per character).
+fn column_of(buffer: &ratatui::buffer::Buffer, y: u16, needle: &str) -> u16 {
+    let cells: Vec<&str> = (0..buffer.area.width)
+        .map(|x| buffer[(x, y)].symbol())
+        .collect();
+    let wanted: Vec<String> = needle.chars().map(String::from).collect();
+    cells
+        .windows(wanted.len())
+        .position(|window| window.iter().zip(&wanted).all(|(cell, want)| cell == want))
+        .unwrap_or_else(|| panic!("{needle} is not on row {y}")) as u16
+}
+
+/// A colour theme as the terminal would pick it, ignoring with_home's
+/// NO_COLOR.
+fn theme_for(colorterm: Option<&str>) -> super::theme::Theme {
+    with_vars(
+        [("NO_COLOR", None::<&str>), ("COLORTERM", colorterm)],
+        || super::theme::Theme::detect("dark"),
+    )
 }
 
 fn with_home(body: impl FnOnce(&Path)) {
@@ -464,6 +503,53 @@ fn due_answers_a_deadline_prompt_so_it_is_not_asked() {
         let screen = render(&mut app, 100, 30).join("\n");
         assert!(!screen.contains("or due: above"), "{screen}");
         assert!(screen.contains("DEADLINE: <2026-10-16 Fri>"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn sixteen_colours_keep_every_role_readable_on_the_cursor_row() {
+    use ratatui::style::{Color, Modifier};
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(None);
+        app.reload_rows().unwrap();
+        assert_eq!(app.selected_row().unwrap().item.title, "Migrate cron jobs");
+        let buffer = render_buffer(&mut app, 120, 30);
+        let y = row_of(&buffer, "Migrate cron jobs");
+        let mut red = false;
+        for x in 0..120 {
+            let cell = &buffer[(x, y)];
+            let (fg, bg) = if cell.modifier.contains(Modifier::REVERSED) {
+                (cell.bg, cell.fg)
+            } else {
+                (cell.fg, cell.bg)
+            };
+            red |= fg == Color::Red || bg == Color::Red;
+            if cell.symbol() != " " && fg != Color::Reset {
+                assert_ne!(fg, bg, "unreadable cell {:?} at {x}", cell.symbol());
+            }
+        }
+        assert!(red, "the overdue badge keeps its red on the cursor row");
+    });
+}
+
+#[test]
+#[serial]
+fn no_color_badges_stand_out_on_the_cursor_row() {
+    use ratatui::style::Modifier;
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let buffer = render_buffer(&mut app, 120, 30);
+        let y = row_of(&buffer, "Migrate cron jobs");
+        let badge = column_of(&buffer, y, "12x");
+        let title = column_of(&buffer, y, "Migrate");
+        let reversed = |x: u16| buffer[(x, y)].modifier.contains(Modifier::REVERSED);
+        assert!(reversed(badge));
+        assert!(!reversed(title));
     });
 }
 
