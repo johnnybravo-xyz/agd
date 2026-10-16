@@ -1,4 +1,7 @@
-use agd_core::{AgendaEngine, AgendaQuery, WorkspaceIndex};
+//! The MCP handler: the server's instructions, its tools (from `tools`)
+//! and the agenda://today resource.
+
+use agd_core::{AgendaEngine, AgendaQuery, Settings, WorkspaceIndex};
 use chrono::Local;
 use rmcp::model::{
     Implementation, ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams,
@@ -9,7 +12,7 @@ use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler, tool_handler};
 use serde_json::json;
 
-use crate::mcp::OrgModeRouter;
+use crate::mcp::{OrgModeRouter, describe};
 
 #[tool_handler]
 impl ServerHandler for OrgModeRouter {
@@ -20,9 +23,7 @@ impl ServerHandler for OrgModeRouter {
                 .enable_resources()
                 .build(),
         )
-        .with_instructions(
-            "Local-only org agenda tools. Responses use agd.item/v1, agd.agenda-entry/v1, agd.mutation/v1, or agd.error/v1 schemas.",
-        )
+        .with_instructions(instructions(&self.settings))
         .with_server_info(Implementation::new("agd", env!("CARGO_PKG_VERSION")))
     }
 
@@ -68,4 +69,29 @@ impl ServerHandler for OrgModeRouter {
 
     // rmcp's own `initialize` records the client's name, which journals each
     // agent write as `mcp:<client>`; do not override it.
+}
+
+/// What a model needs before its first call. Kept short: clients put it in
+/// every prompt, and `describe` carries the details.
+fn instructions(settings: &Settings) -> String {
+    let capture = match (
+        describe::agent_inbox(settings),
+        describe::default_template(settings),
+    ) {
+        (Some(inbox), _) => format!(
+            "Every capture goes through the inbox template `{inbox}`, undated, for the person to triage."
+        ),
+        (None, Some(key)) => {
+            format!("Capture with template `{key}` unless the person names another.")
+        }
+        (None, None) => "No capture templates are configured.".to_string(),
+    };
+    format!(
+        "agd reads and writes the person's org files on this machine; nothing leaves it, so keep agenda data in this session. \
+Read with agenda (today unless told otherwise), query (org-ql) or describe (templates, TODO keywords, priorities, views, tags). \
+Write with capture, set_state, plan or edit. A write revalidates the item's ref, and a ref without an :ID: changes with every write: \
+use the item.ref it returns, or the current.ref of a stale_ref error, never an older one. Dates: {}; plan also takes none. {capture} \
+A failed call sets isError and answers agd.error/v1.",
+        describe::DATE_GRAMMAR
+    )
 }

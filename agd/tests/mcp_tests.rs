@@ -131,6 +131,24 @@ async fn exposes_only_the_short_spec_tool_list() -> Result<(), Box<dyn std::erro
             "set_state"
         ]
     );
+
+    // The instructions carry the ref lifecycle, the date grammar, describe,
+    // the default template and the local-only promise.
+    let instructions = service
+        .peer_info()
+        .and_then(|info| info.instructions.clone())
+        .expect("instructions");
+    for needle in [
+        "nothing leaves it",
+        "use the item.ref it returns, or the current.ref of a stale_ref error",
+        "today, tomorrow, a weekday (fri), +2d",
+        "2026-10-30T14:00; plan also takes none",
+        "describe (templates, TODO keywords",
+        "Capture with template `t`",
+    ] {
+        assert!(instructions.contains(needle), "{needle}: {instructions}");
+    }
+    assert!(instructions.len() < 1000, "{}", instructions.len());
     service.cancel().await?;
     Ok(())
 }
