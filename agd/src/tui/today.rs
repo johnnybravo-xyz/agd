@@ -6,7 +6,7 @@ use ratatui::widgets::{
     Clear, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
 };
 
-use org_core::{OccurrenceType, keyword_color};
+use agd_core::{OccurrenceType, keyword_color};
 
 use super::rows::days_since;
 use super::theme::{Theme, centered};

@@ -51,7 +51,7 @@ fn common_key(app: &mut App, key: KeyEvent) -> Result<bool> {
         KeyCode::Char('?') => app.overlay = Overlay::Help,
         KeyCode::Char('c') => app.overlay = Overlay::Capture(capture::Draft::default()),
         KeyCode::Char('g') => {
-            app.index = org_core::WorkspaceIndex::load(app.settings.clone())?;
+            app.index = agd_core::WorkspaceIndex::load(app.settings.clone())?;
             app.reload_rows()?;
             app.set_status("refreshed");
         }

@@ -1,8 +1,8 @@
 use std::path::Path;
 
+use agd_core::{CheckReport, check_settings, load_settings};
 use anyhow::Result;
 use clap::Args;
-use org_core::{CheckReport, check_settings, load_settings};
 
 #[derive(Args)]
 pub struct CheckCommand {

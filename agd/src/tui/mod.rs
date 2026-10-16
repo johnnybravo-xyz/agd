@@ -23,6 +23,10 @@ use std::process::Command;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration as StdDuration, Instant};
 
+use agd_core::{
+    AgdError, Item, JournalRecord, Occurrence, Settings, WorkspaceIndex, WriteContext,
+    load_settings,
+};
 use anyhow::{Context, Result};
 use chrono::{Local, NaiveDate};
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, MouseEventKind};
@@ -32,10 +36,6 @@ use crossterm::terminal::{
 };
 use notify::{
     Config as NotifyConfig, Event as NotifyEvent, RecommendedWatcher, RecursiveMode, Watcher,
-};
-use org_core::{
-    AgdError, Item, JournalRecord, Occurrence, Settings, WorkspaceIndex, WriteContext,
-    load_settings,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;

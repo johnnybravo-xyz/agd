@@ -273,7 +273,7 @@ impl Theme {
             .padding(Padding::horizontal(1))
     }
 
-    /// A color name (org_core::COLOR_NAMES) in this palette.
+    /// A color name (agd_core::COLOR_NAMES) in this palette.
     pub(super) fn named(&self, name: &str) -> Color {
         match name {
             "orange" => self.due,

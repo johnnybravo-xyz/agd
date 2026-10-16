@@ -2,8 +2,8 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration as StdDuration, Instant};
 
+use agd_core::{Settings, WorkspaceIndex};
 use chrono::NaiveDate;
-use org_core::{Settings, WorkspaceIndex};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use serial_test::serial;
@@ -116,13 +116,13 @@ fn peek_on_the_agents_tab_shows_the_task_an_agent_wrote() {
         fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
         let mut app = test_app(root);
         app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
-        let draft = org_core::parse_capture_line("Agent task #A", today()).unwrap();
-        let context = org_core::WriteContext {
+        let draft = agd_core::parse_capture_line("Agent task #A", today()).unwrap();
+        let context = agd_core::WriteContext {
             actor: "mcp:test-agent".to_string(),
             project: root.to_string_lossy().into_owned(),
             now: None,
         };
-        org_core::WriteEngine::with_default_journal(app.settings.clone())
+        agd_core::WriteEngine::with_default_journal(app.settings.clone())
             .unwrap()
             .capture("t", &draft, "", &Default::default(), false, &context)
             .unwrap();
@@ -140,7 +140,7 @@ fn peek_on_the_agents_tab_shows_the_task_an_agent_wrote() {
 
 #[derive(serde::Deserialize)]
 struct ViewsOnly {
-    view: Vec<org_core::ViewSettings>,
+    view: Vec<agd_core::ViewSettings>,
 }
 
 #[test]

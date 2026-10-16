@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use agd_core::{WriteContext, WriteEngine, load_settings, parse_capture_line};
 use anyhow::{Result, anyhow, bail};
 use chrono::Local;
 use clap::Args;
-use org_core::{WriteContext, WriteEngine, load_settings, parse_capture_line};
 
 #[derive(Args, Debug)]
 pub struct CaptureCommand {

@@ -1,9 +1,9 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use agd_core::{Change, EditIntent, PlanningTimestamp, WriteEngine, parse_date_input};
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use org_core::{Change, EditIntent, PlanningTimestamp, WriteEngine, parse_date_input};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};

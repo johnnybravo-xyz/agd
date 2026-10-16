@@ -3,9 +3,9 @@ mod tools;
 
 use std::path::Path;
 
+use agd_core::{Settings, load_settings};
 use anyhow::{Context, Result};
 use clap::Args;
-use org_core::{Settings, load_settings};
 use rmcp::{ServiceExt, handler::server::tool::ToolRouter, transport::stdio};
 use tokio::runtime::Builder;
 use tracing::{error, info};

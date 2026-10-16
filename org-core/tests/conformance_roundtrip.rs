@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use org_core::{IndexedDocument, Settings};
+use agd_core::{IndexedDocument, Settings};
 
 fn org_files(root: &Path, files: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(root).expect("read fixture directory") {

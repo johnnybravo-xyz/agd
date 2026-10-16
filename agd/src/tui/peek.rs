@@ -3,7 +3,7 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Wrap};
 
-use org_core::{Item, OccurrenceType, WorkspaceIndex};
+use agd_core::{Item, OccurrenceType, WorkspaceIndex};
 
 use super::actions::short_date;
 use super::rows::next_repeat;
@@ -72,7 +72,7 @@ fn body_lines(text: &str) -> Vec<String> {
 
 /// A heading as the agenda shows it: no timestamps, links as their text.
 pub(super) fn display_title(item: &Item) -> String {
-    link_descriptions(&org_core::agenda_title(item))
+    link_descriptions(&agd_core::agenda_title(item))
 }
 
 /// `[[target][description]]` reads as its description, `[[target]]` as

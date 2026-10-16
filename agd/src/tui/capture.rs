@@ -4,12 +4,12 @@ use std::io::{self, Stdout, Write};
 use std::path::Path;
 use std::process::Command;
 
+use agd_core::{CaptureDraft, CapturePrompt, WriteEngine, capture_prompts, parse_capture_line};
 use anyhow::{Context, Result};
 use chrono::{Datelike, NaiveDate};
 use crossterm::event::{EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, enable_raw_mode};
-use org_core::{CaptureDraft, CapturePrompt, WriteEngine, capture_prompts, parse_capture_line};
 use ratatui::Frame;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -564,7 +564,7 @@ fn draw_chooser(frame: &mut Frame<'_>, app: &App, draft: &Draft, area: Rect) {
 }
 
 /// `→ inbox.org › Tasks`: the file name and heading a template files under.
-fn destination(template: &org_core::CaptureTemplate) -> String {
+fn destination(template: &agd_core::CaptureTemplate) -> String {
     let file = template
         .file
         .as_deref()

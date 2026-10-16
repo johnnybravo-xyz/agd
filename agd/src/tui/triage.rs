@@ -3,7 +3,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{LineGauge, Paragraph, Wrap};
 
-use org_core::OccurrenceType;
+use agd_core::OccurrenceType;
 
 use super::actions::{DONE, NEXT_WEEK, REFILED, SOMEDAY, TODAY, TOMORROW, short_date};
 use super::rows::days_since;

@@ -1,11 +1,11 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use anyhow::{Result, bail};
-use chrono::{Duration, NaiveDate};
-use org_core::{
+use agd_core::{
     Change, EditIntent, JournalStatus, PlanningTimestamp, WriteEngine, parse_date_input,
 };
+use anyhow::{Result, bail};
+use chrono::{Duration, NaiveDate};
 
 use super::{App, Overlay, PromptKind, Screen, write_context};
 

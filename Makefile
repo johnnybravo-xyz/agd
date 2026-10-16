@@ -31,7 +31,7 @@ help: ## List the release targets
 version: ## Set VERSION=x.y.z in every manifest and date both changelogs
 	@test "$(VERSION)" != "$(CURRENT)" || { echo "pass VERSION=x.y.z; $(CURRENT) is already the version"; exit 1; }
 	perl -0pi -e 's/^version = "\Q$(CURRENT)\E"/version = "$(VERSION)"/m' Cargo.toml agd/Cargo.toml org-core/Cargo.toml
-	perl -pi -e 's/(package = "agd-core", version = )"\Q$(CURRENT)\E"/$$1"$(VERSION)"/' agd/Cargo.toml
+	perl -pi -e 's/(agd-core = \{ version = )"\Q$(CURRENT)\E"/$$1"$(VERSION)"/' agd/Cargo.toml
 	perl -pi -e 's/"version": "\Q$(CURRENT)\E"/"version": "$(VERSION)"/' agd/claude-plugin/.claude-plugin/plugin.json
 	perl -pi -e 's/^## \[Unreleased\]$$/## [Unreleased]\n\n## [$(VERSION)] - $(TODAY)/' agd/CHANGELOG.md org-core/CHANGELOG.md
 	$(CARGO) update --workspace

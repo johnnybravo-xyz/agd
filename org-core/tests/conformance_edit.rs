@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::Path;
 
+use agd_core::{Change, EditIntent, PlanningTimestamp, Settings, WriteContext, WriteEngine};
 use chrono::NaiveDateTime;
-use org_core::{Change, EditIntent, PlanningTimestamp, Settings, WriteContext, WriteEngine};
 use serde::Deserialize;
 
 /// conformance/edit/<case>/case.toml; expected.org is written by

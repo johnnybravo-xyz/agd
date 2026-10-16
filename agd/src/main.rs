@@ -1,8 +1,8 @@
 use std::process::ExitCode;
 
+use agd_core::AgdError;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use org_core::AgdError;
 
 mod commands;
 mod importer;

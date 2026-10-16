@@ -5,7 +5,7 @@ clap = { workspace = true, features = ["derive"] }
 crossterm.workspace = true
 csv.workspace = true
 notify.workspace = true
-org-core = { package = "agd-core", version = "0.1.0", path = "../org-core" }
+agd-core = { version = "0.1.0", path = "../org-core" }
 rmcp.workspace = true
 ratatui.workspace = true
 serde = { workspace = true, features = ["derive"] }

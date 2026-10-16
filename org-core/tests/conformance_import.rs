@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use org_core::{ImportResult, ResolvedEditorConfig, Settings, apply_import};
+use agd_core::{ImportResult, ResolvedEditorConfig, Settings, apply_import};
 
 /// Applies a case's resolved.json (the editor reader's output, with its
 /// files under /fixture) as a first import into a fresh directory.

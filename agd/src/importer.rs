@@ -3,13 +3,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use anyhow::{Context, Result, anyhow, bail};
-use chrono::{Duration, Local, NaiveDate};
-use org_core::{
+use agd_core::{
     AgendaEngine, AgendaQuery, AgendaSpan, ConfigEditor, ConfigSources, ImportResult, ImportStatus,
     ResolvedEditorConfig, Settings, WorkspaceIndex, agenda_csv, apply_import, find_config_sources,
     items_csv, parse_date_input, render_config,
 };
+use anyhow::{Context, Result, anyhow, bail};
+use chrono::{Duration, Local, NaiveDate};
 use similar::TextDiff;
 
 const EMACS_READER: &str = include_str!("../readers/emacs.el");
@@ -294,7 +294,7 @@ fn compare_rows(
     editor: Option<&String>,
     native: std::result::Result<
         std::result::Result<Vec<Vec<String>>, csv::Error>,
-        org_core::AgdError,
+        agd_core::AgdError,
     >,
 ) -> VerificationResult {
     let native = match native {

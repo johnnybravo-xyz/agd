@@ -1,11 +1,11 @@
 use std::collections::BTreeSet;
 
-use anyhow::Result;
-use chrono::{Datelike, Duration, NaiveDate};
-use org_core::{
+use agd_core::{
     AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalRecord, JournalStatus,
     OccurrenceType, WorkspaceIndex, WriteEngine,
 };
+use anyhow::Result;
+use chrono::{Datelike, Duration, NaiveDate};
 
 use super::{
     App, DOING, DUE, DisplayRow, Header, INBOX, OVERDUE, SCHEDULE, Screen, SelectionAnchor,

@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::{Local, NaiveDate};
-use org_core::{
+use agd_core::{
     AgdError, AgendaEngine, AgendaQuery, AgendaSpan, CaptureDraft, Change, EditIntent,
     PlanningTimestamp, WorkspaceIndex, WriteContext, WriteEngine, parse_date_input,
 };
+use chrono::{Local, NaiveDate};
 use rmcp::{
     ErrorData as McpError, RoleServer,
     handler::server::wrapper::Parameters,
@@ -273,12 +273,12 @@ impl OrgModeRouter {
 }
 
 fn edit(
-    settings: &org_core::Settings,
+    settings: &agd_core::Settings,
     item_ref: &str,
     intent: EditIntent,
     context: &RequestContext<RoleServer>,
     project: &str,
-) -> Result<org_core::Mutation, AgdError> {
+) -> Result<agd_core::Mutation, AgdError> {
     WriteEngine::with_default_journal(settings.clone())?.edit(
         item_ref,
         &intent,

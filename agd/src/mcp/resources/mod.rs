@@ -1,5 +1,5 @@
+use agd_core::{AgendaEngine, AgendaQuery, WorkspaceIndex};
 use chrono::Local;
-use org_core::{AgendaEngine, AgendaQuery, WorkspaceIndex};
 use rmcp::model::{
     Implementation, ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams,
     ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ServerCapabilities,

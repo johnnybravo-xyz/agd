@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use agd_core::{AgendaEngine, AgendaQuery, Settings, WorkspaceIndex, agenda_csv, items_csv};
 use chrono::NaiveDate;
-use org_core::{AgendaEngine, AgendaQuery, Settings, WorkspaceIndex, agenda_csv, items_csv};
 use serde::Deserialize;
 use similar::TextDiff;
 

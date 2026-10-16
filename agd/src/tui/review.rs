@@ -4,7 +4,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
 
-use org_core::{Item, JournalRecord, JournalStatus};
+use agd_core::{Item, JournalRecord, JournalStatus};
 
 use super::App;
 use super::theme::{Theme, centered};
@@ -395,7 +395,7 @@ fn changed_item<'a>(
     app: &'a App,
     record: &JournalRecord,
     title: &str,
-) -> Option<&'a org_core::Item> {
+) -> Option<&'a agd_core::Item> {
     app.index
         .items()
         .find(|item| record.item_ref.as_deref() == Some(item.item_ref.as_str()))

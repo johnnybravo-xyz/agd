@@ -1,13 +1,13 @@
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow, bail};
-use chrono::{Datelike, Duration, Local, NaiveDate};
-use clap::{Args, ValueEnum};
-use org_core::{
+use agd_core::{
     AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalStatus, Settings, ViewSection,
     WorkspaceIndex, WriteEngine, agenda_csv, agenda_title, items_csv, keyword_colors,
     load_settings, parse_date_input,
 };
+use anyhow::{Context, Result, anyhow, bail};
+use chrono::{Datelike, Duration, Local, NaiveDate};
+use clap::{Args, ValueEnum};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum SpanArg {
@@ -338,7 +338,7 @@ fn status_line(index: &WorkspaceIndex, settings: &Settings, today: NaiveDate) ->
         log_mode: false,
     })?;
     let overdue_kind = |entry: &AgendaEntry| {
-        entry.occurrence.kind == org_core::OccurrenceType::PastScheduled
+        entry.occurrence.kind == agd_core::OccurrenceType::PastScheduled
             || entry.occurrence.extra.ends_with("ago:")
     };
     let mut overdue = std::collections::BTreeSet::new();

@@ -1,9 +1,9 @@
 use std::io::Write;
 use std::path::PathBuf;
 
+use agd_core::{ImportStatus, Settings, default_config_path, parse_config_file};
 use anyhow::{Result, bail};
 use clap::Args;
-use org_core::{ImportStatus, Settings, default_config_path, parse_config_file};
 
 use crate::importer::{ImportExecution, import_config};
 
