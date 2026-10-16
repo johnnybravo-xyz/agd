@@ -7,6 +7,7 @@ use ratatui::widgets::{
 };
 
 use agd_core::{OccurrenceType, keyword_color};
+use unicode_width::UnicodeWidthStr;
 
 use super::input::TextInput;
 use super::rows::days_since;
@@ -332,6 +333,11 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
                 .collect()
         })
         .collect();
+    let columns = RowColumns {
+        width,
+        wide,
+        keyword: keyword_width(app),
+    };
     for ((header, rows), held) in app
         .headers
         .iter()
@@ -354,7 +360,7 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
             if index == app.selected {
                 selected_line = Some(items.len());
             }
-            items.push(ListItem::new(row_line(app, row, width, wide)));
+            items.push(ListItem::new(row_line(app, row, &columns)));
             line_rows.push(Some(index));
         }
     }
@@ -491,27 +497,58 @@ fn section_header(app: &App, header: &Header, rows: &[usize], width: usize) -> L
     Line::from(spans)
 }
 
-/// One task line: lead cell (badge, time or countdown), TODO keyword,
+/// Cells before a row's lead: its marker (`*` marked, `▸` next) and a space.
+const MARKER: usize = 2;
+/// The lead cell, which always says when.
+const LEAD: usize = 6;
+/// Keywords wider than this do not widen the keyword column.
+const KEYWORD_MAX: usize = 9;
+
+/// What every row of one list shares: the row width, whether tags fit
+/// (WIDE), and the keyword column's width.
+pub(super) struct RowColumns {
+    pub width: usize,
+    pub wide: bool,
+    pub keyword: usize,
+}
+
+/// Rows of an org-agenda day list (Week, the classic view, agenda blocks)
+/// keep Org's prefix; the rest are sectioned rows with a lead cell.
+fn classic_row(row: &DisplayRow) -> bool {
+    !matches!(
+        row.section.as_str(),
+        OVERDUE | SCHEDULE | DUE | DOING | INBOX
+    ) && row.occurrence.is_some()
+}
+
+/// The keyword column of the sectioned rows: the widest keyword among
+/// them, at most KEYWORD_MAX; 0 when none has one.
+fn keyword_width(app: &App) -> usize {
+    app.rows
+        .iter()
+        .filter(|row| !classic_row(row))
+        .filter_map(|row| row.item.todo.as_deref())
+        .map(UnicodeWidthStr::width)
+        .max()
+        .unwrap_or(0)
+        .min(KEYWORD_MAX)
+}
+
+/// One task line: the marker, then Org's prefix (category, time, leader)
+/// or the lead cell (badge, time or countdown), the TODO keyword, the
 /// title, priority and tags, and a right-aligned context column.
-fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'static> {
+fn row_line(app: &App, row: &DisplayRow, columns: &RowColumns) -> Line<'static> {
     let theme = &app.theme;
     if row.more > 0 {
         return Line::from(vec![
-            Span::raw(" ".repeat(7)),
+            Span::raw(" ".repeat(MARKER + LEAD + 1)),
             Span::styled(format!("+{} more", row.more), theme.strong(theme.overdue)),
             Span::styled("  ⏎ shows them", theme.muted()),
         ]);
     }
     let item = &row.item;
-    let mut spans = Vec::new();
-    if app.marks.contains(&item.item_ref) {
-        spans.push(Span::styled("● ", theme.strong(theme.accent)));
-    }
-    let classic = !matches!(
-        row.section.as_str(),
-        OVERDUE | SCHEDULE | DUE | DOING | INBOX
-    ) && row.occurrence.is_some();
-    if classic {
+    let mut spans = vec![marker(app, row)];
+    if classic_row(row) {
         // The org-agenda prefix: "category:  Sched. 2x:  TODO title".
         let occurrence = row
             .occurrence
@@ -530,14 +567,21 @@ fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'stat
                 lead_style(theme, occurrence.kind, &occurrence.extra),
             ));
         }
+        if let Some(todo) = &item.todo {
+            spans.push(Span::styled(format!("{todo} "), keyword_style(app, row)));
+        }
     } else {
         // The lead is padded to six columns but may fill them (`in 14d`,
         // a rounded badge); the separator keeps it off the keyword.
         spans.extend(lead_cell(app, row));
         spans.push(Span::raw(" "));
-    }
-    if let Some(todo) = &item.todo {
-        spans.push(Span::styled(format!("{todo} "), keyword_style(app, row)));
+        if columns.keyword > 0 {
+            let todo = item.todo.as_deref().unwrap_or_default();
+            spans.push(Span::styled(
+                format!("{todo:<width$} ", width = columns.keyword),
+                keyword_style(app, row),
+            ));
+        }
     }
     let title_style = if item.done {
         theme.done_row()
@@ -549,15 +593,11 @@ fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'stat
         priority.push(Span::raw(" "));
         priority.extend(theme.pill(letter.clone(), theme.due));
     }
-    let tags = (wide && !item.tags.is_empty()).then(|| {
-        Span::styled(
-            format!("  #{}", item.tags.join(" #")),
-            theme.fg(theme.accent),
-        )
-    });
+    let tags = (columns.wide && !item.tags.is_empty())
+        .then(|| Span::styled(format!("  #{}", item.tags.join(" #")), theme.muted()));
     let used = span_width(&spans);
     spans.extend(fit_row(
-        width,
+        columns.width,
         used,
         Span::styled(peek::display_title(item), title_style),
         priority,
@@ -582,13 +622,14 @@ fn fit_row(
     title: Span<'static>,
     priority: Vec<Span<'static>>,
     tags: Option<Span<'static>>,
-    right: Span<'static>,
+    right: Vec<Span<'static>>,
 ) -> Vec<Span<'static>> {
     const MIN_TITLE: usize = 12;
     let title_width = title.width();
     let tags_width = tags.as_ref().map_or(0, Span::width);
+    let right_width = span_width(&right);
     let base = used + span_width(&priority);
-    let keep_right = base + title_width + tags_width + right.width() + 2 <= width;
+    let keep_right = base + title_width + tags_width + right_width + 2 <= width;
     let keep_tags = keep_right || base + title_width.min(MIN_TITLE) + tags_width <= width;
     let room = width.saturating_sub(base + if keep_tags { tags_width } else { 0 });
     let mut spans = vec![Span::styled(truncate(&title.content, room), title.style)];
@@ -599,9 +640,9 @@ fn fit_row(
     if keep_right {
         let filled = span_width(&spans) + used;
         spans.push(Span::raw(
-            " ".repeat(width.saturating_sub(filled + right.width())),
+            " ".repeat(width.saturating_sub(filled + right_width)),
         ));
-        spans.push(right);
+        spans.extend(right);
     }
     spans
 }
@@ -695,21 +736,33 @@ fn keyword_style(app: &App, row: &DisplayRow) -> Style {
     }
 }
 
-/// Category for overdue rows, ✓ for done, the repeat interval for repeating
-/// tasks, and who captured an inbox item.
-fn right_cell(app: &App, row: &DisplayRow) -> Span<'static> {
+/// The marker cell: `*` on a marked row.
+fn marker(app: &App, row: &DisplayRow) -> Span<'static> {
+    if app.marks.contains(&row.item.item_ref) {
+        Span::styled("* ", app.theme.strong(app.theme.accent))
+    } else {
+        Span::raw(" ".repeat(MARKER))
+    }
+}
+
+/// Category for overdue rows, the repeat interval for repeating tasks, and
+/// who captured an inbox item; at most RIGHT cells and a closing space.
+/// Done rows show their keyword, so they need no ✓.
+fn right_cell(app: &App, row: &DisplayRow) -> Vec<Span<'static>> {
     let theme = &app.theme;
     let item = &row.item;
     if item.done {
-        return Span::styled("✓ ", theme.strong(theme.done));
+        return Vec::new();
     }
     if row.section == INBOX {
         return match app.provenance.get(&super::stable_ref(&item.item_ref)) {
-            Some((actor, time)) if actor != "you" => {
-                Span::styled(format!("{actor} {time} "), theme.fg(theme.agent(actor)))
+            Some((actor, _)) if actor != "you" => {
+                let mut spans = agent_label(theme, actor, RIGHT, false);
+                spans.push(Span::raw(" "));
+                spans
             }
-            Some((_, time)) => Span::styled(format!("you {time} "), theme.muted()),
-            None => Span::raw(""),
+            Some(_) => vec![Span::styled("you ", theme.muted())],
+            None => Vec::new(),
         };
     }
     let repeater = item
@@ -720,17 +773,38 @@ fn right_cell(app: &App, row: &DisplayRow) -> Span<'static> {
         .and_then(|timestamp| timestamp.repeater.as_deref());
     if let Some(repeater) = repeater {
         let interval = repeater.trim_start_matches(['.', '+']);
-        return Span::styled(
+        return vec![Span::styled(
             format!("↻ {} ", interval.split('/').next().unwrap_or(interval)),
             theme.muted(),
-        );
+        )];
     }
     if row.section == OVERDUE || row.section == DOING {
-        let mut text = item.category.clone();
-        text.truncate(RIGHT);
-        return Span::styled(format!("{text} "), theme.muted());
+        return vec![Span::styled(
+            format!("{} ", truncate(&item.category, RIGHT)),
+            theme.muted(),
+        )];
     }
-    Span::raw("")
+    Vec::new()
+}
+
+/// `● codex`: an agent's name after its dot, the dot in the agent's hue
+/// and the name in bold text (`muted` for a reviewed change), cut to
+/// `width` cells with "…".
+pub(super) fn agent_label(
+    theme: &Theme,
+    agent: &str,
+    width: usize,
+    bold: bool,
+) -> Vec<Span<'static>> {
+    let name_style = if bold {
+        theme.strong(theme.text)
+    } else {
+        theme.muted()
+    };
+    vec![
+        Span::styled("● ", theme.fg(theme.agent(agent))),
+        Span::styled(truncate(agent, width.saturating_sub(2)), name_style),
+    ]
 }
 
 /// Days since the item entered its current state, from the LOGBOOK

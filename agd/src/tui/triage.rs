@@ -142,7 +142,7 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
     let used: usize = heading.iter().map(Span::width).sum();
     if !tags.is_empty() && used + tags.len() + 2 < inner_width {
         heading.push(Span::raw(" ".repeat(inner_width - used - tags.len() - 1)));
-        heading.push(Span::styled(tags, theme.fg(theme.accent)));
+        heading.push(Span::styled(tags, theme.muted()));
     }
     let file = app
         .short_location(item)

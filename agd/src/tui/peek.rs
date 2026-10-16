@@ -213,7 +213,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     if !item.tags.is_empty() || !item.inherited_tags.is_empty() {
         let mut spans = vec![label("Tags")];
         for tag in &item.tags {
-            spans.push(Span::styled(format!("{tag} "), theme.fg(theme.accent)));
+            spans.push(Span::styled(format!("{tag} "), theme.muted()));
         }
         for tag in &item.inherited_tags {
             spans.push(Span::styled(format!("{tag}↑ "), theme.muted()));

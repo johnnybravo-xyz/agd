@@ -1939,6 +1939,67 @@ fn priority_keys_step_through_the_files_own_range() {
     });
 }
 
+#[test]
+#[serial]
+fn sectioned_rows_line_titles_up_after_the_widest_keyword() {
+    use ratatui::style::Color;
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "#+TODO: TODO WAITING | DONE\n\
+* TODO Alpha :ops:\nSCHEDULED: <2026-10-13 Tue>\n\
+* WAITING Beta\nSCHEDULED: <2026-10-13 Tue>\n\
+* DONE Delta\nSCHEDULED: <2026-10-13 Tue>\n\
+* Inbox\n** Gamma\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(Some("truecolor"));
+        app.reload_rows().unwrap();
+        app.marks.insert(app.rows[1].item.item_ref.clone());
+        let buffer = render_buffer(&mut app, 120, 20);
+        let title_column = |title: &str| column_of(&buffer, row_of(&buffer, title), title);
+        assert_eq!(title_column("Alpha"), title_column("Beta"));
+        assert_eq!(title_column("Alpha"), title_column("Gamma"));
+        assert_eq!(title_column("Alpha"), title_column("Delta"));
+        // Tags are metadata, muted; a bulk mark is `*` in the marker cell.
+        let y = row_of(&buffer, "Alpha");
+        assert_eq!(
+            buffer[(column_of(&buffer, y, "#ops"), y)].fg,
+            app.theme.muted
+        );
+        let y = row_of(&buffer, "Beta");
+        let line: String = (0..120).map(|x| buffer[(x, y)].symbol()).collect();
+        assert!(line.starts_with("│ * "), "{line}");
+        // A done row shows DONE, so no ✓ repeats it.
+        let y = row_of(&buffer, "Delta");
+        let line: String = (0..120).map(|x| buffer[(x, y)].symbol()).collect();
+        assert!(!line.contains('✓'), "{line}");
+        assert_ne!(buffer[(column_of(&buffer, y, "Delta"), y)].fg, Color::Reset);
+    });
+}
+
+#[test]
+#[serial]
+fn an_inbox_item_names_its_agent_after_the_agents_dot() {
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        agent_capture(&app, root, "Agent task");
+        app.index = WorkspaceIndex::load(app.settings.clone()).unwrap();
+        app.theme = theme_for(Some("truecolor"));
+        app.reload_rows().unwrap();
+        let buffer = render_buffer(&mut app, 120, 20);
+        let y = row_of(&buffer, "Agent task");
+        let dot = column_of(&buffer, y, "● test-agent");
+        assert_eq!(buffer[(dot, y)].fg, app.theme.agent("test-agent"));
+        assert_eq!(buffer[(dot + 2, y)].fg, app.theme.muted);
+        // The right column ends one cell before the border.
+        assert_eq!(buffer[(dot + 12, y)].symbol(), " ");
+        assert_eq!(buffer[(dot + 13, y)].symbol(), "│");
+    });
+}
+
 const THREE_OVERDUE: &str = "#+TODO: TODO NEXT | DONE\n\
 * TODO Old one\nSCHEDULED: <2026-10-01 Thu>\n\
 * TODO Old two\nSCHEDULED: <2026-10-05 Mon>\n\
