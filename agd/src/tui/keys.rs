@@ -11,7 +11,8 @@
 //!   back one level, `q` quits.
 //! - Keys follow org-agenda wherever it has one (`t`, `C-c C-s`, `f b .`,
 //!   `l`, `<`, `/`, `m * U B` for marks); the help shows its key beside
-//!   ours.
+//!   ours. `<` narrows by context: the category in the lists, the agent on
+//!   the Agents tab.
 //! - Triage and the bulk menu add one-key outcomes: `.` today (in the
 //!   lists `.` goes to today), `>` tomorrow, `w` next week, `N` make NEXT.
 //!   `m` only ever marks.
@@ -301,7 +302,7 @@ pub(super) const AGENT_KEYS: &[KeyGroup] = &[
             bind("u", &[Char('u')], A::Undo, "undo", "undo the change if its bytes are unchanged", ""),
             bind("SPC", &[Char(' ')], A::Peek, "peek", "peek: the change's diff, then its task", "SPC"),
             bind("⏎ C-e", &[Code(KeyCode::Enter), Ctrl('e')], A::Editor, "open", "open the changed heading in $EDITOR", ""),
-            bind("f", &[Char('f')], A::FilterAgent, "filter by agent", "show one agent, cycling", ""),
+            bind("<", &[Char('<')], A::FilterAgent, "agent", "show one agent's changes, cycling", ""),
         ],
     },
     MOVE,

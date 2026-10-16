@@ -157,8 +157,18 @@ fn header_pills(app: &App, room: usize) -> Vec<Span<'static>> {
     if app.log_mode {
         pills.push(theme.pill("log", theme.accent));
     }
-    if let Some(context) = &app.context {
-        pills.push(theme.pill(format!("ctx {context}"), theme.accent));
+    // `<` narrows the lists by category and the Agents tab by agent.
+    let context = if app.screen == Screen::Review {
+        app.agent_filter
+            .as_ref()
+            .map(|agent| format!("agent {agent}"))
+    } else {
+        app.context
+            .as_ref()
+            .map(|category| format!("ctx {category}"))
+    };
+    if let Some(context) = context {
+        pills.push(theme.pill(context, theme.accent));
     }
     pills.push(vec![Span::styled(
         format!(" {} ", crate::words::day(app.day, app.today)),

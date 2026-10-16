@@ -236,6 +236,61 @@ fn every_agent_card_has_the_same_two_line_shape() {
 
 #[test]
 #[serial]
+fn less_than_narrows_the_agents_tab_by_agent_as_it_narrows_lists_by_category() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        agent_capture(&app, root, "From the test agent");
+        let mut settings = app.settings.clone();
+        settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        let codex = agd_core::WriteContext {
+            actor: "mcp:codex".to_string(),
+            project: root.to_string_lossy().into_owned(),
+            now: None,
+        };
+        agd_core::WriteEngine::with_default_journal(settings)
+            .unwrap()
+            .capture(
+                "t",
+                &agd_core::parse_capture_line("From codex", today()).unwrap(),
+                "",
+                &Default::default(),
+                false,
+                &codex,
+            )
+            .unwrap();
+        app.index = WorkspaceIndex::load(app.settings.clone()).unwrap();
+        press(&mut app, KeyCode::Char('A'));
+        assert_eq!(app.journals.len(), 2);
+        // `f` is no key here; `<` cycles through the agents, then all.
+        press(&mut app, KeyCode::Char('f'));
+        assert_eq!(app.journals.len(), 2);
+        press(&mut app, KeyCode::Char('<'));
+        assert_eq!(app.agent_filter.as_deref(), Some("codex"));
+        assert!(
+            app.journals
+                .iter()
+                .all(|record| record.actor == "mcp:codex")
+        );
+        let header = render(&mut app, 120, 20)[0].clone();
+        assert!(header.contains("agent codex"), "{header}");
+        press(&mut app, KeyCode::Char('<'));
+        assert_eq!(app.agent_filter.as_deref(), Some("test-agent"));
+        press(&mut app, KeyCode::Char('<'));
+        assert_eq!(app.agent_filter, None);
+        assert_eq!(app.journals.len(), 2);
+        // esc clears the agent filter before it leaves, as it clears a
+        // list's filter.
+        press(&mut app, KeyCode::Char('<'));
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.agent_filter, None);
+        assert_eq!(app.screen, Screen::Review);
+    });
+}
+
+#[test]
+#[serial]
 fn on_the_agents_tab_esc_steps_back_and_q_quits() {
     use crossterm::event::KeyCode;
     with_home(|root| {
