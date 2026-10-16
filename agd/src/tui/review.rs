@@ -213,10 +213,13 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let block = theme.panel(title);
     if app.journals.is_empty() {
         frame.render_widget(
-            Paragraph::new(Span::styled(
-                "No agent changes yet. MCP writes appear here with who made them.",
-                theme.muted(),
-            ))
+            Paragraph::new(vec![
+                Line::from("No agent changes to review."),
+                Line::from(Span::styled(
+                    "What agents write over MCP shows up here, with who wrote it.",
+                    theme.muted(),
+                )),
+            ])
             .block(block),
             area,
         );

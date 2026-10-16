@@ -292,6 +292,25 @@ impl App {
                 headers.push(Header::section(row.section.clone(), None));
             }
         }
+        // An empty Today says what tomorrow holds.
+        self.tomorrow = (0, 0);
+        if self.screen == Screen::Today && !self.pane && rows.is_empty() {
+            let tomorrow = self.today + Duration::days(1);
+            let open: Vec<AgendaEntry> = engine
+                .agenda(&self.query(tomorrow, tomorrow))?
+                .into_iter()
+                .filter(|entry| !entry.item.done)
+                .collect();
+            let count = |kind: OccurrenceType| {
+                open.iter()
+                    .filter(|entry| entry.occurrence.kind == kind)
+                    .count()
+            };
+            self.tomorrow = (
+                count(OccurrenceType::Scheduled),
+                count(OccurrenceType::Deadline),
+            );
+        }
         self.headers = headers;
         self.rows = rows;
         Ok(())

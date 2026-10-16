@@ -79,10 +79,18 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
                 .is_some_and(|time| time >= now.as_str())
     });
     let items: Vec<ListItem<'_>> = if app.rows.is_empty() {
-        vec![ListItem::new(Span::styled(
-            format!("Nothing scheduled today. {} in inbox.", app.counts.inbox),
-            theme.muted(),
-        ))]
+        // The inbox count is already in the footer.
+        let lines = if app.index.documents().next().is_none() {
+            vec!["No .org files yet.", "c captures the first task."]
+        } else {
+            vec!["All clear for today."]
+        };
+        vec![ListItem::new(
+            lines
+                .into_iter()
+                .map(|line| Line::from(Span::styled(line, theme.muted())))
+                .collect::<Vec<_>>(),
+        )]
     } else {
         app.rows
             .iter()

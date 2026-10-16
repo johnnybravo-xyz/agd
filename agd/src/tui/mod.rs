@@ -204,6 +204,8 @@ struct App {
     marks: BTreeSet<String>,
     /// Today shows every OVERDUE row, not the first few; reset on leaving.
     overdue_expanded: bool,
+    /// Tomorrow's open (scheduled, due) counts, which an empty Today shows.
+    tomorrow: (usize, usize),
     /// Context filter cycled with `<`: None is all categories.
     context: Option<String>,
     filter: String,
@@ -255,6 +257,7 @@ impl App {
             selected: 0,
             marks: BTreeSet::new(),
             overdue_expanded: false,
+            tomorrow: (0, 0),
             context: None,
             filter: String::new(),
             classic: false,

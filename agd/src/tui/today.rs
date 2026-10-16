@@ -364,10 +364,7 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
         }
     }
     if app.rows.is_empty() {
-        items.push(ListItem::new(Line::from(Span::styled(
-            empty_message(app),
-            theme.muted(),
-        ))));
+        items.extend(empty_message(app).into_iter().map(ListItem::new));
     }
     let total = items.len();
     let mut state = ListState::default().with_selected(selected_line);
@@ -394,11 +391,65 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
     }
 }
 
-fn empty_message(app: &App) -> String {
+/// Why a list is empty, most fundamental reason first: no files at all,
+/// then a filter that matches nothing, then the screen's own state.
+pub(super) fn empty_message(app: &App) -> Vec<Line<'static>> {
+    let theme = &app.theme;
+    let muted = |text: String| Line::from(Span::styled(text, theme.muted()));
+    if app.index.documents().next().is_none() {
+        let root = app
+            .settings
+            .roots
+            .first()
+            .map_or(String::new(), |root| home_relative(root));
+        // Two lines, so a long root does not push the advice out of view.
+        return vec![
+            Line::from(format!("No .org files under {root} yet —")),
+            Line::from(vec![
+                Span::raw("press "),
+                Span::styled("c", theme.strong(theme.accent)),
+                Span::raw(" to capture your first task"),
+            ]),
+        ];
+    }
+    if !app.filter.is_empty() {
+        return vec![muted(format!(
+            "Nothing matches /{} · esc clears",
+            app.filter
+        ))];
+    }
+    if let Some(context) = &app.context {
+        return vec![muted(format!(
+            "Nothing in {context} · < shows the next category"
+        ))];
+    }
     match app.screen {
-        Screen::Today => format!("Nothing scheduled today. {} in inbox.", app.counts.inbox),
-        Screen::Inbox => "Inbox is empty.".to_string(),
-        _ => "Nothing here.".to_string(),
+        Screen::Today if app.day == app.today => {
+            let (scheduled, due) = app.tomorrow;
+            vec![
+                Line::from(Span::styled(
+                    "All clear for today.",
+                    theme.strong(theme.done),
+                )),
+                muted(format!("Tomorrow: {scheduled} scheduled, {due} due")),
+            ]
+        }
+        Screen::Today => vec![muted(format!(
+            "Nothing on {}.",
+            app.day.format("%a %-d %b")
+        ))],
+        Screen::Inbox => vec![muted("Inbox is empty.".to_string())],
+        _ => vec![muted("Nothing here.".to_string())],
+    }
+}
+
+/// A path with the home directory written as `~`.
+fn home_relative(path: &str) -> String {
+    match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() && path.starts_with(&home) => {
+            format!("~{}", &path[home.len()..])
+        }
+        _ => path.to_string(),
     }
 }
 

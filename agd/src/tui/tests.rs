@@ -1342,6 +1342,47 @@ blocks = [{ kind = "alltodo" }]"#,
 
 #[test]
 #[serial]
+fn empty_lists_say_why_they_are_empty() {
+    with_home(|root| {
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 100, 20).join("\n");
+        assert!(screen.contains("No .org files under"), "{screen}");
+        assert!(
+            screen.contains("press c to capture your first task"),
+            "{screen}"
+        );
+
+        // Nothing today; tomorrow one scheduled task and one deadline
+        // without a warning period.
+        fs::write(
+            root.join("work.org"),
+            "* TODO Later\nSCHEDULED: <2026-10-14 Wed>\n* TODO Filing\nDEADLINE: <2026-10-14 Wed -0d>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.filter = "zzz".to_string();
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 100, 20).join("\n");
+        assert!(
+            screen.contains("Nothing matches /zzz · esc clears"),
+            "{screen}"
+        );
+
+        app.filter.clear();
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 100, 20).join("\n");
+        assert!(screen.contains("All clear for today."), "{screen}");
+        assert!(screen.contains("Tomorrow: 1 scheduled, 1 due"), "{screen}");
+
+        app.switch_screen(Screen::Review).unwrap();
+        let screen = render(&mut app, 100, 20).join("\n");
+        assert!(screen.contains("No agent changes to review."), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {
