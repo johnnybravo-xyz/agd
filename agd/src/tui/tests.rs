@@ -975,6 +975,32 @@ fn the_priority_prompt_refuses_values_outside_the_range() {
 
 #[test]
 #[serial]
+fn cancel_uses_the_last_done_keyword_of_the_files_workflow() {
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(
+            &path,
+            "#+TODO: TODO | FINISHED DROPPED\n* TODO Old plan\nSCHEDULED: <2026-10-13 Tue>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.cancel().unwrap();
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains("* DROPPED Old plan"), "{written}");
+
+        let single = "#+TODO: TODO | DONE\n* TODO Plan\nSCHEDULED: <2026-10-13 Tue>\n";
+        fs::write(&path, single).unwrap();
+        app.index.refresh_path(&path).unwrap();
+        app.reload_rows().unwrap();
+        let error = app.cancel().unwrap_err().to_string();
+        assert!(error.contains("no cancel state, only DONE"), "{error}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), single);
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {

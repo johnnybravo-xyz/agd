@@ -234,16 +234,23 @@ impl App {
         self.set_state(&next)
     }
 
-    /// `X` in the lists, `k` in triage: the file's done keyword whose name
-    /// starts with CANCEL (CANCELLED or CANCELED).
+    /// `X`: the last done keyword of the item's own sequence, as in
+    /// `TODO | DONE CANCELLED` or `TODO | FINISHED DROPPED`. With a single
+    /// done keyword the workflow has no cancel state, and `x` is done.
     pub(super) fn cancel(&mut self) -> Result<()> {
-        let state = self
+        let done: Vec<String> = self
             .selected_keywords()
             .into_iter()
-            .find(|(keyword, done)| *done && keyword.starts_with("CANCEL"));
-        match state {
-            Some((state, _)) => self.set_state(&state),
-            None => bail!("no CANCELLED/CANCELED state in this file's TODO keywords"),
+            .filter(|(_, done)| *done)
+            .map(|(keyword, _)| keyword)
+            .collect();
+        match done.as_slice() {
+            [_, .., last] => {
+                let last = last.clone();
+                self.set_state(&last)
+            }
+            [only] => bail!("this file's workflow has no cancel state, only {only} (x)"),
+            [] => bail!("this file's workflow has no done state"),
         }
     }
 
