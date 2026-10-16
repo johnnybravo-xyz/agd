@@ -622,8 +622,12 @@ fn row_line(app: &App, index: usize, columns: &RowColumns) -> Line<'static> {
         priority.push(Span::raw(" "));
         priority.extend(theme.pill(letter.clone(), theme.due));
     }
-    let tags = (columns.wide && !item.tags.is_empty())
-        .then(|| Span::styled(format!("  #{}", item.tags.join(" #")), theme.muted()));
+    let tags = (columns.wide && !item.tags.is_empty()).then(|| {
+        Span::styled(
+            format!("  {}", crate::words::tags(&item.tags)),
+            theme.muted(),
+        )
+    });
     let used = span_width(&spans);
     spans.extend(fit_row(
         columns.width,

@@ -627,8 +627,9 @@ fn chips(theme: &Theme, draft: Option<CaptureDraft>, today: NaiveDate) -> Vec<Sp
         spans.extend(theme.pill(format!("scheduled {}", date(&scheduled.date)), theme.accent));
         spans.push(Span::raw("  "));
     }
+    // `+work` is typed; the chip shows the tag as every list does.
     for tag in &draft.tags {
-        spans.extend(theme.pill(format!("+{tag}"), theme.muted));
+        spans.extend(theme.pill(crate::words::tag(tag), theme.muted));
         spans.push(Span::raw("  "));
     }
     if let Some(priority) = &draft.priority {

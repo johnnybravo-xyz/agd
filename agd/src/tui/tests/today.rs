@@ -1094,6 +1094,40 @@ fn the_header_shows_triage_as_a_tab_and_alerts_in_accent() {
 
 #[test]
 #[serial]
+fn peek_shows_the_headings_own_tags_then_the_inherited_ones_muted() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* Project :infra:\n** TODO Rotate certs :ops:\nSCHEDULED: <2026-10-13 Tue>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(Some("truecolor"));
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char(' '));
+        let buffer = render_buffer(&mut app, 120, 30);
+        let y = row_of(&buffer, "Tags");
+        let line: String = (0..120).map(|x| buffer[(x, y)].symbol()).collect();
+        assert!(line.contains("#ops #infra"), "{line}");
+        assert!(!line.contains('↑'), "{line}");
+        assert_eq!(
+            buffer[(column_of(&buffer, y, "#ops"), y)].fg,
+            app.theme.text
+        );
+        assert_eq!(
+            buffer[(column_of(&buffer, y, "#infra"), y)].fg,
+            app.theme.muted
+        );
+        // The row names the heading's own tags, as words::tags writes them.
+        let y = row_of(&buffer, "TODO Rotate certs");
+        let row: String = (0..120).map(|x| buffer[(x, y)].symbol()).collect();
+        assert!(row.contains("#ops"), "{row}");
+    });
+}
+
+#[test]
+#[serial]
 fn the_peek_overlay_says_when_and_keeps_its_keys_at_80_by_24() {
     use crossterm::event::KeyCode;
     use ratatui::style::Modifier;

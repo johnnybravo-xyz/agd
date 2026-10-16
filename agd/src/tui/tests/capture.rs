@@ -26,6 +26,14 @@ fn capture_preview_is_the_exact_text_that_will_be_written() {
         // Tags align to tags_column, as an edit writes them.
         assert!(screen.contains("TODO [#A] Renew passport"), "{screen}");
         assert!(screen.contains(":personal:"), "{screen}");
+        // `+personal` is what is typed; its chip shows the tag as lists do.
+        let lines = render(&mut app, 100, 30);
+        let chips = lines
+            .iter()
+            .find(|line| line.contains("deadline Fri 16 Oct"))
+            .unwrap_or_else(|| panic!("{screen}"));
+        assert!(chips.contains(" #personal "), "{chips}");
+        assert!(!chips.contains("+personal"), "{chips}");
         assert!(screen.contains("DEADLINE: <2026-10-16 Fri>"), "{screen}");
         // Chips name the month, and the year when it is not this one.
         assert!(screen.contains("deadline Fri 16 Oct"), "{screen}");

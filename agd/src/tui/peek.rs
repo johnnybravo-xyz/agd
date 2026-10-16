@@ -251,13 +251,20 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
             Span::styled(priority.clone(), theme.strong(theme.due)),
         ]));
     }
+    // The heading's own tags, then those it inherits, muted.
     if !item.tags.is_empty() || !item.inherited_tags.is_empty() {
         let mut spans = vec![label("Tags")];
-        for tag in &item.tags {
-            spans.push(Span::styled(format!("{tag} "), theme.muted()));
+        if !item.tags.is_empty() {
+            spans.push(Span::styled(
+                format!("{} ", crate::words::tags(&item.tags)),
+                theme.fg(theme.text),
+            ));
         }
-        for tag in &item.inherited_tags {
-            spans.push(Span::styled(format!("{tag}↑ "), theme.muted()));
+        if !item.inherited_tags.is_empty() {
+            spans.push(Span::styled(
+                crate::words::tags(&item.inherited_tags),
+                theme.muted(),
+            ));
         }
         lines.push(Line::from(spans));
     }

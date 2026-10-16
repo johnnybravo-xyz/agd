@@ -6,6 +6,7 @@
 //! - a countdown is `in 3d`, an age `12d`, a missed deadline `-2d`;
 //! - a change is `<file:line or N items>  <change> · <title>`, which the
 //!   TUI ends with ` · u undo` while it can be undone;
+//! - a tag is `#work` (`tag`), wherever one is drawn;
 //! - an error is a sentence without its code (codes are for JSON).
 //!
 //! Org's own text (the org-agenda layout, `--csv`, JSON) is never reworded.
@@ -44,6 +45,22 @@ pub fn location(file: &str, line: usize, roots: &[PathBuf]) -> String {
         .find_map(|root| path.strip_prefix(root).ok())
         .unwrap_or(path);
     format!("{}:{line}", relative.display())
+}
+
+/// A tag as agd shows it: `#work`. Every tag drawn goes through here, so
+/// its notation lives in one place; `+work` is only what capture and the
+/// tags prompt take as input.
+pub fn tag(name: &str) -> String {
+    format!("#{name}")
+}
+
+/// Tags as agd shows them, one space apart: `#work #ops`.
+pub fn tags(names: &[String]) -> String {
+    names
+        .iter()
+        .map(|name| tag(name))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// `<location>  <change> · <title>`, the one shape of every change line.
@@ -115,6 +132,13 @@ mod tests {
         assert_eq!(day(date("2027-01-04"), today), "Mon 4 Jan 2027");
         assert_eq!(when("2026-10-16", Some("14:00"), today), "Fri 16 Oct 14:00");
         assert_eq!(when("someday", None, today), "someday");
+    }
+
+    #[test]
+    fn tags_read_one_way() {
+        assert_eq!(tag("work"), "#work");
+        assert_eq!(tags(&["work".to_string(), "ops".to_string()]), "#work #ops");
+        assert_eq!(tags(&[]), "");
     }
 
     #[test]
