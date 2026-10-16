@@ -78,6 +78,7 @@ pub struct OrgDocument {
     todo_done: Vec<String>,
     todo_keywords: Vec<TodoKeyword>,
     logging: LogSettings,
+    priorities: PriorityRange,
     file_tags: Vec<String>,
     file_category: String,
 }
@@ -99,6 +100,59 @@ pub struct TodoKeyword {
     pub sequence: usize,
     pub log_enter: Option<LogKind>,
     pub log_leave: Option<LogKind>,
+}
+
+/// A file's priority cookies, highest to lowest, and the priority of a
+/// heading without one: `#+PRIORITIES: A C B` (org-priority-highest,
+/// -lowest and -default), else the configured range.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PriorityRange {
+    pub highest: char,
+    pub lowest: char,
+    pub default: char,
+}
+
+impl PriorityRange {
+    /// The configured range (`highest_priority`, `lowest_priority`,
+    /// `default_priority`).
+    pub fn from_settings(settings: &Settings) -> Self {
+        let first = |value: &str, fallback: char| value.chars().next().unwrap_or(fallback);
+        Self {
+            highest: first(&settings.highest_priority, 'A'),
+            lowest: first(&settings.lowest_priority, 'C'),
+            default: first(&settings.default_priority, 'B'),
+        }
+    }
+
+    /// Whether `priority` is one cookie character within the range.
+    pub fn contains(&self, priority: &str) -> bool {
+        let mut characters = priority.chars();
+        match (characters.next(), characters.next()) {
+            (Some(value), None) => (self.highest..=self.lowest).contains(&value),
+            _ => false,
+        }
+    }
+
+    /// Every cookie from highest to lowest, as `[A, B, C]`.
+    pub fn cookies(&self) -> Vec<String> {
+        (self.highest..=self.lowest)
+            .map(|value| value.to_string())
+            .collect()
+    }
+
+    /// Org's numeric priority (org-get-priority): 1000 for each step above
+    /// the lowest cookie, a heading without one counting as the default.
+    pub fn value(&self, priority: Option<&str>) -> i64 {
+        let cookie = priority
+            .and_then(|value| value.chars().next())
+            .unwrap_or(self.default);
+        1000 * (self.lowest as i64 - cookie as i64)
+    }
+
+    /// `A–C`, for messages.
+    pub fn describe(&self) -> String {
+        format!("{}–{}", self.highest, self.lowest)
+    }
 }
 
 /// Effective logging for one file: configuration overridden by `#+STARTUP`.
@@ -184,6 +238,7 @@ impl OrgDocument {
             .map(|keyword| keyword.name.clone())
             .collect();
         let logging = log_settings(&source, settings);
+        let priorities = priority_range(&source, settings);
         let file_tags = directive(&source, "FILETAGS")
             .map(parse_colon_tags)
             .unwrap_or_default();
@@ -232,6 +287,7 @@ impl OrgDocument {
             todo_done,
             todo_keywords,
             logging,
+            priorities,
             file_tags,
             file_category,
         })
@@ -279,6 +335,11 @@ impl OrgDocument {
 
     pub fn logging(&self) -> LogSettings {
         self.logging
+    }
+
+    /// This file's priority range: `#+PRIORITIES`, else the configured one.
+    pub fn priorities(&self) -> PriorityRange {
+        self.priorities
     }
 
     pub fn file_tags(&self) -> &[String] {
@@ -1058,6 +1119,39 @@ fn log_settings(source: &str, settings: &Settings) -> LogSettings {
     logging
 }
 
+/// `#+PRIORITIES: highest lowest default`, each one cookie character with
+/// highest before lowest; anything else keeps the configured range.
+fn priority_range(source: &str, settings: &Settings) -> PriorityRange {
+    let configured = PriorityRange::from_settings(settings);
+    let Some(value) = directive(source, "PRIORITIES") else {
+        return configured;
+    };
+    let cookies: Vec<char> = value
+        .split_whitespace()
+        .filter_map(|token| {
+            let mut characters = token.chars();
+            match (characters.next(), characters.next()) {
+                (Some(cookie), None) if cookie.is_ascii_alphanumeric() => Some(cookie),
+                _ => None,
+            }
+        })
+        .collect();
+    match cookies.as_slice() {
+        [highest, lowest, default]
+            if value.split_whitespace().count() == 3
+                && highest <= lowest
+                && (highest..=lowest).contains(&default) =>
+        {
+            PriorityRange {
+                highest: *highest,
+                lowest: *lowest,
+                default: *default,
+            }
+        }
+        _ => configured,
+    }
+}
+
 fn directives<'a>(source: &'a str, names: &'a [&str]) -> impl Iterator<Item = &'a str> {
     source.lines().filter_map(move |line| {
         let (key, value) = line.strip_prefix("#+")?.split_once(':')?;
@@ -1395,6 +1489,45 @@ mod tests {
         .unwrap();
         index.refresh_path(&tasks).unwrap();
         assert_eq!(index.items().next().unwrap().item_ref, "dup-id-1");
+    }
+
+    #[test]
+    fn in_file_priorities_override_the_configured_range() {
+        let parse = |source: &str| {
+            OrgDocument::parse(
+                PathBuf::from("/tmp/p.org"),
+                source.as_bytes().to_vec(),
+                &Settings::default(),
+            )
+            .unwrap()
+            .priorities()
+        };
+        let in_file = parse("#+PRIORITIES: A E C\n* TODO [#E] Low\n");
+        assert_eq!(
+            in_file,
+            PriorityRange {
+                highest: 'A',
+                lowest: 'E',
+                default: 'C'
+            }
+        );
+        assert!(in_file.contains("E"));
+        assert!(!in_file.contains("F"));
+        assert_eq!(in_file.value(None), in_file.value(Some("C")));
+        assert!(in_file.value(Some("A")) > in_file.value(Some("E")));
+        let numeric = parse("#+PRIORITIES: 1 5 3\n");
+        assert_eq!(numeric.cookies(), ["1", "2", "3", "4", "5"]);
+        // Malformed lines keep the configured A-C, default B.
+        for source in [
+            "#+PRIORITIES: C A B\n",
+            "#+PRIORITIES: A C\n",
+            "#+PRIORITIES: 1 10 5\n",
+        ] {
+            assert_eq!(
+                parse(source),
+                PriorityRange::from_settings(&Settings::default())
+            );
+        }
     }
 
     #[test]

@@ -21,8 +21,8 @@ pub use date::{
     parse_capture_line, parse_date_input, render_capture_template,
 };
 pub use document::{
-    ByteSpan, HeadlineSpan, LogKind, LogSettings, OrgDocument as IndexedDocument, PropertySpan,
-    SourceLine, TimestampSpan, TodoKeyword, WorkspaceIndex, parse_timestamp,
+    ByteSpan, HeadlineSpan, LogKind, LogSettings, OrgDocument as IndexedDocument, PriorityRange,
+    PropertySpan, SourceLine, TimestampSpan, TodoKeyword, WorkspaceIndex, parse_timestamp,
 };
 pub use imports::{
     ConfigEditor, ConfigSources, ImportDiagnostic, ImportResult, ImportStatus, ImportedCapture,

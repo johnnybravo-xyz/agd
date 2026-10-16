@@ -489,3 +489,21 @@ fn shift_x_cancels_with_the_files_own_keyword() {
         );
     });
 }
+
+#[test]
+#[serial]
+fn priority_keys_step_through_the_files_own_range() {
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(
+            &path,
+            "#+PRIORITIES: A E C\n* TODO [#D] Low\nSCHEDULED: <2026-10-13 Tue>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.shift_priority(false).unwrap();
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains("* TODO [#E] Low"), "{written}");
+    });
+}

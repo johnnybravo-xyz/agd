@@ -67,13 +67,8 @@ impl EditForm {
                 .into_iter()
                 .map(|(keyword, _)| keyword),
         );
-        let letter = |value: &str| value.chars().next().unwrap_or('A');
-        let (highest, lowest) = (
-            letter(&app.settings.highest_priority),
-            letter(&app.settings.lowest_priority),
-        );
         let mut priorities = vec![String::new()];
-        priorities.extend((highest..=lowest).map(|letter| letter.to_string()));
+        priorities.extend(app.priority_range(item).cookies());
         Some(Self {
             item_ref: item.item_ref.clone(),
             location: app.short_location(item),

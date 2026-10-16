@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use agd_core::{
-    Change, EditIntent, JournalStatus, PlanningTimestamp, WriteEngine, parse_date_input,
+    Change, EditIntent, Item, JournalStatus, PlanningTimestamp, PriorityRange, WriteEngine,
+    parse_date_input,
 };
 use anyhow::{Result, bail};
 use chrono::{Duration, NaiveDate};
@@ -152,6 +153,14 @@ impl App {
             .collect()
     }
 
+    /// The priority range of the item's file.
+    pub(super) fn priority_range(&self, item: &Item) -> PriorityRange {
+        self.index.document(Path::new(&item.file)).map_or_else(
+            || PriorityRange::from_settings(&self.settings),
+            |document| document.priorities(),
+        )
+    }
+
     fn is_done_keyword(&self, state: &str) -> bool {
         self.selected_row()
             .and_then(|row| self.index.document(Path::new(&row.item.file)))
@@ -210,27 +219,24 @@ impl App {
         )
     }
 
-    /// `+`/`-`: raise or lower priority within the configured range, as
-    /// org-agenda's priority-up and priority-down.
+    /// `+`/`-`: raise or lower priority within the file's range
+    /// (`#+PRIORITIES`, else the configured one), as org-agenda's
+    /// priority-up and priority-down.
     pub(super) fn shift_priority(&mut self, up: bool) -> Result<()> {
         let Some(row) = self.selected_row() else {
             return Ok(());
         };
-        let agenda = &self.settings;
-        let letter = |value: &str| value.chars().next().unwrap_or('B');
-        let (highest, lowest) = (
-            letter(&agenda.highest_priority),
-            letter(&agenda.lowest_priority),
-        );
+        let range = self.priority_range(&row.item);
         let current = row
             .item
             .priority
             .as_deref()
-            .map_or(letter(&agenda.default_priority), letter);
+            .and_then(|value| value.chars().next())
+            .unwrap_or(range.default);
         let next = if up {
-            (current as u8).saturating_sub(1).max(highest as u8) as char
+            (current as u8).saturating_sub(1).max(range.highest as u8) as char
         } else {
-            (current as u8 + 1).min(lowest as u8) as char
+            (current as u8 + 1).min(range.lowest as u8) as char
         };
         self.edit_targets(
             EditIntent {
