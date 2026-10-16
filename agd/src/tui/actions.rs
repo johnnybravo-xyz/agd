@@ -304,7 +304,7 @@ impl App {
                     .resolve(only)
                     .ok()
                     .and_then(|(_, headline)| headline.item.todo.clone())
-                    .unwrap_or_else(|| "·".to_string());
+                    .unwrap_or_else(|| "—".to_string());
                 format!("{from} → {state}")
             }
             _ => format!("→ {state}"),

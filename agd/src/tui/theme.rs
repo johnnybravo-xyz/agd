@@ -39,10 +39,19 @@
 //! (and, under NO_COLOR, the cursor row, which cannot be tinted); no
 //! italics.
 //!
-//! Glyphs: ▌ selection and focus, ▸ next, ✓ done (only where the keyword
-//! is hidden), ↻ repeat, ● agent, * bulk mark, → destination or new state,
-//! › breadcrumb and prompt, ↗ link, … truncation. Nerd Font caps only
+//! Glyphs, each for one meaning, and no others: ▌ selection and focus, ▸
+//! next, ✓ done (only where the keyword is hidden), ↻ repeat, ● agent, *
+//! mark, → destination or new state, › breadcrumb and prompt, ↗ link, …
+//! truncation, · separator, — none (an empty field, no keyword), ✗ error,
+//! ↳ nudge, • a changed field, ▏ the text cursor, │ ┃ a scrollbar's track
+//! and thumb (│ also divides the footer), ━ ─ the gauge (─ also rules off
+//! peek's body), and ⏎ ↑ ↓ ← → only in key names. Nerd Font caps only
 //! decorate pills; no width depends on them.
+//!
+//! The CLI's terminal colours (`agd agenda` on a terminal) are a subset in
+//! the 16 colours, on Org's own text: day headers bold and today's also
+//! underlined, categories and tags faint, lateness red, deadlines yellow,
+//! done rows faint.
 
 use std::io::{IsTerminal, Write};
 use std::time::{Duration, Instant};

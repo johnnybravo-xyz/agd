@@ -119,6 +119,24 @@ fn refused_write_reports_the_error_and_keeps_rows() {
 
 #[test]
 #[serial]
+fn a_heading_without_a_keyword_reads_as_none_with_one_glyph() {
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.selected = app
+            .rows
+            .iter()
+            .position(|row| row.item.title == "Compare jiff and chrono")
+            .unwrap();
+        app.cycle_state().unwrap();
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert!(status.contains("  — → TODO · Compare jiff"), "{status}");
+    });
+}
+
+#[test]
+#[serial]
 fn the_status_line_is_green_only_for_a_finished_write() {
     with_home(|root| {
         fs::write(root.join("work.org"), THREE_TODAY).unwrap();
