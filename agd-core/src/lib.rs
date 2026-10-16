@@ -96,8 +96,7 @@ pub use agenda::{
 pub use capture_line::{CaptureDraft, parse_capture_line};
 pub use capture_template::{CapturePrompt, capture_prompts, render_capture_template};
 pub use check::{
-    CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError, IndexedHeadline,
-    OrgDocument, SourceSpan, check_paths, check_settings, journal_problems,
+    CheckFileReport, CheckProblem, CheckReport, CheckSummary, check_settings, journal_problems,
 };
 pub use config::{
     AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, LogMode, SORTING_KEYS,
