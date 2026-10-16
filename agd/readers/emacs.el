@@ -229,6 +229,11 @@ then deferred, each in file order."
         ((characterp value) (char-to-string value))
         (t (format "%S" value))))
 
+(defun agd--priority (value)
+  "A priority as agd writes it: a letter, or a number when Org's priorities
+are numeric (below ?A)."
+  (if (< value ?A) (number-to-string value) (char-to-string value)))
+
 (defun agd--strings (values)
   (vconcat (mapcar (lambda (value) (agd--string (if (consp value) (car value) value)))
                    (seq-filter (lambda (value) (not (keywordp (if (consp value) (car value) value))))
@@ -642,9 +647,9 @@ DESCRIPTION) entry only labels a prefix key, and is skipped."
        (persistent_tags . ,(agd--strings org-tag-persistent-alist))
        (tags_column . ,org-tags-column)
        (tag_inheritance_exclusions . ,(agd--strings org-tags-exclude-from-inheritance))
-       (highest_priority . ,(char-to-string org-priority-highest))
-       (lowest_priority . ,(char-to-string org-priority-lowest))
-       (default_priority . ,(char-to-string org-priority-default))
+       (highest_priority . ,(agd--priority org-priority-highest))
+       (lowest_priority . ,(agd--priority org-priority-lowest))
+       (default_priority . ,(agd--priority org-priority-default))
        (deadline_warning_days . ,org-deadline-warning-days)
        (agenda_span . ,(agd--string org-agenda-span))
        (agenda_start_day . ,org-agenda-start-day)

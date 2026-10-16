@@ -464,6 +464,13 @@ pub fn apply_import(
         settings.views = base.views.clone();
     }
 
+    // The written config must load; only its roots may not exist yet.
+    crate::settings::validate_values(&settings).map_err(|error| {
+        AgdError::new(
+            "unsupported_import_shape",
+            format!("the imported settings would not load: {error}"),
+        )
+    })?;
     Ok(ImportResult {
         settings,
         diagnostics,
@@ -580,18 +587,6 @@ fn validate_resolved(resolved: &ResolvedEditorConfig) -> Result<(), AgdError> {
             "unsupported_import_shape",
             "editor returned no usable TODO sequence",
         ));
-    }
-    for (name, value) in [
-        ("highest priority", &resolved.highest_priority),
-        ("lowest priority", &resolved.lowest_priority),
-        ("default priority", &resolved.default_priority),
-    ] {
-        if value.chars().count() != 1 {
-            return Err(AgdError::new(
-                "unsupported_import_shape",
-                format!("{name} must be one character"),
-            ));
-        }
     }
     Ok(())
 }
@@ -743,6 +738,30 @@ mod tests {
         let rendered = crate::render_config(settings, "logs").unwrap();
         assert!(rendered.contains("log_done = \"off\"\n"), "{rendered}");
         assert!(!rendered.contains("nil"), "{rendered}");
+    }
+
+    #[test]
+    fn numeric_priorities_import_and_a_config_that_would_not_load_is_refused() {
+        let resolved = resolved_with(serde_json::json!({
+            "highest_priority": "1", "default_priority": "3", "lowest_priority": "5"
+        }));
+        let result = apply_import(&resolved, &Settings::default(), false).unwrap();
+        assert_eq!(
+            [
+                result.settings.highest_priority.as_str(),
+                &result.settings.default_priority,
+                &result.settings.lowest_priority
+            ],
+            ["1", "3", "5"]
+        );
+
+        let resolved = resolved_with(serde_json::json!({ "deadline_warning_days": -1 }));
+        let error = apply_import(&resolved, &Settings::default(), false).unwrap_err();
+        assert_eq!(error.code(), "unsupported_import_shape");
+        assert_eq!(
+            error.to_string(),
+            "the imported settings would not load: deadline_warning_days must be 0 or more, not -1"
+        );
     }
 
     #[test]

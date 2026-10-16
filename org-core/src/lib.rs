@@ -36,7 +36,7 @@ pub use paths::RootSet;
 pub use settings::{
     AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, LogMode, SORTING_KEYS,
     Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, WeekStart,
-    default_config_path, load_settings, parse_config_file, render_config,
+    default_config_path, load_settings, parse_agenda_day, parse_config_file, render_config,
 };
 pub use write::{
     Change, EditIntent, JournalRecord, JournalStatus, Patch, RefileResult, StoredPatch, UndoResult,

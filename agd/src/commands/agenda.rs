@@ -3,9 +3,9 @@ use std::path::Path;
 use agd_core::{
     AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalStatus, Settings, ViewSection,
     WorkspaceIndex, WriteEngine, agenda_csv, agenda_title, items_csv, keyword_colors,
-    load_settings, parse_date_input,
+    load_settings, parse_agenda_day,
 };
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use chrono::{Datelike, Duration, Local, NaiveDate};
 use clap::Args;
 
@@ -84,7 +84,7 @@ impl AgendaCommand {
         }
         let start = match self.from {
             Some(value) => parse_day(&value, today)?,
-            None => default_start(&settings, today)?,
+            None => settings.agenda_start(today)?,
         };
         if let Some(key) = self.view.as_deref() {
             let key = if key.is_empty() {
@@ -371,18 +371,5 @@ pub fn load_index(settings: Settings) -> Result<WorkspaceIndex> {
 }
 
 fn parse_day(value: &str, today: NaiveDate) -> Result<NaiveDate> {
-    if let Some(days) = value.strip_prefix('-') {
-        let back = parse_date_input(&format!("+{days}"), today)?
-            .date
-            .parse::<NaiveDate>()?;
-        return Ok(today - (back - today));
-    }
-    Ok(parse_date_input(value, today)?.date.parse::<NaiveDate>()?)
-}
-
-fn default_start(settings: &Settings, today: NaiveDate) -> Result<NaiveDate> {
-    let Some(value) = settings.agenda_start_day.as_deref() else {
-        return Ok(today);
-    };
-    parse_day(value, today).with_context(|| format!("invalid agenda start_day: {value}"))
+    Ok(parse_agenda_day(value, today)?)
 }

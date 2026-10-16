@@ -6,10 +6,10 @@ use std::process::{Command, Output};
 use agd_core::{
     AgendaEngine, AgendaQuery, ConfigEditor, ConfigSources, ImportResult, ImportStatus,
     ResolvedEditorConfig, Settings, WorkspaceIndex, agenda_csv, apply_import, find_config_sources,
-    items_csv, parse_date_input, render_config,
+    items_csv, render_config,
 };
 use anyhow::{Context, Result, anyhow, bail};
-use chrono::{Duration, Local, NaiveDate};
+use chrono::Local;
 use similar::TextDiff;
 
 const EMACS_READER: &str = include_str!("../readers/emacs.el");
@@ -203,8 +203,11 @@ fn verify_import(
         return Vec::new();
     }
     let settings = result.settings.clone();
-    let index = match WorkspaceIndex::load(settings.clone()) {
-        Ok(index) => index,
+    let today = Local::now().date_naive();
+    let loaded = WorkspaceIndex::load(settings.clone())
+        .and_then(|index| Ok((index, settings.agenda_start(today)?)));
+    let (index, start) = match loaded {
+        Ok(loaded) => loaded,
         Err(error) => {
             return vec![VerificationResult {
                 status: ImportStatus::Unsupported,
@@ -215,8 +218,6 @@ fn verify_import(
         }
     };
     let engine = AgendaEngine::new(&index);
-    let today = Local::now().date_naive();
-    let start = verification_start(&settings, today);
     let (from, to) = settings.agenda_span.bounds(start, settings.week_start);
     let mut results = Vec::new();
     let native_default = engine
@@ -423,24 +424,6 @@ trait EmptyDefault {
 impl EmptyDefault for str {
     fn if_empty<'a>(&'a self, default: &'a str) -> &'a str {
         if self.is_empty() { default } else { self }
-    }
-}
-
-fn verification_start(settings: &Settings, today: NaiveDate) -> NaiveDate {
-    let Some(value) = settings.agenda_start_day.as_deref() else {
-        return today;
-    };
-    if let Some(days) = value
-        .strip_prefix('-')
-        .and_then(|value| value.strip_suffix('d'))
-        .and_then(|value| value.parse::<i64>().ok())
-    {
-        today - Duration::days(days)
-    } else {
-        parse_date_input(value, today)
-            .ok()
-            .and_then(|timestamp| timestamp.date.parse().ok())
-            .unwrap_or(today)
     }
 }
 

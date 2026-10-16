@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
 use crate::{AgdError, AgendaSpan};
@@ -348,6 +349,14 @@ fn strings(values: &[&str]) -> Vec<String> {
 }
 
 impl Settings {
+    /// The first agenda day: `agenda_start_day` from `today`, or today.
+    pub fn agenda_start(&self, today: NaiveDate) -> Result<NaiveDate, AgdError> {
+        match self.agenda_start_day.as_deref() {
+            Some(value) => parse_agenda_day(value, today),
+            None => Ok(today),
+        }
+    }
+
     pub fn capture_template(&self, key: &str) -> Option<&CaptureTemplate> {
         self.captures.iter().find(|template| template.key == key)
     }
@@ -449,6 +458,92 @@ where
             ))),
         })
         .collect()
+}
+
+/// A priority cookie's value: Org takes the letters A–Z, or the numbers
+/// 0–64 when org-priority-highest is below ?A.
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+enum PriorityValue {
+    Letter(char),
+    Number(u8),
+}
+
+fn priority_value(value: &str) -> Option<PriorityValue> {
+    let mut chars = value.chars();
+    if let (Some(letter @ 'A'..='Z'), None) = (chars.next(), chars.next()) {
+        return Some(PriorityValue::Letter(letter));
+    }
+    value
+        .parse::<u8>()
+        .ok()
+        .filter(|number| *number <= 64 && number.to_string() == value)
+        .map(PriorityValue::Number)
+}
+
+/// The three priorities are all letters or all numbers, and run from the
+/// highest (A, or the smallest number) through the default to the lowest.
+fn validate_priorities(settings: &Settings) -> Result<(), AgdError> {
+    let mut values = Vec::new();
+    for (key, value) in [
+        ("highest_priority", &settings.highest_priority),
+        ("default_priority", &settings.default_priority),
+        ("lowest_priority", &settings.lowest_priority),
+    ] {
+        values.push(priority_value(value).ok_or_else(|| {
+            config_error(format!(
+                "{key} must be a letter A-Z or a number 0-64, not \"{value}\""
+            ))
+        })?);
+    }
+    let [highest, default, lowest] = [values[0], values[1], values[2]];
+    let kind = std::mem::discriminant;
+    if kind(&highest) != kind(&default) || kind(&default) != kind(&lowest) {
+        return Err(config_error(
+            "highest_priority, default_priority and lowest_priority must be all letters or all numbers",
+        ));
+    }
+    if highest > default || default > lowest {
+        return Err(config_error(format!(
+            "priorities must run highest, default, lowest, as A, B, C or 1, 2, 3; not {}, {}, {}",
+            settings.highest_priority, settings.default_priority, settings.lowest_priority
+        )));
+    }
+    Ok(())
+}
+
+/// agenda_start_day parses and deadline_warning_days is not negative.
+fn validate_agenda_days(settings: &Settings) -> Result<(), AgdError> {
+    if let Some(value) = &settings.agenda_start_day
+        && parse_agenda_day(value, chrono::Local::now().date_naive()).is_err()
+    {
+        return Err(config_error(format!(
+            "agenda_start_day \"{value}\" is not a day; use a date such as 2026-10-13 or an offset such as -1d or +2w"
+        )));
+    }
+    if settings.deadline_warning_days < 0 {
+        return Err(config_error(format!(
+            "deadline_warning_days must be 0 or more, not {}",
+            settings.deadline_warning_days
+        )));
+    }
+    Ok(())
+}
+
+/// A day as org-agenda-start-day and `agd agenda --from` take it: a date,
+/// an offset from `today` such as -1d or +2w, or what `parse_date_input`
+/// reads, such as "fri".
+pub fn parse_agenda_day(value: &str, today: NaiveDate) -> Result<NaiveDate, AgdError> {
+    let date = |timestamp: crate::PlanningTimestamp| {
+        timestamp
+            .date
+            .parse::<NaiveDate>()
+            .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {value}")))
+    };
+    if let Some(offset) = value.strip_prefix('-') {
+        let ahead = date(crate::parse_date_input(&format!("+{offset}"), today)?)?;
+        return Ok(today - (ahead - today));
+    }
+    date(crate::parse_date_input(value, today)?)
 }
 
 /// Each `todo_keywords` line needs a keyword and at most one `|`.
@@ -665,11 +760,17 @@ fn render_key(key: &str, value: &toml::Value) -> String {
 }
 
 fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
-    if settings.roots.is_empty() {
+    validate_roots(&settings.roots)?;
+    validate_values(settings)
+}
+
+/// Every root resolves to a distinct directory.
+fn validate_roots(roots: &[String]) -> Result<(), AgdError> {
+    if roots.is_empty() {
         return Err(config_error("roots must contain at least one directory"));
     }
-    let mut roots = BTreeSet::new();
-    for root in &settings.roots {
+    let mut canonical_roots = BTreeSet::new();
+    for root in roots {
         let expanded = shellexpand::tilde(root).into_owned();
         let canonical = PathBuf::from(&expanded)
             .canonicalize()
@@ -677,11 +778,19 @@ fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
         if !canonical.is_dir() {
             return Err(config_error(format!("root is not a directory: {root}")));
         }
-        if !roots.insert(canonical) {
+        if !canonical_roots.insert(canonical) {
             return Err(config_error(format!("duplicate root: {root}")));
         }
     }
+    Ok(())
+}
+
+/// Every check but the roots' existence, so an import can check the config
+/// it writes before its roots exist.
+pub(crate) fn validate_values(settings: &Settings) -> Result<(), AgdError> {
     validate_todo_keywords(&settings.todo_keywords)?;
+    validate_priorities(settings)?;
+    validate_agenda_days(settings)?;
     if settings.editor.is_empty() {
         return Err(config_error("editor needs at least the program to run"));
     }
@@ -1018,6 +1127,52 @@ mod tests {
                 "unknown variant `friday`, expected `monday` or `sunday`\n",
             )
         );
+    }
+
+    #[test]
+    fn priorities_are_letters_or_numbers_in_org_order() {
+        let numeric = load_body(
+            "highest_priority = \"1\"\ndefault_priority = \"3\"\nlowest_priority = \"64\"\n",
+        )
+        .unwrap();
+        assert_eq!(numeric.lowest_priority, "64");
+        assert!(load_body("lowest_priority = \"Z\"\n").is_ok());
+        assert_eq!(
+            load_error("highest_priority = \"a\"\n"),
+            "highest_priority must be a letter A-Z or a number 0-64, not \"a\""
+        );
+        assert_eq!(
+            load_error("lowest_priority = \"65\"\n"),
+            "lowest_priority must be a letter A-Z or a number 0-64, not \"65\""
+        );
+        assert_eq!(
+            load_error("lowest_priority = \"5\"\n"),
+            "highest_priority, default_priority and lowest_priority must be all letters or all numbers"
+        );
+        assert_eq!(
+            load_error("default_priority = \"D\"\n"),
+            "priorities must run highest, default, lowest, as A, B, C or 1, 2, 3; not A, D, C"
+        );
+    }
+
+    #[test]
+    fn agenda_start_day_parses_and_warning_days_are_not_negative() {
+        let settings = load_body("agenda_start_day = \"-1d\"\n").unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 10, 16).unwrap();
+        assert_eq!(
+            settings.agenda_start(today).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 10, 15).unwrap()
+        );
+        assert!(load_body("agenda_start_day = \"2026-10-01\"\n").is_ok());
+        assert_eq!(
+            load_error("agenda_start_day = \"yesterdayish\"\n"),
+            "agenda_start_day \"yesterdayish\" is not a day; use a date such as 2026-10-13 or an offset such as -1d or +2w"
+        );
+        assert_eq!(
+            load_error("deadline_warning_days = -3\n"),
+            "deadline_warning_days must be 0 or more, not -3"
+        );
+        assert!(load_body("deadline_warning_days = 0\n").is_ok());
     }
 
     #[test]
