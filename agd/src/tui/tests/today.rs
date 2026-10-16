@@ -495,6 +495,10 @@ fn star_marks_every_row_shown_and_leaves_folded_rows_out() {
         assert_eq!(fs::read_to_string(&path).unwrap(), FIVE_OVERDUE);
         press(&mut app, KeyCode::Char('U'));
         assert!(app.marks.is_empty());
+        // One marked row is one, in the bulk menu too.
+        type_keys(&mut app, "mB");
+        let screen = render(&mut app, 100, 20).join("\n");
+        assert!(screen.contains("Bulk · 1 marked row "), "{screen}");
     });
 }
 

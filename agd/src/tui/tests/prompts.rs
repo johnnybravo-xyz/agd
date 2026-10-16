@@ -206,6 +206,7 @@ fn the_filter_narrows_rows_as_you_type_and_esc_restores_them() {
         assert_eq!(app.rows[0].item.title, "Two");
         let screen = render(&mut app, 100, 20);
         assert!(screen.last().unwrap().starts_with("/tw"), "{screen:?}");
+        assert!(screen.last().unwrap().contains(" 1 row "), "{screen:?}");
         assert!(screen.join("\n").contains("Two"), "{screen:?}");
         press(&mut app, KeyCode::Esc);
         assert!(app.filter.is_empty());

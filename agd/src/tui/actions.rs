@@ -272,7 +272,7 @@ impl App {
     fn targets_location(&self, items: &[&Item]) -> String {
         match items {
             [item] => self.short_location(item),
-            _ => format!("{} items", items.len()),
+            _ => crate::commands::counted(items.len(), "item", "items"),
         }
     }
 

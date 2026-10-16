@@ -271,10 +271,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     if logged > 0 {
         lines.push(Line::from(vec![
             label("Logged"),
-            Span::raw(format!(
-                "{logged} change{}",
-                if logged == 1 { "" } else { "s" }
-            )),
+            Span::raw(crate::commands::counted(logged, "change", "changes")),
         ]));
     }
     if let Some(reason) = why_listed(

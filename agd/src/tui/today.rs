@@ -915,7 +915,7 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
             .map(|row| app.short_location(&row.item))
             .unwrap_or_default()
     } else {
-        format!("{} marked rows", app.marks.len())
+        marked_rows(app)
     };
     let title = if prompt.kind == PromptKind::Filter || target.is_empty() {
         title.to_string()
@@ -984,13 +984,21 @@ fn draw_filter_line(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, 
     let mut spans = vec![Span::styled("/", theme.strong(theme.accent))];
     spans.extend(prompt.input.spans(theme, true));
     spans.push(Span::styled(
-        format!("  {} rows  ", app.rows.len()),
+        format!(
+            "  {}  ",
+            crate::commands::counted(app.rows.len(), "row", "rows")
+        ),
         theme.muted(),
     ));
     spans.extend(theme.key_hint(popup_key(Action::Save), "keep"));
     spans.extend(theme.key_hint(popup_key(Action::Back), "restore"));
     frame.render_widget(Clear, row);
     frame.render_widget(Paragraph::new(Line::from(spans)), row);
+}
+
+/// `1 marked row`, `3 marked rows`.
+fn marked_rows(app: &App) -> String {
+    crate::commands::counted(app.marks.len(), "marked row", "marked rows")
 }
 
 /// A popup's key for `action`, from keys::POPUP_KEYS.
@@ -1021,7 +1029,7 @@ fn draw_bulk(frame: &mut Frame<'_>, app: &App, area: Rect) {
     // border + top padding, rows, border
     let popup = centered(area, 52, 2 + rows.len() as u16 + 1);
     frame.render_widget(Clear, popup);
-    let block = theme.popup(format!("Bulk · {} marked rows", app.marks.len()));
+    let block = theme.popup(format!("Bulk · {}", marked_rows(app)));
     frame.render_widget(Paragraph::new(rows).block(block), popup);
 }
 
