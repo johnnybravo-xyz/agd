@@ -141,6 +141,37 @@ impl RootSet {
         self.roots.iter().any(|root| path.starts_with(root))
     }
 
+    /// Whether discovery would list this canonical `.org` path as an agenda
+    /// file: an exact absolute entry, or a pattern matching it relative to
+    /// its root outside hidden directories (which the walk skips). Lets a
+    /// file created after the index loaded join it.
+    pub fn is_agenda_file(&self, canonical: &Path) -> Result<bool, AgdError> {
+        if canonical
+            .extension()
+            .is_none_or(|extension| extension != "org")
+        {
+            return Ok(false);
+        }
+        let mut relative_patterns = Vec::new();
+        for pattern in self.agenda_patterns() {
+            let path = Path::new(&pattern);
+            if !path.is_absolute() {
+                relative_patterns.push(pattern);
+            } else if path.canonicalize().is_ok_and(|exact| exact == canonical) {
+                return Ok(true);
+            }
+        }
+        if relative_patterns.is_empty() {
+            return Ok(false);
+        }
+        let matcher = build_globset(&relative_patterns)?;
+        Ok(self.roots.iter().any(|root| {
+            canonical
+                .strip_prefix(root)
+                .is_ok_and(|relative| !has_hidden_component(relative) && matcher.is_match(relative))
+        }))
+    }
+
     pub fn resolve_read(&self, requested: &Path) -> Result<PathBuf, AgdError> {
         reject_parent_segments(requested)?;
         if requested.is_absolute() {
@@ -413,7 +444,7 @@ fn reject_parent_segments(path: &Path) -> Result<(), AgdError> {
 
 /// `path` with its longest existing prefix canonicalized and the missing
 /// rest appended as written; for an existing path, its canonical form.
-fn resolve_existing_prefix(path: &Path) -> Result<PathBuf, AgdError> {
+pub(crate) fn resolve_existing_prefix(path: &Path) -> Result<PathBuf, AgdError> {
     let existing = nearest_existing(path)?;
     let canonical = existing.canonicalize().map_err(|error| {
         AgdError::with_source(
@@ -455,6 +486,13 @@ fn nearest_existing(path: &Path) -> Result<&Path, AgdError> {
             )
         })?;
     }
+}
+
+/// A component starting with `.`, which the discovery walk never enters.
+fn has_hidden_component(relative: &Path) -> bool {
+    relative
+        .components()
+        .any(|component| component.as_os_str().to_string_lossy().starts_with('.'))
 }
 
 fn build_globset(patterns: &[String]) -> Result<GlobSet, AgdError> {

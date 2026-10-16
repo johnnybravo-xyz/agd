@@ -347,39 +347,59 @@ impl WorkspaceIndex {
         &self.settings
     }
 
+    /// Re-reads one changed path, as a file watcher reports it. An agenda
+    /// file, including one created after the index loaded, is parsed again;
+    /// another `.org` file under the roots only updates the IDs that make
+    /// targets ambiguous; a removed file or directory leaves the index; a
+    /// symlink resolving outside the roots is skipped. Other paths are
+    /// ignored.
     pub fn refresh_path(&mut self, path: &Path) -> Result<(), AgdError> {
-        if path.exists() {
-            if path.extension().is_none_or(|extension| extension != "org") {
+        if !path.exists() {
+            let removed = crate::paths::resolve_existing_prefix(path)?;
+            self.forget_paths_under(&removed);
+            self.rebuild_ids();
+            return Ok(());
+        }
+        if path.extension().is_none_or(|extension| extension != "org") {
+            return Ok(());
+        }
+        let path = match self.roots.resolve_read(path) {
+            Ok(path) => path,
+            Err(error) if error.code() == "outside_roots" => {
+                let reason = crate::SkipReason::OutsideRoots.describe(path);
+                self.skipped.insert(path.to_path_buf(), reason);
                 return Ok(());
             }
-            let path = self.roots.resolve_read(path)?;
-            if !self.documents.contains_key(&path) && !self.skipped.contains_key(&path) {
-                for locations in self.outside_ids.values_mut() {
-                    locations.retain(|location| location != &path);
-                }
-                for id in scan_property_ids(&path) {
-                    self.outside_ids.entry(id).or_default().push(path.clone());
-                }
-                self.outside_ids
-                    .retain(|_, locations| !locations.is_empty());
-                return Ok(());
-            }
+            Err(error) => return Err(error),
+        };
+        self.forget_paths_under(&path);
+        if self.roots.is_agenda_file(&path)? {
             match load_document(&path, &self.settings)? {
                 Ok(document) => {
-                    self.skipped.remove(&path);
                     self.documents.insert(path, document);
                 }
                 Err(reason) => {
-                    self.documents.remove(&path);
                     self.skipped.insert(path, reason.to_string());
                 }
             }
         } else {
-            self.documents.remove(path);
-            self.skipped.remove(path);
+            for id in scan_property_ids(&path) {
+                self.outside_ids.entry(id).or_default().push(path.clone());
+            }
         }
         self.rebuild_ids();
         Ok(())
+    }
+
+    /// Drops every document, skip and outside ID at or below `path`.
+    fn forget_paths_under(&mut self, path: &Path) {
+        self.documents.retain(|known, _| !known.starts_with(path));
+        self.skipped.retain(|known, _| !known.starts_with(path));
+        for locations in self.outside_ids.values_mut() {
+            locations.retain(|location| !location.starts_with(path));
+        }
+        self.outside_ids
+            .retain(|_, locations| !locations.is_empty());
     }
 
     fn rebuild_ids(&mut self) {
@@ -1283,6 +1303,42 @@ mod tests {
             "{}",
             skipped[0].1
         );
+    }
+
+    #[test]
+    fn files_created_after_loading_join_the_index_by_agenda_pattern() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(temp.path().join("archive")).unwrap();
+        let mut settings = settings(temp.path());
+        settings.agenda_files = vec!["inbox.org".to_string()];
+        let mut index = WorkspaceIndex::load(settings).unwrap();
+        assert_eq!(index.items().count(), 0);
+
+        let inbox = temp.path().join("inbox.org");
+        std::fs::write(&inbox, "* TODO First task\n").unwrap();
+        index.refresh_path(&inbox).unwrap();
+        let titles: Vec<&str> = index.items().map(|item| item.title.as_str()).collect();
+        assert_eq!(titles, ["First task"]);
+
+        // Not an agenda file: its ID still makes the agenda's copy ambiguous.
+        std::fs::write(
+            &inbox,
+            "* TODO First task\n:PROPERTIES:\n:ID: shared\n:END:\n",
+        )
+        .unwrap();
+        index.refresh_path(&inbox).unwrap();
+        let notes = temp.path().join("archive/notes.org");
+        std::fs::write(&notes, "* Notes\n:PROPERTIES:\n:ID: shared\n:END:\n").unwrap();
+        index.refresh_path(&notes).unwrap();
+        assert_eq!(index.items().count(), 1);
+        assert_eq!(index.resolve("shared").unwrap_err().code(), "duplicate_id");
+
+        std::fs::remove_file(&notes).unwrap();
+        index.refresh_path(&notes).unwrap();
+        assert_eq!(index.resolve("shared").unwrap().1.item.title, "First task");
+        std::fs::remove_file(&inbox).unwrap();
+        index.refresh_path(&inbox).unwrap();
+        assert_eq!(index.items().count(), 0);
     }
 
     #[test]
