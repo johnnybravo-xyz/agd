@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AgdError, ByteSpan, IndexedDocument, Item, Settings, WorkspaceIndex};
+use crate::{AgdError, ByteSpan, ErrorCode, IndexedDocument, Item, Settings, WorkspaceIndex};
 
 use super::engine::{DRY_RUN_JOURNAL_ID, PreparedFile, WriteContext, WriteEngine};
 use super::file::refuse_emacs_lock;
@@ -68,7 +68,7 @@ impl WriteEngine {
         let prepared = self.prepare_refile(&fresh, item_ref, target_ref)?;
         if prepared.paths() != paths {
             return Err(AgdError::new(
-                "stale_ref",
+                ErrorCode::StaleRef,
                 "refile resolved to different files while acquiring the write locks",
             ));
         }
@@ -107,7 +107,7 @@ impl WriteEngine {
             && target_headline.line_span.start < source_headline.subtree_span.end
         {
             return Err(AgdError::new(
-                "invalid_refile",
+                ErrorCode::InvalidRefile,
                 "an item cannot be refiled into itself or one of its descendants",
             ));
         }
@@ -178,7 +178,7 @@ pub(super) fn relevel_subtree(
             let level = stars as isize + delta;
             if level < 1 {
                 return Err(AgdError::new(
-                    "invalid_refile",
+                    ErrorCode::InvalidRefile,
                     "refile would produce an invalid headline level",
                 ));
             }
@@ -228,7 +228,12 @@ fn find_refiled_item(
         .iter()
         .find(|headline| headline.item.olpath == expected)
         .map(|headline| headline.item.clone())
-        .ok_or_else(|| AgdError::new("parse_error", "refiled item was not found at its target"))
+        .ok_or_else(|| {
+            AgdError::new(
+                ErrorCode::ParseError,
+                "refiled item was not found at its target",
+            )
+        })
 }
 
 #[cfg(test)]

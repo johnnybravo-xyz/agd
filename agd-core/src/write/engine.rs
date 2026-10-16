@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 
 use chrono::{Local, NaiveDateTime};
 
-use crate::{AgdError, IndexedDocument, Item, MUTATION_SCHEMA, Mutation, RootSet, Settings};
+use crate::{
+    AgdError, ErrorCode, IndexedDocument, Item, MUTATION_SCHEMA, Mutation, RootSet, Settings,
+};
 
 use super::patch::{StoredPatch, unified_diff};
 
@@ -132,7 +134,7 @@ pub(super) fn parse_updated_item(
                 .min_by_key(|headline| headline.item.line.abs_diff(line_hint))
         })
         .map(|headline| headline.item.clone())
-        .ok_or_else(|| AgdError::new("parse_error", "write produced no target headline"))
+        .ok_or_else(|| AgdError::new(ErrorCode::ParseError, "write produced no target headline"))
 }
 
 /// A successful mutation result.

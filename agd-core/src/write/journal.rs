@@ -52,13 +52,13 @@ impl WriteEngine {
         let records = self.latest_records()?;
         let mut record = records.get(journal_id).cloned().ok_or_else(|| {
             AgdError::new(
-                "journal_not_found",
+                ErrorCode::JournalNotFound,
                 format!("journal entry not found: {journal_id}"),
             )
         })?;
         if record.status != JournalStatus::Committed {
             return Err(AgdError::new(
-                "invalid_journal_state",
+                ErrorCode::InvalidJournalState,
                 format!("journal entry {journal_id} is not awaiting review"),
             ));
         }
@@ -128,7 +128,7 @@ impl WriteEngine {
         }
         let serialized = serde_json::to_vec(record).map_err(|error| {
             AgdError::new(
-                "journal_error",
+                ErrorCode::JournalError,
                 format!("cannot serialize journal record: {error}"),
             )
         })?;
@@ -157,7 +157,7 @@ impl WriteEngine {
         for (line, raw) in source.lines().enumerate() {
             let record: JournalRecord = serde_json::from_str(raw).map_err(|error| {
                 AgdError::new(
-                    "journal_corrupt",
+                    ErrorCode::JournalCorrupt,
                     format!("invalid journal JSON at line {}: {error}", line + 1),
                 )
             })?;

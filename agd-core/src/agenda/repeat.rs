@@ -1,6 +1,6 @@
 use chrono::{Duration, Months, NaiveDate};
 
-use crate::{AgdError, PlanningTimestamp};
+use crate::{AgdError, ErrorCode, PlanningTimestamp};
 
 use super::engine::parse_date;
 
@@ -72,20 +72,27 @@ fn parse_repeater(input: &str) -> Result<(&str, u64, char), AgdError> {
         ("+", value)
     } else {
         return Err(AgdError::new(
-            "invalid_repeater",
+            ErrorCode::InvalidRepeater,
             format!("invalid repeater: {input}"),
         ));
     };
-    let unit = value
-        .chars()
-        .next_back()
-        .ok_or_else(|| AgdError::new("invalid_repeater", format!("invalid repeater: {input}")))?;
+    let unit = value.chars().next_back().ok_or_else(|| {
+        AgdError::new(
+            ErrorCode::InvalidRepeater,
+            format!("invalid repeater: {input}"),
+        )
+    })?;
     let amount = value[..value.len() - unit.len_utf8()]
         .parse::<u64>()
-        .map_err(|_| AgdError::new("invalid_repeater", format!("invalid repeater: {input}")))?;
+        .map_err(|_| {
+            AgdError::new(
+                ErrorCode::InvalidRepeater,
+                format!("invalid repeater: {input}"),
+            )
+        })?;
     if amount == 0 {
         return Err(AgdError::new(
-            "invalid_repeater",
+            ErrorCode::InvalidRepeater,
             "repeater interval must be positive",
         ));
     }
@@ -100,5 +107,5 @@ fn add_period(date: NaiveDate, amount: u64, unit: char) -> Result<NaiveDate, Agd
         'y' => date.checked_add_months(Months::new((amount * 12) as u32)),
         _ => None,
     };
-    next.ok_or_else(|| AgdError::new("invalid_repeater", "repeater date is out of range"))
+    next.ok_or_else(|| AgdError::new(ErrorCode::InvalidRepeater, "repeater date is out of range"))
 }

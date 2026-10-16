@@ -154,7 +154,7 @@ impl WriteEngine {
         let (prepared, item) = self.prepare_edit(&fresh, item_ref, intent, now)?;
         if prepared.path != path {
             return Err(AgdError::new(
-                "stale_ref",
+                ErrorCode::StaleRef,
                 "item resolved to a different file while acquiring the write lock",
             ));
         }
@@ -177,7 +177,10 @@ impl WriteEngine {
         let patches = build_edit_patches(document, headline, intent, &self.settings, now)?;
         let (post_image, stored) = apply_patches(document.source(), patches)?;
         if post_image == document.source() {
-            return Err(AgdError::new("no_change", "edit does not change the item"));
+            return Err(AgdError::new(
+                ErrorCode::NoChange,
+                "edit does not change the item",
+            ));
         }
         let item = parse_updated_item(&path, &post_image, headline.item.line, &self.settings)?;
         let prepared = PreparedFile::new(path, document.source().to_string(), post_image, stored);
@@ -196,7 +199,7 @@ impl WriteEngine {
         context: &WriteContext,
     ) -> Result<BatchMutation, AgdError> {
         if edits.is_empty() {
-            return Err(AgdError::new("invalid_edit", "nothing to edit"));
+            return Err(AgdError::new(ErrorCode::InvalidEdit, "nothing to edit"));
         }
         for edit in edits {
             validate_intent(&edit.intent).map_err(|error| error.with_context(&edit.item_ref))?;
@@ -223,7 +226,7 @@ impl WriteEngine {
             .collect();
         if fresh_paths != paths {
             return Err(AgdError::new(
-                "stale_ref",
+                ErrorCode::StaleRef,
                 "targets resolved to different files while acquiring the write locks",
             ));
         }
@@ -285,7 +288,7 @@ impl WriteEngine {
             let (alone, _) = apply_patches(document.source(), own.clone()).map_err(label)?;
             if alone == document.source() {
                 return Err(label(AgdError::new(
-                    "no_change",
+                    ErrorCode::NoChange,
                     "edit does not change the item",
                 )));
             }
@@ -312,7 +315,9 @@ impl WriteEngine {
             let item = updated
                 .headline_at_line(line)
                 .map(|headline| headline.item.clone())
-                .ok_or_else(|| AgdError::new("parse_error", "edit produced no target headline"))?;
+                .ok_or_else(|| {
+                    AgdError::new(ErrorCode::ParseError, "edit produced no target headline")
+                })?;
             items.push((
                 position,
                 EditedItem::new(item, &edits[position].intent, document),
@@ -368,7 +373,7 @@ fn resolve_batch_targets<'a>(
             .any(|(_, other)| other.line_span.start == headline.line_span.start)
         {
             return Err(label(AgdError::new(
-                "invalid_edit",
+                ErrorCode::InvalidEdit,
                 "the same item is listed twice",
             )));
         }

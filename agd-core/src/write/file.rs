@@ -2,7 +2,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::AgdError;
+use crate::{AgdError, ErrorCode};
 
 use super::engine::{JournalImage, WriteEngine};
 use super::journal::sha256_hex;
@@ -41,14 +41,14 @@ impl WriteEngine {
             .open(&lock_path)
             .map_err(|error| {
                 AgdError::with_source(
-                    "lock_failed",
+                    ErrorCode::LockFailed,
                     format!("cannot open write lock {}: {error}", lock_path.display()),
                     error,
                 )
             })?;
         lock.lock().map_err(|error| {
             AgdError::with_source(
-                "lock_failed",
+                ErrorCode::LockFailed,
                 format!("cannot lock {}: {error}", lock_path.display()),
                 error,
             )
@@ -83,7 +83,7 @@ pub(super) fn read_org_file(path: &Path) -> Result<String, AgdError> {
     match fs::read(path) {
         Ok(bytes) => String::from_utf8(bytes).map_err(|error| {
             AgdError::with_source(
-                "non_utf8",
+                ErrorCode::NonUtf8,
                 format!("org file is not UTF-8: {}", path.display()),
                 error,
             )
@@ -96,10 +96,10 @@ pub(super) fn read_org_file(path: &Path) -> Result<String, AgdError> {
 pub(super) fn refuse_emacs_lock(path: &Path) -> Result<(), AgdError> {
     let parent = path
         .parent()
-        .ok_or_else(|| AgdError::new("invalid_path", "target has no parent"))?;
+        .ok_or_else(|| AgdError::new(ErrorCode::InvalidPath, "target has no parent"))?;
     let name = path
         .file_name()
-        .ok_or_else(|| AgdError::new("invalid_path", "target has no file name"))?;
+        .ok_or_else(|| AgdError::new(ErrorCode::InvalidPath, "target has no file name"))?;
     let lock = parent.join(format!(".#{}", name.to_string_lossy()));
     if fs::symlink_metadata(&lock).is_ok() {
         let owner = fs::read_link(&lock)
@@ -107,7 +107,7 @@ pub(super) fn refuse_emacs_lock(path: &Path) -> Result<(), AgdError> {
             .or_else(|_| fs::read_to_string(&lock))
             .unwrap_or_else(|_| "ownership unavailable".to_string());
         return Err(AgdError::new(
-            "editor_dirty",
+            ErrorCode::EditorDirty,
             format!(
                 "Emacs lock {} exists ({owner}); save or close the buffer",
                 lock.display()
@@ -123,7 +123,7 @@ pub(super) fn refuse_emacs_lock(path: &Path) -> Result<(), AgdError> {
 pub(super) fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), AgdError> {
     let parent = path
         .parent()
-        .ok_or_else(|| AgdError::new("invalid_path", "target has no parent"))?;
+        .ok_or_else(|| AgdError::new(ErrorCode::InvalidPath, "target has no parent"))?;
     let permissions = fs::metadata(path)
         .ok()
         .map(|metadata| metadata.permissions());

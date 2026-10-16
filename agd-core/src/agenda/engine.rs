@@ -1,8 +1,8 @@
 use chrono::{Duration, NaiveDate};
 
 use crate::{
-    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, HeadlineSpan, Item, Occurrence, OccurrenceType,
-    WorkspaceIndex,
+    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ErrorCode, HeadlineSpan, Item, Occurrence,
+    OccurrenceType, WorkspaceIndex,
 };
 
 use super::matcher::{TagTodoMatcher, matcher_now};
@@ -32,7 +32,7 @@ impl<'a> AgendaEngine<'a> {
     pub fn agenda(&self, query: &AgendaQuery) -> Result<Vec<AgendaEntry>, AgdError> {
         if query.to < query.from {
             return Err(AgdError::new(
-                "invalid_range",
+                ErrorCode::InvalidRange,
                 "agenda end date is before its start date",
             ));
         }
@@ -350,7 +350,7 @@ fn parse_day_interval(input: &str) -> Option<i64> {
 
 pub(super) fn parse_date(input: &str) -> Result<NaiveDate, AgdError> {
     NaiveDate::parse_from_str(input, "%Y-%m-%d")
-        .map_err(|_| AgdError::new("invalid_date", format!("invalid Org date: {input}")))
+        .map_err(|_| AgdError::new(ErrorCode::InvalidDate, format!("invalid Org date: {input}")))
 }
 
 pub(super) fn date_range(start: NaiveDate, end: NaiveDate) -> impl Iterator<Item = NaiveDate> {

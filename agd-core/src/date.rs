@@ -5,7 +5,7 @@ use chrono::{
 };
 use regex::{Captures, Regex};
 
-use crate::{AgdError, PlanningTimestamp};
+use crate::{AgdError, ErrorCode, PlanningTimestamp};
 
 static ABSOLUTE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}:\d{2}))?(?:\s+([+.]*\+\d+[hdwmy]))?(?:\s+(-\d+[hdwmy]))?$")
@@ -53,7 +53,7 @@ pub fn parse_date_input(input: &str, today: NaiveDate) -> Result<PlanningTimesta
     };
     let date = date.ok_or_else(|| {
         AgdError::new(
-            "invalid_date",
+            ErrorCode::InvalidDate,
             format!("unsupported date '{input}'; {DATE_FORMS}"),
         )
     })?;
@@ -71,7 +71,7 @@ pub fn date_preview(input: &str, today: NaiveDate) -> Result<String, AgdError> {
 
 fn absolute_timestamp(input: &str, captures: &Captures) -> Result<PlanningTimestamp, AgdError> {
     let date = NaiveDate::parse_from_str(&captures[1], "%Y-%m-%d")
-        .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {input}")))?;
+        .map_err(|_| AgdError::new(ErrorCode::InvalidDate, format!("invalid date: {input}")))?;
     let time = captures
         .get(2)
         .map(|matched| parse_time(matched.as_str()))
@@ -92,7 +92,7 @@ fn absolute_timestamp(input: &str, captures: &Captures) -> Result<PlanningTimest
 /// month's once it has passed), or a month and day (`oct 30`, `30 oct`:
 /// this year's, or next year's once it has passed). None for anything else.
 fn prompt_day(day: &str, today: NaiveDate) -> Result<Option<NaiveDate>, AgdError> {
-    let invalid = || AgdError::new("invalid_date", format!("invalid date: {day}"));
+    let invalid = || AgdError::new(ErrorCode::InvalidDate, format!("invalid date: {day}"));
     match day {
         "." | "today" => return Ok(Some(today)),
         "tomorrow" => return Ok(Some(today + Duration::days(1))),
@@ -152,7 +152,12 @@ fn relative_day(
     captures: &Captures,
     today: NaiveDate,
 ) -> Result<Option<NaiveDate>, AgdError> {
-    let out_of_range = || AgdError::new("invalid_date", format!("date is out of range: {input}"));
+    let out_of_range = || {
+        AgdError::new(
+            ErrorCode::InvalidDate,
+            format!("date is out of range: {input}"),
+        )
+    };
     let forward = &captures[1] == "+";
     let (count, unit) = (&captures[2], &captures[3]);
     if count.is_empty() && unit.is_empty() {
@@ -211,7 +216,7 @@ fn clock_time(token: &str) -> Result<Option<NaiveTime>, AgdError> {
     if minute.is_none() && meridiem.is_none() {
         return Ok(None);
     }
-    let invalid = || AgdError::new("invalid_date", format!("invalid time: {token}"));
+    let invalid = || AgdError::new(ErrorCode::InvalidDate, format!("invalid time: {token}"));
     let hour = captures[1].parse::<u32>().map_err(|_| invalid())?;
     let minute = minute.map_or(Ok(0), |minute| {
         minute.as_str().parse::<u32>().map_err(|_| invalid())
@@ -228,8 +233,12 @@ fn clock_time(token: &str) -> Result<Option<NaiveTime>, AgdError> {
 }
 
 pub fn format_active_timestamp(timestamp: &PlanningTimestamp) -> Result<String, AgdError> {
-    let date = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d")
-        .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {}", timestamp.date)))?;
+    let date = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d").map_err(|_| {
+        AgdError::new(
+            ErrorCode::InvalidDate,
+            format!("invalid date: {}", timestamp.date),
+        )
+    })?;
     let mut value = format!("<{} {}", timestamp.date, date.format("%a"));
     if let Some(time) = &timestamp.time {
         value.push(' ');
@@ -264,7 +273,7 @@ pub(crate) fn simple_date(date: NaiveDate) -> PlanningTimestamp {
 
 fn parse_time(input: &str) -> Result<NaiveTime, AgdError> {
     NaiveTime::parse_from_str(input, "%H:%M")
-        .map_err(|_| AgdError::new("invalid_date", format!("invalid time: {input}")))
+        .map_err(|_| AgdError::new(ErrorCode::InvalidDate, format!("invalid time: {input}")))
 }
 
 fn parse_weekday(input: &str) -> Option<Weekday> {

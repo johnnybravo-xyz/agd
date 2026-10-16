@@ -7,8 +7,8 @@ use regex::Regex;
 use serde::Serialize;
 
 use crate::{
-    AgdError, AgendaEntry, HeadlineSpan, Item, Settings, VIEW_SECTION_SCHEMA, ViewBlock, ViewGroup,
-    ViewSettings,
+    AgdError, AgendaEntry, ErrorCode, HeadlineSpan, Item, Settings, VIEW_SECTION_SCHEMA, ViewBlock,
+    ViewGroup, ViewSettings,
 };
 
 use super::color::keyword_color;
@@ -281,7 +281,10 @@ fn group_rows<T>(
                 .as_deref()
                 .map(|text| {
                     duration_minutes(text).ok_or_else(|| {
-                        AgdError::new("invalid_view", format!("effort '{text}' is not a duration"))
+                        AgdError::new(
+                            ErrorCode::InvalidView,
+                            format!("effort '{text}' is not a duration"),
+                        )
                     })
                 })
                 .transpose()

@@ -1,7 +1,7 @@
 use chrono::{Datelike, Duration, Months, NaiveDate};
 use serde::Serialize;
 
-use crate::{AgdError, WeekStart};
+use crate::{AgdError, ErrorCode, WeekStart};
 
 /// How many days an agenda shows, as org-agenda-span. config.toml writes it
 /// as "day", "week", "month" or a TOML integer; command-line and MCP input
@@ -96,8 +96,9 @@ impl std::str::FromStr for AgendaSpan {
 
     /// day, week, month or a number of days such as "10".
     fn from_str(value: &str) -> Result<Self, AgdError> {
-        let span_error =
-            |detail: String| AgdError::new("invalid_span", format!("agenda span: {detail}"));
+        let span_error = |detail: String| {
+            AgdError::new(ErrorCode::InvalidSpan, format!("agenda span: {detail}"))
+        };
         if let Some(span) = Self::named(value) {
             return Ok(span);
         }

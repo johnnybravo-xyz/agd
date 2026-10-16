@@ -8,7 +8,7 @@ use super::edit::{Change, EditIntent};
 /// that write back as exactly one heading with those fields.
 pub(super) fn validate_intent(intent: &EditIntent) -> Result<(), AgdError> {
     if intent == &EditIntent::default() {
-        return Err(AgdError::new("invalid_edit", "nothing to edit"));
+        return Err(AgdError::new(ErrorCode::InvalidEdit, "nothing to edit"));
     }
     if let Change::Set(title) = &intent.title {
         validate_title_text(title)?;

@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use sha2::{Digest, Sha256};
 
-use crate::{AgdError, ITEM_SCHEMA, Item, Planning, PlanningTimestamp, Settings};
+use crate::{AgdError, ErrorCode, ITEM_SCHEMA, Item, Planning, PlanningTimestamp, Settings};
 
 use super::source::{ByteSpan, SourceLine};
 use super::timestamp::{TimestampSpan, parse_timestamp, scan_timestamps};
@@ -367,7 +367,7 @@ fn parse_metadata(
             }
             if !found_end {
                 return Err(AgdError::new(
-                    "parse_error",
+                    ErrorCode::ParseError,
                     format!(
                         "unterminated property drawer after line {}",
                         headline_line + 1

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AgdError, AgendaSpan, CaptureTemplate, LogMode, SORTING_KEYS, Settings, ViewBlock,
+    AgdError, AgendaSpan, CaptureTemplate, ErrorCode, LogMode, SORTING_KEYS, Settings, ViewBlock,
     ViewSettings, WeekStart,
 };
 
@@ -278,7 +278,7 @@ fn editor_of(path: &Path) -> Option<ConfigEditor> {
 }
 
 fn import_error(message: impl Into<String>) -> AgdError {
-    AgdError::new("import", message)
+    AgdError::new(ErrorCode::Import, message)
 }
 
 /// The editor's settings applied over `base`, and what could not be.
@@ -442,7 +442,7 @@ pub fn apply_import(
     // The written config must load; only its roots may not exist yet.
     crate::config::validate_values(&settings).map_err(|error| {
         AgdError::new(
-            "unsupported_import_shape",
+            ErrorCode::UnsupportedImportShape,
             format!("the imported settings would not load: {error}"),
         )
     })?;
@@ -634,7 +634,7 @@ fn validate_resolved(resolved: &ResolvedEditorConfig) -> Result<(), AgdError> {
             .any(|sequence| sequence.is_empty())
     {
         return Err(AgdError::new(
-            "unsupported_import_shape",
+            ErrorCode::UnsupportedImportShape,
             "editor returned no usable TODO sequence",
         ));
     }

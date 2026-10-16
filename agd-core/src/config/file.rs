@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::{AgdError, AgendaSpan};
+use crate::{AgdError, AgendaSpan, ErrorCode};
 
 use super::model::{AgentProfile, CaptureTemplate, Settings, ViewGroup, ViewSettings};
 use super::validation::{validate_roots, validate_settings};
@@ -63,7 +63,7 @@ fn first_run_error(config_path: &Path, roots: &[String]) -> AgdError {
 pub fn parse_config_file(path: &Path) -> Result<Settings, AgdError> {
     let source = fs::read_to_string(path).map_err(|error| {
         AgdError::with_source(
-            "io",
+            ErrorCode::Io,
             format!("cannot read {}: {error}", path.display()),
             error,
         )
@@ -103,7 +103,7 @@ fn is_top_level_key(name: &str) -> bool {
 }
 
 pub(super) fn config_error(message: impl Into<String>) -> AgdError {
-    AgdError::new("config", message)
+    AgdError::new(ErrorCode::Config, message)
 }
 
 /// Reads each `template_file` into its template's `template`, so a capture
@@ -122,7 +122,7 @@ fn read_template_files(captures: &mut [CaptureTemplate], roots: &[String]) -> Re
         };
         template.template = fs::read_to_string(&path).map_err(|error| {
             AgdError::with_source(
-                "config",
+                ErrorCode::Config,
                 format!(
                     "capture template '{}': cannot read template_file {}: {error}",
                     template.key,

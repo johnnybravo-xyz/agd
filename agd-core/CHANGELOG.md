@@ -33,6 +33,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `path`, and the capture line and capture templates moved from `date` to
   `capture_line` and `capture_template`. Every item the crate root
   re-exports keeps its name and its `agd_core::Name` path.
+- `ErrorCode` lists every agd.error/v1 code agd-core raises, each with the
+  same string as before, and the crate raises them only through it.
 
 ## [0.1.0] - 2026-10-14
 

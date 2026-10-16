@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 
-use crate::AgdError;
+use crate::{AgdError, ErrorCode};
 
 /// agd's configuration directory: `$XDG_CONFIG_HOME/agd`, else
 /// `~/.config/agd`, on every Unix including macOS; the platform
@@ -28,7 +28,7 @@ fn base_dir(
     if cfg!(windows) {
         return windows().ok_or_else(|| {
             AgdError::new(
-                "config",
+                ErrorCode::Config,
                 format!("cannot determine the Windows directory for {variable}"),
             )
         });
@@ -42,7 +42,7 @@ fn base_dir(
     }
     let home = dirs::home_dir().ok_or_else(|| {
         AgdError::new(
-            "config",
+            ErrorCode::Config,
             format!("cannot determine the home directory for ~/{home_relative}; set {variable}"),
         )
     })?;
@@ -106,14 +106,14 @@ impl RootSet {
             let expanded = shellexpand::tilde(configured).into_owned();
             let canonical = PathBuf::from(&expanded).canonicalize().map_err(|error| {
                 AgdError::with_source(
-                    "invalid_root",
+                    ErrorCode::InvalidRoot,
                     format!("cannot resolve approved root '{configured}': {error}"),
                     error,
                 )
             })?;
             if !canonical.is_dir() {
                 return Err(AgdError::new(
-                    "invalid_root",
+                    ErrorCode::InvalidRoot,
                     format!("approved root is not a directory: {configured}"),
                 ));
             }
@@ -123,7 +123,7 @@ impl RootSet {
         roots.dedup();
         if roots.is_empty() {
             return Err(AgdError::new(
-                "invalid_root",
+                ErrorCode::InvalidRoot,
                 "at least one root is required",
             ));
         }
@@ -187,7 +187,7 @@ impl RootSet {
         }
         match matches.len() {
             0 => Err(AgdError::new(
-                "not_found",
+                ErrorCode::NotFound,
                 format!(
                     "file is not present under an approved root: {}",
                     requested.display()
@@ -195,7 +195,7 @@ impl RootSet {
             )),
             1 => Ok(matches.into_iter().next().expect("one path")),
             _ => Err(AgdError::new(
-                "ambiguous_path",
+                ErrorCode::AmbiguousPath,
                 format!(
                     "relative path matches multiple approved roots: {}",
                     requested.display()
@@ -221,13 +221,13 @@ impl RootSet {
                 [path] => path.clone(),
                 [] if create => {
                     return Err(AgdError::new(
-                        "ambiguous_path",
+                        ErrorCode::AmbiguousPath,
                         "capture into multiple roots requires an absolute target",
                     ));
                 }
                 [] => {
                     return Err(AgdError::new(
-                        "not_found",
+                        ErrorCode::NotFound,
                         format!(
                             "file is not present under an approved root: {}",
                             requested.display()
@@ -236,7 +236,7 @@ impl RootSet {
                 }
                 _ => {
                     return Err(AgdError::new(
-                        "ambiguous_path",
+                        ErrorCode::AmbiguousPath,
                         format!(
                             "relative path matches multiple approved roots: {}",
                             requested.display()
@@ -250,33 +250,33 @@ impl RootSet {
             && metadata.file_type().is_symlink()
         {
             return Err(AgdError::new(
-                "symlink_write_refused",
+                ErrorCode::SymlinkWriteRefused,
                 format!("writes to symlinks are refused: {}", lexical.display()),
             ));
         }
 
         let parent = lexical.parent().ok_or_else(|| {
             AgdError::new(
-                "invalid_path",
+                ErrorCode::InvalidPath,
                 format!("path has no parent: {}", lexical.display()),
             )
         })?;
         let canonical_parent = nearest_existing(parent)?.canonicalize().map_err(|error| {
             AgdError::with_source(
-                "invalid_path",
+                ErrorCode::InvalidPath,
                 format!("cannot resolve parent of {}: {error}", lexical.display()),
                 error,
             )
         })?;
         if !self.contains(&canonical_parent) {
             return Err(AgdError::new(
-                "outside_roots",
+                ErrorCode::OutsideRoots,
                 format!("path escapes approved roots: {}", lexical.display()),
             ));
         }
         if lexical.exists() && !lexical.is_file() {
             return Err(AgdError::new(
-                "invalid_path",
+                ErrorCode::InvalidPath,
                 format!("write target is not a regular file: {}", lexical.display()),
             ));
         }
@@ -312,7 +312,7 @@ impl RootSet {
             if path.is_absolute() {
                 if pattern.contains(['*', '?', '[', ']']) {
                     return Err(AgdError::new(
-                        "invalid_agenda_pattern",
+                        ErrorCode::InvalidAgendaPattern,
                         format!("absolute agenda entries must be exact files: {pattern}"),
                     ));
                 }
@@ -322,7 +322,7 @@ impl RootSet {
                     .is_none_or(|extension| extension != "org")
                 {
                     return Err(AgdError::new(
-                        "invalid_agenda_file",
+                        ErrorCode::InvalidAgendaFile,
                         format!("agenda file does not have an .org extension: {pattern}"),
                     ));
                 }
@@ -354,7 +354,7 @@ impl RootSet {
                         }
                         None => {
                             return Err(AgdError::new(
-                                "walk_error",
+                                ErrorCode::WalkError,
                                 format!("cannot walk {}: {error}", root.display()),
                             ));
                         }
@@ -402,26 +402,26 @@ impl RootSet {
     fn validate_existing_read(&self, path: &Path) -> Result<PathBuf, AgdError> {
         if !self.contains(&resolve_existing_prefix(path)?) {
             return Err(AgdError::new(
-                "outside_roots",
+                ErrorCode::OutsideRoots,
                 format!("resolved path escapes approved roots: {}", path.display()),
             ));
         }
         let canonical = path.canonicalize().map_err(|error| {
             AgdError::with_source(
-                "not_found",
+                ErrorCode::NotFound,
                 format!("cannot resolve file {}: {error}", path.display()),
                 error,
             )
         })?;
         if !self.contains(&canonical) {
             return Err(AgdError::new(
-                "outside_roots",
+                ErrorCode::OutsideRoots,
                 format!("resolved path escapes approved roots: {}", path.display()),
             ));
         }
         if !canonical.is_file() {
             return Err(AgdError::new(
-                "invalid_path",
+                ErrorCode::InvalidPath,
                 format!("path is not a regular file: {}", path.display()),
             ));
         }
@@ -435,7 +435,7 @@ fn reject_parent_segments(path: &Path) -> Result<(), AgdError> {
         .any(|component| component == Component::ParentDir)
     {
         return Err(AgdError::new(
-            "path_traversal",
+            ErrorCode::PathTraversal,
             format!("'..' is not allowed in paths: {}", path.display()),
         ));
     }
@@ -448,7 +448,7 @@ pub(crate) fn resolve_existing_prefix(path: &Path) -> Result<PathBuf, AgdError> 
     let existing = nearest_existing(path)?;
     let canonical = existing.canonicalize().map_err(|error| {
         AgdError::with_source(
-            "invalid_path",
+            ErrorCode::InvalidPath,
             format!("cannot resolve {}: {error}", existing.display()),
             error,
         )
@@ -481,7 +481,7 @@ fn nearest_existing(path: &Path) -> Result<&Path, AgdError> {
         }
         current = current.parent().ok_or_else(|| {
             AgdError::new(
-                "invalid_path",
+                ErrorCode::InvalidPath,
                 format!("no existing ancestor for {}", path.display()),
             )
         })?;
@@ -501,20 +501,20 @@ fn build_globset(patterns: &[String]) -> Result<GlobSet, AgdError> {
         reject_parent_segments(Path::new(pattern))?;
         if Path::new(pattern).is_absolute() {
             return Err(AgdError::new(
-                "invalid_agenda_pattern",
+                ErrorCode::InvalidAgendaPattern,
                 format!("agenda pattern must be relative to an approved root: {pattern}"),
             ));
         }
         builder.add(Glob::new(pattern).map_err(|error| {
             AgdError::new(
-                "invalid_agenda_pattern",
+                ErrorCode::InvalidAgendaPattern,
                 format!("invalid agenda pattern '{pattern}': {error}"),
             )
         })?);
     }
     builder.build().map_err(|error| {
         AgdError::new(
-            "invalid_agenda_pattern",
+            ErrorCode::InvalidAgendaPattern,
             format!("cannot build agenda patterns: {error}"),
         )
     })

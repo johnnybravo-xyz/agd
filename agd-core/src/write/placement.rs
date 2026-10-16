@@ -4,7 +4,9 @@ use std::sync::LazyLock;
 use chrono::NaiveDate;
 use regex::Regex;
 
-use crate::{AgdError, ByteSpan, CaptureTemplate, HeadlineSpan, IndexedDocument, Settings};
+use crate::{
+    AgdError, ByteSpan, CaptureTemplate, ErrorCode, HeadlineSpan, IndexedDocument, Settings,
+};
 
 use super::engine::parse_text;
 use super::patch::line_ending;
@@ -80,7 +82,7 @@ pub(super) fn place_capture(
                 .map(|headline| headline.line_span.start)
                 .ok_or_else(|| {
                     AgdError::new(
-                        "capture_target_not_found",
+                        ErrorCode::CaptureTargetNotFound,
                         format!("no heading in {} has ID '{id}'", path.display()),
                     )
                 })?,
@@ -143,13 +145,13 @@ fn find_outline_path(document: &IndexedDocument, outline: &[String]) -> Result<u
             [headline] => *headline,
             [] => {
                 return Err(AgdError::new(
-                    "capture_target_not_found",
+                    ErrorCode::CaptureTargetNotFound,
                     format!("capture heading not found on level {level}: {title}"),
                 ));
             }
             _ => {
                 return Err(AgdError::new(
-                    "capture_target_not_found",
+                    ErrorCode::CaptureTargetNotFound,
                     format!("capture heading not unique on level {level}: {title}"),
                 ));
             }
@@ -158,7 +160,12 @@ fn find_outline_path(document: &IndexedDocument, outline: &[String]) -> Result<u
         level = headline.level + 1;
         found = Some(headline.line_span.start);
     }
-    found.ok_or_else(|| AgdError::new("capture_target_not_found", "capture outline path is empty"))
+    found.ok_or_else(|| {
+        AgdError::new(
+            ErrorCode::CaptureTargetNotFound,
+            "capture outline path is empty",
+        )
+    })
 }
 
 /// Datetree headings compare by the date in their title (Emacs's
@@ -402,7 +409,12 @@ fn headline_starting_at(
         .headlines()
         .iter()
         .find(|headline| headline.line_span.start == start)
-        .ok_or_else(|| AgdError::new("parse_error", "capture target heading moved while placing"))
+        .ok_or_else(|| {
+            AgdError::new(
+                ErrorCode::ParseError,
+                "capture target heading moved while placing",
+            )
+        })
 }
 
 #[cfg(test)]

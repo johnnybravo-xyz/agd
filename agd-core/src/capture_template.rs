@@ -4,7 +4,9 @@ use std::sync::LazyLock;
 use chrono::{NaiveDate, NaiveDateTime};
 use regex::Regex;
 
-use crate::{AgdError, CaptureDraft, CaptureTemplate, format_active_timestamp, parse_date_input};
+use crate::{
+    AgdError, CaptureDraft, CaptureTemplate, ErrorCode, format_active_timestamp, parse_date_input,
+};
 
 static ESCAPE_RE: LazyLock<Regex> = LazyLock::new(|| {
     // %^{name}t/T/u/U and a bare %^t/T/u/U prompt for a date, as Org does.
@@ -88,7 +90,7 @@ pub fn render_capture_template(
 ) -> Result<String, AgdError> {
     if template.template.contains("%(") {
         return Err(AgdError::new(
-            "unsupported_template",
+            ErrorCode::UnsupportedTemplate,
             "capture templates may not execute %(sexp) forms",
         ));
     }
@@ -168,7 +170,10 @@ fn expand_capture_escapes(
             "t" => rendered.push_str(&format!("<{}>", now.format("%Y-%m-%d %a"))),
             "%" => rendered.push('%'),
             "^g" => rendered.push_str(prompts.get("tags").ok_or_else(|| {
-                AgdError::new("missing_prompt", "capture tag prompt has no 'tags' value")
+                AgdError::new(
+                    ErrorCode::MissingPrompt,
+                    "capture tag prompt has no 'tags' value",
+                )
             })?),
             _ => {
                 let date_kind = captures
@@ -180,14 +185,14 @@ fn expand_capture_escapes(
                     Some(kind) => {
                         let value = prompts.get(prompt).map_or("", String::as_str);
                         let date = prompted_date(value, kind, now.date()).map_err(|error| {
-                            AgdError::new("invalid_date", format!("{prompt}: {error}"))
+                            AgdError::new(ErrorCode::InvalidDate, format!("{prompt}: {error}"))
                         })?;
                         rendered.push_str(&date);
                     }
                     None => {
                         let value = prompts.get(prompt).ok_or_else(|| {
                             AgdError::new(
-                                "missing_prompt",
+                                ErrorCode::MissingPrompt,
                                 format!("capture prompt '{prompt}' has no value"),
                             )
                         })?;
@@ -276,7 +281,7 @@ fn add_properties(
     for (key, value) in properties {
         if key.is_empty() || key.contains([' ', '\t', ':']) || value.contains(['\n', '\r']) {
             return Err(AgdError::new(
-                "invalid_property",
+                ErrorCode::InvalidProperty,
                 format!("capture property '{key}' needs a plain key and a one-line value"),
             ));
         }

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use chrono::NaiveDateTime;
 
 use crate::{
-    AgdError, CaptureDraft, CaptureTemplate, Item, Mutation, Settings, WorkspaceIndex,
+    AgdError, CaptureDraft, CaptureTemplate, ErrorCode, Item, Mutation, Settings, WorkspaceIndex,
     render_capture_template,
 };
 
@@ -60,7 +60,7 @@ impl WriteEngine {
                     .map(|t| t.key.as_str())
                     .collect();
                 AgdError::new(
-                    "unknown_template",
+                    ErrorCode::UnknownTemplate,
                     format!(
                         "capture template '{template_key}' is not configured; templates: {}",
                         keys.join(", ")
@@ -113,7 +113,7 @@ impl WriteEngine {
         }
         let file = template.file.as_deref().ok_or_else(|| {
             AgdError::new(
-                "unsupported_target",
+                ErrorCode::UnsupportedTarget,
                 format!(
                     "capture template '{}' names no file or id target",
                     template.key
@@ -238,11 +238,11 @@ fn capture_entry(rendered: &str, level: usize, newline: &str) -> Result<String, 
 }
 
 fn capture_id_error(template_key: &str, id: &str, error: AgdError) -> AgdError {
-    if error.code() == "duplicate_id" {
+    if error.code() == ErrorCode::DuplicateId.as_str() {
         return error;
     }
     AgdError::new(
-        "capture_target_not_found",
+        ErrorCode::CaptureTargetNotFound,
         format!("capture template '{template_key}' targets ID '{id}', which no agenda heading has"),
     )
 }

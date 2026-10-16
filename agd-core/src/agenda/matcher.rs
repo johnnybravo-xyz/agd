@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime};
 use regex::Regex;
 
-use crate::{AgdError, HeadlineSpan, PlanningTimestamp, Settings};
+use crate::{AgdError, ErrorCode, HeadlineSpan, PlanningTimestamp, Settings};
 
 #[derive(Clone, Debug)]
 // Emacs tags/todo match syntax: `|`-separated alternatives of terms joined by
@@ -233,7 +233,7 @@ fn matcher_time(value: &str, now: NaiveDateTime) -> Option<NaiveDateTime> {
 
 fn parse_tag_terms(alternative: &str, input: &str) -> Result<TagTerms, AgdError> {
     let invalid =
-        |message: String| AgdError::new("invalid_match", format!("{message} in '{input}'"));
+        |message: String| AgdError::new(ErrorCode::InvalidMatch, format!("{message} in '{input}'"));
     let mut terms = TagTerms::default();
     let mut chars = alternative.trim().chars().peekable();
     while let Some(&next) = chars.peek() {

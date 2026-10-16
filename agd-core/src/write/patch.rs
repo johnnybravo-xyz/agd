@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use similar::TextDiff;
 
-use crate::{AgdError, ByteSpan};
+use crate::{AgdError, ByteSpan, ErrorCode};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Patch {
@@ -42,7 +42,7 @@ pub fn apply_patches(
             || patch.span.end > source.len()
         {
             return Err(AgdError::new(
-                "invalid_patch",
+                ErrorCode::InvalidPatch,
                 format!(
                     "patch {}..{} overlaps or exceeds the source",
                     patch.span.start, patch.span.end
@@ -51,7 +51,7 @@ pub fn apply_patches(
         }
         if !source.is_char_boundary(patch.span.start) || !source.is_char_boundary(patch.span.end) {
             return Err(AgdError::new(
-                "invalid_patch",
+                ErrorCode::InvalidPatch,
                 "patch is not on UTF-8 boundaries",
             ));
         }

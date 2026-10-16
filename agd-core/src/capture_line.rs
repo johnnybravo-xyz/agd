@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
 
-use crate::{AgdError, PlanningTimestamp, parse_date_input};
+use crate::{AgdError, ErrorCode, PlanningTimestamp, parse_date_input};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CaptureDraft {
@@ -57,7 +57,10 @@ pub fn parse_capture_line(input: &str, today: NaiveDate) -> Result<CaptureDraft,
     }
     let title = title.join(" ");
     if title.trim().is_empty() {
-        return Err(AgdError::new("invalid_capture", "capture title is empty"));
+        return Err(AgdError::new(
+            ErrorCode::InvalidCapture,
+            "capture title is empty",
+        ));
     }
     tags.sort();
     tags.dedup();

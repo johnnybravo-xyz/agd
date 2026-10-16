@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use orgize::ParseConfig;
 
-use crate::{AgdError, Settings};
+use crate::{AgdError, ErrorCode, Settings};
 
 use super::directive::{
     LogSettings, PriorityRange, TodoKeyword, directive, log_settings, priority_range, todo_keywords,
@@ -29,7 +29,7 @@ impl OrgDocument {
     pub fn parse(path: PathBuf, bytes: Vec<u8>, settings: &Settings) -> Result<Self, AgdError> {
         let source = String::from_utf8(bytes).map_err(|error| {
             AgdError::with_source(
-                "non_utf8",
+                ErrorCode::NonUtf8,
                 format!("org file is not UTF-8: {}", path.display()),
                 error,
             )
@@ -69,7 +69,7 @@ impl OrgDocument {
         let parsed = parse_config.parse(&source);
         if parsed.to_org() != source {
             return Err(AgdError::new(
-                "parse_drift",
+                ErrorCode::ParseDrift,
                 format!(
                     "orgize changed bytes during a no-op round trip: {}",
                     path.display()

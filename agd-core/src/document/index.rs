@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use crate::{AgdError, Item, RootSet, Settings};
+use crate::{AgdError, ErrorCode, Item, RootSet, Settings};
 
 use super::headline::{HeadlineSpan, location_ref};
 use super::org_document::OrgDocument;
@@ -27,14 +27,14 @@ fn load_document(
 ) -> Result<Result<OrgDocument, AgdError>, AgdError> {
     let bytes = std::fs::read(path).map_err(|error| {
         AgdError::with_source(
-            "io",
+            ErrorCode::Io,
             format!("cannot read {}: {error}", path.display()),
             error,
         )
     })?;
     match OrgDocument::parse(path.to_path_buf(), bytes, settings) {
         Ok(document) => Ok(Ok(document)),
-        Err(error) if error.code() == "non_utf8" => Ok(Err(error)),
+        Err(error) if error.code() == ErrorCode::NonUtf8.as_str() => Ok(Err(error)),
         Err(error) => Err(error),
     }
 }
@@ -132,7 +132,7 @@ impl WorkspaceIndex {
         }
         let path = match self.roots.resolve_read(path) {
             Ok(path) => path,
-            Err(error) if error.code() == "outside_roots" => {
+            Err(error) if error.code() == ErrorCode::OutsideRoots.as_str() => {
                 let reason = crate::SkipReason::OutsideRoots.describe(path);
                 self.skipped.insert(path.to_path_buf(), reason);
                 return Ok(());
@@ -234,7 +234,7 @@ impl WorkspaceIndex {
         let count = self.ids.get(id).map_or(0, Vec::len) + self.outside_id_count(id);
         if count > 1 {
             return Err(AgdError::new(
-                "duplicate_id",
+                ErrorCode::DuplicateId,
                 format!("ID '{id}' occurs {count} times under the configured roots"),
             ));
         }
@@ -255,7 +255,7 @@ impl WorkspaceIndex {
             let outside = self.outside_id_count(item_ref);
             if matches.len() + outside > 1 {
                 return Err(AgdError::new(
-                    "duplicate_id",
+                    ErrorCode::DuplicateId,
                     format!(
                         "ID '{item_ref}' occurs {} times under the configured roots",
                         matches.len() + outside
@@ -264,11 +264,11 @@ impl WorkspaceIndex {
             }
             return match matches {
                 [] if outside == 1 => Err(AgdError::new(
-                    "stale_ref",
+                    ErrorCode::StaleRef,
                     format!("ID '{item_ref}' is in a file outside the agenda files"),
                 )),
                 [] => Err(AgdError::new(
-                    "stale_ref",
+                    ErrorCode::StaleRef,
                     format!("no item has ID '{item_ref}'"),
                 )),
                 [(path, index)] => Ok((
@@ -283,31 +283,34 @@ impl WorkspaceIndex {
             };
         }
 
-        let (location, digest) = item_ref
-            .rsplit_once("#sha256:")
-            .ok_or_else(|| AgdError::new("invalid_ref", format!("invalid item ref: {item_ref}")))?;
+        let (location, digest) = item_ref.rsplit_once("#sha256:").ok_or_else(|| {
+            AgdError::new(
+                ErrorCode::InvalidRef,
+                format!("invalid item ref: {item_ref}"),
+            )
+        })?;
         if digest.len() != 32 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(AgdError::new(
-                "invalid_ref",
+                ErrorCode::InvalidRef,
                 format!("invalid SHA-256 digest in item ref: {item_ref}"),
             ));
         }
         let (file, line) = location.rsplit_once(':').ok_or_else(|| {
             AgdError::new(
-                "invalid_ref",
+                ErrorCode::InvalidRef,
                 format!("item ref has no line hint: {item_ref}"),
             )
         })?;
         let line = line.parse::<usize>().map_err(|_| {
             AgdError::new(
-                "invalid_ref",
+                ErrorCode::InvalidRef,
                 format!("invalid line hint in item ref: {item_ref}"),
             )
         })?;
         let requested = Path::new(file);
         self.roots.resolve_read(requested)?;
         if let Some(reason) = self.skipped.get(requested) {
-            return Err(AgdError::new("non_utf8", reason.clone()));
+            return Err(AgdError::new(ErrorCode::NonUtf8, reason.clone()));
         }
         let document = self
             .documents
@@ -320,7 +323,7 @@ impl WorkspaceIndex {
             })
             .ok_or_else(|| {
                 AgdError::new(
-                    "stale_ref",
+                    ErrorCode::StaleRef,
                     format!(
                         "referenced file is not an agenda file: {}",
                         requested.display()
@@ -345,7 +348,7 @@ impl WorkspaceIndex {
             }
             [] => {
                 let mut error = AgdError::new(
-                    "stale_ref",
+                    ErrorCode::StaleRef,
                     format!("headline bytes no longer match ref: {item_ref}"),
                 );
                 if let Some(current) = document.headline_at_line(line) {
@@ -354,7 +357,7 @@ impl WorkspaceIndex {
                 Err(error)
             }
             _ => Err(AgdError::new(
-                "stale_ref",
+                ErrorCode::StaleRef,
                 format!("headline digest is ambiguous in {}", requested.display()),
             )),
         }

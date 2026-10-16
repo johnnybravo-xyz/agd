@@ -1,6 +1,6 @@
 use chrono::{Duration, NaiveDate};
 
-use crate::{AgdError, Item};
+use crate::{AgdError, ErrorCode, Item};
 
 use super::engine::{AgendaEngine, parse_date};
 use super::sort::compare_items;
@@ -215,7 +215,7 @@ fn parse_ql_expression(tokens: &[Token], cursor: &mut usize) -> Result<QlExpr, A
 /// predicates.
 fn invalid_query(problem: impl std::fmt::Display) -> AgdError {
     AgdError::new(
-        "invalid_query",
+        ErrorCode::InvalidQuery,
         format!("{problem}; supported predicates: {QL_PREDICATES}"),
     )
 }

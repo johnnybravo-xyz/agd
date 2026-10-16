@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use chrono::{Duration, Months, NaiveDate, NaiveDateTime};
 
 use crate::{
-    AgdError, ByteSpan, HeadlineSpan, IdPolicy, IndexedDocument, LogKind, PlanningTimestamp,
-    Settings, format_active_timestamp,
+    AgdError, ByteSpan, ErrorCode, HeadlineSpan, IdPolicy, IndexedDocument, LogKind,
+    PlanningTimestamp, Settings, format_active_timestamp,
 };
 
 use super::edit::{Change, EditIntent};
@@ -28,7 +28,7 @@ pub(super) fn build_edit_patches(
         && !document.todo_done().contains(requested)
     {
         return Err(AgdError::new(
-            "invalid_todo",
+            ErrorCode::InvalidTodo,
             format!("TODO state '{requested}' is not enabled for this file"),
         ));
     }
@@ -170,7 +170,7 @@ pub(super) fn build_edit_patches(
         || !intent.tags_remove.is_empty()
     {
         let title = change_value(&Some(headline.item.title.clone()), &intent.title)
-            .ok_or_else(|| AgdError::new("invalid_edit", "title cannot be cleared"))?;
+            .ok_or_else(|| AgdError::new(ErrorCode::InvalidEdit, "title cannot be cleared"))?;
         let priority = change_value(&headline.item.priority, &intent.priority);
         let mut tags: Vec<String> = headline
             .item
@@ -290,7 +290,10 @@ fn log_patch(
             continue;
         };
         if note.contains(['\n', '\r']) {
-            return Err(AgdError::new("invalid_note", "log notes must be one line"));
+            return Err(AgdError::new(
+                ErrorCode::InvalidNote,
+                "log notes must be one line",
+            ));
         }
         lines.push_str(&format!(
             "{indent}- {} \\\\{newline}{indent}  {note}{newline}",
@@ -486,7 +489,7 @@ fn advance_repeater(timestamp: &mut PlanningTimestamp, today: NaiveDate) -> Resu
     let repeater = timestamp
         .repeater
         .as_deref()
-        .ok_or_else(|| AgdError::new("invalid_repeater", "timestamp has no repeater"))?;
+        .ok_or_else(|| AgdError::new(ErrorCode::InvalidRepeater, "timestamp has no repeater"))?;
     let (kind, amount_and_unit) = if let Some(value) = repeater.strip_prefix("++") {
         ("++", value)
     } else if let Some(value) = repeater.strip_prefix(".+") {
@@ -495,17 +498,24 @@ fn advance_repeater(timestamp: &mut PlanningTimestamp, today: NaiveDate) -> Resu
         ("+", value)
     } else {
         return Err(AgdError::new(
-            "invalid_repeater",
+            ErrorCode::InvalidRepeater,
             format!("invalid repeater: {repeater}"),
         ));
     };
     let split = amount_and_unit.len().saturating_sub(1);
-    let amount = amount_and_unit[..split]
-        .parse::<u64>()
-        .map_err(|_| AgdError::new("invalid_repeater", format!("invalid repeater: {repeater}")))?;
+    let amount = amount_and_unit[..split].parse::<u64>().map_err(|_| {
+        AgdError::new(
+            ErrorCode::InvalidRepeater,
+            format!("invalid repeater: {repeater}"),
+        )
+    })?;
     let unit = &amount_and_unit[split..];
-    let original = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d")
-        .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {}", timestamp.date)))?;
+    let original = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d").map_err(|_| {
+        AgdError::new(
+            ErrorCode::InvalidDate,
+            format!("invalid date: {}", timestamp.date),
+        )
+    })?;
     let mut next = if kind == ".+" {
         add_period(today, amount, unit)?
     } else {
@@ -529,7 +539,7 @@ fn add_period(date: NaiveDate, amount: u64, unit: &str) -> Result<NaiveDate, Agd
         "y" => date.checked_add_months(Months::new((amount * 12) as u32)),
         _ => None,
     };
-    result.ok_or_else(|| AgdError::new("invalid_repeater", "repeater date is out of range"))
+    result.ok_or_else(|| AgdError::new(ErrorCode::InvalidRepeater, "repeater date is out of range"))
 }
 
 fn after_headline_line(source: &str, content_end: usize) -> usize {

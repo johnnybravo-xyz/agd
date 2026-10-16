@@ -118,7 +118,7 @@ impl WriteEngine {
         let path = PathBuf::from(&record.file);
         let current = fs::read_to_string(&path).map_err(|error| {
             AgdError::with_source(
-                "io",
+                ErrorCode::Io,
                 format!("cannot read {}: {error}", path.display()),
                 error,
             )
@@ -129,7 +129,7 @@ impl WriteEngine {
         if content_hash(&current) == record.post_hash && content_hash(&reverted) != record.pre_hash
         {
             return Err(AgdError::new(
-                "journal_corrupt",
+                ErrorCode::JournalCorrupt,
                 format!(
                     "inverse patch for {} does not reproduce its pre-image",
                     record.id
@@ -174,7 +174,7 @@ fn relocate_inverse(current: &str, record: &JournalRecord) -> Result<Vec<Patch>,
     }
     let conflict = |detail: String| {
         AgdError::new(
-            "undo_conflict",
+            ErrorCode::UndoConflict,
             format!(
                 "{} changed after journal entry {}: {detail}",
                 record.file, record.id

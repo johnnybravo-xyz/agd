@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
-use crate::{AgdError, AgendaSpan};
+use crate::{AgdError, AgendaSpan, ErrorCode};
 
 /// Everything agd reads from `config.toml`, one flat table: every setting is
 /// a top-level key, and only capture templates, views and agent profiles are
@@ -431,7 +431,7 @@ pub fn parse_agenda_day(value: &str, today: NaiveDate) -> Result<NaiveDate, AgdE
     crate::parse_date_input(value, today)?
         .date
         .parse::<NaiveDate>()
-        .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {value}")))
+        .map_err(|_| AgdError::new(ErrorCode::InvalidDate, format!("invalid date: {value}")))
 }
 
 #[cfg(test)]
