@@ -102,6 +102,27 @@ fn agenda_prints_org_agenda_layout_and_shared_schemas() {
 }
 
 #[test]
+fn from_takes_a_negative_offset_as_its_value() {
+    let fixture = Fixture::new();
+    let week_ago = (chrono::Local::now().date_naive() - chrono::Duration::weeks(1))
+        .format("%Y-%m-%d")
+        .to_string();
+    fs::write(
+        &fixture.tasks,
+        format!("* DONE Last week\nSCHEDULED: <{week_ago}>\n"),
+    )
+    .unwrap();
+    for offset in ["-1w", "-7"] {
+        fixture
+            .command()
+            .args(["agenda", "--span", "day", "--brief", "--from", offset])
+            .assert()
+            .success()
+            .stdout(format!("{week_ago} Last week\n"));
+    }
+}
+
+#[test]
 fn status_line_counts_today_for_a_status_bar() {
     let fixture = Fixture::new();
     let today = chrono::Local::now().format("%Y-%m-%d %a").to_string();

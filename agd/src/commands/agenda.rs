@@ -22,7 +22,7 @@ pub struct AgendaCommand {
     #[arg(long, value_enum)]
     span: Option<SpanArg>,
     /// First day: a date (2026-10-13) or org relative syntax (fri, +2d, -1w)
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     from: Option<String>,
     /// Emacs tags/todo match, e.g. 'work-someday/NEXT|TODO'
     #[arg(long = "match")]
