@@ -508,8 +508,7 @@ async fn inbox_captures_say_what_the_gate_changed() -> Result<(), Box<dyn std::e
     write_config(
         &directory,
         r#"
-agent_capture_to = "inbox"
-agent_inbox_template = "i"
+agent_inbox = "i"
 
 [[capture]]
 key = "w"
@@ -579,7 +578,7 @@ async fn describe_lists_what_writes_accept() -> Result<(), Box<dyn std::error::E
     write_config(
         &directory,
         r#"
-todo_keywords = [["TODO", "NEXT", "|", "DONE"]]
+todo_keywords = ["TODO NEXT | DONE"]
 lowest_priority = "E"
 default_priority = "C"
 start_view = "w"

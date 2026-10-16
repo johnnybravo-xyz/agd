@@ -333,7 +333,7 @@ fn agenda(settings: &agd_core::Settings, request: AgendaRequest) -> Result<Rows,
         let (shown, total) = truncate_sections(&mut sections, limit);
         return Rows::new(&sections, shown, total, bodies);
     }
-    let (from, to) = agenda_span(request.span.as_deref())?.bounds(start, &settings.week_start);
+    let (from, to) = agenda_span(request.span.as_deref())?.bounds(start, settings.week_start);
     let mut entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
         from,
         to,
@@ -373,29 +373,15 @@ fn start_day(
     from: Option<&str>,
     today: NaiveDate,
 ) -> Result<NaiveDate, AgdError> {
-    match (from, settings.agenda_start_day.as_deref()) {
-        (Some(from), _) => parse_day(from, today),
-        (None, Some(start_day)) => parse_day(start_day, today).map_err(|error| {
-            AgdError::new(
-                "config",
-                format!("invalid agenda_start_day {start_day:?}: {error}"),
-            )
-        }),
-        (None, None) => Ok(today),
+    match from {
+        Some(from) => agd_core::parse_agenda_day(from, today),
+        None => settings.agenda_start(today),
     }
 }
 
 /// The call's span; a day when it gives none.
 fn agenda_span(span: Option<&str>) -> Result<AgendaSpan, AgdError> {
-    match span.unwrap_or("day") {
-        "day" => Ok(AgendaSpan::Day),
-        "week" => Ok(AgendaSpan::Week),
-        "month" => Ok(AgendaSpan::Month),
-        value => Err(AgdError::new(
-            "invalid_span",
-            format!("unsupported agenda span: {value}; use day, week or month"),
-        )),
-    }
+    span.map_or(Ok(AgendaSpan::Day), str::parse)
 }
 
 /// The saved view `key` names. A view runs its own spans and matches, so a
@@ -803,19 +789,6 @@ fn parse_optional_date(
     value
         .map(|value| parse_date_input(value, today))
         .transpose()
-}
-
-/// An agenda start day: the date grammar, plus `-2d`-style offsets back
-/// from today, which agenda_start_day takes, as `agd agenda` reads them.
-fn parse_day(value: &str, today: NaiveDate) -> Result<NaiveDate, AgdError> {
-    if let Some(back) = value.trim().strip_prefix('-') {
-        let ahead = parse_day(&format!("+{back}"), today)?;
-        return Ok(today - (ahead - today));
-    }
-    parse_date_input(value, today)?
-        .date
-        .parse()
-        .map_err(|_| AgdError::new("invalid_date", format!("invalid date: {value}")))
 }
 
 /// Journals the write under the agent's own name. A client on the 2026-07-28

@@ -1638,19 +1638,20 @@ fn set_capture_level(rendered: &str, level: usize) -> String {
     format!("{}{}", "*".repeat(level), &rendered[stars..])
 }
 
-// With agents.capture_to = "inbox", an agent capture always lands in the
-// inbox template without planning, so it reaches the day only through triage.
+// With agent_inbox set, an agent capture always lands in that template
+// without planning, so it reaches the day only through triage.
 fn apply_agent_capture_gate(
     template: &CaptureTemplate,
     draft: &CaptureDraft,
     settings: &Settings,
     context: &WriteContext,
 ) -> (CaptureTemplate, CaptureDraft) {
-    if !context.is_agent() || settings.agent_capture_to != "inbox" {
-        return (template.clone(), draft.clone());
-    }
+    let inbox_key = match settings.agent_inbox.as_deref() {
+        Some(key) if context.is_agent() => key,
+        _ => return (template.clone(), draft.clone()),
+    };
     let inbox = settings
-        .capture_template(&settings.agent_inbox_template)
+        .capture_template(inbox_key)
         .cloned()
         .unwrap_or_else(|| template.clone());
     let mut draft = draft.clone();
@@ -1859,7 +1860,7 @@ mod tests {
     fn inbox_gate_redirects_only_agent_captures_and_drops_their_planning() {
         let temp = tempfile::tempdir().unwrap();
         let mut settings = settings(temp.path());
-        settings.agent_capture_to = "inbox".to_string();
+        settings.agent_inbox = Some("t".to_string());
         settings.captures.push(CaptureTemplate {
             key: "w".to_string(),
             file: Some("work.org".to_string()),

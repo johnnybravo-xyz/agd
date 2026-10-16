@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::Path;
 
-use agd_core::{ImportResult, ResolvedEditorConfig, Settings, apply_import};
+use agd_core::{
+    AgendaSpan, ImportResult, ImportStatus, LogMode, ResolvedEditorConfig, Settings, WeekStart,
+    apply_import,
+};
 
 /// Applies a case's resolved.json (the editor reader's output, with its
 /// files under /fixture) as a first import into a fresh directory.
@@ -43,11 +46,38 @@ fn emacs_cases_import_agenda_files_relative_to_derived_roots() {
 }
 
 #[test]
+fn emacs_doom_imports_olp_datetree_and_template_file_captures() {
+    let (temp, result) = import_fixture("emacs/doom");
+    let journal = result.settings.capture_template("j").unwrap();
+    assert!(journal.datetree);
+    assert_eq!(journal.outline_path, Some(vec!["Journal".to_string()]));
+    let meeting = result.settings.capture_template("m").unwrap();
+    assert_eq!(meeting.template, "");
+    assert_eq!(
+        meeting.template_file.as_deref(),
+        Some(temp.path().join("meeting.txt").to_string_lossy().as_ref())
+    );
+}
+
+#[test]
 fn emacs_vanilla_keeps_what_agd_runs_and_reports_the_rest() {
     let (_temp, result) = import_fixture("emacs/vanilla");
+    assert_eq!(
+        result.settings.todo_keywords,
+        ["TODO(t) NEXT(n!) WAIT(w@) | DONE(d!) CANCELLED(c@)"]
+    );
     assert_eq!(result.settings.deadline_warning_days, 5);
-    assert_eq!(result.settings.week_start, "sunday");
-    assert!(result.settings.capture_template("t").is_some());
+    assert_eq!(result.settings.week_start, WeekStart::Sunday);
+    // A capture file under the root is written relative to it.
+    assert_eq!(
+        result
+            .settings
+            .capture_template("t")
+            .unwrap()
+            .file
+            .as_deref(),
+        Some("tasks.org")
+    );
     assert!(result.settings.capture_template("x").is_none());
     assert!(reported(&result, "capture x", "computed capture target"));
     // Templates keep the order they are written in, not key order.
@@ -63,17 +93,37 @@ fn emacs_vanilla_keeps_what_agd_runs_and_reports_the_rest() {
         "tags-todo"
     );
     let blocks = &result.settings.view("b").unwrap().blocks;
-    assert_eq!(blocks[0].span.as_deref(), Some("day"));
+    assert_eq!(blocks[0].span, Some(AgendaSpan::Day));
     assert_eq!(blocks[1].header.as_deref(), Some("Home"));
     assert!(result.settings.view("r").is_none());
     assert!(reported(&result, "view r", "unsupported"));
     assert!(reported(&result, "org-todo-keywords", "init.el:"));
+    // Tag completion lists change no rows, so they are reported, not kept.
+    assert!(reported(&result, "org-tag-alist", "not used by agd"));
+    assert!(reported(
+        &result,
+        "org-tag-persistent-alist",
+        "not used by agd"
+    ));
+    // A global skip function changes rows, so it is unsupported, not unused.
+    let skip = result
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.key == "org-agenda-skip-function-global")
+        .unwrap();
+    assert_eq!(skip.status, ImportStatus::Unsupported);
+    assert!(
+        skip.message
+            .ends_with("not supported; agd's rows differ from Emacs's")
+    );
 }
 
 #[test]
 fn emacs_super_agenda_groups_import_as_view_groups() {
     let (_temp, result) = import_fixture("emacs/super-agenda");
     let day = &result.settings.view("d").unwrap().blocks;
+    // (org-agenda-span 1) is a day, as Org reads it.
+    assert_eq!(day[0].span, Some(AgendaSpan::Day));
     let matches: Vec<Option<&str>> = day[0]
         .groups
         .iter()
@@ -134,14 +184,14 @@ fn emacs_deferred_settings_win_over_top_level_ones() {
     // to tasks.org in with-eval-after-load 'org.
     let (_temp, result) = import_fixture("emacs/use-package");
     assert_eq!(result.settings.agenda_files, vec!["tasks.org"]);
-    assert_eq!(result.settings.log_done, "note");
+    assert_eq!(result.settings.log_done, LogMode::Note);
 }
 
 #[test]
 fn neovim_setup_call_imports_options_and_property_matches() {
     let (_temp, result) = import_fixture("nvim/vanilla");
     assert_eq!(result.settings.deadline_warning_days, 6);
-    assert_eq!(result.settings.week_start, "sunday");
+    assert_eq!(result.settings.week_start, WeekStart::Sunday);
     assert_eq!(result.settings.lowest_priority, "D");
     assert!(result.settings.log_into_drawer);
     assert!(result.settings.capture_template("x").is_none());
@@ -167,10 +217,7 @@ fn neovim_lazy_spec_keeps_its_glob_and_default_notes_file() {
     let (_temp, result) = import_fixture("nvim/lazy");
     assert_eq!(result.settings.agenda_files, vec!["**/*.org"]);
     let note = result.settings.capture_template("n").unwrap();
-    assert!(note.file.as_deref().unwrap().ends_with("inbox.org"));
+    assert_eq!(note.file.as_deref(), Some("inbox.org"));
     assert_eq!(note.heading.as_deref(), Some("Notes"));
-    assert_eq!(
-        result.settings.todo_keywords,
-        vec![vec!["TODO", "WAIT", "|", "DONE"]]
-    );
+    assert_eq!(result.settings.todo_keywords, vec!["TODO WAIT | DONE"]);
 }

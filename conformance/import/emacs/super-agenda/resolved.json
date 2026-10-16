@@ -41,7 +41,7 @@
             }
           ],
           "kind": "agenda",
-          "span": "1"
+          "span": 1
         },
         {
           "groups": [
@@ -191,7 +191,6 @@
   "log_reschedule": "nil",
   "lowest_priority": "C",
   "org_directory": null,
-  "persistent_tags": [],
   "skip_deadline_if_done": false,
   "skip_scheduled_if_done": false,
   "skip_timestamp_if_done": false,
@@ -201,7 +200,6 @@
     "urgency-down",
     "category-keep"
   ],
-  "tag_alist": [],
   "tag_inheritance_exclusions": [],
   "tags_column": -77,
   "todo_sequences": [

@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AgdError, CaptureTemplate, SORTING_KEYS, Settings, ViewBlock, ViewSettings};
+use crate::{
+    AgdError, AgendaSpan, CaptureTemplate, LogMode, SORTING_KEYS, Settings, ViewBlock,
+    ViewSettings, WeekStart,
+};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -67,8 +70,6 @@ pub struct ResolvedEditorConfig {
     /// directories or globs.
     pub agenda_files: Vec<String>,
     pub todo_sequences: Vec<Vec<String>>,
-    pub tag_alist: Vec<String>,
-    pub persistent_tags: Vec<String>,
     pub tags_column: i64,
     pub tag_inheritance_exclusions: Vec<String>,
     pub highest_priority: String,
@@ -77,7 +78,7 @@ pub struct ResolvedEditorConfig {
     pub deadline_warning_days: i64,
     pub agenda_span: String,
     pub agenda_start_day: Option<String>,
-    pub week_start: String,
+    pub week_start: WeekStart,
     pub skip_scheduled_if_done: bool,
     pub skip_deadline_if_done: bool,
     pub skip_timestamp_if_done: bool,
@@ -325,13 +326,26 @@ pub fn apply_import(
     }
     settings.agenda_files.dedup();
 
-    settings.todo_keywords = resolved.todo_sequences.clone();
-    settings.tag_alist = resolved.tag_alist.clone();
-    settings.persistent_tags = resolved.persistent_tags.clone();
+    // Each sequence as its #+TODO: line; (type …) keywords read the same.
+    settings.todo_keywords = resolved
+        .todo_sequences
+        .iter()
+        .map(|sequence| sequence.join(" "))
+        .collect();
     settings.tags_column = resolved.tags_column;
-    settings.agenda_span = resolved.agenda_span.clone();
+    match imported_span(&resolved.agenda_span) {
+        Some(span) => settings.agenda_span = span,
+        None => diagnostics.push(ImportDiagnostic {
+            status: ImportStatus::Unsupported,
+            key: "org-agenda-span".to_string(),
+            message: format!(
+                "{} is not supported; agenda_span stays {}",
+                resolved.agenda_span, settings.agenda_span
+            ),
+        }),
+    }
     settings.agenda_start_day = resolved.agenda_start_day.clone();
-    settings.week_start = resolved.week_start.clone();
+    settings.week_start = resolved.week_start;
     settings.deadline_warning_days = resolved.deadline_warning_days;
     settings.skip_scheduled_if_done = resolved.skip_scheduled_if_done;
     settings.skip_deadline_if_done = resolved.skip_deadline_if_done;
@@ -352,34 +366,36 @@ pub fn apply_import(
     settings.lowest_priority = resolved.lowest_priority.clone();
     settings.default_priority = resolved.default_priority.clone();
     settings.tag_inheritance_exclusions = resolved.tag_inheritance_exclusions.clone();
-    settings.log_done = resolved.log_done.clone();
-    settings.log_repeat = resolved.log_repeat.clone();
-    settings.log_reschedule = resolved.log_reschedule.clone();
-    settings.log_redeadline = resolved.log_redeadline.clone();
+    for (variable, value, mode) in [
+        ("org-log-done", &resolved.log_done, &mut settings.log_done),
+        (
+            "org-log-repeat",
+            &resolved.log_repeat,
+            &mut settings.log_repeat,
+        ),
+        (
+            "org-log-reschedule",
+            &resolved.log_reschedule,
+            &mut settings.log_reschedule,
+        ),
+        (
+            "org-log-redeadline",
+            &resolved.log_redeadline,
+            &mut settings.log_redeadline,
+        ),
+    ] {
+        match imported_log_mode(value) {
+            Some(imported) => *mode = imported,
+            None => diagnostics.push(ImportDiagnostic {
+                status: ImportStatus::Unsupported,
+                key: variable.to_string(),
+                message: format!("{value} is not nil, time or note; left out"),
+            }),
+        }
+    }
     settings.log_into_drawer = resolved.log_into_drawer;
 
-    settings.captures.clear();
-    for capture in &resolved.capture {
-        if !capture.enabled {
-            diagnostics.push(ImportDiagnostic {
-                status: ImportStatus::Unsupported,
-                key: format!("capture {}", capture.key),
-                message: capture.diagnostics.join("; "),
-            });
-            continue;
-        }
-        settings.captures.push(CaptureTemplate {
-            key: capture.key.clone(),
-            desc: capture.desc.clone(),
-            file: capture.file.clone(),
-            heading: capture.heading.clone(),
-            outline_path: capture.outline_path.clone(),
-            id: capture.id.clone(),
-            datetree: capture.datetree,
-            template: capture.template.clone(),
-            template_file: capture.template_file.clone(),
-        });
-    }
+    settings.captures = imported_captures(resolved, &settings.roots, &mut diagnostics);
     // The defaults stay only when the editor defines no templates at all.
     if resolved.capture.is_empty() {
         settings.captures = base.captures.clone();
@@ -423,6 +439,13 @@ pub fn apply_import(
         settings.views = base.views.clone();
     }
 
+    // The written config must load; only its roots may not exist yet.
+    crate::settings::validate_values(&settings).map_err(|error| {
+        AgdError::new(
+            "unsupported_import_shape",
+            format!("the imported settings would not load: {error}"),
+        )
+    })?;
     Ok(ImportResult {
         settings,
         diagnostics,
@@ -467,32 +490,48 @@ fn derived_roots(org_directory: Option<&str>, entries: &[PathBuf]) -> Vec<String
             roots.push(directory);
         }
     }
+    roots.iter().map(|root| home_relative(root)).collect()
+}
+
+/// `path` with the home directory written as `~`.
+fn home_relative(path: &Path) -> String {
     let home = dirs::home_dir();
-    roots
-        .into_iter()
-        .map(|root| {
-            match home
-                .as_deref()
-                .and_then(|home| root.strip_prefix(home).ok())
-            {
-                Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-                Some(rest) => format!("~/{}", rest.to_string_lossy()),
-                None => root.to_string_lossy().into_owned(),
-            }
-        })
-        .collect()
+    match home
+        .as_deref()
+        .and_then(|home| path.strip_prefix(home).ok())
+    {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{}", rest.to_string_lossy()),
+        None => path.to_string_lossy().into_owned(),
+    }
+}
+
+/// The root an import writes for `agd -r DIR setup import`: DIR made
+/// absolute (symlinks kept, as the editor's paths keep them) with `~` for
+/// the home directory. DIR must exist, since agenda entries and capture
+/// files are placed under it.
+pub fn import_root(directory: &Path) -> Result<String, AgdError> {
+    let expanded = PathBuf::from(shellexpand::tilde(&directory.to_string_lossy()).into_owned());
+    let absolute = std::path::absolute(&expanded).map_err(|error| {
+        import_error(format!(
+            "cannot resolve root {}: {error}",
+            directory.display()
+        ))
+    })?;
+    if !absolute.is_dir() {
+        return Err(import_error(format!(
+            "root {} is not a directory",
+            directory.display()
+        )));
+    }
+    Ok(home_relative(&absolute))
 }
 
 /// An agenda entry as a pattern relative to the root that holds it: a file
 /// stays a file, a directory becomes its `*.org` files (Emacs does not
 /// recurse), and a glob keeps its wildcards. None when no root holds it.
 fn agenda_pattern(entry: &Path, roots: &[String]) -> Option<String> {
-    let base = entry_base(entry);
-    let root = roots
-        .iter()
-        .map(|root| PathBuf::from(shellexpand::tilde(root).into_owned()))
-        .filter(|root| base.starts_with(root))
-        .max_by_key(|root| root.components().count())?;
+    let root = holding_root(&entry_base(entry), roots)?;
     let relative = entry
         .strip_prefix(&root)
         .ok()?
@@ -509,6 +548,84 @@ fn agenda_pattern(entry: &Path, roots: &[String]) -> Option<String> {
     }
 }
 
+/// The root `path` is under, the deepest one when roots nest.
+fn holding_root(path: &Path, roots: &[String]) -> Option<PathBuf> {
+    roots
+        .iter()
+        .map(|root| PathBuf::from(shellexpand::tilde(root).into_owned()))
+        .filter(|root| path.starts_with(root))
+        .max_by_key(|root| root.components().count())
+}
+
+/// The editor's enabled capture templates, each file written relative to
+/// the root that holds it, as agenda entries are. Disabled templates, and
+/// templates whose file is outside the roots (agd could not write there),
+/// are left out and reported.
+fn imported_captures(
+    resolved: &ResolvedEditorConfig,
+    roots: &[String],
+    diagnostics: &mut Vec<ImportDiagnostic>,
+) -> Vec<CaptureTemplate> {
+    let mut captures = Vec::new();
+    for capture in &resolved.capture {
+        let left_out = |message: String| ImportDiagnostic {
+            status: ImportStatus::Unsupported,
+            key: format!("capture {}", capture.key),
+            message,
+        };
+        if !capture.enabled {
+            diagnostics.push(left_out(capture.diagnostics.join("; ")));
+            continue;
+        }
+        let file = match &capture.file {
+            Some(file) => {
+                let path = PathBuf::from(shellexpand::tilde(file).into_owned());
+                let relative = holding_root(&path, roots)
+                    .and_then(|root| path.strip_prefix(root).ok().map(Path::to_path_buf));
+                let Some(relative) = relative else {
+                    diagnostics.push(left_out(format!(
+                        "capture template left out: {file} is outside the roots"
+                    )));
+                    continue;
+                };
+                Some(relative.to_string_lossy().into_owned())
+            }
+            None => None,
+        };
+        captures.push(CaptureTemplate {
+            key: capture.key.clone(),
+            desc: capture.desc.clone(),
+            file,
+            heading: capture.heading.clone(),
+            outline_path: capture.outline_path.clone(),
+            id: capture.id.clone(),
+            datetree: capture.datetree,
+            template: capture.template.clone(),
+            template_file: capture.template_file.clone(),
+        });
+    }
+    captures
+}
+
+/// An org-log-* value as agd writes it: Emacs's nil is off and t is time.
+fn imported_log_mode(value: &str) -> Option<LogMode> {
+    match value {
+        "nil" => Some(LogMode::Off),
+        "t" | "time" => Some(LogMode::Time),
+        "note" => Some(LogMode::Note),
+        _ => None,
+    }
+}
+
+/// org-agenda-span as agd writes it: Org's `fortnight` is 14 days; None for
+/// a span agd has no form for, such as `year`.
+fn imported_span(value: &str) -> Option<AgendaSpan> {
+    match value {
+        "fortnight" => AgendaSpan::days(14).ok(),
+        value => value.parse().ok(),
+    }
+}
+
 fn validate_resolved(resolved: &ResolvedEditorConfig) -> Result<(), AgdError> {
     if resolved.todo_sequences.is_empty()
         || resolved
@@ -519,24 +636,6 @@ fn validate_resolved(resolved: &ResolvedEditorConfig) -> Result<(), AgdError> {
         return Err(AgdError::new(
             "unsupported_import_shape",
             "editor returned no usable TODO sequence",
-        ));
-    }
-    for (name, value) in [
-        ("highest priority", &resolved.highest_priority),
-        ("lowest priority", &resolved.lowest_priority),
-        ("default priority", &resolved.default_priority),
-    ] {
-        if value.chars().count() != 1 {
-            return Err(AgdError::new(
-                "unsupported_import_shape",
-                format!("{name} must be one character"),
-            ));
-        }
-    }
-    if resolved.week_start != "monday" && resolved.week_start != "sunday" {
-        return Err(AgdError::new(
-            "unsupported_import_shape",
-            format!("unsupported week start: {}", resolved.week_start),
         ));
     }
     Ok(())
@@ -614,7 +713,7 @@ mod tests {
             "org_directory": "/elsewhere",
             "agenda_files": [temp.path().join("inbox.org"), "/elsewhere/private.org"],
             "todo_sequences": [["TODO", "|", "DONE"]],
-            "tag_alist": [], "persistent_tags": [], "tags_column": -77,
+            "tags_column": -77,
             "tag_inheritance_exclusions": [],
             "highest_priority": "A", "lowest_priority": "C", "default_priority": "B",
             "deadline_warning_days": 14, "agenda_span": "week", "agenda_start_day": null,
@@ -635,5 +734,148 @@ mod tests {
                 .any(|diagnostic| diagnostic.key == "/elsewhere/private.org")
         );
         assert_eq!(result.settings.captures, base.captures);
+    }
+
+    /// A reader payload with Org's defaults, `fields` replacing its keys.
+    fn resolved_with(fields: serde_json::Value) -> ResolvedEditorConfig {
+        let mut payload = serde_json::json!({
+            "editor": "emacs",
+            "agenda_files": [],
+            "todo_sequences": [["TODO", "|", "DONE"]],
+            "tags_column": -77,
+            "tag_inheritance_exclusions": [],
+            "highest_priority": "A", "lowest_priority": "C", "default_priority": "B",
+            "deadline_warning_days": 14, "agenda_span": "week", "agenda_start_day": null,
+            "week_start": "monday", "skip_scheduled_if_done": false,
+            "skip_deadline_if_done": false, "skip_timestamp_if_done": false,
+            "sorting_strategy": [], "log_done": "nil", "log_repeat": "time",
+            "log_reschedule": "nil", "log_redeadline": "nil", "log_into_drawer": false
+        });
+        for (key, value) in fields.as_object().unwrap() {
+            payload[key] = value.clone();
+        }
+        serde_json::from_value(payload).unwrap()
+    }
+
+    fn diagnostic<'a>(result: &'a ImportResult, key: &str) -> Option<&'a str> {
+        result
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.key == key)
+            .map(|diagnostic| diagnostic.message.as_str())
+    }
+
+    #[test]
+    fn emacs_log_values_import_as_off_time_or_note() {
+        let resolved = resolved_with(serde_json::json!({
+            "log_done": "nil", "log_repeat": "t", "log_reschedule": "note", "log_redeadline": "yes"
+        }));
+        let result = apply_import(&resolved, &Settings::default(), false).unwrap();
+        let settings = &result.settings;
+        assert_eq!(
+            [
+                settings.log_done,
+                settings.log_repeat,
+                settings.log_reschedule,
+                settings.log_redeadline
+            ],
+            [LogMode::Off, LogMode::Time, LogMode::Note, LogMode::Off]
+        );
+        assert_eq!(
+            diagnostic(&result, "org-log-redeadline"),
+            Some("yes is not nil, time or note; left out")
+        );
+        let rendered = crate::render_config(settings, "logs").unwrap();
+        assert!(rendered.contains("log_done = \"off\"\n"), "{rendered}");
+        assert!(!rendered.contains("nil"), "{rendered}");
+    }
+
+    #[test]
+    fn numeric_priorities_import_and_a_config_that_would_not_load_is_refused() {
+        let resolved = resolved_with(serde_json::json!({
+            "highest_priority": "1", "default_priority": "3", "lowest_priority": "5"
+        }));
+        let result = apply_import(&resolved, &Settings::default(), false).unwrap();
+        assert_eq!(
+            [
+                result.settings.highest_priority.as_str(),
+                &result.settings.default_priority,
+                &result.settings.lowest_priority
+            ],
+            ["1", "3", "5"]
+        );
+
+        let resolved = resolved_with(serde_json::json!({ "deadline_warning_days": -1 }));
+        let error = apply_import(&resolved, &Settings::default(), false).unwrap_err();
+        assert_eq!(error.code(), "unsupported_import_shape");
+        assert_eq!(
+            error.to_string(),
+            "the imported settings would not load: deadline_warning_days must be 0 or more, not -1"
+        );
+    }
+
+    #[test]
+    fn import_root_is_an_absolute_existing_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        assert_eq!(
+            import_root(temp.path()).unwrap(),
+            temp.path().to_string_lossy()
+        );
+        let missing = temp.path().join("missing");
+        let error = import_root(&missing).unwrap_err();
+        assert_eq!(error.code(), "import");
+        assert_eq!(
+            error.to_string(),
+            format!("root {} is not a directory", missing.display())
+        );
+    }
+
+    #[test]
+    fn capture_files_are_written_relative_to_their_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let base = Settings {
+            roots: vec![temp.path().to_string_lossy().into_owned()],
+            ..Settings::default()
+        };
+        let capture = |key: &str, file: std::path::PathBuf| {
+            serde_json::json!({
+                "key": key, "desc": key, "file": file, "template": "* %?", "enabled": true
+            })
+        };
+        let resolved = resolved_with(serde_json::json!({
+            "capture": [
+                capture("t", temp.path().join("notes/inbox.org")),
+                capture("x", std::path::PathBuf::from("/elsewhere/inbox.org")),
+            ]
+        }));
+        let result = apply_import(&resolved, &base, false).unwrap();
+        let files: Vec<(&str, Option<&str>)> = result
+            .settings
+            .captures
+            .iter()
+            .map(|template| (template.key.as_str(), template.file.as_deref()))
+            .collect();
+        assert_eq!(files, [("t", Some("notes/inbox.org"))]);
+        assert_eq!(
+            diagnostic(&result, "capture x"),
+            Some("capture template left out: /elsewhere/inbox.org is outside the roots")
+        );
+    }
+
+    #[test]
+    fn emacs_spans_import_as_names_or_days() {
+        let span = |value: &str| {
+            let resolved = resolved_with(serde_json::json!({ "agenda_span": value }));
+            apply_import(&resolved, &Settings::default(), false).unwrap()
+        };
+        assert_eq!(span("10").settings.agenda_span, AgendaSpan::Days(10));
+        assert_eq!(span("fortnight").settings.agenda_span, AgendaSpan::Days(14));
+        assert_eq!(span("day").settings.agenda_span, AgendaSpan::Day);
+        let year = span("year");
+        assert_eq!(year.settings.agenda_span, AgendaSpan::Week);
+        assert_eq!(
+            diagnostic(&year, "org-agenda-span"),
+            Some("year is not supported; agenda_span stays week")
+        );
     }
 }

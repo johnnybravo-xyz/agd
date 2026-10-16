@@ -102,6 +102,73 @@ fn agenda_prints_org_agenda_layout_and_shared_schemas() {
 }
 
 #[test]
+fn agenda_span_takes_a_number_of_days_from_config_or_flag() {
+    let fixture = Fixture::new();
+    let config = fs::read_to_string(&fixture.config).unwrap();
+    fs::write(&fixture.config, format!("agenda_span = 3\n{config}")).unwrap();
+    let output = fixture
+        .command()
+        .args(["agenda", "--from", "2026-10-12"])
+        .output()
+        .expect("agenda command");
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.starts_with("Monday     12 October 2026"), "{text}");
+    assert!(text.contains("Wednesday  14 October 2026"), "{text}");
+    assert!(!text.contains("Thursday"), "{text}");
+
+    fixture
+        .command()
+        .args(["agenda", "--span", "2", "--from", "2026-10-13"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Wednesday  14 October 2026"))
+        .stdout(predicate::str::contains("Thursday").not());
+
+    fs::write(&fixture.config, format!("agenda_span = \"wek\"\n{config}")).unwrap();
+    fixture
+        .command()
+        .args(["agenda"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "expected day, week, month or a number of days, not \"wek\"",
+        ));
+}
+
+#[test]
+fn builtin_n_view_runs_beside_configured_views() {
+    let fixture = Fixture::new();
+    let config = fs::read_to_string(&fixture.config).unwrap();
+    fs::write(
+        &fixture.config,
+        format!(
+            "{config}[[view]]\nkey = \"w\"\ndesc = \"Work\"\nblocks = [{{ kind = \"tags-todo\", match = \"work\" }}]\n"
+        ),
+    )
+    .unwrap();
+    fixture
+        .command()
+        .args(["agenda", "--view", "n", "--from", "2026-10-13"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Week-agenda (W42):"))
+        .stdout(predicate::str::contains("NEXT File paperwork"));
+    fixture
+        .command()
+        .args(["agenda", "--views"])
+        .assert()
+        .success()
+        .stdout("w   Work\nn   Agenda and all TODOs  (built-in)\n");
+    fixture
+        .command()
+        .args(["agenda", "--view", "x"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unknown view 'x'; views: w, n"));
+}
+
+#[test]
 fn status_line_counts_today_for_a_status_bar() {
     let fixture = Fixture::new();
     let today = chrono::Local::now().format("%Y-%m-%d %a").to_string();
@@ -151,10 +218,14 @@ fn views_json_carries_what_a_client_draws_them_with() {
         .expect("views command");
     assert!(output.status.success(), "{output:?}");
     let payload: Value = serde_json::from_slice(&output.stdout).expect("views JSON");
-    // start_view first, then config order.
+    // start_view first, then config order, then Org's built-in n.
     assert_eq!(payload["views"][0]["key"], "w");
     assert_eq!(payload["views"][0]["start"], true);
+    assert_eq!(payload["views"][0]["builtin"], false);
     assert_eq!(payload["views"][1]["key"], "d");
+    assert_eq!(payload["views"][2]["key"], "n");
+    assert_eq!(payload["views"][2]["builtin"], true);
+    assert_eq!(payload["views"].as_array().unwrap().len(), 3);
     assert_eq!(payload["theme"], "light");
     assert_eq!(payload["nerd_font"], true);
     // The file's #+TODO keywords: a configured color, the sequence's first
@@ -263,6 +334,48 @@ fn default_paths_follow_xdg_on_every_unix() {
     let inbox = fs::read_to_string(home.path().join("org/inbox.org")).expect("inbox");
     assert!(inbox.contains("** TODO Stretch"), "{inbox}");
     assert!(home.path().join("xdg-data/agd/journal.jsonl").is_file());
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn first_run_without_config_or_org_says_how_to_start() {
+    let home = tempfile::tempdir().expect("home directory");
+    let config = home.path().join(".config/agd/config.toml");
+    cargo::cargo_bin_cmd!("agd")
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join(".config"))
+        .env("XDG_DATA_HOME", home.path().join(".local/share"))
+        .args(["agenda"])
+        .assert()
+        .failure()
+        .stderr(format!(
+            concat!(
+                "Error: no config at {} and no ~/org to read. Start with one of:\n",
+                "  mkdir ~/org    agd then reads it with its defaults\n",
+                "  agd setup import <your Emacs or Neovim config directory>\n",
+                "  agd -r DIR    read another directory for this run\n",
+            ),
+            config.display()
+        ));
+    let output = cargo::cargo_bin_cmd!("agd")
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join(".config"))
+        .args(["agenda", "--json"])
+        .output()
+        .expect("agenda command");
+    let error: Value = serde_json::from_slice(&output.stderr).expect("error JSON");
+    assert_eq!(error["code"], "config");
+
+    // `mkdir ~/org` is enough.
+    fs::create_dir(home.path().join("org")).expect("org directory");
+    cargo::cargo_bin_cmd!("agd")
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join(".config"))
+        .env("XDG_DATA_HOME", home.path().join(".local/share"))
+        .args(["agenda", "--views"])
+        .assert()
+        .success()
+        .stdout("n   Agenda and all TODOs  (built-in)\n");
 }
 
 #[test]

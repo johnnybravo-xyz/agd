@@ -10,7 +10,7 @@ pub mod write;
 
 pub use agenda_engine::{
     AgendaEngine, AgendaQuery, AgendaSpan, ViewSection, ViewSectionGroup, agenda_csv, agenda_title,
-    items_csv, keyword_color, keyword_colors, span_days,
+    items_csv, keyword_color, keyword_colors,
 };
 pub use check::{
     CHECK_SCHEMA, CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError,
@@ -26,7 +26,7 @@ pub use document::{
 };
 pub use imports::{
     ConfigEditor, ConfigSources, ImportDiagnostic, ImportResult, ImportStatus, ImportedCapture,
-    ImportedCommand, ResolvedEditorConfig, apply_import, find_config_sources,
+    ImportedCommand, ResolvedEditorConfig, apply_import, find_config_sources, import_root,
 };
 pub use model::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ERROR_SCHEMA, ErrorResponse, ITEM_SCHEMA, Item,
@@ -34,9 +34,9 @@ pub use model::{
 };
 pub use paths::RootSet;
 pub use settings::{
-    AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, SORTING_KEYS, Settings,
-    VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, default_config_path,
-    load_settings, parse_config_file, render_config,
+    AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, LogMode, SORTING_KEYS,
+    Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, WeekStart,
+    default_config_path, load_settings, parse_agenda_day, parse_config_file, render_config,
 };
 pub use write::{
     Change, EditIntent, JournalRecord, JournalStatus, Patch, RefileResult, StoredPatch, UndoResult,

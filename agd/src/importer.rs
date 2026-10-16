@@ -1,19 +1,23 @@
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 use agd_core::{
-    AgendaEngine, AgendaQuery, AgendaSpan, ConfigEditor, ConfigSources, ImportResult, ImportStatus,
+    AgendaEngine, AgendaQuery, ConfigEditor, ConfigSources, ImportResult, ImportStatus,
     ResolvedEditorConfig, Settings, WorkspaceIndex, agenda_csv, apply_import, find_config_sources,
-    items_csv, parse_date_input, render_config,
+    items_csv, render_config,
 };
 use anyhow::{Context, Result, anyhow, bail};
-use chrono::{Duration, Local, NaiveDate};
+use chrono::Local;
 use similar::TextDiff;
 
 const EMACS_READER: &str = include_str!("../readers/emacs.el");
 const NEOVIM_READER: &str = include_str!("../readers/nvim.lua");
+/// How long an editor may take to read the config and, with --verify, run
+/// every imported view.
+const READER_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Clone, Debug)]
 pub struct VerificationResult {
@@ -72,7 +76,7 @@ pub fn import_config(
     };
     command.0.env("AGD_IMPORT_FILES", files);
     let label = format!("{} config reader", sources.editor.name());
-    let output = run(&mut command.0, &label)?;
+    let output = run(&mut command.0, &label, READER_TIMEOUT)?;
     let resolved = parse_process_json(&output, sources.editor.name())?;
     finish_import(
         sources,
@@ -96,11 +100,45 @@ fn neovim_config_root(file: &Path) -> PathBuf {
         .unwrap_or_default()
 }
 
-fn run(command: &mut Command, label: &str) -> Result<Output> {
-    tracing::info!(?command, "starting editor config reader");
-    let output = command
-        .output()
+/// Runs the reader with no stdin, so an editor prompt reads end of file
+/// instead of waiting, and stops it after `timeout`.
+fn run(command: &mut Command, label: &str, timeout: Duration) -> Result<Output> {
+    tracing::info!(?command, ?timeout, "starting editor config reader");
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .with_context(|| format!("cannot start {label}; is the editor on PATH?"))?;
+    // Both pipes drain on their own threads, so a full pipe never stalls
+    // the child.
+    let stdout = read_to_end_in_background(child.stdout.take());
+    let stderr = read_to_end_in_background(child.stderr.take());
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child
+            .try_wait()
+            .with_context(|| format!("cannot wait for {label}"))?
+        {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            tracing::warn!(?timeout, "stopping editor config reader");
+            // Kill fails only when the child has already exited.
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!(
+                "{label} did not finish within {timeout:?} and was stopped; an editor prompt or, with --verify, a slow agenda view can cause this"
+            );
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let output = Output {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    };
+    tracing::info!(status = %output.status, "editor config reader finished");
     if !output.status.success() {
         bail!(
             "{label} failed with {}: {}",
@@ -109,6 +147,19 @@ fn run(command: &mut Command, label: &str) -> Result<Output> {
         );
     }
     Ok(output)
+}
+
+fn read_to_end_in_background(
+    pipe: Option<impl Read + Send + 'static>,
+) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = pipe {
+            // A read error leaves what was read; the exit status reports why.
+            let _ = pipe.read_to_end(&mut bytes);
+        }
+        bytes
+    })
 }
 
 fn parse_process_json(output: &Output, editor: &str) -> Result<ResolvedEditorConfig> {
@@ -149,15 +200,9 @@ fn finish_import(
         read.join("\n  ")
     );
     let toml = render_config(&result.settings, &header)?;
-    let previous = fs::read_to_string(destination).unwrap_or_default();
-    let diff = TextDiff::from_lines(&previous, &toml)
-        .unified_diff()
-        .header(
-            &format!("a/{}", destination.display()),
-            &format!("b/{}", destination.display()),
-        )
-        .to_string();
-    if write {
+    let diff = config_diff(destination, &toml)?;
+    // An unchanged config is left alone.
+    if write && !diff.is_empty() {
         write_config(destination, &toml)?;
     }
     Ok(ImportExecution {
@@ -167,6 +212,23 @@ fn finish_import(
         diff,
         verification,
     })
+}
+
+/// A unified diff from the config at `destination` (/dev/null when there is
+/// none yet) to `toml`, headed by the real path; empty when they match.
+fn config_diff(destination: &Path, toml: &str) -> Result<String> {
+    let path = destination.display().to_string();
+    let (previous, old_label) = match fs::read_to_string(destination) {
+        Ok(previous) => (previous, path.clone()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            (String::new(), "/dev/null".to_string())
+        }
+        Err(error) => return Err(error).with_context(|| format!("cannot read {path}")),
+    };
+    Ok(TextDiff::from_lines(previous.as_str(), toml)
+        .unified_diff()
+        .header(&old_label, &path)
+        .to_string())
 }
 
 /// Replaces the config file atomically with owner-only permissions.
@@ -203,8 +265,11 @@ fn verify_import(
         return Vec::new();
     }
     let settings = result.settings.clone();
-    let index = match WorkspaceIndex::load(settings.clone()) {
-        Ok(index) => index,
+    let today = Local::now().date_naive();
+    let loaded = WorkspaceIndex::load(settings.clone())
+        .and_then(|index| Ok((index, settings.agenda_start(today)?)));
+    let (index, start) = match loaded {
+        Ok(loaded) => loaded,
         Err(error) => {
             return vec![VerificationResult {
                 status: ImportStatus::Unsupported,
@@ -215,14 +280,7 @@ fn verify_import(
         }
     };
     let engine = AgendaEngine::new(&index);
-    let today = Local::now().date_naive();
-    let start = verification_start(&settings, today);
-    let span = match settings.agenda_span.as_str() {
-        "day" => AgendaSpan::Day,
-        "month" => AgendaSpan::Month,
-        _ => AgendaSpan::Week,
-    };
-    let (from, to) = span.bounds(start, &settings.week_start);
+    let (from, to) = settings.agenda_span.bounds(start, settings.week_start);
     let mut results = Vec::new();
     let native_default = engine
         .agenda(&AgendaQuery {
@@ -431,24 +489,6 @@ impl EmptyDefault for str {
     }
 }
 
-fn verification_start(settings: &Settings, today: NaiveDate) -> NaiveDate {
-    let Some(value) = settings.agenda_start_day.as_deref() else {
-        return today;
-    };
-    if let Some(days) = value
-        .strip_prefix('-')
-        .and_then(|value| value.strip_suffix('d'))
-        .and_then(|value| value.parse::<i64>().ok())
-    {
-        today - Duration::days(days)
-    } else {
-        parse_date_input(value, today)
-            .ok()
-            .and_then(|timestamp| timestamp.date.parse().ok())
-            .unwrap_or(today)
-    }
-}
-
 fn reader_file(name: &str, contents: &str) -> Result<tempfile::NamedTempFile> {
     let suffix = Path::new(name)
         .extension()
@@ -466,4 +506,54 @@ fn reader_file(name: &str, contents: &str) -> Result<tempfile::NamedTempFile> {
         .flush()
         .context("cannot write the editor config reader")?;
     Ok(reader)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_reader_that_never_finishes_is_stopped_with_an_error() {
+        let started = Instant::now();
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 30"]);
+        let error = run(&mut command, "test reader", Duration::from_millis(200)).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "test reader did not finish within 200ms and was stopped; an editor prompt or, with --verify, a slow agenda view can cause this"
+        );
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_reader_prompt_reads_end_of_file() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "read answer; echo \"answer:$answer\""]);
+        let output = run(&mut command, "test reader", Duration::from_secs(10)).unwrap();
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "answer:\n");
+    }
+
+    #[test]
+    fn config_diff_names_the_real_path_and_is_empty_when_unchanged() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("config.toml");
+        let path = destination.display();
+        assert_eq!(
+            config_diff(&destination, "roots = [\"~/org\"]\n").unwrap(),
+            format!("--- /dev/null\n+++ {path}\n@@ -0,0 +1 @@\n+roots = [\"~/org\"]\n")
+        );
+        fs::write(&destination, "roots = [\"~/org\"]\n").unwrap();
+        assert_eq!(
+            config_diff(&destination, "roots = [\"~/notes\"]\n").unwrap(),
+            format!(
+                "--- {path}\n+++ {path}\n@@ -1 +1 @@\n-roots = [\"~/org\"]\n+roots = [\"~/notes\"]\n"
+            )
+        );
+        assert_eq!(
+            config_diff(&destination, "roots = [\"~/org\"]\n").unwrap(),
+            ""
+        );
+    }
 }

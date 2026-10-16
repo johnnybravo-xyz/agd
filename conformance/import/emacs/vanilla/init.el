@@ -31,3 +31,4 @@
                            (tags "home" ((org-agenda-overriding-header "Home"))))
          ((org-agenda-files-ignored t)))
         ("r" "Review" agenda "" ((org-agenda-skip-function '(lambda () nil))))))
+(setq org-agenda-skip-function-global '(org-agenda-skip-entry-if 'todo 'done))

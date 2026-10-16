@@ -16,11 +16,10 @@ use serde::Serialize;
 pub(super) const DATE_GRAMMAR: &str =
     "today, tomorrow, a weekday (fri), +2d (also +1w, +1m, +1y), 2026-10-30 or 2026-10-30T14:00";
 
-/// The template every agent capture goes through when agent captures are
-/// gated to the inbox (`agent_capture_to = "inbox"`), which also drops
-/// their dates; None when the agent's chosen template is used.
+/// The template every agent capture goes through when `agent_inbox` is set,
+/// which also drops their dates; None when the agent's chosen template is used.
 pub(super) fn agent_inbox(settings: &Settings) -> Option<&str> {
-    (settings.agent_capture_to == "inbox").then_some(settings.agent_inbox_template.as_str())
+    settings.agent_inbox.as_deref()
 }
 
 /// The template key to capture with when nothing says otherwise: the agent

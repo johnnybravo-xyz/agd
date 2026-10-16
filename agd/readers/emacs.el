@@ -18,10 +18,13 @@
 (require 'org-agenda)
 (require 'org-capture nil t)
 
+;; A missing agenda file makes org-agenda ask "[R]emove from list or
+;; [A]bort?", which batch Emacs asks forever; agd skips such files too.
+(setq org-agenda-skip-unavailable-files t)
+
 (defconst agd--imported
   '(org-directory org-default-notes-file org-agenda-files org-todo-keywords
-    org-tag-alist org-tag-persistent-alist org-tags-column
-    org-tags-exclude-from-inheritance
+    org-tags-column org-tags-exclude-from-inheritance
     org-highest-priority org-lowest-priority org-default-priority
     org-priority-highest org-priority-lowest org-priority-default
     org-deadline-warning-days org-agenda-span org-agenda-start-day
@@ -33,8 +36,13 @@
   "The org settings agd imports.")
 
 (defconst agd--unused-prefixes
-  '("org-agenda-" "org-super-agenda-" "org-ql-" "org-capture-")
+  '("org-agenda-" "org-super-agenda-" "org-ql-" "org-capture-" "org-tag-")
   "Settings with these prefixes that agd does not import are reported as unused.")
+
+(defconst agd--unsupported
+  '(org-agenda-skip-function-global)
+  "Unused settings that change which rows Emacs's agenda shows, reported as
+unsupported rather than unused.")
 
 (defvar agd--assignments nil
   "Collected (KIND SYMBOL VALUE PHASE FILE LINE), newest first. KIND is set,
@@ -219,8 +227,12 @@ then deferred, each in file order."
                    (seq-some (lambda (prefix) (string-prefix-p prefix (symbol-name symbol)))
                              agd--unused-prefixes))
           (puthash symbol t unused)
-          (agd--diagnostic "difference" (symbol-name symbol)
-                           (format "%s:%d: not used by agd" (nth 4 entry) (nth 5 entry))))))))
+          (if (memq symbol agd--unsupported)
+              (agd--diagnostic "unsupported" (symbol-name symbol)
+                               (format "%s:%d: not supported; agd's rows differ from Emacs's"
+                                       (nth 4 entry) (nth 5 entry)))
+            (agd--diagnostic "difference" (symbol-name symbol)
+                             (format "%s:%d: not used by agd" (nth 4 entry) (nth 5 entry)))))))))
 
 (defun agd--string (value)
   (cond ((null value) "nil")
@@ -229,16 +241,26 @@ then deferred, each in file order."
         ((characterp value) (char-to-string value))
         (t (format "%S" value))))
 
+(defun agd--priority (value)
+  "A priority as agd writes it: a letter, or a number when Org's priorities
+are numeric (below ?A)."
+  (if (< value ?A) (number-to-string value) (char-to-string value)))
+
 (defun agd--strings (values)
   (vconcat (mapcar (lambda (value) (agd--string (if (consp value) (car value) value)))
                    (seq-filter (lambda (value) (not (keywordp (if (consp value) (car value) value))))
                                (or values '())))))
 
 (defun agd--todo-sequences ()
-  (vconcat
-   (mapcar (lambda (sequence)
-             (vconcat (mapcar #'agd--string (cdr sequence))))
-           org-todo-keywords)))
+  "The keywords of each (sequence ...) or (type ...) in org-todo-keywords.
+An old-style flat list of keywords is one sequence, as Org reads it."
+  (let ((sequences (if (stringp (car org-todo-keywords))
+                       (list (cons 'sequence org-todo-keywords))
+                     org-todo-keywords)))
+    (vconcat
+     (mapcar (lambda (sequence)
+               (vconcat (mapcar #'agd--string (cdr sequence))))
+             sequences))))
 
 (defun agd--target-file (value)
   "A capture target file: a string, or a variable holding one, resolved
@@ -283,8 +305,13 @@ against org-directory as org-capture does."
       ('file+olp
        (puthash "file" file value)
        (puthash "outline_path" (vconcat (cddr target)) value))
-      ((or 'file+datetree 'file+olp+datetree)
+      ('file+datetree
        (puthash "file" file value)
+       (puthash "datetree" t value))
+      ('file+olp+datetree
+       (puthash "file" file value)
+       (when (cddr target)
+         (puthash "outline_path" (vconcat (cddr target)) value))
        (puthash "datetree" t value))
       (_ (setq enabled nil diagnostics
                (cons (format "capture target %s is unsupported" (car target)) diagnostics))))
@@ -519,7 +546,9 @@ NOTES) when they cannot be imported."
                  (memq value '(day week month)))
             (puthash "span" (symbol-name value) block))
            ((and (eq symbol 'org-agenda-span) (integerp value))
-            (puthash "span" (number-to-string value) block))
+            (puthash "span" value block))
+           ((and (eq symbol 'org-agenda-span) (eq value 'fortnight))
+            (puthash "span" 14 block))
            ((and (eq symbol 'org-agenda-overriding-header) (stringp value))
             (puthash "header" value block))
            ((eq symbol 'org-super-agenda-groups)
@@ -631,13 +660,11 @@ DESCRIPTION) entry only labels a prefix key, and is skipped."
        (org_directory . ,(and (gethash 'org-directory agd--origins) org-directory))
        (agenda_files . ,agenda-files)
        (todo_sequences . ,(agd--todo-sequences))
-       (tag_alist . ,(agd--strings org-tag-alist))
-       (persistent_tags . ,(agd--strings org-tag-persistent-alist))
        (tags_column . ,org-tags-column)
        (tag_inheritance_exclusions . ,(agd--strings org-tags-exclude-from-inheritance))
-       (highest_priority . ,(char-to-string org-priority-highest))
-       (lowest_priority . ,(char-to-string org-priority-lowest))
-       (default_priority . ,(char-to-string org-priority-default))
+       (highest_priority . ,(agd--priority org-priority-highest))
+       (lowest_priority . ,(agd--priority org-priority-lowest))
+       (default_priority . ,(agd--priority org-priority-default))
        (deadline_warning_days . ,org-deadline-warning-days)
        (agenda_span . ,(agd--string org-agenda-span))
        (agenda_start_day . ,org-agenda-start-day)

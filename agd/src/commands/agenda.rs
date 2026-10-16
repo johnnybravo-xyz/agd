@@ -3,24 +3,18 @@ use std::path::Path;
 use agd_core::{
     AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalStatus, Settings, ViewSection,
     WorkspaceIndex, WriteEngine, agenda_csv, agenda_title, items_csv, keyword_colors,
-    load_settings, parse_date_input,
+    load_settings, parse_agenda_day,
 };
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use chrono::{Datelike, Duration, Local, NaiveDate};
-use clap::{Args, ValueEnum};
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum SpanArg {
-    Day,
-    Week,
-    Month,
-}
+use clap::Args;
 
 #[derive(Args, Debug)]
 pub struct AgendaCommand {
-    /// Days to show; defaults to agenda.span from the configuration
-    #[arg(long, value_enum)]
-    span: Option<SpanArg>,
+    /// Days to show: day, week, month or a number of days; defaults to
+    /// agenda_span from the configuration
+    #[arg(long)]
+    span: Option<AgendaSpan>,
     /// First day: a date (2026-10-13) or org relative syntax (fri, +2d, -1w)
     #[arg(long)]
     from: Option<String>,
@@ -90,7 +84,7 @@ impl AgendaCommand {
         }
         let start = match self.from {
             Some(value) => parse_day(&value, today)?,
-            None => default_start(&settings, today)?,
+            None => settings.agenda_start(today)?,
         };
         if let Some(key) = self.view.as_deref() {
             let key = if key.is_empty() {
@@ -103,14 +97,11 @@ impl AgendaCommand {
             };
             let view = settings.view(key).ok_or_else(|| {
                 let keys: Vec<&str> = settings
-                    .views
+                    .all_views()
                     .iter()
                     .map(|view| view.key.as_str())
                     .collect();
-                anyhow!(
-                    "unknown view '{key}'; configured views: {}",
-                    keys.join(", ")
-                )
+                anyhow!("unknown view '{key}'; views: {}", keys.join(", "))
             })?;
             let sections = AgendaEngine::new(&index).view(view, start, today, self.log)?;
             if self.json {
@@ -131,13 +122,8 @@ impl AgendaCommand {
             }
             return Ok(());
         }
-        let span = match self.span {
-            Some(SpanArg::Day) => AgendaSpan::Day,
-            Some(SpanArg::Week) => AgendaSpan::Week,
-            Some(SpanArg::Month) => AgendaSpan::Month,
-            None => span_from_settings(&settings),
-        };
-        let (from, to) = span.bounds(start, &settings.week_start);
+        let span = self.span.unwrap_or(settings.agenda_span);
+        let (from, to) = span.bounds(start, settings.week_start);
         let entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
             from,
             to,
@@ -265,26 +251,23 @@ fn render_view(sections: &[ViewSection], settings: &Settings) -> String {
     blocks.join(&format!("{}\n", "=".repeat(78)))
 }
 
-/// The saved views in config order, with start_view moved first. The JSON
-/// carries the TUI's display settings, so a client such as the Claude Code
-/// pane draws them the same way.
+/// The saved views in config order, then the built-in ones, with
+/// start_view moved first. The JSON carries the TUI's display settings, so a
+/// client such as the Claude Code pane draws them the same way.
 fn print_views(settings: &Settings, json: bool) -> Result<()> {
-    let mut views: Vec<_> = settings
-        .views
-        .iter()
-        .map(|view| {
-            (
-                view.key.as_str(),
-                view.desc.as_str(),
-                view.key == settings.start_view,
-            )
-        })
-        .collect();
-    views.sort_by_key(|(_, _, start)| !start);
+    let mut views = settings.all_views();
+    views.sort_by_key(|view| view.key != settings.start_view);
     if json {
         let rows: Vec<_> = views
             .iter()
-            .map(|(key, desc, start)| serde_json::json!({ "key": key, "desc": desc, "start": start }))
+            .map(|view| {
+                serde_json::json!({
+                    "key": view.key,
+                    "desc": view.desc,
+                    "start": view.key == settings.start_view,
+                    "builtin": settings.is_builtin_view(&view.key),
+                })
+            })
             .collect();
         let index = load_index(settings.clone())?;
         let payload = serde_json::json!({
@@ -295,8 +278,18 @@ fn print_views(settings: &Settings, json: bool) -> Result<()> {
         });
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
-        for (key, desc, start) in views {
-            println!("{key:<4}{desc}{}", if start { "  (start)" } else { "" });
+        for view in views {
+            let start = if view.key == settings.start_view {
+                "  (start)"
+            } else {
+                ""
+            };
+            let builtin = if settings.is_builtin_view(&view.key) {
+                "  (built-in)"
+            } else {
+                ""
+            };
+            println!("{:<4}{}{start}{builtin}", view.key, view.desc);
         }
     }
     Ok(())
@@ -320,7 +313,7 @@ fn item_line(item: &Item) -> String {
 fn span_for_bounds(from: NaiveDate, to: NaiveDate, settings: &Settings) -> AgendaSpan {
     if from == to {
         AgendaSpan::Day
-    } else if AgendaSpan::Week.bounds(from, &settings.week_start) == (from, to) {
+    } else if AgendaSpan::Week.bounds(from, settings.week_start) == (from, to) {
         AgendaSpan::Week
     } else {
         AgendaSpan::Month
@@ -382,26 +375,5 @@ pub fn load_index(settings: Settings) -> Result<WorkspaceIndex> {
 }
 
 fn parse_day(value: &str, today: NaiveDate) -> Result<NaiveDate> {
-    if let Some(days) = value.strip_prefix('-') {
-        let back = parse_date_input(&format!("+{days}"), today)?
-            .date
-            .parse::<NaiveDate>()?;
-        return Ok(today - (back - today));
-    }
-    Ok(parse_date_input(value, today)?.date.parse::<NaiveDate>()?)
-}
-
-fn default_start(settings: &Settings, today: NaiveDate) -> Result<NaiveDate> {
-    let Some(value) = settings.agenda_start_day.as_deref() else {
-        return Ok(today);
-    };
-    parse_day(value, today).with_context(|| format!("invalid agenda start_day: {value}"))
-}
-
-fn span_from_settings(settings: &Settings) -> AgendaSpan {
-    match settings.agenda_span.as_str() {
-        "day" => AgendaSpan::Day,
-        "month" => AgendaSpan::Month,
-        _ => AgendaSpan::Week,
-    }
+    Ok(parse_agenda_day(value, today)?)
 }

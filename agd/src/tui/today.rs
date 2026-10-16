@@ -677,7 +677,7 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
             );
         }
         Overlay::Views { selected } => {
-            let views = &app.settings.views;
+            let views = app.settings.all_views();
             // border + top padding, views, gap, footer, border
             let popup = centered(area, 64, 2 + views.len() as u16 + 1 + 1 + 1);
             frame.render_widget(Clear, popup);

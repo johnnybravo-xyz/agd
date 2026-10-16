@@ -32,7 +32,6 @@
   "log_repeat": "time",
   "log_reschedule": "nil",
   "lowest_priority": "C",
-  "persistent_tags": [],
   "skip_deadline_if_done": false,
   "skip_scheduled_if_done": false,
   "skip_timestamp_if_done": false,
@@ -41,7 +40,6 @@
     "priority-down",
     "category-keep"
   ],
-  "tag_alist": [],
   "tag_inheritance_exclusions": [],
   "tags_column": -80,
   "todo_sequences": [

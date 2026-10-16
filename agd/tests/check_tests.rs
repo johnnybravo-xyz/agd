@@ -64,4 +64,16 @@ fn check_reports_duplicate_ids_and_exits_one() {
     assert_eq!(report["summary"]["errors"], 1);
     assert_eq!(report["problems"][0]["code"], "duplicate_id");
     assert_eq!(report["problems"][0]["line"], 1);
+
+    let human = agd(&directory)
+        .arg("--root-directory")
+        .arg(directory.path())
+        .args(["setup", "check"])
+        .assert()
+        .code(1);
+    let text = String::from_utf8(human.get_output().stdout.clone()).unwrap();
+    assert!(
+        text.ends_with("checked 2 files and 2 headlines: 1 error\n"),
+        "{text}"
+    );
 }

@@ -1,10 +1,11 @@
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use agd_core::{ImportStatus, Settings, default_config_path, parse_config_file};
+use agd_core::{ImportStatus, Settings, default_config_path, import_root, parse_config_file};
 use anyhow::{Result, bail};
 use clap::Args;
 
+use crate::commands::counted;
 use crate::importer::{ImportExecution, import_config};
 
 /// Where Emacs and Neovim configs usually live; offered when no path is given.
@@ -38,7 +39,10 @@ pub struct ImportCommand {
 }
 
 impl ImportCommand {
-    pub fn execute(self, config: Option<String>, _root_directory: Option<String>) -> Result<()> {
+    /// `root_directory` (`-r DIR`) becomes the imported config's only root
+    /// instead of one derived from the editor's org-directory or agenda
+    /// files, or the existing config's roots.
+    pub fn execute(self, config: Option<String>, root_directory: Option<String>) -> Result<()> {
         if self.paths.is_empty() {
             let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
             let found: Vec<&str> = USUAL_LOCATIONS
@@ -60,23 +64,36 @@ impl ImportCommand {
             None => default_config_path()?,
         };
         let exists = destination.exists();
-        let base = if exists {
+        let mut base = if exists {
             parse_config_file(&destination)?
         } else {
             Settings::default()
         };
+        if let Some(root) = &root_directory {
+            base.roots = vec![import_root(Path::new(root))?];
+        }
+        let derive_roots = !exists && root_directory.is_none();
         let preview = self.dry_run || self.stdout;
         let write = !preview && (!exists || self.force);
         let execution = import_config(
             &self.paths,
             &base,
-            !exists,
+            derive_roots,
             &destination,
             write,
             self.verify,
         )?;
         self.print(&execution)?;
-        if !preview && !write && !execution.diff.is_empty() {
+        if execution.diff.is_empty() {
+            let message = format!("{} is already up to date", destination.display());
+            if self.stdout {
+                eprintln!("{message}");
+            } else {
+                println!("{message}");
+            }
+            return Ok(());
+        }
+        if !preview && !write {
             bail!(
                 "{} exists; review the diff above and rerun with --force to replace it",
                 destination.display()
@@ -100,11 +117,15 @@ impl ImportCommand {
             &mut stdout
         };
         let sources = &execution.sources;
+        let editor = sources.editor.name();
         writeln!(
             out,
-            "read {} {} file(s):",
-            sources.editor.name(),
-            sources.files.len()
+            "read {}:",
+            counted(
+                sources.files.len(),
+                &format!("{editor} file"),
+                &format!("{editor} files")
+            )
         )?;
         for file in &sources.files {
             writeln!(out, "  {}", file.display())?;
@@ -112,15 +133,7 @@ impl ImportCommand {
         for note in &sources.notes {
             writeln!(out, "  {note}")?;
         }
-        let settings = &execution.result.settings;
-        writeln!(
-            out,
-            "imported  roots {}, {} agenda entries, {} capture templates, {} views",
-            settings.roots.join(", "),
-            settings.agenda_files.len(),
-            settings.captures.len(),
-            settings.views.len()
-        )?;
+        writeln!(out, "{}", imported_summary(&execution.result.settings))?;
         for diagnostic in &execution.result.diagnostics {
             writeln!(
                 out,
@@ -144,10 +157,54 @@ impl ImportCommand {
     }
 }
 
+/// What the import keeps. Views count the user's own; the built-in `n`
+/// is always there.
+fn imported_summary(settings: &Settings) -> String {
+    format!(
+        "imported  roots {}, {}, {}, {}",
+        settings.roots.join(", "),
+        counted(
+            settings.agenda_files.len(),
+            "agenda entry",
+            "agenda entries"
+        ),
+        counted(
+            settings.captures.len(),
+            "capture template",
+            "capture templates"
+        ),
+        counted(settings.views.len(), "view", "views")
+    )
+}
+
 fn mark(status: &ImportStatus) -> &'static str {
     match status {
         ImportStatus::Exact => "✓",
         ImportStatus::Difference => "~",
         ImportStatus::Unsupported => "✗",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summary_counts_user_views_with_plurals() {
+        let mut settings = Settings {
+            agenda_files: vec!["tasks.org".to_string()],
+            ..Settings::default()
+        };
+        // The built-in n view is not counted.
+        assert_eq!(
+            imported_summary(&settings),
+            "imported  roots ~/org, 1 agenda entry, 1 capture template, 0 views"
+        );
+        settings.agenda_files.push("work.org".to_string());
+        settings.captures.push(settings.captures[0].clone());
+        assert_eq!(
+            imported_summary(&settings),
+            "imported  roots ~/org, 2 agenda entries, 2 capture templates, 0 views"
+        );
     }
 }

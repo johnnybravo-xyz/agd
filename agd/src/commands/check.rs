@@ -4,6 +4,8 @@ use agd_core::{CheckReport, check_settings, load_settings};
 use anyhow::Result;
 use clap::Args;
 
+use crate::commands::counted;
+
 #[derive(Args)]
 pub struct CheckCommand {
     /// Emit a machine-readable report
@@ -39,7 +41,9 @@ fn print_human_report(report: &CheckReport) {
         }
     }
     println!(
-        "checked {} files and {} headlines: {} errors",
-        report.summary.files, report.summary.headlines, report.summary.errors
+        "checked {} and {}: {}",
+        counted(report.summary.files, "file", "files"),
+        counted(report.summary.headlines, "headline", "headlines"),
+        counted(report.summary.errors, "error", "errors")
     );
 }
