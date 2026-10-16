@@ -24,8 +24,8 @@
 //!   over configuration.
 //! - An error is an [`AgdError`] whose `code` is one of [`ErrorCode`], the one
 //!   list of agd.error/v1 codes, all snake_case; its message says what to do.
-//! - Every serialized record names its schema `agd.<name>/v1`, such as
-//!   [`ITEM_SCHEMA`] or [`MUTATION_SCHEMA`].
+//! - Every serialized record names its schema, `agd.<name>/v1`, with a
+//!   constant from [`model`] such as [`ITEM_SCHEMA`] or [`MUTATION_SCHEMA`].
 //! - Config keys are snake_case. Values are lowercase, kebab-case when they
 //!   name an Org option (`ids = "add-on-write"`, `sorting_strategy =
 //!   ["time-up"]`, `kind = "tags-todo"`).
@@ -93,8 +93,8 @@ pub use agenda::{
 pub use capture_line::{CaptureDraft, parse_capture_line};
 pub use capture_template::{CapturePrompt, capture_prompts, render_capture_template};
 pub use check::{
-    CHECK_SCHEMA, CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError,
-    IndexedHeadline, OrgDocument, SourceSpan, check_paths, check_settings, journal_problems,
+    CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError, IndexedHeadline,
+    OrgDocument, SourceSpan, check_paths, check_settings, journal_problems,
 };
 pub use config::{
     AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, LogMode, SORTING_KEYS,
@@ -111,9 +111,10 @@ pub use import::{
     ImportedCommand, ResolvedEditorConfig, apply_import, find_config_sources, import_root,
 };
 pub use model::{
-    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ERROR_SCHEMA, ErrorCode, ErrorResponse,
-    ITEM_SCHEMA, Item, MUTATION_SCHEMA, Mutation, Occurrence, OccurrenceType, Planning,
-    PlanningTimestamp, Repeat, VIEW_SECTION_SCHEMA, VIEWS_SCHEMA,
+    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, CHECK_SCHEMA, ERROR_SCHEMA, ErrorCode,
+    ErrorResponse, ITEM_SCHEMA, Item, JOURNAL_SCHEMA, MUTATION_SCHEMA, Mutation, Occurrence,
+    OccurrenceType, Planning, PlanningTimestamp, REFILE_SCHEMA, Repeat, UNDO_SCHEMA,
+    VIEW_SECTION_SCHEMA, VIEWS_SCHEMA,
 };
 pub use path::{OrgFiles, RootSet, SkipReason};
 pub use write::{

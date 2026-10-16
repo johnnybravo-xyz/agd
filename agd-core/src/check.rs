@@ -18,12 +18,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::string::FromUtf8Error;
 
-use crate::{AgdError, JournalRecord, RootSet, Settings};
+use crate::{AgdError, CHECK_SCHEMA, JournalRecord, RootSet, Settings};
 use ignore::WalkBuilder;
 use orgize::{Org, ParseConfig, ast::Headline as OrgHeadline, rowan::ast::AstNode};
 use serde::Serialize;
-
-pub const CHECK_SCHEMA: &str = "agd.check/v1";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SourceSpan {

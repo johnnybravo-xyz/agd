@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AgdError, ByteSpan, ErrorCode, IndexedDocument, Item, Settings, WorkspaceIndex};
+use crate::{
+    AgdError, ByteSpan, ErrorCode, IndexedDocument, Item, REFILE_SCHEMA, Settings, WorkspaceIndex,
+};
 
 use super::engine::{DRY_RUN_JOURNAL_ID, PreparedFile, WriteContext, WriteEngine};
 use super::file::refuse_emacs_lock;
@@ -39,7 +41,7 @@ impl PreparedRefile {
 
     fn result(self, journal_ids: Vec<String>) -> RefileResult {
         RefileResult {
-            schema: "agd.refile/v1".to_string(),
+            schema: REFILE_SCHEMA.to_string(),
             ok: true,
             item: self.item,
             diffs: self.files.into_iter().map(|file| file.diff).collect(),

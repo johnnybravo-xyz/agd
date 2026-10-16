@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 
-use crate::{AgdError, ByteSpan, ErrorCode, Settings};
+use crate::{AgdError, ByteSpan, ErrorCode, Settings, UNDO_SCHEMA};
 
 use super::engine::{JournalImage, PreparedFile, WriteContext, WriteEngine, parse_text};
 use super::file::replace_all_or_restore;
@@ -76,7 +76,7 @@ impl WriteEngine {
             self.append_record(&record)?;
         }
         Ok(UndoResult {
-            schema: "agd.undo/v1".to_string(),
+            schema: UNDO_SCHEMA.to_string(),
             ok: true,
             journal_id: group[0]
                 .transaction

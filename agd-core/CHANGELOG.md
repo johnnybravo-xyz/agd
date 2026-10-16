@@ -35,6 +35,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   re-exports keeps its name and its `agd_core::Name` path.
 - `ErrorCode` lists every agd.error/v1 code agd-core raises, each with the
   same string as before, and the crate raises them only through it.
+- Every schema name is a constant in `model`: `JOURNAL_SCHEMA`,
+  `UNDO_SCHEMA` and `REFILE_SCHEMA` join the others, and `CHECK_SCHEMA`
+  moves there from `check`. The strings are unchanged.
 
 ## [0.1.0] - 2026-10-14
 

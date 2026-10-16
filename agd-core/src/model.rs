@@ -1,11 +1,11 @@
 //! The records agd hands to callers: [`Item`], [`AgendaEntry`], [`Mutation`]
-//! and their parts, the `agd.<name>/v1` schema names, and errors: [`AgdError`],
-//! its [`ErrorResponse`], and [`ErrorCode`], the one list of agd.error/v1
-//! codes.
+//! and their parts, every schema name a record carries, and errors:
+//! [`AgdError`], its [`ErrorResponse`], and [`ErrorCode`], the one list of
+//! agd.error/v1 codes.
 //!
-//! These are plain data with no behavior beyond construction and display,
-//! and a code is raised only through [`ErrorCode`], never spelled as a
-//! literal.
+//! These are plain data with no behavior beyond construction and display.
+//! A schema name or an error code is spelled only here, never as a literal
+//! where a record or error is made.
 
 use std::fmt;
 
@@ -19,6 +19,14 @@ pub const ERROR_SCHEMA: &str = "agd.error/v1";
 pub const VIEW_SECTION_SCHEMA: &str = "agd.view-section/v1";
 /// The payload of `agd agenda --views --json`.
 pub const VIEWS_SCHEMA: &str = "agd.views/v1";
+/// An `agd setup check` report (`CheckReport`).
+pub const CHECK_SCHEMA: &str = "agd.check/v1";
+/// One line of the write journal (`JournalRecord`).
+pub const JOURNAL_SCHEMA: &str = "agd.journal/v1";
+/// What an undo wrote (`UndoResult`).
+pub const UNDO_SCHEMA: &str = "agd.undo/v1";
+/// What a refile wrote (`RefileResult`).
+pub const REFILE_SCHEMA: &str = "agd.refile/v1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Item {

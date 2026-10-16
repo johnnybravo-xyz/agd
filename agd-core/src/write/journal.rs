@@ -17,7 +17,7 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::{AgdError, ErrorCode};
+use crate::{AgdError, ErrorCode, JOURNAL_SCHEMA};
 
 use super::engine::{JournalImage, WriteContext, WriteEngine};
 use super::file::{
@@ -288,7 +288,7 @@ fn pending_record(
     context: &WriteContext,
 ) -> JournalRecord {
     JournalRecord {
-        schema: "agd.journal/v1".to_string(),
+        schema: JOURNAL_SCHEMA.to_string(),
         id,
         status: JournalStatus::Pending,
         timestamp: Local::now().to_rfc3339(),
