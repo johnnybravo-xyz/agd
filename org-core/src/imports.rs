@@ -395,28 +395,7 @@ pub fn apply_import(
     }
     settings.log_into_drawer = resolved.log_into_drawer;
 
-    settings.captures.clear();
-    for capture in &resolved.capture {
-        if !capture.enabled {
-            diagnostics.push(ImportDiagnostic {
-                status: ImportStatus::Unsupported,
-                key: format!("capture {}", capture.key),
-                message: capture.diagnostics.join("; "),
-            });
-            continue;
-        }
-        settings.captures.push(CaptureTemplate {
-            key: capture.key.clone(),
-            desc: capture.desc.clone(),
-            file: capture.file.clone(),
-            heading: capture.heading.clone(),
-            outline_path: capture.outline_path.clone(),
-            id: capture.id.clone(),
-            datetree: capture.datetree,
-            template: capture.template.clone(),
-            template_file: capture.template_file.clone(),
-        });
-    }
+    settings.captures = imported_captures(resolved, &settings.roots, &mut diagnostics);
     // The defaults stay only when the editor defines no templates at all.
     if resolved.capture.is_empty() {
         settings.captures = base.captures.clone();
@@ -531,12 +510,7 @@ fn derived_roots(org_directory: Option<&str>, entries: &[PathBuf]) -> Vec<String
 /// stays a file, a directory becomes its `*.org` files (Emacs does not
 /// recurse), and a glob keeps its wildcards. None when no root holds it.
 fn agenda_pattern(entry: &Path, roots: &[String]) -> Option<String> {
-    let base = entry_base(entry);
-    let root = roots
-        .iter()
-        .map(|root| PathBuf::from(shellexpand::tilde(root).into_owned()))
-        .filter(|root| base.starts_with(root))
-        .max_by_key(|root| root.components().count())?;
+    let root = holding_root(&entry_base(entry), roots)?;
     let relative = entry
         .strip_prefix(&root)
         .ok()?
@@ -551,6 +525,65 @@ fn agenda_pattern(entry: &Path, roots: &[String]) -> Option<String> {
     } else {
         Some(relative)
     }
+}
+
+/// The root `path` is under, the deepest one when roots nest.
+fn holding_root(path: &Path, roots: &[String]) -> Option<PathBuf> {
+    roots
+        .iter()
+        .map(|root| PathBuf::from(shellexpand::tilde(root).into_owned()))
+        .filter(|root| path.starts_with(root))
+        .max_by_key(|root| root.components().count())
+}
+
+/// The editor's enabled capture templates, each file written relative to
+/// the root that holds it, as agenda entries are. Disabled templates, and
+/// templates whose file is outside the roots (agd could not write there),
+/// are left out and reported.
+fn imported_captures(
+    resolved: &ResolvedEditorConfig,
+    roots: &[String],
+    diagnostics: &mut Vec<ImportDiagnostic>,
+) -> Vec<CaptureTemplate> {
+    let mut captures = Vec::new();
+    for capture in &resolved.capture {
+        let left_out = |message: String| ImportDiagnostic {
+            status: ImportStatus::Unsupported,
+            key: format!("capture {}", capture.key),
+            message,
+        };
+        if !capture.enabled {
+            diagnostics.push(left_out(capture.diagnostics.join("; ")));
+            continue;
+        }
+        let file = match &capture.file {
+            Some(file) => {
+                let path = PathBuf::from(shellexpand::tilde(file).into_owned());
+                let relative = holding_root(&path, roots)
+                    .and_then(|root| path.strip_prefix(root).ok().map(Path::to_path_buf));
+                let Some(relative) = relative else {
+                    diagnostics.push(left_out(format!(
+                        "capture template left out: {file} is outside the roots"
+                    )));
+                    continue;
+                };
+                Some(relative.to_string_lossy().into_owned())
+            }
+            None => None,
+        };
+        captures.push(CaptureTemplate {
+            key: capture.key.clone(),
+            desc: capture.desc.clone(),
+            file,
+            heading: capture.heading.clone(),
+            outline_path: capture.outline_path.clone(),
+            id: capture.id.clone(),
+            datetree: capture.datetree,
+            template: capture.template.clone(),
+            template_file: capture.template_file.clone(),
+        });
+    }
+    captures
 }
 
 /// An org-log-* value as agd writes it: Emacs's nil is off and t is time.
@@ -757,6 +790,38 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "the imported settings would not load: deadline_warning_days must be 0 or more, not -1"
+        );
+    }
+
+    #[test]
+    fn capture_files_are_written_relative_to_their_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let base = Settings {
+            roots: vec![temp.path().to_string_lossy().into_owned()],
+            ..Settings::default()
+        };
+        let capture = |key: &str, file: std::path::PathBuf| {
+            serde_json::json!({
+                "key": key, "desc": key, "file": file, "template": "* %?", "enabled": true
+            })
+        };
+        let resolved = resolved_with(serde_json::json!({
+            "capture": [
+                capture("t", temp.path().join("notes/inbox.org")),
+                capture("x", std::path::PathBuf::from("/elsewhere/inbox.org")),
+            ]
+        }));
+        let result = apply_import(&resolved, &base, false).unwrap();
+        let files: Vec<(&str, Option<&str>)> = result
+            .settings
+            .captures
+            .iter()
+            .map(|template| (template.key.as_str(), template.file.as_deref()))
+            .collect();
+        assert_eq!(files, [("t", Some("notes/inbox.org"))]);
+        assert_eq!(
+            diagnostic(&result, "capture x"),
+            Some("capture template left out: /elsewhere/inbox.org is outside the roots")
         );
     }
 

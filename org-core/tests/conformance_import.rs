@@ -67,7 +67,16 @@ fn emacs_vanilla_keeps_what_agd_runs_and_reports_the_rest() {
     );
     assert_eq!(result.settings.deadline_warning_days, 5);
     assert_eq!(result.settings.week_start, WeekStart::Sunday);
-    assert!(result.settings.capture_template("t").is_some());
+    // A capture file under the root is written relative to it.
+    assert_eq!(
+        result
+            .settings
+            .capture_template("t")
+            .unwrap()
+            .file
+            .as_deref(),
+        Some("tasks.org")
+    );
     assert!(result.settings.capture_template("x").is_none());
     assert!(reported(&result, "capture x", "computed capture target"));
     // Templates keep the order they are written in, not key order.
@@ -196,7 +205,7 @@ fn neovim_lazy_spec_keeps_its_glob_and_default_notes_file() {
     let (_temp, result) = import_fixture("nvim/lazy");
     assert_eq!(result.settings.agenda_files, vec!["**/*.org"]);
     let note = result.settings.capture_template("n").unwrap();
-    assert!(note.file.as_deref().unwrap().ends_with("inbox.org"));
+    assert_eq!(note.file.as_deref(), Some("inbox.org"));
     assert_eq!(note.heading.as_deref(), Some("Notes"));
     assert_eq!(result.settings.todo_keywords, vec!["TODO WAIT | DONE"]);
 }
