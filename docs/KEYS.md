@@ -62,7 +62,7 @@ Moving: j/k move like n/p everywhere; C-n/C-p or C-j/C-k move in pickers.
 | `S` | someday: tag it, drop the date |  |
 | `R` `C-c C-w` | refile under another heading | `C-c C-w` |
 | `u` | undo the last write | `C-_` |
-| `y` | copy the entry's link |  |
+| `y` | copy an Org link to the heading | `C-c l` |
 | `m` | mark or unmark the row | `m` |
 | `*` | mark every row shown | `*` |
 | `U` | unmark every row | `U` |

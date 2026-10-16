@@ -974,26 +974,31 @@ impl App {
         self.reload_rows()
     }
 
-    /// `y`: copies the first link in the entry, else an org link to it.
+    /// `y`: copies a link to the heading as org-store-link makes one: by
+    /// its ID when it has one, else by file and heading text.
     pub(super) fn copy_link(&mut self) -> Result<()> {
         let Some(row) = self.selected_row() else {
             return Ok(());
         };
-        let body = super::peek::entry_text(&self.index, &row.item);
-        let link = super::peek::links(&body)
-            .into_iter()
-            .next()
-            .map(|(target, _)| target)
-            .unwrap_or_else(|| match &row.item.id {
-                Some(id) => format!("[[id:{id}][{}]]", row.item.title),
-                None => format!(
-                    "[[file:{}::{}][{}]]",
-                    row.item.file, row.item.line, row.item.title
-                ),
-            });
+        let link = org_link(&row.item);
         super::copy_to_clipboard(&link)?;
         self.set_status(format!("copied {link}"));
         Ok(())
+    }
+}
+
+/// org-store-link's link to a heading, described by the heading as the
+/// agenda shows it: `[[id:…][Pay rent]]`, else
+/// `[[file:~/org/home.org::*Pay rent][Pay rent]]`.
+pub(super) fn org_link(item: &Item) -> String {
+    let description = super::peek::display_title(item);
+    match &item.id {
+        Some(id) => format!("[[id:{id}][{description}]]"),
+        None => format!(
+            "[[file:{}::*{}][{description}]]",
+            words::home_path(&item.file),
+            item.title
+        ),
     }
 }
 

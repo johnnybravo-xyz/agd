@@ -119,6 +119,37 @@ fn refused_write_reports_the_error_and_keeps_rows() {
 
 #[test]
 #[serial]
+fn y_copies_the_link_org_store_link_would_make() {
+    with_home(|root| {
+        fs::write(
+            root.join("home.org"),
+            "* TODO [#A] Pay rent :money:\n\
+             * TODO Water plants\n:PROPERTIES:\n:ID: 5f1c-plants\n:END:\n",
+        )
+        .unwrap();
+        let app = test_app(root);
+        let link = |title: &str| {
+            let item = app
+                .index
+                .items()
+                .find(|item| item.title.contains(title))
+                .unwrap();
+            crate::tui::actions::org_link(item)
+        };
+        // By ID when the heading has one; else by file and heading text,
+        // without its keyword, priority or tags.
+        assert_eq!(link("Water"), "[[id:5f1c-plants][Water plants]]");
+        let by_file = link("Pay");
+        assert!(by_file.starts_with("[[file:"), "{by_file}");
+        assert!(
+            by_file.ends_with("home.org::*Pay rent][Pay rent]]"),
+            "{by_file}"
+        );
+    });
+}
+
+#[test]
+#[serial]
 fn someday_drops_each_marked_rows_missed_deadline_as_it_does_one_rows() {
     use crossterm::event::KeyCode;
     with_home(|root| {

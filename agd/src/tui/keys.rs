@@ -247,7 +247,7 @@ const CHANGE: KeyGroup = KeyGroup {
         // C-c C-w is a chord, which `chord_key` handles.
         bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", "C-c C-w"),
         bind("u", &[Char('u')], A::Undo, "undo", "undo the last write", "C-_"),
-        bind("y", &[Char('y')], A::CopyLink, "copy link", "copy the entry's link", ""),
+        bind("y", &[Char('y')], A::CopyLink, "copy link", "copy an Org link to the heading", "C-c l"),
         bind("m", &[Char('m')], A::Mark, "mark", "mark or unmark the row", "m"),
         bind("*", &[Char('*')], A::MarkAll, "mark all", "mark every row shown", "*"),
         bind("U", &[Char('U')], A::UnmarkAll, "unmark all", "unmark every row", "U"),
