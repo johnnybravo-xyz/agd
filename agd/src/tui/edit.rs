@@ -300,7 +300,7 @@ fn commit(app: &mut App, form: Box<EditForm>) -> Result<()> {
     app.remember_undo(
         &mutation.journal_id,
         &location,
-        format!("edit · {}", mutation.item.title),
+        format!("edited · {}", mutation.item.title),
     );
     let line = crate::words::change(&location, "edited", &mutation.item.title);
     // On the Agents tab `u` undoes the agent's change, not this one.

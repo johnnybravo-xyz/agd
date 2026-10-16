@@ -294,7 +294,7 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
     app.remember_undo(
         &mutation.journal_id,
         &location,
-        format!("capture · {}", mutation.item.title),
+        format!("captured · {}", mutation.item.title),
     );
     app.set_status(format!(
         "{} · u undo",

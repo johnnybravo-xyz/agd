@@ -1,7 +1,7 @@
 //! The Agents tab: one card per agent write, every card the same shape:
 //!
 //! ```text
-//! ▌  ● codex          ~/src/app · 15:01                       state
+//! ▌  ● codex          ~/src/app · 15:01               changed state
 //! ▌    TODO → DONE  Rotate staging certs                work.org:42
 //! ```
 //!
@@ -53,8 +53,8 @@ impl Change {
     fn kind(&self) -> &'static str {
         match self {
             Change::Captured { .. } => "captured",
-            Change::State { .. } => "state",
-            Change::Dates { .. } => "date",
+            Change::State { .. } => "changed state",
+            Change::Dates { .. } => "changed date",
             Change::Refiled { .. } => "refiled",
             Change::Edited => "edited",
         }
@@ -427,11 +427,11 @@ impl Card {
             }
             match (role, self.kind) {
                 (ChangeRole::Plain, _) => muted,
-                (ChangeRole::Was, "state") => theme.fg(theme.due),
-                (ChangeRole::Now, "state") => theme.strong(theme.done),
+                (ChangeRole::Was, "changed state") => theme.fg(theme.due),
+                (ChangeRole::Now, "changed state") => theme.strong(theme.done),
                 (ChangeRole::Was, _) => muted,
                 (ChangeRole::Now, "captured") => theme.fg(theme.done),
-                (ChangeRole::Now, "date") => theme.fg(theme.accent),
+                (ChangeRole::Now, "changed date") => theme.fg(theme.accent),
                 (ChangeRole::Now, _) => theme.fg(theme.text),
             }
         };

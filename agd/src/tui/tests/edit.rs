@@ -52,6 +52,12 @@ fn enter_edits_title_and_state_in_place_and_keeps_untouched_dates() {
             fs::read_to_string(&path).unwrap(),
             "* NEXT Final report\nSCHEDULED: <2026-10-13 Tue +1w>\n"
         );
+        // Undo names the change with the same past-tense verb.
+        app.undo().unwrap();
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "work.org:1  undid edited · Final report"
+        );
     });
 }
 

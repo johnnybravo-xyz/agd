@@ -238,6 +238,8 @@ fn every_agent_card_has_the_same_two_line_shape() {
         let when = crate::words::moment(&app.journals[0].timestamp, today());
         assert!(text.contains(&format!(" · {when}")), "{text}");
         assert!(text.contains("TODO → DONE  Rotate staging certs"), "{text}");
+        // Each kind is a past-tense verb, as change lines are.
+        assert!(text.contains("changed state"), "{text}");
         // No raw planning lines; peek has the diff.
         assert!(!text.contains("CLOSED:"), "{text}");
         // The bar runs down the selected card; the blank row between cards

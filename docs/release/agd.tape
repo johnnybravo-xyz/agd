@@ -27,7 +27,7 @@ Space Sleep 500ms
 # Week: every day, classic org-agenda prefixes.
 Tab Sleep 2.5s
 
-# Agent review: what changed while you weren't looking.
+# The Agents tab: what changed while you weren't looking.
 Tab Tab Sleep 3s
 Type "a" Sleep 1.5s
 

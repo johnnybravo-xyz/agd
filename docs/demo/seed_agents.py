@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Makes two agent changes through `agd mcp`, as Claude Code and Codex would,
-so the demo's Agent review screen has something to show.
+so the demo's Agents tab has something to show.
 
 usage: seed_agents.py AGD CONFIG
 """
