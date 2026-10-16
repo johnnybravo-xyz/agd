@@ -128,31 +128,42 @@ fn timed_date(date: NaiveDate, time: &str) -> Result<PlanningTimestamp, AgdError
     })
 }
 
+/// Reads one capture line: `due:DATE` and `on:DATE` (any `parse_date_input`
+/// form; a following `HH:MM` token is that date's time), `+tag`, and `#A`
+/// for the priority. Every other token, including a digits-only `+5` and a
+/// lowercase `#a`, stays in the title.
 pub fn parse_capture_line(input: &str, today: NaiveDate) -> Result<CaptureDraft, AgdError> {
     let mut title = Vec::new();
     let mut scheduled = None;
     let mut deadline = None;
     let mut tags = Vec::new();
     let mut priority = None;
-    for token in input.split_whitespace() {
-        if let Some(value) = token.strip_prefix("due:")
+    let mut tokens = input.split_whitespace().peekable();
+    while let Some(token) = tokens.next() {
+        let planning = if let Some(value) = token.strip_prefix("due:") {
+            Some((value, &mut deadline))
+        } else {
+            token
+                .strip_prefix("on:")
+                .map(|value| (value, &mut scheduled))
+        };
+        if let Some((value, slot)) = planning
             && !value.is_empty()
         {
-            deadline = Some(parse_date_input(value, today)?);
-        } else if let Some(value) = token.strip_prefix("on:")
-            && !value.is_empty()
-        {
-            scheduled = Some(parse_date_input(value, today)?);
+            let value = match tokens.next_if(|next| CLOCK_RE.is_match(next)) {
+                Some(time) => format!("{value} {time}"),
+                None => value.to_string(),
+            };
+            *slot = Some(parse_date_input(&value, today)?);
         } else if let Some(tag) = token.strip_prefix('+')
-            && !tag.is_empty()
             && valid_tag(tag)
+            && !tag.bytes().all(|byte| byte.is_ascii_digit())
         {
             tags.push(tag.to_string());
         } else if let Some(value) = token.strip_prefix('#')
-            && value.len() == 1
-            && value.bytes().all(|byte| byte.is_ascii_alphabetic())
+            && priority_cookie(value)
         {
-            priority = Some(value.to_ascii_uppercase());
+            priority = Some(value.to_string());
         } else {
             title.push(token);
         }
@@ -505,8 +516,19 @@ fn parse_weekday(input: &str) -> Option<Weekday> {
 }
 
 fn valid_tag(tag: &str) -> bool {
-    tag.chars()
-        .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
+    !tag.is_empty()
+        && tag
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
+}
+
+/// An Org priority cookie's value: one uppercase letter, or a number of at
+/// most two digits (Org's numeric priorities run 0-64). Whether it is in the
+/// configured range is checked when the capture is written.
+fn priority_cookie(value: &str) -> bool {
+    let letter = value.len() == 1 && value.bytes().all(|byte| byte.is_ascii_uppercase());
+    let number = (1..=2).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_digit());
+    letter || number
 }
 
 fn insert_before_title(line: &mut String, value: &str) {
@@ -594,6 +616,44 @@ mod tests {
         assert_eq!(draft.deadline.unwrap().date, "2026-10-16");
         assert_eq!(draft.tags, vec!["admin"]);
         assert_eq!(draft.priority.as_deref(), Some("A"));
+    }
+
+    #[test]
+    fn capture_dates_take_a_following_time_token() {
+        let today = NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+        let draft = parse_capture_line("Dentist due:2026-10-30 14:00 on:fri 9:30", today).unwrap();
+        assert_eq!(draft.title, "Dentist");
+        let deadline = draft.deadline.unwrap();
+        assert_eq!(
+            (deadline.date.as_str(), deadline.time.as_deref()),
+            ("2026-10-30", Some("14:00"))
+        );
+        let scheduled = draft.scheduled.unwrap();
+        assert_eq!(
+            (scheduled.date.as_str(), scheduled.time.as_deref()),
+            ("2026-10-16", Some("09:30"))
+        );
+        // A time with no date token before it is title text.
+        let draft = parse_capture_line("Standup 14:00 +work", today).unwrap();
+        assert_eq!(draft.title, "Standup 14:00");
+    }
+
+    #[test]
+    fn numbers_and_lowercase_cookies_stay_in_the_title() {
+        let today = NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+        let draft = parse_capture_line("Price is +5 dollars #a note", today).unwrap();
+        assert_eq!(draft.title, "Price is +5 dollars #a note");
+        assert!(draft.tags.is_empty());
+        assert_eq!(draft.priority, None);
+        let numeric = parse_capture_line("Triage +v2 #5", today).unwrap();
+        assert_eq!(numeric.title, "Triage");
+        assert_eq!(numeric.tags, vec!["v2"]);
+        assert_eq!(numeric.priority.as_deref(), Some("5"));
+        let issue = parse_capture_line("Fix issue #123", today).unwrap();
+        assert_eq!(
+            (issue.title.as_str(), issue.priority),
+            ("Fix issue #123", None)
+        );
     }
 
     #[test]
