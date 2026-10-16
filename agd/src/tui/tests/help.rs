@@ -212,6 +212,84 @@ fn popups_take_c_o_for_editor_because_c_e_ends_the_line_there() {
     });
 }
 
+/// docs/KEYS.md as the key tables say it: every screen's groups in help's
+/// order, a group shared with an earlier screen named once.
+fn keys_markdown() -> String {
+    use crate::tui::keys::{MOVING, SCREENS};
+    // A label's keys, each in its own code span; `C-c` starts a chord
+    // with the key after it.
+    let keys = |label: &str| {
+        let mut spans: Vec<String> = Vec::new();
+        let mut chord = false;
+        for key in label.split(' ') {
+            match spans.last_mut() {
+                Some(last) if chord => last.push_str(&format!(" {key}")),
+                _ => spans.push(key.to_string()),
+            }
+            chord = key == "C-c";
+        }
+        spans
+            .iter()
+            .map(|key| format!("`{key}`"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let mut text = String::from(
+        "# Keys\n\n\
+         <!-- Generated from agd/src/tui/keys.rs, which drives agd's dispatch, \
+         footers and `?` help. Edit the tables there, then run \
+         `AGD_UPDATE_DOCS=1 cargo test -p agd keys_md`. -->\n\n\
+         Every key of the terminal UI, screen by screen, beside org-agenda's \
+         key for the same thing where it has one. Press `?` in agd for the \
+         same list, filtered as you type.\n\n",
+    );
+    text.push_str(&format!("Moving: {MOVING}.\n"));
+    let mut shown: Vec<(&str, &str)> = Vec::new();
+    for (screen, groups) in SCREENS {
+        text.push_str(&format!("\n## {screen}\n"));
+        for group in groups {
+            if let Some((_, first)) = shown.iter().find(|(title, _)| *title == group.title) {
+                text.push_str(&format!("\n### {}\n\nAs on {first}.\n", group.title));
+                continue;
+            }
+            shown.push((group.title, screen));
+            text.push_str(&format!(
+                "\n### {}\n\n| Keys | Does | org-agenda |\n| --- | --- | --- |\n",
+                group.title
+            ));
+            for binding in group.bindings {
+                let org = if binding.org.is_empty() {
+                    String::new()
+                } else {
+                    format!("`{}`", binding.org)
+                };
+                text.push_str(&format!(
+                    "| {} | {} | {org} |\n",
+                    keys(binding.label),
+                    binding.help
+                ));
+            }
+        }
+    }
+    text
+}
+
+#[test]
+fn keys_md_is_the_key_tables() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/KEYS.md");
+    let expected = keys_markdown();
+    if std::env::var_os("AGD_UPDATE_DOCS").is_some() {
+        fs::write(&path, &expected).unwrap();
+        return;
+    }
+    let written = fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        written == expected,
+        "docs/KEYS.md is out of date with agd/src/tui/keys.rs; run \
+         `AGD_UPDATE_DOCS=1 cargo test -p agd keys_md` and commit it"
+    );
+}
+
 #[test]
 fn every_key_label_reads_in_one_notation() {
     // Emacs's notation for chords (C-e, S-tab), words or glyphs for named
