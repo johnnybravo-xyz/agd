@@ -768,10 +768,10 @@ pub(super) fn lead_cell(app: &App, row: &DisplayRow, clock: Clock) -> Vec<Span<'
     }
 }
 
-/// A red overdue badge filling the 6-column lead cell: a 4-column label
-/// between its caps or padding.
+/// A red overdue badge filling the 6-column lead cell: a 4-column label,
+/// right-aligned so the days line up, between its caps or padding.
 fn badge(theme: &Theme, text: String) -> Vec<Span<'static>> {
-    theme.pill(format!("{text:<4}"), theme.overdue)
+    theme.pill(format!("{text:>4}"), theme.overdue)
 }
 
 fn lead_style(theme: &Theme, kind: OccurrenceType, extra: &str) -> Style {

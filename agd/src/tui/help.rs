@@ -12,6 +12,9 @@ use super::{App, Overlay};
 
 /// Gap between the key, help and org-agenda columns.
 const GAP: usize = 2;
+/// From this many terminal columns help has room for the org-agenda
+/// column; under it, two columns that fit 80 wide with room to spare.
+const WIDE: u16 = 96;
 const ORG_HEADER: &str = "org-agenda";
 
 /// Column widths for one popup width; `org` is None when it does not fit.
@@ -24,7 +27,7 @@ struct Columns {
 impl Columns {
     /// Every column at its widest entry when `width` allows; otherwise the
     /// org-agenda column goes and help text wraps.
-    fn fit(width: usize) -> Self {
+    fn fit(width: usize, org: bool) -> Self {
         let bindings = || {
             keys::SCREENS
                 .iter()
@@ -39,17 +42,17 @@ impl Columns {
         };
         let key = widest(|binding| binding.label);
         let help = widest(|binding| binding.help);
-        let org = widest(|binding| binding.org).max(ORG_HEADER.len());
-        if width >= Self::full(key, help, org) {
+        let org_width = widest(|binding| binding.org).max(ORG_HEADER.len());
+        if org && width >= Self::full(key, help, org_width) {
             return Self {
                 key,
                 help,
-                org: Some(org),
+                org: Some(org_width),
             };
         }
         Self {
             key,
-            help: width.saturating_sub(1 + key + GAP).max(8),
+            help: width.saturating_sub(1 + key + GAP).clamp(8, help.max(8)),
             org: None,
         }
     }
@@ -58,21 +61,41 @@ impl Columns {
         1 + key + GAP + help + GAP + org
     }
 
-    /// The widest the popup needs to be.
-    fn widest() -> usize {
-        let columns = Self::fit(usize::MAX);
-        Self::full(columns.key, columns.help, columns.org.unwrap_or(0))
+    /// The widest the popup needs to be, with or without the org-agenda
+    /// column.
+    fn widest(org: bool) -> usize {
+        let columns = Self::fit(usize::MAX, org);
+        match columns.org {
+            Some(org) => Self::full(columns.key, columns.help, org),
+            None => 1 + columns.key + GAP + columns.help,
+        }
     }
 }
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
+    let org = area.width >= WIDE;
     // The popup's border and padding take six columns.
-    let width = Columns::widest() as u16 + 6;
+    let width = Columns::widest(org) as u16 + 6;
     let popup = centered(area, width, area.height.saturating_sub(2));
-    let block = app.theme.popup("Keys · j/k scroll · esc closes");
+    let block = app.theme.popup("Keys");
     let inner = block.inner(popup);
-    let lines = help_lines(&app.theme, keys::current_screen(app), inner.width as usize);
-    let max_scroll = lines.len().saturating_sub(inner.height as usize) as u16;
+    // The keys scroll above a blank row and the popup's own key hints.
+    let body = Rect {
+        height: inner.height.saturating_sub(2),
+        ..inner
+    };
+    let hints = Rect {
+        y: inner.y + inner.height.saturating_sub(1),
+        height: inner.height.min(1),
+        ..inner
+    };
+    let lines = help_lines(
+        &app.theme,
+        keys::current_screen(app),
+        body.width as usize,
+        org,
+    );
+    let max_scroll = lines.len().saturating_sub(body.height as usize) as u16;
     let scroll = match &mut app.overlay {
         Overlay::Help { scroll } => {
             *scroll = (*scroll).min(max_scroll);
@@ -82,7 +105,18 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     };
     frame.render_widget(Clear, popup);
     frame.render_widget(block, popup);
-    frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), inner);
+    frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), body);
+    let theme = &app.theme;
+    frame.render_widget(
+        Paragraph::new(Line::from(
+            [
+                theme.key_hint("↑↓", "scroll"),
+                theme.key_hint("esc", "close"),
+            ]
+            .concat(),
+        )),
+        hints,
+    );
     if max_scroll > 0 {
         let mut state = ScrollbarState::new(max_scroll as usize).position(scroll as usize);
         frame.render_stateful_widget(app.theme.scrollbar(), popup, &mut state);
@@ -91,8 +125,8 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
 /// The help text: the screen on view first, then the others; a group
 /// shared by two screens is listed once.
-fn help_lines(theme: &Theme, current: usize, width: usize) -> Vec<Line<'static>> {
-    let columns = Columns::fit(width);
+fn help_lines(theme: &Theme, current: usize, width: usize, org: bool) -> Vec<Line<'static>> {
+    let columns = Columns::fit(width, org);
     let mut order = vec![current];
     order.extend((0..keys::SCREENS.len()).filter(|index| *index != current));
     let mut lines: Vec<Line<'static>> = wrap(keys::MOVING, width)
@@ -145,7 +179,7 @@ fn group_lines(theme: &Theme, group: &KeyGroup, columns: &Columns) -> Vec<Line<'
             let mut spans = vec![
                 Span::styled(
                     format!(" {key:<key_width$}{:GAP$}", ""),
-                    theme.strong(theme.text),
+                    theme.strong(theme.accent),
                 ),
                 Span::raw(format!("{text:<help_width$}")),
             ];

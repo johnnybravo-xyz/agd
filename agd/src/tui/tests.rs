@@ -1982,6 +1982,50 @@ fn sectioned_rows_line_titles_up_after_the_widest_keyword() {
 
 #[test]
 #[serial]
+fn help_fits_80_by_24_with_its_hints_on_the_last_row() {
+    use ratatui::style::Modifier;
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(Some("truecolor"));
+        app.reload_rows().unwrap();
+        press(&mut app, crossterm::event::KeyCode::Char('?'));
+        let buffer = render_buffer(&mut app, 80, 24);
+        let screen = render(&mut app, 80, 24);
+        let text = screen.join("\n");
+        let top = row_of(&buffer, "Keys");
+        let left = column_of(&buffer, top, "╭ Keys") as usize;
+        // Clear of the list's border on both sides, and no org-agenda column.
+        assert!(left > 2, "{text}");
+        assert!(!text.contains("org-agenda"), "{text}");
+        assert!(!screen[top as usize].contains("scroll"), "{text}");
+        let bottom = screen.iter().rposition(|line| line.contains('╰')).unwrap();
+        assert!(
+            screen[bottom - 1].contains("↑↓ scroll   esc close"),
+            "{text}"
+        );
+        let y = row_of(&buffer, "next row");
+        let key = &buffer[(column_of(&buffer, y, "n j ↓"), y)];
+        assert_eq!(key.fg, app.theme.accent);
+        assert!(key.modifier.contains(Modifier::BOLD));
+    });
+}
+
+#[test]
+#[serial]
+fn overdue_badges_line_their_days_up_on_the_right() {
+    with_home(|root| {
+        fs::write(root.join("work.org"), FIVE_OVERDUE).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 100, 20).join("\n");
+        assert!(screen.contains("  -1d  TODO Missed filing"), "{screen}");
+        assert!(screen.contains("  23d  TODO Sched older"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
 fn today_reads_as_a_timeline_against_the_clock() {
     use ratatui::style::Modifier;
     with_home(|root| {
