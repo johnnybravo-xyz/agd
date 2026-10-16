@@ -2,11 +2,11 @@
 pkgname=agd
 pkgver=0.1.0
 pkgrel=1
-pkgdesc="Local-first org-mode tools for terminals and coding agents"
+pkgdesc="An org-agenda for the terminal and for coding agents"
 arch=('x86_64' 'aarch64')
 url="https://github.com/johnnybravo-xyz/agd"
-license=('GPL-3.0-or-later')
-depends=('gcc-libs')
+license=('GPL-3.0-or-later' 'MIT')
+depends=('gcc-libs' 'glibc')
 makedepends=('cargo')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('0b49728c2916d52885fef698b409445b7ec369f4b6b3a8cb2e6e3efd62af3fa8')
@@ -22,6 +22,10 @@ build() {
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
   cargo build --frozen --release --package agd
+  mkdir -p target/completions
+  target/release/agd completions bash > target/completions/agd
+  target/release/agd completions zsh > target/completions/_agd
+  target/release/agd completions fish > target/completions/agd.fish
 }
 
 check() {
@@ -34,5 +38,10 @@ check() {
 package() {
   cd "$pkgname-$pkgver"
   install -Dm755 target/release/agd "$pkgdir/usr/bin/agd"
+  install -Dm644 target/completions/agd "$pkgdir/usr/share/bash-completion/completions/agd"
+  install -Dm644 target/completions/_agd "$pkgdir/usr/share/zsh/site-functions/_agd"
+  install -Dm644 target/completions/agd.fish "$pkgdir/usr/share/fish/vendor_completions.d/agd.fish"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
 }

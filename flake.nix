@@ -1,5 +1,5 @@
 {
-  description = "Local-first org-mode tools for terminals and coding agents";
+  description = "An org-agenda for the terminal and for coding agents";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -72,10 +72,18 @@
           cargoTestFlags = ["--package=agd"];
           cargoInstallFlags = ["--package=agd"];
 
+          nativeBuildInputs = [pkgs.installShellFiles];
+          postInstall = pkgs.lib.optionalString (pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform) ''
+            installShellCompletion --cmd agd \
+              --bash <($out/bin/agd completions bash) \
+              --fish <($out/bin/agd completions fish) \
+              --zsh <($out/bin/agd completions zsh)
+          '';
+
           meta = {
-            description = "Local-first org-mode tools for terminals and coding agents";
+            description = "An org-agenda for the terminal and for coding agents";
             homepage = "https://github.com/johnnybravo-xyz/agd";
-            license = pkgs.lib.licenses.gpl3Plus;
+            license = with pkgs.lib.licenses; [gpl3Plus mit];
             mainProgram = "agd";
             platforms = pkgs.lib.platforms.unix;
           };
