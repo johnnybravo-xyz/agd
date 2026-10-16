@@ -252,11 +252,18 @@ local function custom_commands(values)
       if not kind then
         supported = false
       else
+        -- A span name stays a string and a number of days a number.
         local span = spec.org_agenda_span
+        if not (type(span) == "number" or span == "day" or span == "week" or span == "month") then
+          if span ~= nil then
+            notes[#notes + 1] = "org_agenda_span " .. tostring(span) .. " is not imported"
+          end
+          span = nil
+        end
         blocks[#blocks + 1] = {
           kind = kind,
           match = type(spec.match) == "string" and spec.match ~= "" and spec.match or nil,
-          span = (type(span) == "string" or type(span) == "number") and tostring(span) or nil,
+          span = span,
           header = type(spec.org_agenda_overriding_header) == "string" and spec.org_agenda_overriding_header or nil,
         }
         for name in pairs(spec) do

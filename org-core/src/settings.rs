@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::AgdError;
+use crate::{AgdError, AgendaSpan};
 
 /// Everything agd reads from `config.toml`, one flat table: every setting is
 /// a top-level key, and only capture templates, views and agent profiles are
@@ -41,8 +41,9 @@ pub struct Settings {
     pub lowest_priority: String,
     pub default_priority: String,
 
-    /// day, week, month or a number of days.
-    pub agenda_span: String,
+    /// org-agenda-span: "day", "week", "month" or a number of days
+    /// (`agenda_span = 10`).
+    pub agenda_span: AgendaSpan,
     pub agenda_start_day: Option<String>,
     /// monday or sunday.
     pub week_start: String,
@@ -109,9 +110,10 @@ pub struct ViewBlock {
     /// Tags/TODO match; for `todo` blocks, TODO keywords such as `NEXT|WAIT`.
     #[serde(default, rename = "match", skip_serializing_if = "Option::is_none")]
     pub match_expression: Option<String>,
-    /// For agenda blocks: day, week, month or a number of days.
+    /// For agenda blocks: "day", "week", "month" or a number of days;
+    /// without one, `agenda_span`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span: Option<String>,
+    pub span: Option<AgendaSpan>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub header: Option<String>,
     /// The header's color in the TUI, one of COLOR_NAMES; by default it
@@ -247,7 +249,7 @@ impl Default for Settings {
             highest_priority: "A".to_string(),
             lowest_priority: "C".to_string(),
             default_priority: "B".to_string(),
-            agenda_span: "week".to_string(),
+            agenda_span: AgendaSpan::Week,
             agenda_start_day: None,
             week_start: "monday".to_string(),
             deadline_warning_days: 14,
@@ -566,12 +568,15 @@ fn render_view(view: &ViewSettings) -> String {
         .iter()
         .map(|block| {
             let mut fields = vec![format!("kind = {}", quote(&block.kind))];
-            for (name, value) in [
-                ("match", &block.match_expression),
-                ("span", &block.span),
-                ("header", &block.header),
-                ("color", &block.color),
-            ] {
+            if let Some(expression) = &block.match_expression {
+                fields.push(format!("match = {}", quote(expression)));
+            }
+            match block.span {
+                Some(AgendaSpan::Days(days)) => fields.push(format!("span = {days}")),
+                Some(span) => fields.push(format!("span = {}", quote(&span.to_string()))),
+                None => {}
+            }
+            for (name, value) in [("header", &block.header), ("color", &block.color)] {
                 if let Some(value) = value {
                     fields.push(format!("{name} = {}", quote(value)));
                 }
@@ -958,18 +963,74 @@ mod tests {
         assert_eq!(parsed, settings);
     }
 
-    /// Loads `body` below a `roots` line naming a fresh directory; the
+    /// Loads `body` below a `roots` line naming a fresh directory; an
     /// error's config path reads CONFIG.
-    fn load_error(body: &str) -> String {
+    fn load_body(body: &str) -> Result<Settings, String> {
         let temp = tempfile::tempdir().unwrap();
         let config = temp.path().join("config.toml");
         let root = toml::Value::String(temp.path().to_string_lossy().into_owned());
         fs::write(&config, format!("roots = [{root}]\n{body}")).unwrap();
-        let error = load_settings(Some(&config), None).unwrap_err();
-        assert_eq!(error.code(), "config");
-        error
-            .to_string()
-            .replace(&config.display().to_string(), "CONFIG")
+        load_settings(Some(&config), None)
+            .map(|loaded| loaded.settings)
+            .map_err(|error| {
+                assert_eq!(error.code(), "config");
+                error
+                    .to_string()
+                    .replace(&config.display().to_string(), "CONFIG")
+            })
+    }
+
+    fn load_error(body: &str) -> String {
+        load_body(body).unwrap_err()
+    }
+
+    #[test]
+    fn spans_take_a_name_or_a_toml_number_of_days() {
+        let settings = load_body(concat!(
+            "agenda_span = 10\n",
+            "[[view]]\n",
+            "key = \"f\"\n",
+            "desc = \"Fortnight\"\n",
+            "blocks = [{ kind = \"agenda\", span = 14 }, { kind = \"agenda\", span = \"day\" }]\n",
+        ))
+        .unwrap();
+        assert_eq!(settings.agenda_span, AgendaSpan::Days(10));
+        let spans: Vec<_> = settings.views[0]
+            .blocks
+            .iter()
+            .map(|block| block.span)
+            .collect();
+        assert_eq!(spans, [Some(AgendaSpan::Days(14)), Some(AgendaSpan::Day)]);
+        let rendered = render_config(&settings, "spans").unwrap();
+        assert!(rendered.contains("agenda_span = 10\n"), "{rendered}");
+        assert!(
+            rendered.contains("{ kind = \"agenda\", span = 14 },\n"),
+            "{rendered}"
+        );
+        assert_eq!(toml::from_str::<Settings>(&rendered).unwrap(), settings);
+
+        assert_eq!(
+            load_error("agenda_span = \"10\"\n"),
+            concat!(
+                "cannot parse CONFIG: TOML parse error at line 2, column 15\n",
+                "  |\n",
+                "2 | agenda_span = \"10\"\n",
+                "  |               ^^^^\n",
+                "write a number of days without quotes: 10, not \"10\"\n",
+            )
+        );
+        assert!(
+            load_error("agenda_span = \"wek\"\n")
+                .ends_with("expected day, week, month or a number of days, not \"wek\"\n")
+        );
+        assert!(load_error("agenda_span = 0\n").ends_with("a span is at least 1 day, not 0\n"));
+        assert!(
+            load_error(concat!(
+                "[[view]]\nkey = \"x\"\ndesc = \"X\"\n",
+                "blocks = [{ kind = \"agenda\", span = \"fortnightly\" }]\n",
+            ))
+            .ends_with("expected day, week, month or a number of days, not \"fortnightly\"\n")
+        );
     }
 
     #[test]

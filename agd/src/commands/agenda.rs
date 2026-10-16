@@ -7,20 +7,14 @@ use agd_core::{
 };
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{Datelike, Duration, Local, NaiveDate};
-use clap::{Args, ValueEnum};
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum SpanArg {
-    Day,
-    Week,
-    Month,
-}
+use clap::Args;
 
 #[derive(Args, Debug)]
 pub struct AgendaCommand {
-    /// Days to show; defaults to agenda.span from the configuration
-    #[arg(long, value_enum)]
-    span: Option<SpanArg>,
+    /// Days to show: day, week, month or a number of days; defaults to
+    /// agenda_span from the configuration
+    #[arg(long)]
+    span: Option<AgendaSpan>,
     /// First day: a date (2026-10-13) or org relative syntax (fri, +2d, -1w)
     #[arg(long)]
     from: Option<String>,
@@ -131,12 +125,7 @@ impl AgendaCommand {
             }
             return Ok(());
         }
-        let span = match self.span {
-            Some(SpanArg::Day) => AgendaSpan::Day,
-            Some(SpanArg::Week) => AgendaSpan::Week,
-            Some(SpanArg::Month) => AgendaSpan::Month,
-            None => span_from_settings(&settings),
-        };
+        let span = self.span.unwrap_or(settings.agenda_span);
         let (from, to) = span.bounds(start, &settings.week_start);
         let entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
             from,
@@ -396,12 +385,4 @@ fn default_start(settings: &Settings, today: NaiveDate) -> Result<NaiveDate> {
         return Ok(today);
     };
     parse_day(value, today).with_context(|| format!("invalid agenda start_day: {value}"))
-}
-
-fn span_from_settings(settings: &Settings) -> AgendaSpan {
-    match settings.agenda_span.as_str() {
-        "day" => AgendaSpan::Day,
-        "month" => AgendaSpan::Month,
-        _ => AgendaSpan::Week,
-    }
 }

@@ -105,20 +105,9 @@ impl OrgModeRouter {
                 .map(|value| parse_day(value, today))
                 .transpose()?
                 .unwrap_or(today);
-            let span = match request
-                .span
-                .as_deref()
-                .unwrap_or(&self.settings.agenda_span)
-            {
-                "day" => AgendaSpan::Day,
-                "week" => AgendaSpan::Week,
-                "month" => AgendaSpan::Month,
-                value => {
-                    return Err(AgdError::new(
-                        "invalid_span",
-                        format!("unsupported agenda span: {value}"),
-                    ));
-                }
+            let span = match request.span.as_deref() {
+                Some(value) => value.parse::<AgendaSpan>()?,
+                None => self.settings.agenda_span,
             };
             let (from, to) = span.bounds(from, &self.settings.week_start);
             AgendaEngine::new(&index).agenda(&AgendaQuery {

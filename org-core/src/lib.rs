@@ -10,7 +10,7 @@ pub mod write;
 
 pub use agenda_engine::{
     AgendaEngine, AgendaQuery, AgendaSpan, ViewSection, ViewSectionGroup, agenda_csv, agenda_title,
-    items_csv, keyword_color, keyword_colors, span_days,
+    items_csv, keyword_color, keyword_colors,
 };
 pub use check::{
     CHECK_SCHEMA, CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError,

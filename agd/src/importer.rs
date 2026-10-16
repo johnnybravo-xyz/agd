@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use agd_core::{
-    AgendaEngine, AgendaQuery, AgendaSpan, ConfigEditor, ConfigSources, ImportResult, ImportStatus,
+    AgendaEngine, AgendaQuery, ConfigEditor, ConfigSources, ImportResult, ImportStatus,
     ResolvedEditorConfig, Settings, WorkspaceIndex, agenda_csv, apply_import, find_config_sources,
     items_csv, parse_date_input, render_config,
 };
@@ -217,12 +217,7 @@ fn verify_import(
     let engine = AgendaEngine::new(&index);
     let today = Local::now().date_naive();
     let start = verification_start(&settings, today);
-    let span = match settings.agenda_span.as_str() {
-        "day" => AgendaSpan::Day,
-        "month" => AgendaSpan::Month,
-        _ => AgendaSpan::Week,
-    };
-    let (from, to) = span.bounds(start, &settings.week_start);
+    let (from, to) = settings.agenda_span.bounds(start, &settings.week_start);
     let mut results = Vec::new();
     let native_default = engine
         .agenda(&AgendaQuery {

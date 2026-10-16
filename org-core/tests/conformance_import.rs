@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use agd_core::{ImportResult, ResolvedEditorConfig, Settings, apply_import};
+use agd_core::{AgendaSpan, ImportResult, ResolvedEditorConfig, Settings, apply_import};
 
 /// Applies a case's resolved.json (the editor reader's output, with its
 /// files under /fixture) as a first import into a fresh directory.
@@ -67,7 +67,7 @@ fn emacs_vanilla_keeps_what_agd_runs_and_reports_the_rest() {
         "tags-todo"
     );
     let blocks = &result.settings.view("b").unwrap().blocks;
-    assert_eq!(blocks[0].span.as_deref(), Some("day"));
+    assert_eq!(blocks[0].span, Some(AgendaSpan::Day));
     assert_eq!(blocks[1].header.as_deref(), Some("Home"));
     assert!(result.settings.view("r").is_none());
     assert!(reported(&result, "view r", "unsupported"));
@@ -78,6 +78,8 @@ fn emacs_vanilla_keeps_what_agd_runs_and_reports_the_rest() {
 fn emacs_super_agenda_groups_import_as_view_groups() {
     let (_temp, result) = import_fixture("emacs/super-agenda");
     let day = &result.settings.view("d").unwrap().blocks;
+    // (org-agenda-span 1) is a day, as Org reads it.
+    assert_eq!(day[0].span, Some(AgendaSpan::Day));
     let matches: Vec<Option<&str>> = day[0]
         .groups
         .iter()

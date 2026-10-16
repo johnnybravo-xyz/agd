@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AgdError, CaptureTemplate, SORTING_KEYS, Settings, ViewBlock, ViewSettings};
+use crate::{
+    AgdError, AgendaSpan, CaptureTemplate, SORTING_KEYS, Settings, ViewBlock, ViewSettings,
+};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -334,7 +336,17 @@ pub fn apply_import(
     settings.tag_alist = resolved.tag_alist.clone();
     settings.persistent_tags = resolved.persistent_tags.clone();
     settings.tags_column = resolved.tags_column;
-    settings.agenda_span = resolved.agenda_span.clone();
+    match imported_span(&resolved.agenda_span) {
+        Some(span) => settings.agenda_span = span,
+        None => diagnostics.push(ImportDiagnostic {
+            status: ImportStatus::Unsupported,
+            key: "org-agenda-span".to_string(),
+            message: format!(
+                "{} is not supported; agenda_span stays {}",
+                resolved.agenda_span, settings.agenda_span
+            ),
+        }),
+    }
     settings.agenda_start_day = resolved.agenda_start_day.clone();
     settings.week_start = resolved.week_start.clone();
     settings.deadline_warning_days = resolved.deadline_warning_days;
@@ -511,6 +523,15 @@ fn agenda_pattern(entry: &Path, roots: &[String]) -> Option<String> {
         })
     } else {
         Some(relative)
+    }
+}
+
+/// org-agenda-span as agd writes it: Org's `fortnight` is 14 days; None for
+/// a span agd has no form for, such as `year`.
+fn imported_span(value: &str) -> Option<AgendaSpan> {
+    match value {
+        "fortnight" => AgendaSpan::days(14).ok(),
+        value => value.parse().ok(),
     }
 }
 

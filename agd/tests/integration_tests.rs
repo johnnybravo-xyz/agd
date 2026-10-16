@@ -102,6 +102,41 @@ fn agenda_prints_org_agenda_layout_and_shared_schemas() {
 }
 
 #[test]
+fn agenda_span_takes_a_number_of_days_from_config_or_flag() {
+    let fixture = Fixture::new();
+    let config = fs::read_to_string(&fixture.config).unwrap();
+    fs::write(&fixture.config, format!("agenda_span = 3\n{config}")).unwrap();
+    let output = fixture
+        .command()
+        .args(["agenda", "--from", "2026-10-12"])
+        .output()
+        .expect("agenda command");
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.starts_with("Monday     12 October 2026"), "{text}");
+    assert!(text.contains("Wednesday  14 October 2026"), "{text}");
+    assert!(!text.contains("Thursday"), "{text}");
+
+    fixture
+        .command()
+        .args(["agenda", "--span", "2", "--from", "2026-10-13"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Wednesday  14 October 2026"))
+        .stdout(predicate::str::contains("Thursday").not());
+
+    fs::write(&fixture.config, format!("agenda_span = \"wek\"\n{config}")).unwrap();
+    fixture
+        .command()
+        .args(["agenda"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "expected day, week, month or a number of days, not \"wek\"",
+        ));
+}
+
+#[test]
 fn status_line_counts_today_for_a_status_bar() {
     let fixture = Fixture::new();
     let today = chrono::Local::now().format("%Y-%m-%d %a").to_string();
