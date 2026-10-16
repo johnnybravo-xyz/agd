@@ -929,30 +929,27 @@ fn source_lines(source: &str) -> Vec<SourceLine> {
 }
 
 /// TODO keywords from every `#+TODO:`/`#+SEQ_TODO:`/`#+TYP_TODO:` line, or
-/// the configured sequences. A sequence without `|` makes its last keyword
-/// the done state, as in Org.
+/// the configured `todo_keywords` lines, which hold the same text. A
+/// sequence without `|` makes its last keyword the done state, as in Org.
 fn todo_keywords(source: &str, settings: &Settings) -> Vec<TodoKeyword> {
-    let in_file: Vec<Vec<String>> = directives(source, &["TODO", "SEQ_TODO", "TYP_TODO"])
-        .map(|value| value.split_whitespace().map(str::to_string).collect())
-        .collect();
-    let sequences = if in_file.is_empty() {
-        settings.todo_keywords.clone()
+    let in_file: Vec<&str> = directives(source, &["TODO", "SEQ_TODO", "TYP_TODO"]).collect();
+    let lines = if in_file.is_empty() {
+        settings.todo_keywords.iter().map(String::as_str).collect()
     } else {
         in_file
     };
     let mut keywords = Vec::new();
-    for (index, sequence) in sequences.iter().enumerate() {
-        let separator = sequence.iter().position(|word| word == "|");
+    for (index, line) in lines.iter().enumerate() {
+        let sequence: Vec<&str> = line.split_whitespace().collect();
+        let separator = sequence.iter().position(|word| *word == "|");
         let last = sequence.len().saturating_sub(1);
         for (position, raw) in sequence.iter().enumerate() {
-            if raw == "|" {
+            if *raw == "|" {
                 continue;
             }
-            let (name, markers) = raw
-                .split_once('(')
-                .map_or((raw.as_str(), ""), |(name, rest)| {
-                    (name, rest.trim_end_matches(')'))
-                });
+            let (name, markers) = raw.split_once('(').map_or((*raw, ""), |(name, rest)| {
+                (name, rest.trim_end_matches(')'))
+            });
             if name.is_empty() {
                 continue;
             }

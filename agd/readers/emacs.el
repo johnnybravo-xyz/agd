@@ -235,10 +235,15 @@ then deferred, each in file order."
                                (or values '())))))
 
 (defun agd--todo-sequences ()
-  (vconcat
-   (mapcar (lambda (sequence)
-             (vconcat (mapcar #'agd--string (cdr sequence))))
-           org-todo-keywords)))
+  "The keywords of each (sequence ...) or (type ...) in org-todo-keywords.
+An old-style flat list of keywords is one sequence, as Org reads it."
+  (let ((sequences (if (stringp (car org-todo-keywords))
+                       (list (cons 'sequence org-todo-keywords))
+                     org-todo-keywords)))
+    (vconcat
+     (mapcar (lambda (sequence)
+               (vconcat (mapcar #'agd--string (cdr sequence))))
+             sequences))))
 
 (defun agd--target-file (value)
   "A capture target file: a string, or a variable holding one, resolved

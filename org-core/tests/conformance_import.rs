@@ -45,6 +45,10 @@ fn emacs_cases_import_agenda_files_relative_to_derived_roots() {
 #[test]
 fn emacs_vanilla_keeps_what_agd_runs_and_reports_the_rest() {
     let (_temp, result) = import_fixture("emacs/vanilla");
+    assert_eq!(
+        result.settings.todo_keywords,
+        ["TODO(t) NEXT(n!) WAIT(w@) | DONE(d!) CANCELLED(c@)"]
+    );
     assert_eq!(result.settings.deadline_warning_days, 5);
     assert_eq!(result.settings.week_start, "sunday");
     assert!(result.settings.capture_template("t").is_some());
@@ -169,8 +173,5 @@ fn neovim_lazy_spec_keeps_its_glob_and_default_notes_file() {
     let note = result.settings.capture_template("n").unwrap();
     assert!(note.file.as_deref().unwrap().ends_with("inbox.org"));
     assert_eq!(note.heading.as_deref(), Some("Notes"));
-    assert_eq!(
-        result.settings.todo_keywords,
-        vec![vec!["TODO", "WAIT", "|", "DONE"]]
-    );
+    assert_eq!(result.settings.todo_keywords, vec!["TODO WAIT | DONE"]);
 }

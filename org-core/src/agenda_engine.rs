@@ -240,8 +240,8 @@ impl<'a> AgendaEngine<'a> {
             .settings()
             .todo_keywords
             .iter()
-            .flatten()
-            .filter(|keyword| keyword.as_str() != "|")
+            .flat_map(|line| line.split_whitespace())
+            .filter(|keyword| *keyword != "|")
             .map(|keyword| keyword_name(keyword).to_string())
             .collect();
         keyed.sort_by(|left, right| {

@@ -212,8 +212,8 @@ pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgdError> {
     let configured_keywords: std::collections::HashSet<&str> = settings
         .todo_keywords
         .iter()
-        .flatten()
-        .filter(|keyword| keyword.as_str() != "|")
+        .flat_map(|line| line.split_whitespace())
+        .filter(|keyword| *keyword != "|")
         .filter_map(|keyword| keyword.split('(').next())
         .collect();
     let mut files = Vec::with_capacity(paths.len());

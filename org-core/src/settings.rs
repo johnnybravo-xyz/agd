@@ -19,8 +19,12 @@ pub struct Settings {
     /// Empty means every `.org` file under the roots.
     pub agenda_files: Vec<String>,
 
-    /// org-todo-keywords: one list per sequence, with exactly one "|".
-    pub todo_keywords: Vec<Vec<String>>,
+    /// org-todo-keywords, one `#+TODO:` line per sequence, such as
+    /// "TODO NEXT WAIT(w@/!) | DONE CANCELLED": read by the same code as a
+    /// file's own `#+TODO:` lines, which replace these. A line without `|`
+    /// makes its last keyword the done state, as in Org.
+    #[serde(deserialize_with = "deserialize_todo_lines")]
+    pub todo_keywords: Vec<String>,
     /// org-todo-keyword-faces for the TUI: a color name (COLOR_NAMES) per
     /// keyword. A view section takes the color its rows' keywords share.
     pub todo_keyword_colors: BTreeMap<String, String>,
@@ -233,7 +237,7 @@ impl Default for Settings {
         Self {
             roots: vec!["~/org".to_string()],
             agenda_files: Vec::new(),
-            todo_keywords: vec![strings(&["TODO", "NEXT", "WAIT", "|", "DONE", "CANCELLED"])],
+            todo_keywords: strings(&["TODO NEXT WAIT | DONE CANCELLED"]),
             todo_keyword_colors: BTreeMap::new(),
             ids: IdPolicy::Preserve,
             tag_alist: Vec::new(),
@@ -399,6 +403,49 @@ pub fn parse_config_file(path: &Path) -> Result<Settings, AgdError> {
 
 fn config_error(message: impl Into<String>) -> AgdError {
     AgdError::new("config", message)
+}
+
+/// `todo_keywords` as strings. A list of words instead of a line gets an
+/// error that spells out the line to write.
+fn deserialize_todo_lines<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum TodoLine {
+        Line(String),
+        Words(Vec<String>),
+    }
+    Vec::<TodoLine>::deserialize(deserializer)?
+        .into_iter()
+        .map(|line| match line {
+            TodoLine::Line(line) => Ok(line),
+            TodoLine::Words(words) => Err(serde::de::Error::custom(format!(
+                "todo_keywords takes one #+TODO: line per sequence; write \"{}\"",
+                words.join(" ")
+            ))),
+        })
+        .collect()
+}
+
+/// Each `todo_keywords` line needs a keyword and at most one `|`.
+fn validate_todo_keywords(lines: &[String]) -> Result<(), AgdError> {
+    for line in lines {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let separators = words.iter().filter(|word| **word == "|").count();
+        if words.len() == separators {
+            return Err(config_error(format!(
+                "todo_keywords line \"{line}\" has no keywords; write one like \"TODO | DONE\""
+            )));
+        }
+        if separators > 1 {
+            return Err(config_error(format!(
+                "todo_keywords line \"{line}\" has more than one |; put every done keyword after one |"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Top-level keys in the order `render_config` writes them, under these
@@ -609,13 +656,7 @@ fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
             return Err(config_error(format!("duplicate root: {root}")));
         }
     }
-    for sequence in &settings.todo_keywords {
-        if sequence.iter().filter(|word| word.as_str() == "|").count() != 1 {
-            return Err(config_error(
-                "every todo_keywords sequence must contain exactly one '|' separator",
-            ));
-        }
-    }
+    validate_todo_keywords(&settings.todo_keywords)?;
     if settings.editor.is_empty() {
         return Err(config_error("editor needs at least the program to run"));
     }
@@ -790,7 +831,7 @@ mod tests {
                 concat!(
                     "roots = [{root}]\n",
                     "deadline_warning_days = 9\n",
-                    "todo_keywords = [[\"TODO\", \"|\", \"DONE\"]]\n",
+                    "todo_keywords = [\"TODO | DONE\"]\n",
                     "[[capture]]\n",
                     "key = \"n\"\n",
                     "desc = \"Note\"\n",
@@ -915,6 +956,76 @@ mod tests {
         );
         let parsed: Settings = toml::from_str(&rendered).unwrap();
         assert_eq!(parsed, settings);
+    }
+
+    /// Loads `body` below a `roots` line naming a fresh directory; the
+    /// error's config path reads CONFIG.
+    fn load_error(body: &str) -> String {
+        let temp = tempfile::tempdir().unwrap();
+        let config = temp.path().join("config.toml");
+        let root = toml::Value::String(temp.path().to_string_lossy().into_owned());
+        fs::write(&config, format!("roots = [{root}]\n{body}")).unwrap();
+        let error = load_settings(Some(&config), None).unwrap_err();
+        assert_eq!(error.code(), "config");
+        error
+            .to_string()
+            .replace(&config.display().to_string(), "CONFIG")
+    }
+
+    #[test]
+    fn todo_keyword_lines_read_like_a_files_todo_lines() {
+        let settings = Settings {
+            todo_keywords: strings(&["TODO(t) WAIT(w@/!) | DONE(d!)", "IDEA DROPPED"]),
+            ..Settings::default()
+        };
+        let document = crate::IndexedDocument::parse(
+            PathBuf::from("tasks.org"),
+            b"* WAIT Reply\n".to_vec(),
+            &settings,
+        )
+        .unwrap();
+        let keywords: Vec<(&str, bool, usize)> = document
+            .todo_keywords()
+            .iter()
+            .map(|keyword| (keyword.name.as_str(), keyword.done, keyword.sequence))
+            .collect();
+        assert_eq!(
+            keywords,
+            [
+                ("TODO", false, 0),
+                ("WAIT", false, 0),
+                ("DONE", true, 0),
+                ("IDEA", false, 1),
+                ("DROPPED", true, 1)
+            ]
+        );
+        let wait = &document.todo_keywords()[1];
+        assert_eq!(
+            (wait.log_enter, wait.log_leave),
+            (Some(crate::LogKind::Note), Some(crate::LogKind::Time))
+        );
+    }
+
+    #[test]
+    fn todo_keyword_lines_reject_lists_and_misplaced_separators() {
+        assert_eq!(
+            load_error("todo_keywords = [[\"TODO\", \"|\", \"DONE\"]]\n"),
+            concat!(
+                "cannot parse CONFIG: TOML parse error at line 2, column 17\n",
+                "  |\n",
+                "2 | todo_keywords = [[\"TODO\", \"|\", \"DONE\"]]\n",
+                "  |                 ^^^^^^^^^^^^^^^^^^^^^^^\n",
+                "todo_keywords takes one #+TODO: line per sequence; write \"TODO | DONE\"\n",
+            )
+        );
+        assert_eq!(
+            load_error("todo_keywords = [\"TODO | DONE | GONE\"]\n"),
+            "todo_keywords line \"TODO | DONE | GONE\" has more than one |; put every done keyword after one |"
+        );
+        assert_eq!(
+            load_error("todo_keywords = [\" | \"]\n"),
+            "todo_keywords line \" | \" has no keywords; write one like \"TODO | DONE\""
+        );
     }
 
     #[test]

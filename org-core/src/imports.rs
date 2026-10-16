@@ -325,7 +325,12 @@ pub fn apply_import(
     }
     settings.agenda_files.dedup();
 
-    settings.todo_keywords = resolved.todo_sequences.clone();
+    // Each sequence as its #+TODO: line; (type …) keywords read the same.
+    settings.todo_keywords = resolved
+        .todo_sequences
+        .iter()
+        .map(|sequence| sequence.join(" "))
+        .collect();
     settings.tag_alist = resolved.tag_alist.clone();
     settings.persistent_tags = resolved.persistent_tags.clone();
     settings.tags_column = resolved.tags_column;
