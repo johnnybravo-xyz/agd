@@ -469,6 +469,19 @@ fn due_answers_a_deadline_prompt_so_it_is_not_asked() {
 
 #[test]
 #[serial]
+fn an_empty_no_color_keeps_colour() {
+    let plain = |value: Option<&str>| {
+        temp_env::with_var("NO_COLOR", value, || {
+            super::theme::Theme::detect("dark").plain
+        })
+    };
+    assert!(plain(Some("1")));
+    assert!(!plain(Some("")));
+    assert!(!plain(None));
+}
+
+#[test]
+#[serial]
 fn shift_x_cancels_with_the_files_own_keyword() {
     with_home(|root| {
         let path = root.join("work.org");

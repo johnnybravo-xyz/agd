@@ -32,7 +32,8 @@ impl Theme {
     /// `setting` is `auto`, `dark` or `light`. Auto reads COLORFGBG, which
     /// most terminals set; without it, dark is assumed.
     pub(super) fn detect(setting: &str) -> Self {
-        if std::env::var_os("NO_COLOR").is_some() {
+        // no-color.org: only a non-empty NO_COLOR turns colour off.
+        if std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty()) {
             return Self::plain();
         }
         let truecolor = std::env::var("COLORTERM")
