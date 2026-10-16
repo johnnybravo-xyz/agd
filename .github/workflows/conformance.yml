@@ -2,24 +2,15 @@ name: Conformance
 on:
   pull_request:
     branches: [main]
-    paths:
+    paths: &paths
       - "agd/readers/**"
       - "conformance/**"
-      - "agd-core/src/**"
-      - "agd-core/tests/conformance_*.rs"
       - "scripts/*oracle.py"
       - "scripts/fetch-*.sh"
       - ".github/workflows/conformance.yml"
   push:
     branches: [main]
-    paths:
-      - "agd/readers/**"
-      - "conformance/**"
-      - "agd-core/src/**"
-      - "agd-core/tests/conformance_*.rs"
-      - "scripts/*oracle.py"
-      - "scripts/fetch-*.sh"
-      - ".github/workflows/conformance.yml"
+    paths: *paths
   schedule:
     - cron: "23 4 * * 1"
   workflow_dispatch:
@@ -29,16 +20,15 @@ concurrency:
   group: conformance-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  conformance:
+  # Checks the fixtures against pinned Emacs and Neovim; CI's tests check agd
+  # against the same fixtures.
+  oracles:
+    name: Editor oracles
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.89.0"
-      - name: Fetch pinned Neovim
-        run: ./scripts/fetch-neovim-oracle.sh
-      - name: Check editor oracles
+      - run: ./scripts/fetch-neovim-oracle.sh
+      - name: Compare the fixtures with pinned Emacs and Neovim
         env:
           NVIM: ${{ github.workspace }}/target/nvim-0.12.6/bin/nvim
         run: |
@@ -46,10 +36,16 @@ jobs:
           ./scripts/emacs-edit-oracle.py
           ./scripts/emacs-import-oracle.py
           ./scripts/nvim-import-oracle.py
-      - name: Fetch scheduled external corpus
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        run: ./scripts/fetch-conformance-corpus.sh
-      - name: Run conformance tests
+
+  corpus:
+    name: Org and Worg corpus
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.89.0
+      - run: ./scripts/fetch-conformance-corpus.sh
+      - name: Round-trip the corpus
         env:
-          AGD_CONFORMANCE_CORPUS: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && format('{0}/target/conformance-corpus', github.workspace) || '' }}
-        run: cargo test -p agd-core --tests
+          AGD_CONFORMANCE_CORPUS: ${{ github.workspace }}/target/conformance-corpus
+        run: cargo test -p agd-core --test conformance_roundtrip

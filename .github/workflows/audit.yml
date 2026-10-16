@@ -3,15 +3,14 @@ on:
   schedule:
     - cron: "0 0 * * *"
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
-  security_audit:
+  advisories:
+    name: RustSec advisories
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v7
-      - uses: taiki-e/install-action@v2
+      - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          tool: cargo-deny
-      - name: Scan for vulnerabilities
-        run: cargo deny check advisories
+          command: check advisories
