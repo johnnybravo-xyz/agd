@@ -20,8 +20,7 @@
 
 (defconst agd--imported
   '(org-directory org-default-notes-file org-agenda-files org-todo-keywords
-    org-tag-alist org-tag-persistent-alist org-tags-column
-    org-tags-exclude-from-inheritance
+    org-tags-column org-tags-exclude-from-inheritance
     org-highest-priority org-lowest-priority org-default-priority
     org-priority-highest org-priority-lowest org-priority-default
     org-deadline-warning-days org-agenda-span org-agenda-start-day
@@ -33,7 +32,7 @@
   "The org settings agd imports.")
 
 (defconst agd--unused-prefixes
-  '("org-agenda-" "org-super-agenda-" "org-ql-" "org-capture-")
+  '("org-agenda-" "org-super-agenda-" "org-ql-" "org-capture-" "org-tag-")
   "Settings with these prefixes that agd does not import are reported as unused.")
 
 (defvar agd--assignments nil
@@ -643,8 +642,6 @@ DESCRIPTION) entry only labels a prefix key, and is skipped."
        (org_directory . ,(and (gethash 'org-directory agd--origins) org-directory))
        (agenda_files . ,agenda-files)
        (todo_sequences . ,(agd--todo-sequences))
-       (tag_alist . ,(agd--strings org-tag-alist))
-       (persistent_tags . ,(agd--strings org-tag-persistent-alist))
        (tags_column . ,org-tags-column)
        (tag_inheritance_exclusions . ,(agd--strings org-tags-exclude-from-inheritance))
        (highest_priority . ,(agd--priority org-priority-highest))

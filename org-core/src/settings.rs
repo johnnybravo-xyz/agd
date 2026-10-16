@@ -32,8 +32,6 @@ pub struct Settings {
     /// "preserve" leaves headings alone; "add-on-write" adds an org-id :ID:
     /// on a heading's first edit.
     pub ids: IdPolicy,
-    pub tag_alist: Vec<String>,
-    pub persistent_tags: Vec<String>,
     /// org-tags-column: negative right-aligns tags to end at that column,
     /// positive starts them there, as Emacs does when it rewrites a headline.
     pub tags_column: i64,
@@ -263,8 +261,6 @@ impl Default for Settings {
             todo_keywords: strings(&["TODO NEXT WAIT | DONE CANCELLED"]),
             todo_keyword_colors: BTreeMap::new(),
             ids: IdPolicy::Preserve,
-            tag_alist: Vec::new(),
-            persistent_tags: Vec::new(),
             tags_column: -77,
             tag_inheritance_exclusions: Vec::new(),
             highest_priority: "A".to_string(),
@@ -575,8 +571,6 @@ const CONFIG_GROUPS: [(&str, &[&str]); 6] = [
             "todo_keywords",
             "todo_keyword_colors",
             "ids",
-            "tag_alist",
-            "persistent_tags",
             "tags_column",
             "tag_inheritance_exclusions",
             "highest_priority",
@@ -1111,6 +1105,14 @@ mod tests {
 
     fn load_error(body: &str) -> String {
         load_body(body).unwrap_err()
+    }
+
+    #[test]
+    fn removed_keys_are_unknown() {
+        for key in ["tag_alist", "persistent_tags"] {
+            let error = load_error(&format!("{key} = [\"work\"]\n"));
+            assert!(error.contains(&format!("unknown field `{key}`")), "{error}");
+        }
     }
 
     #[test]

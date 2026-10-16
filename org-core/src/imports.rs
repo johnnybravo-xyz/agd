@@ -70,8 +70,6 @@ pub struct ResolvedEditorConfig {
     /// directories or globs.
     pub agenda_files: Vec<String>,
     pub todo_sequences: Vec<Vec<String>>,
-    pub tag_alist: Vec<String>,
-    pub persistent_tags: Vec<String>,
     pub tags_column: i64,
     pub tag_inheritance_exclusions: Vec<String>,
     pub highest_priority: String,
@@ -334,8 +332,6 @@ pub fn apply_import(
         .iter()
         .map(|sequence| sequence.join(" "))
         .collect();
-    settings.tag_alist = resolved.tag_alist.clone();
-    settings.persistent_tags = resolved.persistent_tags.clone();
     settings.tags_column = resolved.tags_column;
     match imported_span(&resolved.agenda_span) {
         Some(span) => settings.agenda_span = span,
@@ -663,7 +659,7 @@ mod tests {
             "org_directory": "/elsewhere",
             "agenda_files": [temp.path().join("inbox.org"), "/elsewhere/private.org"],
             "todo_sequences": [["TODO", "|", "DONE"]],
-            "tag_alist": [], "persistent_tags": [], "tags_column": -77,
+            "tags_column": -77,
             "tag_inheritance_exclusions": [],
             "highest_priority": "A", "lowest_priority": "C", "default_priority": "B",
             "deadline_warning_days": 14, "agenda_span": "week", "agenda_start_day": null,
@@ -692,7 +688,7 @@ mod tests {
             "editor": "emacs",
             "agenda_files": [],
             "todo_sequences": [["TODO", "|", "DONE"]],
-            "tag_alist": [], "persistent_tags": [], "tags_column": -77,
+            "tags_column": -77,
             "tag_inheritance_exclusions": [],
             "highest_priority": "A", "lowest_priority": "C", "default_priority": "B",
             "deadline_warning_days": 14, "agenda_span": "week", "agenda_start_day": null,

@@ -96,16 +96,6 @@
       "status": "exact"
     },
     {
-      "key": "org-tag-alist",
-      "message": "init.el:6",
-      "status": "exact"
-    },
-    {
-      "key": "org-tag-persistent-alist",
-      "message": "init.el:7",
-      "status": "exact"
-    },
-    {
       "key": "org-tags-exclude-from-inheritance",
       "message": "init.el:8",
       "status": "exact"
@@ -189,6 +179,16 @@
       "key": "org-agenda-custom-commands",
       "message": "init.el:27",
       "status": "exact"
+    },
+    {
+      "key": "org-tag-alist",
+      "message": "init.el:6: not used by agd",
+      "status": "difference"
+    },
+    {
+      "key": "org-tag-persistent-alist",
+      "message": "init.el:7: not used by agd",
+      "status": "difference"
     }
   ],
   "editor": "emacs",
@@ -201,9 +201,6 @@
   "log_reschedule": "nil",
   "lowest_priority": "D",
   "org_directory": null,
-  "persistent_tags": [
-    "important"
-  ],
   "skip_deadline_if_done": true,
   "skip_scheduled_if_done": true,
   "skip_timestamp_if_done": false,
@@ -211,10 +208,6 @@
     "priority-down",
     "time-up",
     "category-keep"
-  ],
-  "tag_alist": [
-    "work",
-    "home"
   ],
   "tag_inheritance_exclusions": [
     "noinherit"

@@ -74,6 +74,13 @@ fn emacs_vanilla_keeps_what_agd_runs_and_reports_the_rest() {
     assert!(result.settings.view("r").is_none());
     assert!(reported(&result, "view r", "unsupported"));
     assert!(reported(&result, "org-todo-keywords", "init.el:"));
+    // Tag completion lists change no rows, so they are reported, not kept.
+    assert!(reported(&result, "org-tag-alist", "not used by agd"));
+    assert!(reported(
+        &result,
+        "org-tag-persistent-alist",
+        "not used by agd"
+    ));
 }
 
 #[test]

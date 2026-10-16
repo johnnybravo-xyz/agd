@@ -91,7 +91,6 @@
   "log_repeat": "note",
   "log_reschedule": "nil",
   "lowest_priority": "D",
-  "persistent_tags": [],
   "skip_deadline_if_done": true,
   "skip_scheduled_if_done": true,
   "skip_timestamp_if_done": false,
@@ -99,7 +98,6 @@
     "priority-down",
     "time-up"
   ],
-  "tag_alist": [],
   "tag_inheritance_exclusions": [
     "noinherit"
   ],
