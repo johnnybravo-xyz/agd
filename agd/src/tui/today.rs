@@ -986,7 +986,7 @@ fn draw_filter_line(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, 
     spans.push(Span::styled(
         format!(
             "  {}  ",
-            crate::commands::counted(app.rows.len(), "row", "rows")
+            crate::words::counted(app.rows.len(), "row", "rows")
         ),
         theme.muted(),
     ));
@@ -998,7 +998,7 @@ fn draw_filter_line(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, 
 
 /// `1 marked row`, `3 marked rows`.
 fn marked_rows(app: &App) -> String {
-    crate::commands::counted(app.marks.len(), "marked row", "marked rows")
+    crate::words::counted(app.marks.len(), "marked row", "marked rows")
 }
 
 /// A popup's key for `action`, from keys::POPUP_KEYS.

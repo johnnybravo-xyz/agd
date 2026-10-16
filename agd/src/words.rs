@@ -7,6 +7,8 @@
 //! - a countdown is `in 3d`, an age `12d`, a missed deadline `-2d`;
 //! - a change is `<file:line or N items>  <change> · <title>`, which the
 //!   TUI ends with ` · u undo` while it can be undone;
+//! - a count names its noun, singular for one (`1 file`, `3 files`), and
+//!   the day's counts read `1 overdue · 3 today · 9 inbox` (`summary`);
 //! - a tag is `#work` (`tag`), wherever one is drawn;
 //! - an error is a sentence without its code (codes are for JSON).
 //!
@@ -14,7 +16,7 @@
 
 use std::path::{Path, PathBuf};
 
-use agd_core::{AgdError, ErrorCode, Item};
+use agd_core::{AgdError, AgendaSummary, ErrorCode, Item};
 use chrono::{Datelike, NaiveDate};
 
 /// `Fri 16 Oct`, or `Fri 16 Oct 2027` outside `today`'s year.
@@ -106,6 +108,32 @@ pub fn tags(names: &[String]) -> String {
         .map(|name| tag(name))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// `count` with its noun, singular for one: "1 file", "0 files".
+pub fn counted(count: usize, singular: &str, plural: &str) -> String {
+    if count == 1 {
+        format!("1 {singular}")
+    } else {
+        format!("{count} {plural}")
+    }
+}
+
+/// The day's counts as the status band, the TUI and the panes say them:
+/// `1 overdue · 3 today · 9 inbox · 2 unreviewed`, leaving out zero
+/// counts; empty when every count is zero.
+pub fn summary(summary: &AgendaSummary) -> String {
+    [
+        (summary.overdue, "overdue"),
+        (summary.today, "today"),
+        (summary.inbox, "inbox"),
+        (summary.unreviewed, "unreviewed"),
+    ]
+    .iter()
+    .filter(|(count, _)| *count > 0)
+    .map(|(count, word)| counted(*count, word, word))
+    .collect::<Vec<_>>()
+    .join(" · ")
 }
 
 /// `<location>  <change> · <title>`, the one shape of every change line.
@@ -217,6 +245,20 @@ mod tests {
         assert_eq!(tag("work"), "#work");
         assert_eq!(tags(&["work".to_string(), "ops".to_string()]), "#work #ops");
         assert_eq!(tags(&[]), "");
+    }
+
+    #[test]
+    fn counts_name_their_noun_and_the_day_leaves_out_zeros() {
+        assert_eq!(counted(1, "file", "files"), "1 file");
+        assert_eq!(counted(0, "file", "files"), "0 files");
+        let day = AgendaSummary {
+            overdue: 4,
+            today: 1,
+            inbox: 0,
+            unreviewed: 1,
+        };
+        assert_eq!(summary(&day), "4 overdue · 1 today · 1 unreviewed");
+        assert_eq!(summary(&AgendaSummary::default()), "");
     }
 
     #[test]

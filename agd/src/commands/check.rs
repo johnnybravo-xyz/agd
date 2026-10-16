@@ -6,7 +6,7 @@ use agd_core::{
 use anyhow::Result;
 use clap::Args;
 
-use crate::commands::counted;
+use crate::words::counted;
 
 #[derive(Args)]
 pub struct CheckCommand {

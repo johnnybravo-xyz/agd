@@ -391,10 +391,11 @@ fn views_output(settings: &Settings, json: bool) -> Result<String> {
 }
 
 /// The status band, `1 overdue · 3 today · 9 inbox · 2 unreviewed`, as the
-/// TUI's header and pane count it (AgendaEngine::summary).
+/// TUI's header and pane count it (AgendaEngine::summary, words::summary).
 fn status_line(index: &WorkspaceIndex, settings: &Settings, today: NaiveDate) -> Result<String> {
     let journal = WriteEngine::with_default_journal(settings.clone())?.journal()?;
-    Ok(AgendaEngine::new(index).summary(today, &journal)?.line())
+    let summary = AgendaEngine::new(index).summary(today, &journal)?;
+    Ok(crate::words::summary(&summary))
 }
 
 // Reads keep working when one agenda file cannot be indexed; say which file

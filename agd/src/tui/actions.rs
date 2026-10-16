@@ -284,7 +284,7 @@ impl App {
     fn targets_location(&self, items: &[&Item]) -> String {
         match items {
             [item] => self.short_location(item),
-            _ => crate::commands::counted(items.len(), "item", "items"),
+            _ => crate::words::counted(items.len(), "item", "items"),
         }
     }
 
@@ -790,7 +790,7 @@ impl App {
             }
             _ => self.set_done(format!(
                 "{}  undid the whole triage pass",
-                crate::commands::counted(count, "item", "items")
+                crate::words::counted(count, "item", "items")
             )),
         }
         self.reload_rows()
@@ -825,7 +825,7 @@ impl App {
                 return Ok(());
             }
             [record] => super::review::subject_location(self, record),
-            several => crate::commands::counted(several.len(), "change", "changes"),
+            several => crate::words::counted(several.len(), "change", "changes"),
         };
         let titles: Vec<String> = chosen
             .iter()

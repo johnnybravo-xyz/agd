@@ -5,8 +5,8 @@ use agd_core::{ImportStatus, Settings, default_config_path, import_root, parse_c
 use anyhow::{Result, bail};
 use clap::Args;
 
-use crate::commands::counted;
 use crate::importer::{ImportExecution, import_config};
+use crate::words::counted;
 
 /// Where Emacs and Neovim configs usually live; offered when no path is given.
 const USUAL_LOCATIONS: [&str; 7] = [
