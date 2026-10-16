@@ -327,7 +327,7 @@ impl Default for Settings {
             agent_inbox: None,
             someday_tag: "someday".to_string(),
             someday_clears_dates: true,
-            reschedule_nudge: 3,
+            reschedule_nudge: 9,
             captures: vec![CaptureTemplate::default()],
             views: Vec::new(),
             agent_profiles: Vec::new(),

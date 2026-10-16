@@ -163,6 +163,7 @@ mod tests {
             tags: Vec::new(),
             inherited_tags: Vec::new(),
             category: "inbox".to_string(),
+            checklist: None,
             planning: Planning {
                 deadline: Some(PlanningTimestamp {
                     date: "2026-10-23".to_string(),

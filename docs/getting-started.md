@@ -270,12 +270,28 @@ template's key, or pick one with `↑`/`↓` and `⏎`, then type the same line 
 on the command line. The preview is the exact Org text that will be written,
 `tab` changes the template, and `C-o` writes the body in `$EDITOR`.
 
+For subtasks, `M-⏎` (alt-return) adds a checklist line under the task, and
+each line is written as `- [ ] line`. `S-⏎` does the same in terminals that
+report shift-return apart from return (kitty, WezTerm, Ghostty, foot, or
+after Claude Code's `/terminal-setup`). `⌫` on an empty line removes it.
+To check the lines off later, press `⏎` on the task: the edit popup lists
+them under the dates, and `x` on a line checks it, as `x` marks a task
+done. Lists show the progress after the title, `1/3`, and a `[/]` or `[%]`
+cookie on the heading is counted as Org counts it.
+
+```text
+› Plan the offsite due:fri #work
+  - [ ] book venue
+  - [ ] send invites
+```
+
 `T` starts Triage: overdue items, then the inbox, one card at a time. The keys
 are `.` today, `>` tomorrow, `w` in a week, `s` a date you type, `d` move a
 missed deadline, `x` done, `N` make it NEXT, `S` someday (adds the `someday`
 tag and removes the dates that put it on the agenda), `X` cancel, `R` refile,
-`n`/`p` skip forward and back, and `u` to undo a step. After three
-reschedules a card suggests someday.
+`n`/`p` skip forward and back, and `u` to undo a step. After nine
+reschedules a card suggests someday; `reschedule_nudge = 5` in `config.toml`
+suggests it sooner.
 
 ### Saved views and a dashboard
 

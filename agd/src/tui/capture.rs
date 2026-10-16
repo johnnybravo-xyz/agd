@@ -1,8 +1,8 @@
 //! The capture popup (`c`, and `agd capture -i`): pick a template as in
 //! org-capture's menu, type one line with tokens (`due:fri #tag !A`, or
-//! `:tag: #A` with `notation = "org"`) that show as chips, answer the
-//! template's prompts, and see the exact Org text a dry run would write
-//! before ⏎ writes it.
+//! `:tag: #A` with `notation = "org"`) that show as chips, add checklist
+//! lines under it with M-⏎, answer the template's prompts, and see the
+//! exact Org text a dry run would write before ⏎ writes it.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -28,14 +28,18 @@ use super::keys::{self, Action};
 use super::theme::{Theme, centered, truncate};
 use super::{App, Overlay, run_editor, write_context};
 
-/// The capture popup's state. Field 0 is the one-line title with tokens;
-/// later fields answer the template's `%^{prompt}`s.
+/// The capture popup's state. Field 0 is the one-line title with tokens,
+/// fields 1 to `items.len()` the checklist lines under it, and the fields
+/// after them answer the template's `%^{prompt}`s.
 #[derive(Debug)]
 pub(super) struct Draft {
     template: Option<String>,
     input: TextInput,
+    /// Checklist lines, written as `- [ ] line` after the body.
+    items: Vec<TextInput>,
     prompts: Vec<(CapturePrompt, TextInput)>,
     field: usize,
+    /// The body from $EDITOR.
     body: String,
     preview: Result<String, String>,
     /// The preview is out of date; it is rebuilt once before the next draw.
@@ -49,6 +53,7 @@ impl Default for Draft {
         Self {
             template: None,
             input: TextInput::default(),
+            items: Vec::new(),
             prompts: Vec::new(),
             field: 0,
             selected: 0,
@@ -73,14 +78,21 @@ impl Draft {
     }
 
     fn current(&mut self) -> &mut TextInput {
+        let items = self.items.len();
         match self.field {
             0 => &mut self.input,
-            index => &mut self.prompts[index - 1].1,
+            field if field <= items => &mut self.items[field - 1],
+            field => &mut self.prompts[field - 1 - items].1,
         }
     }
 
-    /// Field numbers (1-based) of the prompts still to ask: a date prompt
-    /// the capture line already answers with `due:` or `on:` is skipped.
+    /// The field number of the prompt at `index`.
+    fn prompt_field(&self, index: usize) -> usize {
+        1 + self.items.len() + index
+    }
+
+    /// Field numbers of the prompts still to ask: a date prompt the capture
+    /// line already answers with `due:` or `on:` is skipped.
     fn open_fields(&self, app: &App) -> Vec<usize> {
         let parsed = self.parsed(app).ok();
         self.prompts
@@ -91,21 +103,52 @@ impl Draft {
                     .as_ref()
                     .is_some_and(|draft| prompt.answered_by(draft))
             })
-            .map(|(index, _)| index + 1)
+            .map(|(index, _)| self.prompt_field(index))
             .collect()
     }
 
-    fn next_field(&self, app: &App) -> Option<usize> {
+    /// The next prompt to ask after the focused field, which ⏎ goes to.
+    fn next_prompt(&self, app: &App) -> Option<usize> {
         self.open_fields(app)
             .into_iter()
             .find(|field| *field > self.field)
     }
 
+    /// Every field ↑ and ↓ visit, in order: the capture line, the checklist
+    /// lines, then the open prompts.
+    fn fields(&self, app: &App) -> Vec<usize> {
+        let mut fields: Vec<usize> = (0..=self.items.len()).collect();
+        fields.extend(self.open_fields(app));
+        fields
+    }
+
+    fn next_field(&self, app: &App) -> Option<usize> {
+        self.fields(app)
+            .into_iter()
+            .find(|field| *field > self.field)
+    }
+
     fn previous_field(&self, app: &App) -> usize {
-        self.open_fields(app)
+        self.fields(app)
             .into_iter()
             .rfind(|field| *field < self.field)
             .unwrap_or(0)
+    }
+
+    /// The body as written: the text from $EDITOR, then a `- [ ] line` for
+    /// each checklist line that has text.
+    fn body_text(&self) -> String {
+        let items = self
+            .items
+            .iter()
+            .map(|item| item.text().trim())
+            .filter(|text| !text.is_empty())
+            .map(|text| format!("- [ ] {text}"));
+        std::iter::once(self.body.clone())
+            .filter(|body| !body.is_empty())
+            .chain(items)
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     fn parsed(&self, app: &App) -> Result<CaptureDraft, String> {
@@ -131,7 +174,7 @@ impl Draft {
                     engine.capture(
                         template,
                         &draft,
-                        &self.body,
+                        &self.body_text(),
                         &prompts,
                         true,
                         &write_context(),
@@ -175,18 +218,8 @@ fn added_lines(diff: &str) -> String {
 /// Types one character into the popup as a key press would.
 #[cfg(test)]
 pub(super) fn type_key(app: &mut App, character: char) {
-    let Overlay::Capture(mut draft) = std::mem::replace(&mut app.overlay, Overlay::None) else {
-        return;
-    };
-    if draft.template.is_none() {
-        draft.choose(app, &character.to_string());
-    } else {
-        draft
-            .current()
-            .handle(KeyEvent::from(KeyCode::Char(character)));
-    }
-    draft.refresh(app);
-    app.overlay = Overlay::Capture(draft);
+    apply_key(app, KeyEvent::from(KeyCode::Char(character))).unwrap();
+    refresh_stale(app);
 }
 
 pub(super) fn handle_key(
@@ -194,15 +227,45 @@ pub(super) fn handle_key(
     app: &mut App,
     key: KeyEvent,
 ) -> Result<()> {
+    // In the text fields C-e is end of line, so the body editor is C-o.
+    if keys::popup_action(key) != Some(Action::Editor) {
+        return apply_key(app, key);
+    }
+    let Overlay::Capture(mut draft) = std::mem::replace(&mut app.overlay, Overlay::None) else {
+        return Ok(());
+    };
+    edit_body(terminal, app, &mut draft)?;
+    draft.stale = true;
+    app.overlay = Overlay::Capture(draft);
+    Ok(())
+}
+
+/// Every capture key but C-o, which needs the terminal for $EDITOR.
+pub(super) fn apply_key(app: &mut App, key: KeyEvent) -> Result<()> {
     let Overlay::Capture(mut draft) = std::mem::replace(&mut app.overlay, Overlay::None) else {
         return Ok(());
     };
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
-    // In the text fields C-e is end of line, so the body editor is C-o.
     let action = keys::popup_action(key);
+    let items = draft.items.len();
     match key.code {
         _ if action == Some(Action::Back) => return close(app),
-        _ if action == Some(Action::Editor) => edit_body(terminal, app, &mut draft)?,
+        // A checklist line goes under the capture line or the focused one.
+        _ if action == Some(Action::AddItem)
+            && draft.template.is_some()
+            && draft.field <= items =>
+        {
+            draft.items.insert(draft.field, TextInput::default());
+            draft.field += 1;
+        }
+        // Backspace on an empty checklist line removes it.
+        KeyCode::Backspace
+            if (1..=items).contains(&draft.field)
+                && draft.items[draft.field - 1].text().is_empty() =>
+        {
+            draft.items.remove(draft.field - 1);
+            draft.field -= 1;
+        }
         _ if action == Some(Action::NextField) => {
             let keys: Vec<String> = app
                 .settings
@@ -244,7 +307,7 @@ pub(super) fn handle_key(
         }
         _ if action == Some(Action::Save) => {
             if !draft.input.text().trim().is_empty() {
-                match draft.next_field(app) {
+                match draft.next_prompt(app) {
                     Some(field) => draft.field = field,
                     None => return commit(app, draft),
                 }
@@ -283,7 +346,7 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
     let mutation = WriteEngine::with_default_journal(app.settings.clone())?.capture(
         &template,
         &parsed,
-        &draft.body,
+        &draft.body_text(),
         &prompts,
         false,
         &write_context(),
@@ -302,12 +365,18 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
     app.reload_rows()
 }
 
-/// C-o: the body goes through $EDITOR as a temporary file.
+/// C-o: the body goes through $EDITOR as a temporary file, checklist
+/// lines included, so the editor shows everything that will be written.
 fn edit_body(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
     draft: &mut Draft,
 ) -> Result<()> {
+    let items = draft.items.len();
+    draft.body = draft.body_text();
+    draft.items.clear();
+    // A checklist line's focus goes to the capture line.
+    draft.field = draft.field.saturating_sub(items);
     let mut file = tempfile::Builder::new()
         .suffix(".org")
         .tempfile()
@@ -354,15 +423,18 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let open = draft.open_fields(app);
     let prompts = open.len() as u16;
     let prompt_rows = if prompts > 0 { prompts + 1 } else { 0 };
+    // The capture line and its checklist lines, in one rounded box.
+    let input_rows = 3 + draft.items.len() as u16;
     // border + top padding, input, gap, prompts, chips, gap, destination,
     // preview inset, gap, footer, border
-    let height = 2 + 3 + 1 + prompt_rows + 1 + 1 + 1 + preview.len() as u16 + 2 + 1 + 1 + 1;
+    let height =
+        2 + input_rows + 1 + prompt_rows + 1 + 1 + 1 + preview.len() as u16 + 2 + 1 + 1 + 1;
     let popup = centered(area, width, height);
     frame.render_widget(Clear, popup);
     let block = theme.popup(format!("Capture · {}", template.desc));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
-    let mut constraints = vec![Constraint::Length(3), Constraint::Length(1)];
+    let mut constraints = vec![Constraint::Length(input_rows), Constraint::Length(1)];
     if prompts > 0 {
         constraints.extend(open.iter().map(|_| Constraint::Length(1)));
         constraints.push(Constraint::Length(1));
@@ -397,9 +469,21 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     } else {
         input_spans.extend(draft.input.spans(theme, draft.field == 0));
     }
-    let input_line = Line::from(input_spans);
+    let mut input_lines = vec![Line::from(input_spans)];
+    for (index, item) in draft.items.iter().enumerate() {
+        let focused = draft.field == index + 1;
+        let mut spans = vec![Span::styled("  - [ ] ", theme.muted())];
+        spans.extend(item.spans(theme, focused));
+        if item.text().is_empty() && focused {
+            spans.push(Span::styled(
+                "a checklist line; ⌫ removes it",
+                theme.muted(),
+            ));
+        }
+        input_lines.push(Line::from(spans));
+    }
     frame.render_widget(
-        Paragraph::new(input_line).block(theme.input(draft.field == 0)),
+        Paragraph::new(input_lines).block(theme.input(draft.field <= draft.items.len())),
         parts[0],
     );
     let label_width = draft
@@ -410,7 +494,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .unwrap_or(0)
         + 2;
     for (row, field) in open.iter().enumerate() {
-        let (prompt, value) = &draft.prompts[field - 1];
+        let (prompt, value) = &draft.prompts[field - 1 - draft.items.len()];
         let focused = draft.field == *field;
         let mut spans = vec![
             Span::styled(if focused { "▌ " } else { "  " }, theme.fg(theme.accent)),
@@ -460,6 +544,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Paragraph::new(Line::from(
             [
                 theme.key_hint(key(Action::Save), "save"),
+                theme.key_hint(key(Action::AddItem), "checklist"),
                 theme.key_hint(key(Action::Editor), "body in $EDITOR"),
                 theme.key_hint(key(Action::Back), "cancel"),
             ]

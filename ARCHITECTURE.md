@@ -56,7 +56,7 @@ Every module starts with a `//!` note on what it owns; this is the map.
 | Module | Owns |
 | --- | --- |
 | `config/` | `Settings` and the records in `config.toml` (`model.rs`), reading and writing the file (`file.rs`), checking every value with an error that names the key (`validation.rs`). |
-| `document/` | One org file parsed from its bytes (`org_document.rs`), headlines and properties as spans (`headline.rs`), in-file directives such as `#+TODO`, `#+STARTUP`, `#+PRIORITIES` (`directive.rs`), timestamps (`timestamp.rs`), and `WorkspaceIndex` over all agenda files (`index.rs`). |
+| `document/` | One org file parsed from its bytes (`org_document.rs`), headlines and properties as spans (`headline.rs`), in-file directives such as `#+TODO`, `#+STARTUP`, `#+PRIORITIES` (`directive.rs`), timestamps (`timestamp.rs`), an entry's checklist (`checklist.rs`), and `WorkspaceIndex` over all agenda files (`index.rs`). |
 | `agenda/` | `AgendaEngine` (`engine.rs`) and what it is made of: spans, saved views and groups, keyword colors, the Emacs tags/TODO matcher, the org-ql query subset, sorting, repeaters, and the Emacs text and CSV exports. |
 | `write/` | `WriteEngine` (`engine.rs`) and every write: edits and batches, capture and placement, refile, undo, validation, the journal, file safety and patches. |
 | `date.rs` | Org's date prompt: `fri`, `+2d`, `-wed`, `oct 30 9am`, as org-read-date reads them. |

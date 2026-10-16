@@ -54,6 +54,8 @@ pub(super) enum Key {
     Ctrl(char),
     /// alt (Emacs's meta) and a named key.
     Meta(KeyCode),
+    /// shift and a named key, where the terminal reports it apart.
+    Shift(KeyCode),
     /// 1 to 9, for the tabs.
     Digit,
 }
@@ -67,6 +69,7 @@ impl Key {
             Key::Code(code) => key.code == code,
             Key::Ctrl(character) => control && key.code == KeyCode::Char(character),
             Key::Meta(code) => alt && key.code == code,
+            Key::Shift(code) => key.modifiers.contains(KeyModifiers::SHIFT) && key.code == code,
             Key::Digit => !control && matches!(key.code, KeyCode::Char('1'..='9')),
         }
     }
@@ -128,6 +131,7 @@ pub(super) enum Action {
     FilterAgent,
     FullView,
     Save,
+    AddItem,
     NextField,
     PreviousField,
     LineStart,
@@ -177,7 +181,7 @@ const fn bind(
 }
 
 use Action as A;
-use Key::{Char, Code, Ctrl, Digit, Meta};
+use Key::{Char, Code, Ctrl, Digit, Meta, Shift};
 
 // The tables are kept one binding per line, as a table reads.
 // Columns: label, keys, action, footer word, help text, org-agenda key.
@@ -395,7 +399,9 @@ pub(super) const SCREENS: [(&str, &[KeyGroup]); 7] = [
 pub(super) const POPUP_KEYS: &[KeyGroup] = &[KeyGroup {
     title: "Type",
     bindings: &[
+        bind("M-⏎ S-⏎", &[Meta(KeyCode::Enter), Shift(KeyCode::Enter)], A::AddItem, "checklist", "in capture, add a checklist line", ""),
         bind("⏎", &[Code(KeyCode::Enter)], A::Save, "save", "save what the preview shows", ""),
+        bind("x SPC", &[Char('x'), Char(' ')], A::Done, "check", "check or uncheck a checklist line", ""),
         bind("tab", &[Code(KeyCode::Tab)], A::NextField, "next field", "next field; in capture, the next template", ""),
         bind("S-tab", &[Code(KeyCode::BackTab)], A::PreviousField, "previous field", "previous field", ""),
         bind("esc C-g", &[Code(KeyCode::Esc), Ctrl('g')], A::Back, "cancel", "close without writing", ""),
@@ -1094,6 +1100,7 @@ fn first_key(binding: &Binding) -> Option<KeyEvent> {
         Key::Code(code) => KeyEvent::from(*code),
         Key::Ctrl(character) => KeyEvent::new(KeyCode::Char(*character), KeyModifiers::CONTROL),
         Key::Meta(code) => KeyEvent::new(*code, KeyModifiers::ALT),
+        Key::Shift(code) => KeyEvent::new(*code, KeyModifiers::SHIFT),
         Key::Digit => KeyEvent::from(KeyCode::Char('1')),
     })
 }

@@ -10,7 +10,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, ListItem, ListState, Paragraph, ScrollbarState};
 
-use agd_core::{Occurrence, OccurrenceType, keyword_color};
+use agd_core::{Item, Occurrence, OccurrenceType, keyword_color};
 use chrono::{NaiveTime, Timelike};
 use unicode_width::UnicodeWidthStr;
 
@@ -612,7 +612,7 @@ fn row_line(app: &App, index: usize, columns: &RowColumns) -> Line<'static> {
     } else {
         theme.fg(theme.text)
     };
-    let mut priority = Vec::new();
+    let mut priority: Vec<Span<'static>> = progress_span(theme, item).into_iter().collect();
     if let Some(letter) = &item.priority {
         priority.push(Span::raw(" "));
         priority.extend(theme.pill(letter.clone(), theme.due));
@@ -641,6 +641,21 @@ fn row_line(app: &App, index: usize, columns: &RowColumns) -> Line<'static> {
     } else {
         line
     }
+}
+
+/// ` 1/3` after a title with a checklist: muted, green once every box is
+/// checked.
+pub(super) fn progress_span(theme: &Theme, item: &Item) -> Option<Span<'static>> {
+    let progress = item.checklist?;
+    let color = if progress.done == progress.total {
+        theme.done
+    } else {
+        theme.muted
+    };
+    Some(Span::styled(
+        format!(" {}", crate::words::progress(progress)),
+        theme.fg(color),
+    ))
 }
 
 /// The title, priority, tags and right column in the `width - used`

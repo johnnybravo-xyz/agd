@@ -1,0 +1,6 @@
+* TODO Groceries [2/2]
+:PROPERTIES:
+:ID: task-id
+:END:
+  + [X] milk
+  + [X] eggs

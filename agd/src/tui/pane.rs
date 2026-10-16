@@ -185,15 +185,18 @@ fn pane_line(app: &App, row: &DisplayRow, clock: Clock, width: usize) -> Line<'s
     // Display width, not characters: a CJK or emoji title takes two
     // columns a character. A right-hand mark keeps a space before it.
     let gap = usize::from(right_width > 0);
+    let progress = today::progress_span(theme, item);
+    let progress_width = progress.as_ref().map_or(0, Span::width);
     let title = truncate(
         &super::peek::display_title(item),
-        width.saturating_sub(used + right_width + gap),
+        width.saturating_sub(used + progress_width + right_width + gap),
     );
     let title_width = Span::raw(title.as_str()).width();
     spans.push(Span::styled(title, title_style));
-    spans.push(Span::raw(
-        " ".repeat(width.saturating_sub(used + title_width + right_width)),
-    ));
+    spans.extend(progress);
+    spans.push(Span::raw(" ".repeat(width.saturating_sub(
+        used + title_width + progress_width + right_width,
+    ))));
     spans.extend(right);
     Line::from(spans)
 }

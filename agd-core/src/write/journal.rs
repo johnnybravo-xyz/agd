@@ -54,6 +54,8 @@ pub enum JournalOperation {
     Deadline,
     Priority,
     Tags,
+    /// Checklist boxes checked or unchecked.
+    Checklist,
     /// Any other edit, or one that changes several of the above.
     Edit,
     Refile,
@@ -69,6 +71,7 @@ impl JournalOperation {
             Self::Deadline => "deadline",
             Self::Priority => "priority",
             Self::Tags => "tags",
+            Self::Checklist => "checklist",
             Self::Edit => "edit",
             Self::Refile => "refile",
         }

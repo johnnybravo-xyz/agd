@@ -55,7 +55,7 @@ card at a time and one key per decision: `.` today, `>` tomorrow, `w` next
 week, `s` a date, `d` move a missed deadline, `x` done, `N` NEXT, `S`
 someday, `X` cancel, `R` refile.
 Cards show how long an item has been overdue and how often it was
-rescheduled, and suggest someday after three reschedules. `u` undoes a
+rescheduled, and suggest someday after nine reschedules. `u` undoes a
 step, or the whole pass.
 
 ![Triage](triage.webp)

@@ -46,6 +46,9 @@ pub struct EditIntent {
     pub deadline: Change<PlanningTimestamp>,
     pub properties: BTreeMap<String, Option<String>>,
     pub note: Option<String>,
+    /// Checklist boxes to set, by their place in the entry's checklist
+    /// (0 first): true checks, false unchecks.
+    pub checklist: BTreeMap<usize, bool>,
 }
 
 impl EditIntent {
@@ -70,6 +73,7 @@ impl EditIntent {
             (tags, JournalOperation::Tags),
             (!matches!(self.title, Change::Keep), JournalOperation::Edit),
             (!self.properties.is_empty(), JournalOperation::Edit),
+            (!self.checklist.is_empty(), JournalOperation::Checklist),
         ];
         let mut made = changes.iter().filter(|(changed, _)| *changed);
         match (made.next(), made.next()) {

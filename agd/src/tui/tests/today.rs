@@ -702,6 +702,55 @@ SCHEDULED: <2026-10-13 Tue>\n{long}\n{long}\n{long}\n"
 
 #[test]
 #[serial]
+fn peek_shows_a_file_link_under_home_with_a_tilde() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let home = std::env::var("HOME").unwrap();
+        fs::write(
+            root.join("work.org"),
+            format!(
+                "* TODO Fix the parser\nSCHEDULED: <2026-10-13 Tue>\n\
+:PROPERTIES:\n:SOURCE: [[file:{home}/src/app/main.rs::42]]\n:END:\n\
+See [[{home}/src/app/notes.org]]\n"
+            ),
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char(' '));
+        let screen = render(&mut app, 100, 24).join("\n");
+        assert!(screen.contains("file:~/src/app/main.rs::42 ↗"), "{screen}");
+        assert!(screen.contains("See ~/src/app/notes.org"), "{screen}");
+        assert!(!screen.contains(&home), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn a_task_with_a_checklist_shows_its_progress_after_the_title() {
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* TODO Plan the offsite :work:\nSCHEDULED: <2026-10-13 Tue>\n\
+- [X] book venue\n- [ ] send invites\n- [ ] order lunch\n\
+* TODO Groceries [2/2]\nSCHEDULED: <2026-10-13 Tue>\n- [X] milk\n- [X] eggs\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 100, 20).join("\n");
+        assert!(screen.contains("Plan the offsite 1/3  #work"), "{screen}");
+        // A heading's own cookie already says it.
+        assert!(screen.contains("Groceries [2/2]"), "{screen}");
+        assert!(!screen.contains("[2/2] 2/2"), "{screen}");
+        app.pane = true;
+        let pane = render(&mut app, 40, 20).join("\n");
+        assert!(pane.contains("Plan the offsite 1/3"), "{pane}");
+    });
+}
+
+#[test]
+#[serial]
 fn long_titles_end_in_an_ellipsis_and_keep_their_tags() {
     with_home(|root| {
         let title = "Prepare the quarterly infrastructure capacity review with every team lead \

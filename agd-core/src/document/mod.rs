@@ -9,6 +9,7 @@
 //! `#+STARTUP` and `#+FILETAGS` win over configuration, and an `:ID:` that
 //! occurs twice under the roots is refused for writes (`id_conflict`).
 
+mod checklist;
 mod directive;
 mod headline;
 mod index;
@@ -16,6 +17,8 @@ mod org_document;
 mod source;
 mod timestamp;
 
+pub(crate) use checklist::COOKIE;
+pub use checklist::{ChecklistItem, checklist};
 pub use directive::{LogKind, LogSettings, PriorityRange, TodoKeyword};
 pub(crate) use directive::{ignored_priorities_line, todo_keywords};
 pub use headline::{HeadlineSpan, PropertySpan};

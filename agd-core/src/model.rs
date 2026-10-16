@@ -69,6 +69,18 @@ pub struct Item {
     pub inherited_tags: Vec<String>,
     pub category: String,
     pub planning: Planning,
+    /// The entry's checklist progress, which lists show as `1/3`; absent
+    /// without a checklist, or when the heading has its own `[/]` or `[%]`
+    /// cookie.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checklist: Option<Progress>,
+}
+
+/// A checklist's progress: `done` of its `total` boxes are checked.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Progress {
+    pub done: usize,
+    pub total: usize,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]

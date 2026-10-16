@@ -96,6 +96,11 @@ fn abbreviated(path: &str, home: &str) -> String {
     }
 }
 
+/// A checklist's progress as lists show it after the title: `1/3`.
+pub fn progress(progress: agd_core::Progress) -> String {
+    format!("{}/{}", progress.done, progress.total)
+}
+
 /// A tag as agd shows it in `notation`, as a capture line takes it:
 /// `#work`, or Org's `:work:`. Every tag drawn goes through here or `tags`;
 /// `+work` and `-work` are only the tags prompt's add and remove.

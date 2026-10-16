@@ -1,0 +1,6 @@
+* TODO Plan the offsite
+:PROPERTIES:
+:ID: task-id
+:END:
+- [ ] book venue
+- [ ] send invites

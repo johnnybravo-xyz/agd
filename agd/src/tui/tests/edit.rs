@@ -16,6 +16,56 @@ fn open_edit(app: &mut App) {
 
 #[test]
 #[serial]
+fn x_checks_off_checklist_lines_and_the_cookie_counts_them() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        let before = "* TODO Plan the offsite [0/2]\nSCHEDULED: <2026-10-13 Tue>\n\
+- [ ] book venue\n- [ ] send invites\n";
+        fs::write(&path, before).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        open_edit(&mut app);
+        // Up from the title wraps to the last box.
+        key(&mut app, KeyCode::Up);
+        key(&mut app, KeyCode::Up);
+        key(&mut app, KeyCode::Char('x'));
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("Checklist  [X] book venue"), "{screen}");
+        assert!(screen.contains("[ ] send invites"), "{screen}");
+        assert!(screen.contains("+- [X] book venue"), "{screen}");
+        assert!(
+            screen.contains("+* TODO Plan the offsite [1/2]"),
+            "{screen}"
+        );
+        assert!(screen.contains("x check"), "{screen}");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            before,
+            "the preview must not write"
+        );
+
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "* TODO Plan the offsite [1/2]\nSCHEDULED: <2026-10-13 Tue>\n\
+- [X] book venue\n- [ ] send invites\n"
+        );
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "work.org:1  checklist 1/2 · Plan the offsite [1/2] · u undo"
+        );
+        app.undo().unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), before);
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "work.org:1  undid checklist · Plan the offsite [1/2]"
+        );
+    });
+}
+
+#[test]
+#[serial]
 fn enter_edits_title_and_state_in_place_and_keeps_untouched_dates() {
     use crossterm::event::KeyCode;
     with_home(|root| {

@@ -11,9 +11,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{NaiveDate, NaiveDateTime};
 
+use crate::document::{COOKIE, split_trailing_tags};
 use crate::{
     AgdError, ByteSpan, ErrorCode, HeadlineSpan, IdPolicy, IndexedDocument, LogKind, Planning,
-    PlanningTimestamp, Settings, format_active_timestamp,
+    PlanningTimestamp, Settings, checklist, format_active_timestamp,
 };
 
 use super::edit::{Change, EditIntent};
@@ -181,14 +182,48 @@ pub(super) fn build_edit_patches(
         );
     }
 
-    if !matches!(intent.state, Change::Keep)
+    let checked = checklist_patches(source, headline, intent, &mut patches)?;
+    let rewrite_headline = !matches!(intent.state, Change::Keep)
         || !matches!(intent.title, Change::Keep)
         || !matches!(intent.priority, Change::Keep)
         || !intent.tags_add.is_empty()
-        || !intent.tags_remove.is_empty()
+        || !intent.tags_remove.is_empty();
+    if let Some(counts) = checked
+        && !rewrite_headline
     {
+        // The cookies change, then org-fix-tags-on-the-fly aligns the tags
+        // to org-tags-column; the rest of the line keeps its bytes.
+        let line = &source[headline.line_span.start..headline.line_span.end];
+        let updated = COOKIE.replace_all(line, |cookie: &regex::Captures<'_>| {
+            updated_cookie(&cookie[0], counts)
+        });
+        if updated != line {
+            // align_tags pads from one space before the tags.
+            let unaligned = match split_trailing_tags(&updated) {
+                Some((head, tags)) => format!("{head} {tags}"),
+                None => updated.into_owned(),
+            };
+            patches.push(Patch {
+                span: headline.line_span,
+                replacement: align_tags(
+                    unaligned,
+                    !headline.item.tags.is_empty(),
+                    settings.tags_column,
+                ),
+            });
+        }
+    }
+    if rewrite_headline {
         let title = change_value(&Some(headline.item.title.clone()), &intent.title)
             .ok_or_else(|| AgdError::new(ErrorCode::InvalidTitle, "title cannot be cleared"))?;
+        let title = match checked {
+            Some(counts) => COOKIE
+                .replace_all(&title, |cookie: &regex::Captures<'_>| {
+                    updated_cookie(&cookie[0], counts)
+                })
+                .into_owned(),
+            None => title,
+        };
         let priority = change_value(&headline.item.priority, &intent.priority);
         let mut tags: Vec<String> = headline
             .item
@@ -656,6 +691,62 @@ fn leading_indent(source: &str, offset: usize) -> &str {
         .take_while(|byte| matches!(byte, b' ' | b'\t'))
         .count();
     &line[..bytes]
+}
+
+/// org-toggle-checkbox for each box `intent.checklist` sets, as patches of
+/// the one byte between the brackets. Returns the checked and total boxes
+/// after the edit for org-update-checkbox-count, or None when there is
+/// nothing to count: no checklist change, or COOKIE_DATA says the heading's
+/// cookies count TODO children.
+fn checklist_patches(
+    source: &str,
+    headline: &HeadlineSpan,
+    intent: &EditIntent,
+    patches: &mut Vec<Patch>,
+) -> Result<Option<(usize, usize)>, AgdError> {
+    if intent.checklist.is_empty() {
+        return Ok(None);
+    }
+    let items = checklist(source, headline)?;
+    for (&index, &checked) in &intent.checklist {
+        let item = items.get(index).ok_or_else(|| {
+            AgdError::new(
+                ErrorCode::InvalidEdit,
+                format!(
+                    "the checklist has {} items, so there is no item {}",
+                    items.len(),
+                    index + 1
+                ),
+            )
+        })?;
+        if item.checked != checked {
+            patches.push(Patch {
+                span: item.mark,
+                replacement: if checked { "X" } else { " " }.to_string(),
+            });
+        }
+    }
+    let counts_todo = headline.properties.iter().any(|property| {
+        property.key.eq_ignore_ascii_case("COOKIE_DATA") && property.value.contains("todo")
+    });
+    if counts_todo {
+        return Ok(None);
+    }
+    let done = items
+        .iter()
+        .enumerate()
+        .filter(|(index, item)| intent.checklist.get(index).copied().unwrap_or(item.checked))
+        .count();
+    Ok(Some((done, items.len())))
+}
+
+/// A statistics cookie with Org's counts: `[2/5]`, or `[40%]` rounded down.
+fn updated_cookie(cookie: &str, (done, total): (usize, usize)) -> String {
+    if cookie.contains('%') {
+        format!("[{}%]", 100 * done / total.max(1))
+    } else {
+        format!("[{done}/{total}]")
+    }
 }
 
 #[cfg(test)]

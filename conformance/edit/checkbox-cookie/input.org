@@ -1,0 +1,9 @@
+* TODO Plan the offsite [1/3]                                          :work:
+DEADLINE: <2026-10-16 Fri>
+:PROPERTIES:
+:ID: task-id
+:END:
+Book it before the rates go up.
+- [X] book venue
+- [ ] send invites
+- [ ] order lunch

@@ -1,7 +1,8 @@
 # Records docs/release/agd-story.gif: working in Claude Code, a glance at
 # the agenda and two captures, then the day's tasks from you, Claude and
-# Codex in agd. It runs a real Claude Code session (with the agd plugin
-# installed) on a throwaway agenda; see docs/demo/story/setup.sh.
+# Codex in agd, a task with a checklist checked off, and the Agents tab.
+# It runs a real Claude Code session (with the agd plugin installed) on a
+# throwaway agenda; see docs/demo/story/setup.sh.
 #   cargo build --release && vhs docs/release/story.tape
 Output docs/release/agd-story.gif
 
@@ -55,7 +56,23 @@ Sleep 4s
 Ctrl+B Type "2" Sleep 1s
 Type "agd" Sleep 300ms Enter
 Sleep 3s
-Type "4" Sleep 4s
+Type "4" Sleep 3.5s
+
+# A task with steps: alt-return adds a checklist line under it.
+Type "c" Sleep 700ms Type "t" Sleep 400ms
+Type "Plan the team offsite due:fri #work" Sleep 500ms
+Alt+Enter Type "book the venue" Sleep 300ms
+Alt+Enter Type "send the invites" Sleep 300ms
+Alt+Enter Type "order lunch" Sleep 1.5s
+Enter Sleep 1.5s
+
+# Check the steps off one by one in the edit popup: x, as for a task.
+PageDown Sleep 600ms Enter Sleep 1.2s
+Up Sleep 250ms Up Sleep 250ms Up Sleep 800ms
+Type "x" Sleep 1s Down Sleep 400ms Type "x" Sleep 1.2s
+Enter Sleep 1.5s
+Space Sleep 2.5s Space Sleep 500ms
+
 Type "5" Sleep 3s
 Space Sleep 3.5s
 Space Down Down Down Sleep 1.5s

@@ -55,6 +55,43 @@ fn capture_preview_is_the_exact_text_that_will_be_written() {
 
 #[test]
 #[serial]
+fn alt_or_shift_return_adds_checklist_lines_written_under_the_task() {
+    use crate::tui::capture::{apply_key, refresh_stale, type_key};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        app.overlay = Overlay::Capture(crate::tui::capture::Draft::default());
+        let press = |app: &mut App, code, modifiers| {
+            apply_key(app, KeyEvent::new(code, modifiers)).unwrap();
+        };
+        let type_text = |app: &mut App, text: &str| text.chars().for_each(|key| type_key(app, key));
+        type_text(&mut app, "tPlan the offsite due:fri");
+        press(&mut app, KeyCode::Enter, KeyModifiers::ALT);
+        type_text(&mut app, "book venue");
+        // S-⏎ where the terminal reports it apart from ⏎.
+        press(&mut app, KeyCode::Enter, KeyModifiers::SHIFT);
+        type_text(&mut app, "send invites");
+        // ⌫ on an empty checklist line removes it.
+        press(&mut app, KeyCode::Enter, KeyModifiers::ALT);
+        press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+        refresh_stale(&mut app);
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("- [ ] book venue"), "{screen}");
+        assert!(screen.contains("M-⏎ checklist"), "{screen}");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        let text = fs::read_to_string(root.join("inbox.org")).unwrap();
+        assert!(text.contains("** TODO Plan the offsite\n"), "{text}");
+        assert!(
+            text.ends_with("- [ ] book venue\n- [ ] send invites\n"),
+            "{text}"
+        );
+    });
+}
+
+#[test]
+#[serial]
 fn capture_opens_on_a_list_of_templates_with_their_destinations() {
     with_home(|root| {
         let mut app = test_app(root);

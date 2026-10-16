@@ -70,10 +70,10 @@ format.
 
 ## Writes
 
-`conformance/edit/` holds 23 cases: state changes with and without
+`conformance/edit/` holds 27 cases: state changes with and without
 `!`/`@` markers, CLOSED, repeats (inline, in a drawer, habits, unlogged),
-schedules, deadlines and their logs, priorities, `#+STARTUP` options, and
-tags kept at `org-tags-column`.
+schedules, deadlines and their logs, priorities, `#+STARTUP` options,
+tags kept at `org-tags-column`, and checklist boxes with their cookies.
 
 | Change | Contract |
 | --- | --- |
@@ -81,6 +81,7 @@ tags kept at `org-tags-column`.
 | Schedule and deadline | Planning keywords go where `org-add-planning-info` puts them; the old repeater and warning stay, as `org-schedule` keeps them; `org-log-reschedule`/`org-log-redeadline` add Emacs's "Rescheduled from" and "New deadline from" notes; setting a date drops CLOSED |
 | Title, tags, priority, properties | Only the smallest span changes; untouched property lines stay byte for byte |
 | Tags | Realigned to `org-tags-column` whenever a heading line is rewritten, as Emacs does |
+| Checklist | A box is checked or unchecked as `org-toggle-checkbox` does, and the heading's `[2/5]` and `[40%]` cookies are counted again as `org-update-checkbox-count` does, tags realigned; a nested list, or a cookie in the body or on an item, is left to your editor |
 | Capture | Templates render the exact Org text before it is written; entries are placed as org-capture places them for `file`, `file+headline`, `file+olp`, `id` and datetree targets |
 | Refile | Moves the subtree's own bytes; both files are written as one transaction |
 | Undo | Puts the old bytes back only where the file still holds what agd wrote; anything else is a conflict (see [SAFETY.md](SAFETY.md)) |

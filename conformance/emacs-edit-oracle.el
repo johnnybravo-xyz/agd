@@ -34,6 +34,13 @@
       ("schedule" (org-schedule nil value))
       ("deadline" (org-deadline nil value))
       ("priority" (org-priority (string-to-char value)))
+      ;; VALUE is the box's place in the entry's checklist, 0 first.
+      ("checkbox"
+       (let ((end (save-excursion (outline-next-heading) (point))))
+         (dotimes (_ (1+ (string-to-number value)))
+           (re-search-forward
+            "^[ \t]*\\(?:[-+*]\\|[0-9]+[.)]\\)[ \t]+\\[[ X-]\\]" end))
+         (org-toggle-checkbox)))
       (_ (error "unsupported edit operation: %s" operation)))
     (run-hooks 'post-command-hook)
     (save-buffer)))

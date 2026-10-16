@@ -374,9 +374,19 @@ function taskRow(Text, item, occurrence) {
     parts.push(Text(colored(colorOf(name), { bold, children: [item.todo + ' '] })))
   }
   parts.push(Text({ ...titleStyle(item, false), children: [displayTitle(item.title)] }))
+  parts.push(...progress(Text, item))
   if (item.priority) parts.push(Text({ children: [' '] }), ...pill(Text, item.priority, palette.due))
   if (item.tags.length > 0) parts.push(Text(muted({ children: ['  ' + tagsText(item.tags)] })))
   return Text({ wrap: 'truncate-end', children: parts })
+}
+
+// ` 1/3` after a title with a checklist (words::progress): muted, green
+// once every box is checked.
+function progress(Text, item) {
+  const count = item.checklist
+  if (!count) return []
+  const text = ' ' + count.done + '/' + count.total
+  return [Text(count.done === count.total ? colored(palette.done, { children: [text] }) : muted({ children: [text] }))]
 }
 
 // Tags as agd shows them in its notation (words::tags): `#work #ops`, or
@@ -531,6 +541,7 @@ function compactRow(Box, Text, entry, clock) {
       ...leadCell(Text, occurrence, item.done, clock),
       Text({ children: [' '] }),
       Text({ ...titleStyle(item, clock === 'next'), children: [displayTitle(item.title)] }),
+      ...progress(Text, item),
     ],
   })
   const planning = item.planning || {}

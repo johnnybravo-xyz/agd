@@ -1,11 +1,14 @@
 //! The edit popup (⏎ on a task): its title, state, priority, tags and
-//! dates as fields, the exact diff of the one guarded write they make, and
-//! the hand-over to $EDITOR.
+//! dates as fields, its checklist boxes to check off with `x`, the exact
+//! diff of the one guarded write they make, and the hand-over to $EDITOR.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use agd_core::{Change, EditIntent, Item, PlanningTimestamp, WriteEngine, parse_date_input};
+use agd_core::{
+    Change, ChecklistItem, EditIntent, Item, PlanningTimestamp, WriteEngine, checklist,
+    parse_date_input,
+};
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Frame;
@@ -52,6 +55,11 @@ pub(super) struct EditForm {
     /// The fields as typed; the focused one starts selected, so typing
     /// replaces it and an arrow or End keeps it for editing.
     values: [TextInput; 6],
+    /// The entry's checklist as the file has it, and each box as set
+    /// here; box `n` is field `LABELS.len() + n`. A nested checklist is
+    /// left out, for $EDITOR.
+    checklist: Vec<ChecklistItem>,
+    checks: Vec<bool>,
     field: usize,
     preview: Result<String, String>,
     /// The preview is out of date; it is rebuilt once before the next draw.
@@ -81,6 +89,12 @@ impl EditForm {
         );
         let mut priorities = vec![String::new()];
         priorities.extend(app.priority_range(item).cookies());
+        let checklist = app
+            .index
+            .resolve(&item.item_ref)
+            .ok()
+            .and_then(|(document, headline)| checklist(document.source(), headline).ok())
+            .unwrap_or_default();
         let mut form = Self {
             item_ref: item.item_ref.clone(),
             file: item.file.clone(),
@@ -90,6 +104,8 @@ impl EditForm {
             priorities,
             values: original.clone().map(TextInput::new),
             original,
+            checks: checklist.iter().map(|item| item.checked).collect(),
+            checklist,
             field: TITLE,
             preview: Ok(String::new()),
             stale: false,
@@ -98,10 +114,24 @@ impl EditForm {
         form
     }
 
-    /// Moves to `field` with its text selected.
+    /// Moves to `field`, a text field with its text selected.
     fn focus(&mut self, field: usize) {
         self.field = field;
-        self.values[field].select_all();
+        if let Some(value) = self.values.get_mut(field) {
+            value.select_all();
+        }
+    }
+
+    /// The text fields, then one per checklist box.
+    fn field_count(&self) -> usize {
+        LABELS.len() + self.checks.len()
+    }
+
+    /// The checklist box `field` is, if it is one.
+    fn checkbox(&self, field: usize) -> Option<usize> {
+        field
+            .checked_sub(LABELS.len())
+            .filter(|index| *index < self.checks.len())
     }
 
     fn changed(&self, field: usize) -> Option<&str> {
@@ -150,12 +180,32 @@ impl EditForm {
             tags_remove: old_tags.difference(&new_tags).cloned().collect(),
             scheduled: date(SCHEDULED)?,
             deadline: date(DEADLINE)?,
+            checklist: self.changed_boxes(),
             ..EditIntent::default()
         })
     }
 
+    /// The boxes set differently from the file, by their place.
+    fn changed_boxes(&self) -> std::collections::BTreeMap<usize, bool> {
+        self.checks
+            .iter()
+            .zip(&self.checklist)
+            .enumerate()
+            .filter(|(_, (checked, item))| **checked != item.checked)
+            .map(|(index, (checked, _))| (index, *checked))
+            .collect()
+    }
+
     fn unchanged(&self) -> bool {
         (0..LABELS.len()).all(|field| self.changed(field).is_none())
+            && self.changed_boxes().is_empty()
+    }
+
+    /// Only boxes changed: the done line names the count, `checklist 2/3`.
+    fn checklist_only(&self) -> Option<String> {
+        let only = (0..LABELS.len()).all(|field| self.changed(field).is_none());
+        let done = self.checks.iter().filter(|checked| **checked).count();
+        only.then(|| format!("checklist {done}/{}", self.checks.len()))
     }
 
     /// The exact lines the write would change, from a dry run.
@@ -246,8 +296,9 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<keys::EditorTar
     let Overlay::Edit(mut form) = std::mem::replace(&mut app.overlay, Overlay::None) else {
         return Ok(None);
     };
-    let next = (form.field + 1) % LABELS.len();
-    let previous = (form.field + LABELS.len() - 1) % LABELS.len();
+    let count = form.field_count();
+    let next = (form.field + 1) % count;
+    let previous = (form.field + count - 1) % count;
     match keys::popup_action(key) {
         Some(Action::Editor) => return Ok(Some((form.file, form.line))),
         Some(Action::Back) => return Ok(None),
@@ -261,6 +312,12 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<keys::EditorTar
         Some(Action::PreviousField) => form.focus(previous),
         _ if keys::picker_step(key) == Some(1) => form.focus(next),
         _ if keys::picker_step(key) == Some(-1) => form.focus(previous),
+        // x checks a box off, as it marks a task done in the lists.
+        Some(Action::Done) if form.checkbox(form.field).is_some() => {
+            let index = form.checkbox(form.field).unwrap_or_default();
+            form.checks[index] = !form.checks[index];
+        }
+        _ if form.checkbox(form.field).is_some() => {}
         _ if form.field == STATE || form.field == PRIORITY => form.choose(key),
         _ => {
             form.values[form.field].handle(key);
@@ -298,7 +355,10 @@ fn commit(app: &mut App, form: Box<EditForm>) -> Result<()> {
     app.index.refresh_path(Path::new(&mutation.item.file))?;
     let location = app.short_location(&mutation.item);
     app.remember_undo(&mutation.journal_id, &location, &mutation.item.title);
-    let line = crate::words::change(&location, "edited", &mutation.item.title);
+    let what = form
+        .checklist_only()
+        .unwrap_or_else(|| "edited".to_string());
+    let line = crate::words::change(&location, &what, &mutation.item.title);
     // On the Agents tab `u` undoes the agent's change, not this one.
     app.set_done(if app.screen == Screen::Review {
         line
@@ -336,8 +396,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             theme.fg(theme.overdue),
         ))],
     };
+    let rows = form.field_count() as u16;
     // border + top padding, fields, gap, preview inset, gap, footer, border
-    let height = 2 + LABELS.len() as u16 + 1 + preview.len() as u16 + 2 + 1 + 1 + 1;
+    let height = 2 + rows + 1 + preview.len() as u16 + 2 + 1 + 1 + 1;
     // Wide enough for a headline with tags aligned at org-tags-column plus
     // the diff marker, when the terminal allows.
     let popup = centered(area, area.width.saturating_sub(4).clamp(60, 104), height);
@@ -348,7 +409,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let parts = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(LABELS.len() as u16),
+            Constraint::Length(rows),
             Constraint::Length(1),
             Constraint::Min(3),
             Constraint::Length(1),
@@ -397,6 +458,37 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         }
         fields.push(Line::from(spans));
     }
+    // The checklist: one row per box, labelled once; a checked box reads
+    // as a done row does.
+    for (index, (item, checked)) in form.checklist.iter().zip(&form.checks).enumerate() {
+        let focused = form.checkbox(form.field) == Some(index);
+        let label = if index == 0 { "Checklist" } else { "" };
+        let mut spans = vec![
+            Span::styled(if focused { "▌ " } else { "  " }, theme.fg(theme.accent)),
+            Span::styled(
+                format!("{label:<11}"),
+                if focused {
+                    theme.strong(theme.text)
+                } else {
+                    theme.muted()
+                },
+            ),
+        ];
+        if *checked {
+            spans.push(Span::styled("[X] ", theme.fg(theme.done)));
+            spans.push(Span::styled(
+                item.text.clone(),
+                theme.muted().add_modifier(Modifier::CROSSED_OUT),
+            ));
+        } else {
+            spans.push(Span::styled("[ ] ", theme.muted()));
+            spans.push(Span::styled(item.text.clone(), theme.fg(theme.text)));
+        }
+        if *checked != item.checked {
+            spans.push(Span::styled("  •", theme.fg(theme.due)));
+        }
+        fields.push(Line::from(spans));
+    }
     frame.render_widget(Paragraph::new(fields), parts[0]);
     frame.render_widget(
         Paragraph::new(preview)
@@ -406,15 +498,23 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     );
     let key = |action| keys::key_label(keys::POPUP_KEYS, action);
     frame.render_widget(
-        Paragraph::new(Line::from(
+        Paragraph::new(Line::from(if form.checkbox(form.field).is_some() {
+            [
+                theme.key_hint(key(Action::Done), "check"),
+                theme.key_hint(key(Action::Save), "save"),
+                theme.key_hint(key(Action::NextField), "next field"),
+                theme.key_hint(key(Action::Back), "cancel"),
+            ]
+            .concat()
+        } else {
             [
                 theme.key_hint(key(Action::Save), "save"),
                 theme.key_hint(key(Action::NextField), "next field"),
                 theme.key_hint(key(Action::Back), "cancel"),
                 theme.key_hint(key(Action::Editor), "open in $EDITOR"),
             ]
-            .concat(),
-        )),
+            .concat()
+        })),
         parts[4],
     );
 }

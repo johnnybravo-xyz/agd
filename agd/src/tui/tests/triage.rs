@@ -171,7 +171,8 @@ fn triage_advances_after_every_decision_with_a_fixed_counter() {
 #[serial]
 fn a_triage_card_shows_only_the_facts_it_has_and_earns_its_nudge() {
     with_home(|root| {
-        let logged = "- Rescheduled from \"[2026-09-20 Sun]\" on [2026-09-21 Mon]\n".repeat(3);
+        // reschedule_nudge is 9 by default.
+        let logged = "- Rescheduled from \"[2026-09-20 Sun]\" on [2026-09-21 Mon]\n".repeat(9);
         fs::write(
             root.join("work.org"),
             format!(
@@ -192,7 +193,7 @@ fn a_triage_card_shows_only_the_facts_it_has_and_earns_its_nudge() {
         assert!(gauge.trim_end().ends_with("1 / 1"), "{text}");
         assert!(text.contains("Overdue · 12d"), "{text}");
         assert!(text.contains("scheduled Thu 1 Oct"), "{text}");
-        assert!(text.contains("rescheduled 3x"), "{text}");
+        assert!(text.contains("rescheduled 9x"), "{text}");
         assert!(!text.contains("no deadline"), "{text}");
         assert!(text.contains("↳ Someday?  S"), "{text}");
         // One blank row between the card and its keys.

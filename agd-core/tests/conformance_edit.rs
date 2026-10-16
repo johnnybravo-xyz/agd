@@ -24,6 +24,9 @@ struct Case {
     log_redeadline: String,
     #[serde(default)]
     log_into_drawer: bool,
+    /// For a checkbox case: whether Emacs's toggle checks the box.
+    #[serde(default)]
+    checked: bool,
 }
 
 fn nil() -> String {
@@ -68,6 +71,10 @@ fn intent(case: &Case) -> EditIntent {
         },
         "priority" => EditIntent {
             priority: Change::Set(value),
+            ..EditIntent::default()
+        },
+        "checkbox" => EditIntent {
+            checklist: [(value.parse().expect("checkbox index"), case.checked)].into(),
             ..EditIntent::default()
         },
         operation => panic!("unsupported operation {operation}"),

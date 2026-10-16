@@ -1,0 +1,9 @@
+* NEXT Release notes [50%]                                             :docs:
+:PROPERTIES:
+:ID: task-id
+:END:
+:LOGBOOK:
+- State "NEXT"       from "TODO"       [2026-10-12 Mon 09:00]
+:END:
+1. [ ] changelog
+2. [X] blog post

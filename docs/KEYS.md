@@ -188,7 +188,9 @@ As on Today · Week · Inbox · views.
 
 | Keys | Does | org-agenda |
 | --- | --- | --- |
+| `M-⏎` `S-⏎` | in capture, add a checklist line |  |
 | `⏎` | save what the preview shows |  |
+| `x` `SPC` | check or uncheck a checklist line |  |
 | `tab` | next field; in capture, the next template |  |
 | `S-tab` | previous field |  |
 | `esc` `C-g` | close without writing |  |

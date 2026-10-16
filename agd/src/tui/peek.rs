@@ -82,6 +82,15 @@ pub(super) fn display_title(item: &Item) -> String {
     link_descriptions(&agd_core::agenda_title(item))
 }
 
+/// A link without a description as people read it: a path under home
+/// with `~`, as Org's own `file:` links write it.
+fn link_target_text(target: &str) -> String {
+    match target.strip_prefix("file:") {
+        Some(path) => format!("file:{}", crate::words::home_path(path)),
+        None => crate::words::home_path(target),
+    }
+}
+
 /// `[[target][description]]` reads as its description, `[[target]]` as
 /// the target.
 pub(super) fn link_descriptions(line: &str) -> String {
@@ -95,11 +104,10 @@ pub(super) fn link_descriptions(line: &str) -> String {
             return output;
         };
         let inner = &after[..end];
-        output.push_str(
-            inner
-                .split_once("][")
-                .map_or(inner, |(_, description)| description),
-        );
+        match inner.split_once("][") {
+            Some((_, description)) => output.push_str(description),
+            None => output.push_str(&link_target_text(inner)),
+        }
         rest = &after[end + 2..];
     }
     output.push_str(rest);
@@ -292,12 +300,23 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
         )));
         let shown = room.saturating_sub(lines.len() + links.len());
         for line in body.iter().take(shown) {
-            lines.push(Line::from(line.clone()));
+            // A checked box reads as a done row does.
+            let checked = line
+                .split_once(' ')
+                .is_some_and(|(_, rest)| rest.starts_with("[X]"));
+            lines.push(if checked {
+                Line::from(Span::styled(
+                    line.clone(),
+                    theme.muted().add_modifier(Modifier::CROSSED_OUT),
+                ))
+            } else {
+                Line::from(line.clone())
+            });
         }
     }
     for (target, description) in links {
         let shown = if description == target {
-            target
+            link_target_text(&target)
         } else {
             description
         };

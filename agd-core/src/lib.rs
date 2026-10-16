@@ -107,8 +107,9 @@ pub use config::{
 };
 pub use date::{format_active_timestamp, parse_date_change, parse_date_input, read_date};
 pub use document::{
-    ByteSpan, HeadlineSpan, LogKind, LogSettings, OrgDocument as IndexedDocument, PriorityRange,
-    PropertySpan, TimestampSpan, TodoKeyword, WorkspaceIndex, parse_timestamp,
+    ByteSpan, ChecklistItem, HeadlineSpan, LogKind, LogSettings, OrgDocument as IndexedDocument,
+    PriorityRange, PropertySpan, TimestampSpan, TodoKeyword, WorkspaceIndex, checklist,
+    parse_timestamp,
 };
 pub use import::{
     ConfigEditor, ConfigSources, ImportDiagnostic, ImportResult, ImportStatus, ImportedCapture,
@@ -117,8 +118,8 @@ pub use import::{
 pub use model::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, CHECK_SCHEMA, DESCRIBE_SCHEMA, ERROR_SCHEMA,
     ErrorCode, ErrorResponse, ITEM_SCHEMA, Item, JOURNAL_SCHEMA, MUTATION_SCHEMA, Mutation,
-    Occurrence, OccurrenceType, Planning, PlanningTimestamp, REFILE_SCHEMA, Repeat, STATUS_SCHEMA,
-    UNDO_SCHEMA, VIEW_SECTION_SCHEMA, VIEWS_SCHEMA,
+    Occurrence, OccurrenceType, Planning, PlanningTimestamp, Progress, REFILE_SCHEMA, Repeat,
+    STATUS_SCHEMA, UNDO_SCHEMA, VIEW_SECTION_SCHEMA, VIEWS_SCHEMA,
 };
 pub use path::{OrgFiles, RootSet, SkipReason};
 pub use write::{

@@ -29,7 +29,7 @@ and every surface follows.
 | An agent | by its client's name: `claude-code`, `codex` |
 | Your own changes | `you` |
 | A heading | heading (not headline) |
-| A change | by its operation: capture, state change, schedule, deadline, priority, tags, edit, refile |
+| A change | by its operation: capture, state change, schedule, deadline, priority, tags, checklist, edit, refile |
 
 Counts use one plural rule (`1 marked row`, `2 marked rows`). The status
 line reads `1 overdue · 3 today · 9 inbox · 2 unreviewed`, and every
@@ -50,6 +50,7 @@ An undo line names the operation it undid: `undid schedule · Pay rent`.
 | A file | relative to its root: `projects/alpha.org:3` |
 | A tag | `#work` (`:work:` with `notation = "org"`) |
 | A priority | a pill; typed as `!A` (`#A` with `notation = "org"`) |
+| A checklist's progress | `1/3` after the title, muted, green when every box is checked; none when the heading has its own `[/]` cookie |
 | A change line | `work.org:42  TODO → DONE · Pay rent · u undo` |
 
 Org's own formats are never reworded: the `agd agenda` text and `--csv`
@@ -79,6 +80,8 @@ removes with `+tag` and `-tag` in both notations.
   `m * U B`, `C-c C-s`, `C-c C-w`); help shows its key beside ours.
 - `j`/`k` move like `n`/`p` everywhere; in pickers and popups, where
   letters are typed, `C-n`/`C-j` and `C-p`/`C-k` move.
+- `x` means done: the task on a row, the box on a checklist line in the
+  edit popup. In capture, `M-⏎` adds a checklist line.
 - `C-e` opens `$EDITOR` from the lists, Triage, Agents and the pane; in a
   popup with a text field it ends the line, so `$EDITOR` there is `C-o`.
 - `esc` goes back one level; `q` quits.

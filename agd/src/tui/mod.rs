@@ -30,10 +30,14 @@ use agd_core::{
 };
 use anyhow::{Context, Result};
 use chrono::{Local, NaiveDate, NaiveTime};
-use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, MouseEventKind};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyboardEnhancementFlags, MouseEventKind,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    supports_keyboard_enhancement,
 };
 use notify::{
     Config as NotifyConfig, Event as NotifyEvent, RecommendedWatcher, RecursiveMode, Watcher,
@@ -649,7 +653,7 @@ fn run_editor(
         .status()
         .with_context(|| format!("cannot start editor {program}"));
     enable_raw_mode()?;
-    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+    enter_screen(&mut io::stdout())?;
     terminal.clear()?;
     status
 }
@@ -706,11 +710,28 @@ fn watch_roots(
 fn start_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    enter_screen(&mut stdout)?;
     Ok(Terminal::new(CrosstermBackend::new(stdout))?)
 }
 
+/// The alternate screen and mouse reports, and where the terminal speaks
+/// the kitty keyboard protocol, keys it reports apart, so S-⏎ is not ⏎.
+fn enter_screen(stdout: &mut Stdout) -> Result<()> {
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    if supports_keyboard_enhancement().unwrap_or(false) {
+        execute!(
+            stdout,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )?;
+    }
+    Ok(())
+}
+
 fn stop_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
+    // Asked while raw mode is still on, as enter_screen asked.
+    if supports_keyboard_enhancement().unwrap_or(false) {
+        execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags)?;
+    }
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),

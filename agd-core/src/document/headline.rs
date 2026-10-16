@@ -212,6 +212,7 @@ pub(super) fn scan_headlines(
             inherited_tags: inherited,
             category: category.clone(),
             planning: headline.planning.clone(),
+            checklist: None,
         };
         let metadata_end = headline
             .drawer_span
@@ -228,7 +229,7 @@ pub(super) fn scan_headlines(
             headline.tags.clone(),
             category,
         ));
-        result.push(HeadlineSpan {
+        let mut span = HeadlineSpan {
             item,
             level: headline.level,
             line_span: headline.line_span,
@@ -246,7 +247,9 @@ pub(super) fn scan_headlines(
             properties: headline.properties,
             timestamps: headline.timestamps,
             digest: headline.digest,
-        });
+        };
+        span.item.checklist = super::checklist::progress(source, &span);
+        result.push(span);
     }
     Ok(result)
 }
