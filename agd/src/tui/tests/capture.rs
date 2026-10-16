@@ -11,21 +11,27 @@ fn capture_preview_is_the_exact_text_that_will_be_written() {
         let mut app = test_app(root);
         app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
         app.overlay = Overlay::Capture(crate::tui::capture::Draft::default());
-        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
         for key in "tRenew passport due:fri on:2027-01-04 +personal #A".chars() {
             crate::tui::capture::type_key(&mut app, key);
         }
-        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
-        let screen: String = terminal
-            .backend()
-            .buffer()
-            .content()
+        // Wide enough: the heading with its tags aligned to tags_column, as
+        // an edit writes them, on one line.
+        let wide = render(&mut app, 120, 30);
+        let heading = wide
             .iter()
-            .map(|cell| cell.symbol())
-            .collect();
-        // Tags align to tags_column, as an edit writes them.
-        assert!(screen.contains("TODO [#A] Renew passport"), "{screen}");
-        assert!(screen.contains(":personal:"), "{screen}");
+            .find(|line| line.contains("TODO [#A] Renew passport"))
+            .unwrap_or_else(|| panic!("{}", wide.join("\n")));
+        assert!(heading.contains(":personal:"), "{heading}");
+        // Narrower, the line is cut with "…"; the tags never wrap onto a
+        // line of their own.
+        let narrow = render(&mut app, 80, 30).join("\n");
+        let heading = narrow
+            .lines()
+            .find(|line| line.contains("TODO [#A] Renew passport"))
+            .unwrap_or_else(|| panic!("{narrow}"));
+        assert!(heading.contains('…'), "{heading}");
+        assert!(!narrow.contains(":personal:"), "{narrow}");
+        let screen = render(&mut app, 100, 30).join("\n");
         // `+personal` is what is typed; its chip shows the tag as lists do.
         let lines = render(&mut app, 100, 30);
         let chips = lines

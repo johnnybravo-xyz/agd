@@ -27,7 +27,7 @@ use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
 
 use super::input::TextInput;
 use super::keys::{self, Action};
-use super::theme::{Theme, centered};
+use super::theme::{Theme, centered, truncate};
 use super::{App, Overlay, stop_terminal, write_context};
 
 /// The capture popup's state. Field 0 is the one-line title with tokens;
@@ -354,14 +354,27 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         return draw_chooser(frame, app, draft, area);
     };
     let template = Some(template);
-    let preview = preview_lines(theme, &keyword_colors(&app.index), &draft.preview);
+    // As wide as the edit popup, so a heading with tags aligned at
+    // org-tags-column fits when the terminal allows.
+    let width = area
+        .width
+        .saturating_sub(4)
+        .clamp(60, 104)
+        .min(area.width.saturating_sub(2));
+    // The popup's and the inset's borders and padding take twelve columns.
+    let preview = preview_lines(
+        theme,
+        &keyword_colors(&app.index),
+        &draft.preview,
+        usize::from(width).saturating_sub(12),
+    );
     let open = draft.open_fields(app);
     let prompts = open.len() as u16;
     let prompt_rows = if prompts > 0 { prompts + 1 } else { 0 };
     // border + top padding, input, gap, prompts, chips, gap, destination,
     // preview inset, gap, footer, border
     let height = 2 + 3 + 1 + prompt_rows + 1 + 1 + 1 + preview.len() as u16 + 2 + 1 + 1 + 1;
-    let popup = centered(area, area.width.saturating_sub(4).clamp(60, 84), height);
+    let popup = centered(area, width, height);
     frame.render_widget(Clear, popup);
     let title = template.map_or("Capture".to_string(), |template| {
         format!("Capture · {}", template.desc)
@@ -590,10 +603,13 @@ fn destination(template: &agd_core::CaptureTemplate) -> String {
     }
 }
 
+/// The preview's Org lines, each cut to `width` with "…" rather than
+/// wrapped, so a heading's aligned tags never land on a line of their own.
 fn preview_lines(
     theme: &Theme,
     colors: &BTreeMap<String, String>,
     preview: &Result<String, String>,
+    width: usize,
 ) -> Vec<Line<'static>> {
     match preview {
         Ok(text) if text.is_empty() => vec![Line::from(Span::styled(
@@ -602,7 +618,7 @@ fn preview_lines(
         ))],
         Ok(text) => text
             .lines()
-            .map(|line| org_line(theme, colors, line))
+            .map(|line| org_line(theme, colors, &truncate(line, width)))
             .collect(),
         Err(error) => vec![Line::from(Span::styled(
             error.clone(),
