@@ -7,11 +7,15 @@
 //! Ordering is `sort`'s, repeaters `repeat`'s, matching `matcher`'s, views
 //! `view`'s and org-ql `query`'s. The engine only reads the index it is given.
 
+use std::collections::BTreeSet;
+use std::path::Path;
+
 use chrono::{Duration, NaiveDate};
 
+use crate::write::{CaptureTarget, find_outline_path, heading_titled};
 use crate::{
-    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ErrorCode, HeadlineSpan, Item, Occurrence,
-    OccurrenceType, WorkspaceIndex,
+    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, CaptureTemplate, ErrorCode, HeadlineSpan,
+    IndexedDocument, Item, Occurrence, OccurrenceType, WorkspaceIndex,
 };
 
 use super::matcher::{TagTodoMatcher, matcher_now};
@@ -122,37 +126,67 @@ impl<'a> AgendaEngine<'a> {
         Ok(items)
     }
 
-    /// Unfinished headings in an inbox: under a heading named Inbox, or in a
-    /// file or category named inbox. Containers without a TODO keyword that have
-    /// children are left out.
+    /// The inbox: unfinished entries where captures land, in file and
+    /// buffer order. For each `[[capture]]` template (`agent_inbox` is one
+    /// of them) that is the direct children of its target heading
+    /// (`heading`, `outline_path` or `id`), or the top-level entries of a
+    /// file it targets as a whole. A `datetree` target files entries by
+    /// date, a log rather than an inbox, so it is left out.
     pub fn inbox(&self) -> Vec<Item> {
-        let mut items = Vec::new();
-        for document in self.index.documents() {
-            let in_inbox_file = document
-                .path()
-                .file_stem()
-                .is_some_and(|stem| stem.eq_ignore_ascii_case("inbox"));
-            for headline in document.headlines() {
-                let item = &headline.item;
-                let ancestors = &item.olpath[..item.olpath.len().saturating_sub(1)];
-                let under_inbox = ancestors
-                    .iter()
-                    .any(|heading| heading.eq_ignore_ascii_case("inbox"));
-                let leaf = headline.subtree_span.end == headline.section_span.end;
-                // Top-level headings without a keyword in an inbox file are
-                // its sections (Tasks, Notes, Bookmarks), not items.
-                let container = in_inbox_file && headline.level == 1 && item.todo.is_none();
-                if !item.done
-                    && !container
-                    && (under_inbox || in_inbox_file || item.category.eq_ignore_ascii_case("inbox"))
-                    && (item.todo.is_some() || leaf)
-                    && !item.title.eq_ignore_ascii_case("inbox")
-                {
-                    items.push(item.clone());
+        let mut landed: BTreeSet<(&Path, usize)> = BTreeSet::new();
+        for template in &self.index.settings().captures {
+            if template.datetree {
+                continue;
+            }
+            if let Some((document, parent)) = self.capture_target(template) {
+                let level = parent.map_or(1, |parent| parent.level + 1);
+                let region = parent.map_or(0..document.source().len(), |parent| {
+                    parent.subtree_span.start..parent.subtree_span.end
+                });
+                for headline in document.headlines() {
+                    if headline.level == level && region.contains(&headline.line_span.start) {
+                        landed.insert((document.path(), headline.item.line));
+                    }
                 }
             }
         }
-        items
+        self.headlines()
+            .filter(|headline| {
+                !headline.item.done
+                    && landed.contains(&(Path::new(&headline.item.file), headline.item.line))
+            })
+            .map(|headline| headline.item.clone())
+            .collect()
+    }
+
+    /// The document a template captures into and the heading its entries go
+    /// under (None for a whole-file target), as the index reads them now;
+    /// None when the target is missing, as a capture would find it.
+    fn capture_target(
+        &self,
+        template: &CaptureTemplate,
+    ) -> Option<(&IndexedDocument, Option<&HeadlineSpan>)> {
+        if let CaptureTarget::Id(id) = CaptureTarget::of(template) {
+            let (document, headline) = self.index.resolve(&id).ok()?;
+            return Some((document, Some(headline)));
+        }
+        let file = shellexpand::tilde(template.file.as_deref()?).into_owned();
+        let path = self.index.roots().resolve_read(Path::new(&file)).ok()?;
+        let document = self.index.document(&path)?;
+        let parent = match CaptureTarget::of(template) {
+            CaptureTarget::File | CaptureTarget::Id(_) => None,
+            CaptureTarget::Heading(title) => Some(heading_titled(document, &title)?),
+            CaptureTarget::OutlinePath(outline) => {
+                let start = find_outline_path(document, &outline).ok()?;
+                Some(
+                    document
+                        .headlines()
+                        .iter()
+                        .find(|headline| headline.line_span.start == start)?,
+                )
+            }
+        };
+        Some((document, parent))
     }
 
     /// Every heading matching an Emacs tags match, done or not, like an
@@ -392,6 +426,60 @@ fn collection_rank(kind: OccurrenceType) -> u8 {
 mod tests {
     use super::*;
     use crate::agenda::test_support::fixture;
+    use crate::{CaptureTemplate, Settings};
+
+    #[test]
+    fn the_inbox_is_where_capture_templates_land() {
+        let temp = tempfile::tempdir().unwrap();
+        let write = |name: &str, text: &str| std::fs::write(temp.path().join(name), text).unwrap();
+        write(
+            "refile.org",
+            "* Refile\n** TODO Renew passport\n*** Notes under it\n** DONE Filed already\n",
+        );
+        write("work.org", "* Inbox\n** TODO Not a capture target\n");
+        write(
+            "projects.org",
+            "* Agd\n** Ideas\n*** Faster index\n* Other\n** Ideas\n*** Elsewhere\n",
+        );
+        write("notes.org", "* Loose note\n** Its detail\n");
+        write(
+            "journal.org",
+            "* 2026\n** 2026-10 October\n*** 2026-10-16 Friday\n**** Wrote\n",
+        );
+        let template = |key: &str, file: &str| CaptureTemplate {
+            key: key.to_string(),
+            file: Some(file.to_string()),
+            heading: None,
+            ..CaptureTemplate::default()
+        };
+        let settings = Settings {
+            roots: vec![temp.path().to_string_lossy().into_owned()],
+            agenda_files: vec!["*.org".to_string()],
+            captures: vec![
+                CaptureTemplate {
+                    heading: Some("Refile".to_string()),
+                    ..template("t", "refile.org")
+                },
+                CaptureTemplate {
+                    outline_path: Some(vec!["Agd".to_string(), "Ideas".to_string()]),
+                    ..template("i", "projects.org")
+                },
+                template("n", "notes.org"),
+                CaptureTemplate {
+                    datetree: true,
+                    ..template("j", "journal.org")
+                },
+            ],
+            ..Settings::default()
+        };
+        let index = WorkspaceIndex::load(settings).unwrap();
+        let titles: Vec<String> = AgendaEngine::new(&index)
+            .inbox()
+            .into_iter()
+            .map(|item| item.title)
+            .collect();
+        assert_eq!(titles, ["Loose note", "Faster index", "Renew passport"]);
+    }
 
     #[test]
     fn expands_warnings_repeaters_ranges_and_past_scheduled() {

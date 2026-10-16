@@ -28,5 +28,6 @@ pub use edit::{BatchMutation, Change, EditIntent, ItemEdit};
 pub use engine::{WriteContext, WriteEngine};
 pub use journal::{JournalRecord, JournalStatus};
 pub use patch::{Patch, StoredPatch, apply_patches};
+pub(crate) use placement::{CaptureTarget, find_outline_path, heading_titled};
 pub use refile::RefileResult;
 pub use undo::UndoResult;

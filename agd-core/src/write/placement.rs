@@ -20,7 +20,7 @@ use super::engine::parse_text;
 use super::patch::line_ending;
 
 /// Where a template files its entry, as org-capture's target types.
-enum CaptureTarget {
+pub(crate) enum CaptureTarget {
     /// `file`: a top-level entry at the end of the file.
     File,
     /// `file+headline`: under the first heading with this title, created
@@ -34,7 +34,7 @@ enum CaptureTarget {
 }
 
 impl CaptureTarget {
-    fn of(template: &CaptureTemplate) -> Self {
+    pub(crate) fn of(template: &CaptureTemplate) -> Self {
         if let Some(id) = &template.id {
             Self::Id(id.clone())
         } else if let Some(outline) = &template.outline_path {
@@ -71,16 +71,10 @@ pub(super) fn place_capture(
     let document = parse_text(path, &text, settings)?;
     let mut base = match CaptureTarget::of(template) {
         CaptureTarget::File => None,
-        CaptureTarget::Heading(title) => Some(
-            match document
-                .headlines()
-                .iter()
-                .find(|headline| headline.item.title == title)
-            {
-                Some(headline) => headline.line_span.start,
-                None => append_top_heading(&mut text, &title, newline),
-            },
-        ),
+        CaptureTarget::Heading(title) => Some(match heading_titled(&document, &title) {
+            Some(headline) => headline.line_span.start,
+            None => append_top_heading(&mut text, &title, newline),
+        }),
         CaptureTarget::OutlinePath(outline) => Some(find_outline_path(&document, &outline)?),
         CaptureTarget::Id(id) => Some(
             document
@@ -118,6 +112,18 @@ pub(super) fn place_capture(
     })
 }
 
+/// A `file+headline` target: the first heading with this title, at any
+/// level, as org-capture finds it.
+pub(crate) fn heading_titled<'a>(
+    document: &'a IndexedDocument,
+    title: &str,
+) -> Option<&'a HeadlineSpan> {
+    document
+        .headlines()
+        .iter()
+        .find(|headline| headline.item.title == title)
+}
+
 /// Appends `* title` as org-capture does for a missing `file+headline`
 /// target, and returns where the heading starts.
 fn append_top_heading(text: &mut String, title: &str, newline: &str) -> usize {
@@ -131,7 +137,10 @@ fn append_top_heading(text: &mut String, title: &str, newline: &str) -> usize {
 
 /// org-find-olp: each title must name exactly one heading on its level,
 /// the first at the top level and each next one a direct child.
-fn find_outline_path(document: &IndexedDocument, outline: &[String]) -> Result<usize, AgdError> {
+pub(crate) fn find_outline_path(
+    document: &IndexedDocument,
+    outline: &[String],
+) -> Result<usize, AgdError> {
     let mut region = ByteSpan {
         start: 0,
         end: document.source().len(),
