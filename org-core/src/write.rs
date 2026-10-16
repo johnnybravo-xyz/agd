@@ -132,6 +132,63 @@ pub struct WriteEngine {
     journal_path: PathBuf,
 }
 
+/// The `journal_id` of a dry-run mutation, which writes no journal entry.
+const DRY_RUN_JOURNAL_ID: &str = "dry-run";
+
+/// One file's computed write: its bytes now, its bytes after, and the
+/// journal patches and diff between them.
+struct PreparedFile {
+    path: PathBuf,
+    pre_image: String,
+    post_image: String,
+    patches: Vec<StoredPatch>,
+    diff: String,
+}
+
+impl PreparedFile {
+    fn new(
+        path: PathBuf,
+        pre_image: String,
+        post_image: String,
+        patches: Vec<StoredPatch>,
+    ) -> Self {
+        let diff = unified_diff(&path, &pre_image, &post_image);
+        Self {
+            path,
+            pre_image,
+            post_image,
+            patches,
+            diff,
+        }
+    }
+
+    fn journal_image<'a>(&'a self, item_ref: Option<&'a str>) -> JournalImage<'a> {
+        JournalImage {
+            path: &self.path,
+            item_ref,
+            pre_image: &self.pre_image,
+            post_image: &self.post_image,
+            patches: &self.patches,
+            diff: &self.diff,
+        }
+    }
+}
+
+/// What a capture renders, gathered so it can be prepared twice: once to
+/// validate and preview, once under the write lock.
+struct CaptureInput<'a> {
+    template: &'a CaptureTemplate,
+    draft: &'a CaptureDraft,
+    body: &'a str,
+    prompts: &'a BTreeMap<String, String>,
+    now: NaiveDateTime,
+}
+
+struct PreparedCapture {
+    file: PreparedFile,
+    item: Item,
+}
+
 struct JournalImage<'a> {
     path: &'a Path,
     item_ref: Option<&'a str>,
@@ -161,6 +218,8 @@ impl WriteEngine {
         &self.settings
     }
 
+    /// Applies one edit. A dry run computes the same diff from the current
+    /// bytes and touches nothing: no lock, journal entry or file.
     pub fn edit(
         &self,
         item_ref: &str,
@@ -169,64 +228,54 @@ impl WriteEngine {
         context: &WriteContext,
     ) -> Result<Mutation, AgdError> {
         validate_intent(intent)?;
+        let now = context.org_now();
         let initial = WorkspaceIndex::load(self.settings.clone())?;
-        let (initial_document, _) = initial.resolve(item_ref)?;
-        let path = initial_document.path().to_path_buf();
+        let (preview, item) = self.prepare_edit(&initial, item_ref, intent, now)?;
+        let path = preview.path.clone();
         self.roots.resolve_write(&path, false)?;
+        refuse_emacs_lock(&path)?;
+        if dry_run {
+            return Ok(mutation(item, preview.diff, DRY_RUN_JOURNAL_ID));
+        }
+
         let _lock = self.lock_target(&path)?;
         refuse_emacs_lock(&path)?;
-
         let fresh = WorkspaceIndex::load(self.settings.clone())?;
-        let (document, headline) = fresh.resolve(item_ref)?;
-        if document.path() != path {
+        let (prepared, item) = self.prepare_edit(&fresh, item_ref, intent, now)?;
+        if prepared.path != path {
             return Err(AgdError::new(
                 "stale_ref",
                 "item resolved to a different file while acquiring the write lock",
             ));
         }
-        let patches = build_edit_patches(
-            document,
-            headline,
-            intent,
-            &self.settings,
-            context.org_now(),
-        )?;
+        let record = self.commit_image(prepared.journal_image(Some(item_ref)), context)?;
+        Ok(mutation(item, prepared.diff, &record.id))
+    }
+
+    /// The edit's patches against the item's file as `index` read it.
+    fn prepare_edit(
+        &self,
+        index: &WorkspaceIndex,
+        item_ref: &str,
+        intent: &EditIntent,
+        now: NaiveDateTime,
+    ) -> Result<(PreparedFile, Item), AgdError> {
+        let (document, headline) = index.resolve(item_ref)?;
+        let path = document.path().to_path_buf();
+        let patches = build_edit_patches(document, headline, intent, &self.settings, now)?;
         let (post_image, stored) = apply_patches(document.source(), patches)?;
         if post_image == document.source() {
             return Err(AgdError::new("no_change", "edit does not change the item"));
         }
-        let diff = unified_diff(&path, document.source(), &post_image);
-        let updated = parse_updated_item(&path, &post_image, headline.item.line, &self.settings)?;
-        if dry_run {
-            return Ok(Mutation {
-                schema: MUTATION_SCHEMA.to_string(),
-                ok: true,
-                item: updated,
-                diff,
-                journal_id: "dry-run".to_string(),
-            });
-        }
-
-        let record = self.commit_image(
-            JournalImage {
-                path: &path,
-                item_ref: Some(item_ref),
-                pre_image: document.source(),
-                post_image: &post_image,
-                patches: &stored,
-                diff: &diff,
-            },
-            context,
-        )?;
-        Ok(Mutation {
-            schema: MUTATION_SCHEMA.to_string(),
-            ok: true,
-            item: updated,
-            diff,
-            journal_id: record.id,
-        })
+        let item = parse_updated_item(&path, &post_image, headline.item.line, &self.settings)?;
+        let prepared = PreparedFile::new(path, document.source().to_string(), post_image, stored);
+        Ok((prepared, item))
     }
 
+    /// Captures through a template. A dry run renders the same diff and
+    /// touches nothing: no directory, lock, journal entry or file. A real
+    /// capture is computed once before any directory is created, so a
+    /// refused capture leaves nothing behind either.
     pub fn capture(
         &self,
         template_key: &str,
@@ -246,7 +295,41 @@ impl WriteEngine {
                 )
             })?;
         let (template, draft) = apply_agent_capture_gate(template, draft, &self.settings, context);
-        let draft = &draft;
+        let input = CaptureInput {
+            template: &template,
+            draft: &draft,
+            body,
+            prompts,
+            now: context.org_now(),
+        };
+        let path = self.capture_path(&template)?;
+        let preview = self.prepare_capture(&path, &input)?;
+        refuse_emacs_lock(&path)?;
+        if dry_run {
+            return Ok(mutation(
+                preview.item,
+                preview.file.diff,
+                DRY_RUN_JOURNAL_ID,
+            ));
+        }
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(AgdError::from)?;
+        }
+        self.roots.resolve_write(&path, true)?;
+        let _lock = self.lock_target(&path)?;
+        refuse_emacs_lock(&path)?;
+        let prepared = self.prepare_capture(&path, &input)?;
+        let record = self.commit_image(
+            prepared.file.journal_image(Some(&prepared.item.item_ref)),
+            context,
+        )?;
+        Ok(mutation(prepared.item, prepared.file.diff, &record.id))
+    }
+
+    /// The canonical path a template captures into, confined to the roots,
+    /// whether or not the file or its directories exist yet.
+    fn capture_path(&self, template: &CaptureTemplate) -> Result<PathBuf, AgdError> {
         let file = template.file.as_deref().ok_or_else(|| {
             AgdError::new(
                 "unsupported_target",
@@ -254,32 +337,27 @@ impl WriteEngine {
             )
         })?;
         let path = self.roots.resolve_write(Path::new(file), true)?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(AgdError::from)?;
-        }
         // Canonical like every indexed path, so the journal, refs and the
         // index agree (on macOS /var is /private/var).
-        let path = match (path.parent().map(fs::canonicalize), path.file_name()) {
-            (Some(Ok(parent)), Some(name)) => parent.join(name),
-            _ => path,
-        };
-        self.roots.resolve_write(&path, true)?;
-        let _lock = self.lock_target(&path)?;
-        refuse_emacs_lock(&path)?;
-        let pre_image = match fs::read(&path) {
-            Ok(bytes) => String::from_utf8(bytes).map_err(|error| {
-                AgdError::with_source(
-                    "non_utf8",
-                    format!("org file is not UTF-8: {}", path.display()),
-                    error,
-                )
-            })?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(error) => return Err(AgdError::from(error)),
-        };
-        let now = context.org_now();
-        let rendered = render_capture_template(&template, draft, body, prompts, now)?;
-        let (offset, level) = capture_target(&path, &pre_image, &template, &self.settings)?;
+        let path = crate::paths::resolve_existing_prefix(&path)?;
+        self.roots.resolve_write(&path, true)
+    }
+
+    /// The capture's insertion into `path` as it is on disk now.
+    fn prepare_capture(
+        &self,
+        path: &Path,
+        input: &CaptureInput<'_>,
+    ) -> Result<PreparedCapture, AgdError> {
+        let pre_image = read_org_file(path)?;
+        let rendered = render_capture_template(
+            input.template,
+            input.draft,
+            input.body,
+            input.prompts,
+            input.now,
+        )?;
+        let (offset, level) = capture_target(path, &pre_image, input.template, &self.settings)?;
         let rendered = set_capture_level(&rendered, level);
         let newline = line_ending(&pre_image);
         let mut insertion = String::new();
@@ -298,39 +376,15 @@ impl WriteEngine {
             replacement: insertion,
         }];
         let (post_image, stored) = apply_patches(&pre_image, patches)?;
-        let diff = unified_diff(&path, &pre_image, &post_image);
         let line = pre_image[..offset]
             .bytes()
             .filter(|byte| *byte == b'\n')
             .count()
             + 1;
-        let updated = parse_updated_item(&path, &post_image, line, &self.settings)?;
-        if dry_run {
-            return Ok(Mutation {
-                schema: MUTATION_SCHEMA.to_string(),
-                ok: true,
-                item: updated,
-                diff,
-                journal_id: "dry-run".to_string(),
-            });
-        }
-        let record = self.commit_image(
-            JournalImage {
-                path: &path,
-                item_ref: Some(&updated.item_ref),
-                pre_image: &pre_image,
-                post_image: &post_image,
-                patches: &stored,
-                diff: &diff,
-            },
-            context,
-        )?;
-        Ok(Mutation {
-            schema: MUTATION_SCHEMA.to_string(),
-            ok: true,
-            item: updated,
-            diff,
-            journal_id: record.id,
+        let item = parse_updated_item(path, &post_image, line, &self.settings)?;
+        Ok(PreparedCapture {
+            file: PreparedFile::new(path.to_path_buf(), pre_image, post_image, stored),
+            item,
         })
     }
 
@@ -674,8 +728,16 @@ impl WriteEngine {
         Ok(record)
     }
 
+    /// Takes the advisory write lock for `path`. Lock files live in agd's
+    /// data directory (`locks/<sha256 of the path>.lock` beside the journal),
+    /// never in the org directories, so synced folders stay clean.
     fn lock_target(&self, path: &Path) -> Result<File, AgdError> {
-        let lock_path = sidecar_lock_path(path)?;
+        let directory = self.lock_directory();
+        create_private_directory(&directory)?;
+        let lock_path = directory.join(format!(
+            "{}.lock",
+            sha256_hex(path.as_os_str().as_encoded_bytes())
+        ));
         let lock = OpenOptions::new()
             .create(true)
             .read(true)
@@ -699,15 +761,16 @@ impl WriteEngine {
         Ok(lock)
     }
 
+    fn lock_directory(&self) -> PathBuf {
+        self.journal_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("locks")
+    }
+
     fn append_record(&self, record: &JournalRecord) -> Result<(), AgdError> {
         if let Some(parent) = self.journal_path.parent() {
-            fs::create_dir_all(parent).map_err(AgdError::from)?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
-                    .map_err(AgdError::from)?;
-            }
+            create_private_directory(parent)?;
         }
         let serialized = serde_json::to_vec(record).map_err(|error| {
             AgdError::new(
@@ -1679,14 +1742,30 @@ fn parse_updated_item(
         .ok_or_else(|| AgdError::new("parse_error", "write produced no target headline"))
 }
 
-fn sidecar_lock_path(path: &Path) -> Result<PathBuf, AgdError> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| AgdError::new("invalid_path", "target has no parent"))?;
-    let name = path
-        .file_name()
-        .ok_or_else(|| AgdError::new("invalid_path", "target has no file name"))?;
-    Ok(parent.join(format!(".{}.agd.lock", name.to_string_lossy())))
+/// A successful mutation result.
+fn mutation(item: Item, diff: String, journal_id: &str) -> Mutation {
+    Mutation {
+        schema: MUTATION_SCHEMA.to_string(),
+        ok: true,
+        item,
+        diff,
+        journal_id: journal_id.to_string(),
+    }
+}
+
+/// An org file's text, or empty when it does not exist yet.
+fn read_org_file(path: &Path) -> Result<String, AgdError> {
+    match fs::read(path) {
+        Ok(bytes) => String::from_utf8(bytes).map_err(|error| {
+            AgdError::with_source(
+                "non_utf8",
+                format!("org file is not UTF-8: {}", path.display()),
+                error,
+            )
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(AgdError::from(error)),
+    }
 }
 
 fn refuse_emacs_lock(path: &Path) -> Result<(), AgdError> {
@@ -1784,10 +1863,26 @@ fn leading_indent(source: &str, offset: usize) -> &str {
 }
 
 fn content_hash(source: &str) -> String {
-    Sha256::digest(source.as_bytes())
+    sha256_hex(source.as_bytes())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+/// Creates `directory` and its parents, readable only by the user.
+fn create_private_directory(directory: &Path) -> Result<(), AgdError> {
+    fs::create_dir_all(directory).map_err(AgdError::from)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+            .map_err(AgdError::from)?;
+    }
+    Ok(())
 }
 
 fn unified_diff(path: &Path, before: &str, after: &str) -> String {
@@ -1853,6 +1948,99 @@ mod tests {
             Path::new(&record.file),
             fs::canonicalize(temp.path().join("inbox.org")).unwrap()
         );
+    }
+
+    /// Every path under `directory`, relative and sorted.
+    fn tree(directory: &Path) -> Vec<String> {
+        let mut paths: Vec<String> = ignore::WalkBuilder::new(directory)
+            .hidden(false)
+            .build()
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let relative = entry.path().strip_prefix(directory).ok()?;
+                (!relative.as_os_str().is_empty()).then(|| relative.display().to_string())
+            })
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    #[test]
+    fn dry_runs_create_no_directory_lock_journal_or_file() {
+        let org = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        fs::write(org.path().join("tasks.org"), "* TODO Task\n").unwrap();
+        let mut settings = settings(org.path());
+        settings.captures[0].file = Some("new/inbox.org".to_string());
+        let engine = WriteEngine::new(settings.clone(), data.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "Preview only".to_string(),
+            ..CaptureDraft::default()
+        };
+        let preview = engine
+            .capture("t", &draft, "", &BTreeMap::new(), true, &context())
+            .unwrap();
+        assert!(
+            preview.diff.contains("TODO Preview only"),
+            "{}",
+            preview.diff
+        );
+        let item_ref = WorkspaceIndex::load(settings)
+            .unwrap()
+            .items()
+            .next()
+            .unwrap()
+            .item_ref
+            .clone();
+        let done = EditIntent {
+            state: Change::Set("DONE".to_string()),
+            ..EditIntent::default()
+        };
+        engine.edit(&item_ref, &done, true, &context()).unwrap();
+        assert_eq!(tree(org.path()), ["tasks.org"]);
+        assert!(tree(data.path()).is_empty(), "{:?}", tree(data.path()));
+    }
+
+    #[test]
+    fn write_locks_live_in_the_data_directory_not_beside_org_files() {
+        let org = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let mut settings = settings(org.path());
+        settings.captures[0].file = Some("inbox.org".to_string());
+        let engine = WriteEngine::new(settings, data.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "Written".to_string(),
+            ..CaptureDraft::default()
+        };
+        engine
+            .capture("t", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap();
+        assert_eq!(tree(org.path()), ["inbox.org"]);
+        let data_paths = tree(data.path());
+        assert_eq!(data_paths.len(), 3, "{data_paths:?}");
+        assert_eq!(data_paths[0], "journal.jsonl");
+        assert_eq!(data_paths[1], "locks");
+        assert!(data_paths[2].starts_with("locks/") && data_paths[2].ends_with(".lock"));
+    }
+
+    #[test]
+    fn a_refused_capture_creates_no_directory() {
+        let org = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let mut settings = settings(org.path());
+        settings.captures[0].file = Some("new/inbox.org".to_string());
+        settings.captures[0].template = "* TODO %?\n%^{Missing}".to_string();
+        let engine = WriteEngine::new(settings, data.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "Refused".to_string(),
+            ..CaptureDraft::default()
+        };
+        let error = engine
+            .capture("t", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap_err();
+        assert_eq!(error.code(), "missing_prompt");
+        assert!(tree(org.path()).is_empty());
+        assert!(tree(data.path()).is_empty());
     }
 
     #[test]
