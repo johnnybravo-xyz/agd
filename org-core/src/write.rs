@@ -268,6 +268,7 @@ impl WriteEngine {
         let (document, headline) = index.resolve(item_ref)?;
         let path = document.path().to_path_buf();
         validate_intent_for_file(intent, document)?;
+        validate_id_change(intent, headline, index)?;
         let patches = build_edit_patches(document, headline, intent, &self.settings, now)?;
         let (post_image, stored) = apply_patches(document.source(), patches)?;
         if post_image == document.source() {
@@ -402,6 +403,9 @@ impl WriteEngine {
             .count()
             + 1;
         let item = parse_updated_item(path, &post_image, line, &self.settings)?;
+        if let Some(id) = &item.id {
+            refuse_used_id(id, &WorkspaceIndex::load(self.settings.clone())?)?;
+        }
         Ok(PreparedCapture {
             file: PreparedFile::new(path.to_path_buf(), pre_image, post_image, stored),
             item,
@@ -1527,6 +1531,44 @@ fn validate_intent(intent: &EditIntent) -> Result<(), AgdError> {
     }
     for (key, value) in &intent.properties {
         validate_property(key, value.as_deref())?;
+    }
+    Ok(())
+}
+
+/// An `ID` is identity: an existing one may not change or go, and a new
+/// one must not be in use anywhere agd indexes.
+fn validate_id_change(
+    intent: &EditIntent,
+    headline: &HeadlineSpan,
+    index: &WorkspaceIndex,
+) -> Result<(), AgdError> {
+    let Some((_, requested)) = intent
+        .properties
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case("ID"))
+    else {
+        return Ok(());
+    };
+    match (&headline.item.id, requested) {
+        (Some(current), Some(requested)) if current == requested => Ok(()),
+        (Some(current), _) => Err(AgdError::new(
+            ErrorCode::IdImmutable,
+            format!(
+                "IDs are identity: links and refs point at ID '{current}', so it cannot be changed or removed"
+            ),
+        )),
+        (None, Some(requested)) => refuse_used_id(requested, index),
+        (None, None) => Ok(()),
+    }
+}
+
+/// Refuses an ID some heading under the roots already has.
+fn refuse_used_id(id: &str, index: &WorkspaceIndex) -> Result<(), AgdError> {
+    if index.id_in_use(id) {
+        return Err(AgdError::new(
+            ErrorCode::DuplicateId,
+            format!("ID '{id}' is already used under the roots; IDs must be unique"),
+        ));
     }
     Ok(())
 }
@@ -3451,6 +3493,81 @@ mod tests {
         }
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
         assert!(engine.journal().unwrap().is_empty());
+    }
+
+    #[test]
+    fn ids_must_be_unique_and_never_change_once_set() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("tasks.org");
+        let original = "* TODO Known\n:PROPERTIES:\n:ID: known-id\n:END:\n* TODO Fresh\n";
+        fs::write(&path, original).unwrap();
+        std::fs::create_dir(temp.path().join("archive")).unwrap();
+        fs::write(
+            temp.path().join("archive/old.org"),
+            "* Old\n:PROPERTIES:\n:ID: archived-id\n:END:\n",
+        )
+        .unwrap();
+        let mut settings = settings(temp.path());
+        settings.agenda_files = vec!["tasks.org".to_string()];
+        settings.captures[0].file = Some("tasks.org".to_string());
+        settings.captures[0].heading = None;
+        let fresh = WorkspaceIndex::load(settings.clone())
+            .unwrap()
+            .items()
+            .find(|item| item.title == "Fresh")
+            .unwrap()
+            .item_ref
+            .clone();
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let set_id = |value: Option<&str>| EditIntent {
+            properties: BTreeMap::from([("ID".to_string(), value.map(str::to_string))]),
+            ..EditIntent::default()
+        };
+        let code = |result: Result<Mutation, AgdError>| result.unwrap_err().code().to_string();
+
+        assert_eq!(
+            code(engine.edit("known-id", &set_id(Some("other")), false, &context())),
+            "id_immutable"
+        );
+        assert_eq!(
+            code(engine.edit("known-id", &set_id(None), false, &context())),
+            "id_immutable"
+        );
+        let message = engine
+            .edit("known-id", &set_id(None), false, &context())
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("identity"), "{message}");
+        for used in ["known-id", "archived-id"] {
+            assert_eq!(
+                code(engine.edit(&fresh, &set_id(Some(used)), false, &context())),
+                "duplicate_id"
+            );
+            let draft = CaptureDraft {
+                title: "Copy".to_string(),
+                properties: BTreeMap::from([("ID".to_string(), used.to_string())]),
+                ..CaptureDraft::default()
+            };
+            assert_eq!(
+                code(engine.capture("t", &draft, "", &BTreeMap::new(), false, &context())),
+                "duplicate_id"
+            );
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+
+        let added = engine
+            .edit(&fresh, &set_id(Some("fresh-id")), false, &context())
+            .unwrap();
+        assert_eq!(added.item.id.as_deref(), Some("fresh-id"));
+        let draft = CaptureDraft {
+            title: "New with ID".to_string(),
+            properties: BTreeMap::from([("ID".to_string(), "new-id".to_string())]),
+            ..CaptureDraft::default()
+        };
+        let captured = engine
+            .capture("t", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap();
+        assert_eq!(captured.item.item_ref, "new-id");
     }
 
     #[test]

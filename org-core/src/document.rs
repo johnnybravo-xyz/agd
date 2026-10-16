@@ -511,6 +511,12 @@ impl WorkspaceIndex {
             .map(|(id, locations)| (id.as_str(), locations.as_slice()))
     }
 
+    /// Whether any heading under the roots, agenda file or not, has this
+    /// `:ID:`.
+    pub fn id_in_use(&self, id: &str) -> bool {
+        self.ids.contains_key(id) || self.outside_ids.contains_key(id)
+    }
+
     fn outside_id_count(&self, id: &str) -> usize {
         self.outside_ids.get(id).map_or(0, Vec::len)
     }

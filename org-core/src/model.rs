@@ -111,6 +111,10 @@ pub enum ErrorCode {
     InvalidPrompt,
     /// A capture body line that would start a heading.
     InvalidBody,
+    /// An `:ID:` value another heading under the roots already has.
+    DuplicateId,
+    /// A change to, or removal of, a heading's existing `:ID:`.
+    IdImmutable,
 }
 
 impl ErrorCode {
@@ -123,6 +127,8 @@ impl ErrorCode {
             Self::InvalidProperty => "invalid_property",
             Self::InvalidPrompt => "invalid_prompt",
             Self::InvalidBody => "invalid_body",
+            Self::DuplicateId => "duplicate_id",
+            Self::IdImmutable => "id_immutable",
         }
     }
 }
