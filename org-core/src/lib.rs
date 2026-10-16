@@ -17,8 +17,8 @@ pub use check::{
     IndexedHeadline, OrgDocument, SourceSpan, check_paths, check_settings,
 };
 pub use date::{
-    CaptureDraft, CapturePrompt, capture_prompts, format_active_timestamp, now_local_naive,
-    parse_capture_line, parse_date_input, render_capture_template,
+    CaptureDraft, CapturePrompt, capture_prompts, date_preview, format_active_timestamp,
+    now_local_naive, parse_capture_line, parse_date_input, render_capture_template,
 };
 pub use document::{
     ByteSpan, HeadlineSpan, LogKind, LogSettings, OrgDocument as IndexedDocument, PropertySpan,
