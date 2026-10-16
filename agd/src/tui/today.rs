@@ -59,13 +59,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 /// at the right, in the room the tabs leave.
 fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let width = area.width as usize;
-    let left = if app.screen == Screen::Triage {
-        let mut left = app.theme.pill("TRIAGE", app.theme.due);
-        left.push(Span::styled("  overdue, then inbox", app.theme.muted()));
-        left
-    } else {
-        header_tabs(app, width)
-    };
+    let left = header_tabs(app, width);
     let right = header_pills(app, width.saturating_sub(span_width(&left) + 1));
     frame.render_widget(Paragraph::new(Line::from(left)), area);
     frame.render_widget(
@@ -74,20 +68,29 @@ fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     );
 }
 
-/// The badge and one tab per screen, plus an open view that is not a tab.
-/// When they do not fit, inactive tabs go from the right; the active tab
-/// always stays.
+/// The badge and one tab per screen, plus an open view that is not a tab
+/// and Triage while it runs. When they do not fit, inactive tabs go from
+/// the right; the active tab always stays.
 fn header_tabs(app: &App, width: usize) -> Vec<Span<'static>> {
     let theme = &app.theme;
     // The name is a filled badge; the current tab is bold and underlined,
     // so the two never look alike.
-    let tab = |label: String, active: bool| -> (Vec<Span<'static>>, bool) {
+    // A count that asks for attention (`● 2` changes to review) stands out
+    // in bold accent whichever tab is open.
+    let tab = |label: String, alert: Option<String>, active: bool| {
         let style = if active {
             theme.strong(theme.text).add_modifier(Modifier::UNDERLINED)
         } else {
             theme.muted()
         };
-        let spans = vec![Span::raw(" "), Span::styled(label, style), Span::raw(" ")];
+        let mut spans = vec![Span::raw(" "), Span::styled(label, style)];
+        if let Some(alert) = alert {
+            spans.push(Span::styled(
+                format!(" {alert}"),
+                theme.strong(theme.accent),
+            ));
+        }
+        spans.push(Span::raw(" "));
         (spans, active)
     };
     let view_desc = |key: &str| {
@@ -103,19 +106,21 @@ fn header_tabs(app: &App, width: usize) -> Vec<Span<'static>> {
                 Screen::View(key) => view_desc(key),
                 Screen::Week => "Week".to_string(),
                 Screen::Inbox => format!("Inbox {}", app.counts.inbox),
-                Screen::Review if app.counts.agents > 0 => {
-                    format!("Agents ● {}", app.counts.agents)
-                }
                 Screen::Review => "Agents".to_string(),
                 _ => "Today".to_string(),
             };
-            tab(label, app.screen == *screen)
+            let alert = (*screen == Screen::Review && app.counts.agents > 0)
+                .then(|| format!("● {}", app.counts.agents));
+            tab(label, alert, app.screen == *screen)
         })
         .collect();
     if let Screen::View(key) = &app.screen
         && !screens.contains(&app.screen)
     {
-        tabs.push(tab(format!("{key} {}", view_desc(key)), true));
+        tabs.push(tab(format!("{key} {}", view_desc(key)), None, true));
+    }
+    if app.screen == Screen::Triage {
+        tabs.push(tab("Triage".to_string(), None, true));
     }
     let mut left = theme.pill("Agenda", theme.accent);
     left.push(Span::raw(" "));
@@ -135,8 +140,8 @@ fn header_tabs(app: &App, width: usize) -> Vec<Span<'static>> {
     left
 }
 
-/// Log mode, the text filter, the context (only when one is set) and the
-/// day, dropped date first when `room` is short.
+/// The active filters (text, log mode, context) as accent pills, then the
+/// day; whatever does not fit in `room` is left out, the day first.
 fn header_pills(app: &App, room: usize) -> Vec<Span<'static>> {
     let theme = &app.theme;
     let mut pills: Vec<Vec<Span<'static>>> = Vec::new();
@@ -144,10 +149,10 @@ fn header_pills(app: &App, room: usize) -> Vec<Span<'static>> {
         pills.push(theme.pill(format!("/{}", app.filter), theme.accent));
     }
     if app.log_mode {
-        pills.push(theme.pill("log", theme.done));
+        pills.push(theme.pill("log", theme.accent));
     }
     if let Some(context) = &app.context {
-        pills.push(theme.pill(format!("ctx {context}"), theme.muted));
+        pills.push(theme.pill(format!("ctx {context}"), theme.accent));
     }
     pills.push(vec![Span::styled(
         format!(" {} ", crate::words::day(app.day, app.today)),

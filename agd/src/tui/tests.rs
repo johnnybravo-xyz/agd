@@ -1981,6 +1981,42 @@ fn sectioned_rows_line_titles_up_after_the_widest_keyword() {
 
 #[test]
 #[serial]
+fn the_header_shows_triage_as_a_tab_and_alerts_in_accent() {
+    use crossterm::event::KeyCode;
+    use ratatui::style::Modifier;
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        fs::write(root.join("work.org"), TWO_OVERDUE).unwrap();
+        let mut app = test_app(root);
+        agent_capture(&app, root, "Agent task");
+        app.index = WorkspaceIndex::load(app.settings.clone()).unwrap();
+        app.theme = theme_for(Some("truecolor"));
+        app.reload_rows().unwrap();
+        let buffer = render_buffer(&mut app, 120, 20);
+        let alert = &buffer[(column_of(&buffer, 0, "● 1"), 0)];
+        assert_eq!(alert.fg, app.theme.accent);
+        assert!(alert.modifier.contains(Modifier::BOLD));
+        assert!(!render(&mut app, 120, 20)[0].contains("ctx"));
+
+        // A context filter is an accent pill while it is on.
+        app.context = Some("work".to_string());
+        let buffer = render_buffer(&mut app, 120, 20);
+        let pill = &buffer[(column_of(&buffer, 0, "ctx work"), 0)];
+        assert_eq!(pill.fg, app.theme.accent);
+
+        app.context = None;
+        press(&mut app, KeyCode::Char('T'));
+        let buffer = render_buffer(&mut app, 120, 20);
+        let header = render(&mut app, 120, 20)[0].clone();
+        assert!(header.starts_with(" Agenda "), "{header}");
+        assert!(!header.contains("TRIAGE"), "{header}");
+        let triage = &buffer[(column_of(&buffer, 0, "Triage"), 0)];
+        assert!(triage.modifier.contains(Modifier::UNDERLINED), "{header}");
+    });
+}
+
+#[test]
+#[serial]
 fn the_peek_overlay_says_when_and_keeps_its_keys_at_80_by_24() {
     use crossterm::event::KeyCode;
     use ratatui::style::Modifier;
