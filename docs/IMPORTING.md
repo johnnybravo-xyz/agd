@@ -1,49 +1,58 @@
 # Importing your Emacs or Neovim setup
 
 Import is a one-time setup step. Point agd at your editor config, and it
-writes `~/.config/agd/config.toml` with your agenda files, TODO keywords,
-logging, priorities, capture templates and custom agenda commands. From then
-on `config.toml` is yours to edit; agd never reads your editor config again
-unless you rerun the import.
+writes `~/.config/agd/config.toml` (or `$XDG_CONFIG_HOME/agd/config.toml`)
+with your agenda files, TODO keywords, logging, priorities, capture
+templates and custom agenda commands. From then on `config.toml` is yours
+to edit; agd reads your editor config again only when you rerun the
+import.
 
 ```bash
-agd setup import ~/.doom.d               # or ~/.config/emacs, ~/.emacs.d, ~/.config/nvim
-agd setup import ~/.emacs.d/init.el      # or name the files
+agd setup import ~/.doom.d                  # or ~/.config/emacs, ~/.emacs.d, ~/.config/nvim
+agd setup import ~/.emacs.d/init.el         # or name the files
 agd setup import ~/.config/nvim --dry-run   # show the config it would write
 agd setup check
-agd
 ```
 
-Your Org files' own syntax (`#+TODO`, `#+SEQ_TODO`, `#+STARTUP`, `#+CATEGORY`,
-`#+FILETAGS`) always applies, imported or not.
+The import starts your editor in batch mode, so `emacs` or `nvim` must be on
+your `PATH`.
+`--stdout` prints the config instead of writing it, with the report on
+stderr; `--config FILE` writes it somewhere else.
 
-Without an import, agd reads every `.org` file under `~/org` with Org's
-defaults.
+Your Org files' own syntax (`#+TODO`, `#+SEQ_TODO`, `#+STARTUP`,
+`#+CATEGORY`, `#+FILETAGS`, `#+PRIORITIES`) always applies, imported or
+not. Without an import, agd reads every `.org` file under `~/org` with
+Org's defaults.
 
 ## What agd reads
 
-A file is read as given. For a directory, agd reads the editor's entry points
-first (`early-init.el`, `init.el`, `config.el`, `.emacs`, `.spacemacs`,
-`config.org`, `init.lua`), then other files that mention org settings:
-`.el` files containing `org-`, `.lua` files containing `orgmode`, and literate
-`config.org`/`init.org` files with `emacs-lisp` blocks. It respects
-`.gitignore`, skips package and cache directories (`.git`, `.local`, `elpa`,
-`straight`, `eln-cache`, `var`, `pack`, `plugged`, `lazy`, `node_modules`),
-and stops at 4 levels, 300 files or 1 MB per file, saying so when it does.
+A file is read as given. For a directory, agd reads the editor's entry
+points first (`early-init.el`, `init.el`, `config.el`, `.emacs`,
+`.spacemacs`, `config.org`, `init.lua`), then other files that mention org
+settings: `.el` files containing `org-`, `.lua` files containing `orgmode`,
+and literate `config.org`, `init.org`, `emacs.org` or `README.org` files
+with `emacs-lisp` blocks. It respects `.gitignore`, skips package and cache
+directories (`.git`, `.local`, `.cache`, `elpa`, `straight`, `eln-cache`,
+`var`, `auto-save-list`, `pack`, `plugged`, `lazy`, `node_modules`), and
+stops at 4 levels, 300 files or 1 MB per file, saying so when it does.
 
 Your editor's normal startup never runs. agd starts a clean `emacs -Q` or
-`nvim --clean` with its own reader, so an import does not depend on a running
-daemon, your plugin manager, or your plugins being installed.
+`nvim --clean` with its own reader, so an import does not depend on a
+running daemon, your plugin manager, or your plugins being installed. A
+reader that has not finished after 120 seconds is stopped.
 
 The report lists the files read, then every setting with a mark:
 
 ```
-read Emacs 1 file(s):
-  ~/.doom.d/config.el
-imported  roots ~/org, 2 agenda entries, 3 capture templates, 3 views
-  ✓ org-agenda-files  config.el:379
-  ✓ org-todo-keywords  config.el:457
-  ~ org-agenda-start-with-log-mode  config.el:393: not used by agd
+read 1 Emacs file:
+  /home/you/.doom.d/config.el
+imported  roots ~/org, 3 agenda entries, 1 capture template, 1 view
+  ✓ org-directory  config.el:1
+  ✓ org-agenda-files  config.el:2
+  ✓ org-todo-keywords  config.el:3
+  ✓ org-log-done  config.el:5
+  ~ org-tag-alist  config.el:4: not used by agd
+  ~ org-agenda-start-with-log-mode  config.el:7: not used by agd
   ✗ capture j  a computed capture target is unsupported
   ✗ view e  regexp matches ({...}) are not supported in '+{^@}'
 ```
@@ -62,13 +71,13 @@ These Org settings, wherever they are assigned:
 | --- | --- |
 | `org-directory` | the root, on a first import |
 | `org-agenda-files` | `agenda_files` (files, directories, globs) |
-| `org-todo-keywords` | `todo_keywords` |
-| `org-tag-alist`, `org-tag-persistent-alist`, `org-tags-column`, `org-tags-exclude-from-inheritance` | `tag_alist`, `persistent_tags`, `tags_column`, `tag_inheritance_exclusions` |
+| `org-todo-keywords` | `todo_keywords`, one `#+TODO:` line per sequence |
+| `org-tags-column`, `org-tags-exclude-from-inheritance` | `tags_column`, `tag_inheritance_exclusions` |
 | `org-priority-highest`/`-lowest`/`-default` (or the older `org-highest-priority` names) | `highest_priority`, `lowest_priority`, `default_priority` |
 | `org-deadline-warning-days`, `org-agenda-span`, `org-agenda-start-day`, `org-agenda-start-on-weekday` | `deadline_warning_days`, `agenda_span`, `agenda_start_day`, `week_start` |
 | `org-agenda-skip-{scheduled,deadline,timestamp}-if-done` | `skip_*_if_done` |
 | `org-agenda-sorting-strategy` (its agenda part) | `sorting_strategy` |
-| `org-log-done`, `-repeat`, `-reschedule`, `-redeadline`, `-into-drawer` | `log_*` |
+| `org-log-done`, `-repeat`, `-reschedule`, `-redeadline`, `-into-drawer` | `log_*`; Emacs's `nil` is written as `"off"` |
 | `org-capture-templates` | `[[capture]]` |
 | `org-agenda-custom-commands` | `[[view]]` |
 
@@ -99,10 +108,20 @@ wins.
   condition.
 - **`org-agenda-files` naming a file that lists your agenda files**:
   `✗ org-agenda-files`; list them in `agenda_files`.
+- **Numeric priorities** (`org-priority-highest` set to a number): agd
+  supports letters A–Z only, so the import stops with `the imported
+  settings would not load: highest_priority is "1": numeric priorities are
+  not supported; use letters A–Z` and writes nothing.
+- **Tag lists** (`org-tag-alist`, `org-tag-persistent-alist`) are not used:
+  `~ org-tag-alist config.el:N: not used by agd`.
 - **Capture templates** other than `entry`, with a computed target or body
-  (`function`, a lambda), or using `%(sexp)`: `✗ capture KEY` with the reason;
-  the rest import. Supported targets are `file`, `file+headline`,
-  `file+olp`, `file+datetree` and `id`.
+  (`function`, a lambda), or using `%(sexp)`: `✗ capture KEY` with the
+  reason; the rest import. Supported targets are `file`, `file+headline`,
+  `file+olp`, `file+datetree`, `file+olp+datetree` and `id`, and a
+  `(file "template.txt")` body imports as `template_file`. A target file is
+  written relative to the root that holds it; one outside the roots leaves
+  its template out: `✗ capture KEY capture template left out: ... is
+  outside the roots`.
 - **Custom agenda commands** with lambdas, `search` or `stuck` blocks, or
   regexp matches (`{...}`): `✗ view KEY`, left out whole. Property matches
   such as `TODO="DONE"+CLOSED>="<-3w>"` or `Effort<15` import as written.
@@ -120,16 +139,22 @@ wins.
   tags compare case-sensitively, `:property` reads the heading's own
   drawer, and `:priority` with the default letter also takes headings
   without a cookie. A group using `:pred`, `:time-grid`, `:log`,
-  `:auto-property` or another selector agd cannot run leaves the block ungrouped:
-  `~ view KEY groups left out, rows ungrouped: :pred is not supported`.
-  `:face` and `:transformer` are dropped with a note.
-- **org-ql, prefix formats, skip functions**, a global
-  `org-super-agenda-groups`, and other
-  `org-agenda-*` options agd does not use: `~ <setting> config.el:N: not used
-  by agd`.
+  `:auto-property` or another selector agd cannot run leaves the block
+  ungrouped: `~ view KEY groups left out, rows ungrouped: :pred is not
+  supported`. `:face` and `:transformer` are dropped with a note.
+- **`org-agenda-skip-function-global`** changes which rows Emacs shows, so
+  it is reported as `✗ ... not supported; agd's rows differ from Emacs's`.
+- **org-ql, prefix formats**, a global `org-super-agenda-groups`, and other
+  `org-agenda-*` options agd does not use: `~ <setting> config.el:N: not
+  used by agd`.
+
+An agenda file that does not exist yet stays in `agenda_files`; agd reads
+it once it exists.
 
 `--verify` runs each imported view in the same clean Emacs with
-`org-batch-agenda-csv` and in agd, and reports whether the rows match.
+`org-batch-agenda-csv` and in agd, and reports whether the rows match
+(before org-super-agenda grouping). Missing agenda files are skipped in
+Emacs as in agd.
 
 ## Neovim (nvim-orgmode)
 
@@ -153,7 +178,7 @@ modules from plugins that are not installed are stand-ins too, so a
 | `org_agenda_skip_scheduled_if_done`, `org_agenda_skip_deadline_if_done` | `skip_*_if_done` |
 | `org_agenda_sorting_strategy` (its agenda part) | `sorting_strategy` |
 | `org_log_done`, `org_log_repeat`, `org_log_into_drawer` | `log_done`, `log_repeat`, `log_into_drawer` |
-| `org_capture_templates` | `[[capture]]` |
+| `org_capture_templates` | `[[capture]]`, by key, since a Lua table keeps no order |
 | `org_agenda_custom_commands` | `[[view]]` |
 
 Options you do not set take nvim-orgmode's defaults.
@@ -170,8 +195,9 @@ Options you do not set take nvim-orgmode's defaults.
 - **Custom commands** other than `agenda`, `tags` and `tags_todo`, or with
   regexp matches (`{...}`): `✗ view KEY`. Property matches import as
   written.
-- **nvim-orgmode has no tag list, timestamp skipping or reschedule
-  logging**: those keys keep agd's defaults.
+- **Numeric priorities** stop the import, as for Emacs.
+- **nvim-orgmode has no timestamp skipping or reschedule logging**: those
+  keys keep agd's defaults.
 
 `--verify` applies to Emacs only; nvim-orgmode has no stable way to export
 agenda rows.
@@ -179,12 +205,13 @@ agenda rows.
 ## Roots and agenda files
 
 On a first import (no `config.toml` yet), `roots` become `org-directory`, or
-else the directories your agenda entries live in. Agenda entries are written
+else the directories your agenda entries live in. `-r DIR` sets the root
+yourself, on a first import or a later one. Agenda entries are written
 relative to the root that holds them: a file stays a file, a directory
 becomes `dir/*.org` (Emacs does not recurse into it), and a glob keeps its
 wildcards. When `config.toml` already exists, its `roots` stay, and entries
-outside them are left out with `✗ <entry> agenda entry left out: outside the
-roots`.
+outside them are left out with `✗ <entry> agenda entry left out: outside
+the roots`.
 
 When agenda files live outside `org-directory`, add their directories to
 `roots`, which is a list, and import again; the rerun keeps your `roots` and
@@ -201,7 +228,10 @@ agd setup import ~/.emacs.d --force
 ## Running it again
 
 When `config.toml` exists, the import shows the diff and stops; rerun with
-`--force` to replace the imported keys. Keys the import does not touch
-(`editor`, `theme`, agents, triage, and `roots`) keep their values. The file
-is rewritten, so comments you added are not kept; `--dry-run` and `--stdout`
-show the result first.
+`--force` to replace the imported keys, or it says the file is already up
+to date. Keys the import does not touch keep their values: `roots` (unless
+you pass `-r`), `ids`, `todo_keyword_colors`, `editor`, `theme`,
+`nerd_font`, `start_view`, `agent_inbox`, the someday and triage settings,
+and `[[agent_profile]]`s. Your `[[capture]]` templates and `[[view]]`s stay
+when the editor defines none. The file is rewritten, so comments you added
+are not kept; `--dry-run` and `--stdout` show the result first.
