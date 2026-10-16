@@ -720,39 +720,3 @@ pub(super) fn days_since(date: &str, today: NaiveDate) -> Option<i64> {
     let date = date.get(..10)?.parse::<NaiveDate>().ok()?;
     Some((today - date).num_days().max(0))
 }
-
-/// Next occurrence of a repeating SCHEDULED/DEADLINE after marking it DONE,
-/// as org-auto-repeat-maybe computes it, for the peek preview.
-pub(super) fn next_repeat(date: &str, repeater: &str, today: NaiveDate) -> Option<NaiveDate> {
-    let base = date.parse::<NaiveDate>().ok()?;
-    let (kind, value) = if let Some(value) = repeater.strip_prefix("++") {
-        ("++", value)
-    } else if let Some(value) = repeater.strip_prefix(".+") {
-        (".+", value)
-    } else {
-        ("+", repeater.strip_prefix('+')?)
-    };
-    let value = value.split('/').next()?;
-    let unit = value.chars().last()?;
-    let amount: i64 = value[..value.len() - 1].parse().ok()?;
-    let step = |date: NaiveDate| -> Option<NaiveDate> {
-        match unit {
-            'd' => Some(date + Duration::days(amount)),
-            'w' => Some(date + Duration::weeks(amount)),
-            'm' => date.checked_add_months(chrono::Months::new(amount as u32)),
-            'y' => date.checked_add_months(chrono::Months::new(12 * amount as u32)),
-            _ => None,
-        }
-    };
-    match kind {
-        ".+" => step(today),
-        "++" => {
-            let mut next = step(base)?;
-            while next <= today {
-                next = step(next)?;
-            }
-            Some(next)
-        }
-        _ => step(base),
-    }
-}

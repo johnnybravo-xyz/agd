@@ -14,14 +14,12 @@ pub(super) fn load_body(body: &str) -> Result<Settings, String> {
     let config = temp.path().join("config.toml");
     let root = toml::Value::String(temp.path().to_string_lossy().into_owned());
     fs::write(&config, format!("roots = [{root}]\n{body}")).unwrap();
-    load_settings(Some(&config), None)
-        .map(|loaded| loaded.settings)
-        .map_err(|error| {
-            assert_eq!(error.code().as_str(), "invalid_config");
-            error
-                .to_string()
-                .replace(&config.display().to_string(), "CONFIG")
-        })
+    load_settings(Some(&config), None).map_err(|error| {
+        assert_eq!(error.code().as_str(), "invalid_config");
+        error
+            .to_string()
+            .replace(&config.display().to_string(), "CONFIG")
+    })
 }
 
 pub(super) fn load_error(body: &str) -> String {

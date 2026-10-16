@@ -23,7 +23,7 @@ mod view;
 pub use color::{keyword_color, keyword_colors};
 pub use engine::{AgendaEngine, AgendaQuery};
 pub use export::{agenda_csv, agenda_row, agenda_text, agenda_title, item_row, items_csv};
-pub(crate) use repeat::{add_period, parse_repeater};
+pub use repeat::next_repeat;
 pub use span::AgendaSpan;
 pub use summary::{AgendaSummary, overdue_entries};
 pub(crate) use view::duration_minutes;

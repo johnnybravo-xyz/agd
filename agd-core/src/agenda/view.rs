@@ -112,17 +112,13 @@ impl<'a> AgendaEngine<'a> {
                 kind => {
                     let keywords = match_expression.as_deref().unwrap_or("");
                     let (items, default_header) = match kind {
-                        "alltodo" => (
-                            self.todo(None, today)?,
-                            "Global list of TODO items of type: ALL".to_string(),
-                        ),
                         // `(todo "DELEGATED")` lists that keyword even when it is
                         // a done state; only alltodo and tags-todo skip done.
                         "todo" if !keywords.is_empty() => (
                             self.tags(&format!("/{keywords}"), today)?,
                             format!("Global list of TODO items of type: {keywords}"),
                         ),
-                        "todo" => (
+                        "alltodo" | "todo" => (
                             self.todo(None, today)?,
                             "Global list of TODO items of type: ALL".to_string(),
                         ),

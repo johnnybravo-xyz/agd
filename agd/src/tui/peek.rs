@@ -10,11 +10,10 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Wrap};
 
-use agd_core::{Item, Occurrence, OccurrenceType, WorkspaceIndex};
+use agd_core::{Item, Occurrence, OccurrenceType, WorkspaceIndex, next_repeat};
 
 use super::actions::when;
 use super::keys::{self, Action};
-use super::rows::next_repeat;
 use super::theme::centered;
 use super::{App, Screen};
 
@@ -210,7 +209,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
         };
         let mut spans = vec![label(name), Span::raw(when(timestamp, app.today))];
         if let Some(repeater) = &timestamp.repeater
-            && let Some(next) = next_repeat(&timestamp.date, repeater, app.today)
+            && let Ok(next) = next_repeat(timestamp, app.today)
         {
             spans.push(Span::styled(
                 format!(

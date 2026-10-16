@@ -25,7 +25,7 @@ mod undo;
 mod validation;
 
 pub use edit::{BatchMutation, Change, EditIntent, ItemEdit};
-pub use engine::{WriteContext, WriteEngine, actor_name, agent_actor, agent_name};
+pub use engine::{WriteContext, WriteEngine, agent_actor, agent_name};
 pub use journal::{JournalOperation, JournalRecord, JournalStatus};
 pub(crate) use patch::line_ending;
 pub use patch::{Patch, StoredPatch, apply_patches};

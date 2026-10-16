@@ -34,7 +34,6 @@ pub struct PropertySpan {
     pub key: String,
     pub value: String,
     pub line: ByteSpan,
-    pub value_span: ByteSpan,
 }
 
 #[derive(Clone, Debug)]
@@ -77,7 +76,6 @@ struct ParsedMetadata {
     planning_span: Option<ByteSpan>,
     drawer_span: Option<ByteSpan>,
     properties: Vec<PropertySpan>,
-    body_start: usize,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -106,8 +104,7 @@ pub(super) fn scan_headlines(
             planning_span,
             drawer_span,
             properties,
-            body_start,
-        } = parse_metadata(source, lines, line_index, raw.len())?;
+        } = parse_metadata(source, lines, line_index)?;
         let digest = headline_digest(text.as_bytes());
         raw.push(RawHeadline {
             level: stars.as_str().len(),
@@ -127,8 +124,6 @@ pub(super) fn scan_headlines(
             timestamps: Vec::new(),
             digest,
         });
-        let current = raw.last_mut().expect("pushed headline");
-        current.section_end = body_start;
     }
 
     for index in 0..raw.len() {
@@ -319,7 +314,6 @@ fn parse_metadata(
     source: &str,
     lines: &[SourceLine],
     headline_line: usize,
-    _headline_count: usize,
 ) -> Result<ParsedMetadata, AgdError> {
     let mut planning = Planning::default();
     // Org reads planning only from the line right after the headline; a
@@ -346,17 +340,14 @@ fn parse_metadata(
         if trimmed == ":PROPERTIES:" {
             let start = line.full.start;
             cursor += 1;
-            let mut found_end = false;
             while let Some(property_line) = lines.get(cursor) {
-                let property_text = &source[property_line.content.start..property_line.content.end];
-                let property_trimmed = property_text.trim_start();
+                let property_trimmed =
+                    source[property_line.content.start..property_line.content.end].trim_start();
                 if property_trimmed == ":END:" {
                     drawer_span = Some(ByteSpan {
                         start,
                         end: property_line.full.end,
                     });
-                    cursor += 1;
-                    found_end = true;
                     break;
                 }
                 if let Some(captures) = PROPERTY_RE.captures(property_trimmed) {
@@ -366,25 +357,11 @@ fn parse_metadata(
                         key: key.as_str().to_string(),
                         value: value.map_or("", |matched| matched.as_str()).to_string(),
                         line: property_line.full,
-                        value_span: value.map_or(
-                            ByteSpan {
-                                start: property_line.content.end,
-                                end: property_line.content.end,
-                            },
-                            |matched| ByteSpan {
-                                start: property_line.content.start + property_text.len()
-                                    - property_trimmed.len()
-                                    + matched.start(),
-                                end: property_line.content.start + property_text.len()
-                                    - property_trimmed.len()
-                                    + matched.end(),
-                            },
-                        ),
                     });
                 }
                 cursor += 1;
             }
-            if !found_end {
+            if drawer_span.is_none() {
                 return Err(AgdError::new(
                     ErrorCode::ParseFailed,
                     format!(
@@ -395,15 +372,11 @@ fn parse_metadata(
             }
         }
     }
-    let body_start = lines
-        .get(cursor)
-        .map_or(source.len(), |line| line.full.start);
     Ok(ParsedMetadata {
         planning,
         planning_span,
         drawer_span,
         properties,
-        body_start,
     })
 }
 

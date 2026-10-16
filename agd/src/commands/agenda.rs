@@ -84,8 +84,7 @@ impl AgendaCommand {
         let mut settings = load_settings(
             config.as_deref().map(Path::new),
             root.as_deref().map(Path::new),
-        )?
-        .settings;
+        )?;
         if self.views {
             return Ok(write_stdout(&views_output(&settings, self.json)?)?);
         }

@@ -21,11 +21,11 @@ pub struct CheckCommand {
 
 impl CheckCommand {
     pub fn execute(self, config: Option<String>, root_directory: Option<String>) -> Result<bool> {
-        let loaded = load_settings(
+        let settings = load_settings(
             config.as_deref().map(Path::new),
             root_directory.as_deref().map(Path::new),
         )?;
-        let engine = WriteEngine::with_default_journal(loaded.settings.clone())?;
+        let engine = WriteEngine::with_default_journal(settings.clone())?;
         let mut output = String::new();
         if self.resolve {
             let resolved = resolved_lines(&engine.resolve_conflicts(&super::cli_context())?);
@@ -36,7 +36,7 @@ impl CheckCommand {
                 output.push_str(&resolved);
             }
         }
-        let mut report = check_settings(&loaded.settings)?;
+        let mut report = check_settings(&settings)?;
         report.add_problems(journal_problems(&engine.journal_conflicts()?));
         if self.json {
             output.push_str(&format!("{}\n", serde_json::to_string_pretty(&report)?));

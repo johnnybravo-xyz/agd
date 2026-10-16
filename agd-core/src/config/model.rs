@@ -485,12 +485,6 @@ impl Settings {
             && BUILTIN_VIEWS.iter().any(|builtin| builtin.key == key)
     }
 
-    pub fn agent_profile(&self, name: &str) -> Option<&AgentProfile> {
-        self.agent_profiles
-            .iter()
-            .find(|profile| profile.name == name)
-    }
-
     /// Narrows these settings to `[[agent_profile]]` `name`, as `agd
     /// agenda --profile` and MCP `agenda` do: its files replace
     /// agenda_files, and its match is the match unless `match_expression`
@@ -510,7 +504,11 @@ impl Settings {
     /// The `[[agent_profile]]` `name` names, or an `unknown_profile` error
     /// that lists the profiles there are.
     pub fn find_agent_profile(&self, name: &str) -> Result<&AgentProfile, AgdError> {
-        self.agent_profile(name).ok_or_else(|| {
+        let profile = self
+            .agent_profiles
+            .iter()
+            .find(|profile| profile.name == name);
+        profile.ok_or_else(|| {
             let names = self
                 .agent_profiles
                 .iter()

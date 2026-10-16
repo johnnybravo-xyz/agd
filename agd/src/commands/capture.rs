@@ -66,8 +66,7 @@ impl CaptureCommand {
         let settings = load_settings(
             config.as_deref().map(Path::new),
             root.as_deref().map(Path::new),
-        )?
-        .settings;
+        )?;
         let line = self.words.join(" ");
         let (template, text) = settings.capture_line_template(&line)?;
         let draft = parse_capture_line(text, Local::now().date_naive(), settings.notation)?;

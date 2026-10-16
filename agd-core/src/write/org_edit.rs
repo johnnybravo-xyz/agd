@@ -18,8 +18,8 @@ use crate::{
 
 use super::edit::{Change, EditIntent};
 use super::patch::{Patch, line_ending};
-use crate::agenda::{add_period, parse_repeater};
-use crate::date::{format_inactive_timestamp, parse_org_date};
+use crate::agenda::next_repeat;
+use crate::date::format_inactive_timestamp;
 
 pub(super) fn build_edit_patches(
     document: &IndexedDocument,
@@ -624,25 +624,12 @@ fn drawer_fences(drawer: &str) -> (String, String) {
     )
 }
 
+/// Moves a repeating timestamp on; a habit's maximum interval (`.+2d/3d`)
+/// stays in the repeater text.
 fn advance_repeater(timestamp: &mut PlanningTimestamp, today: NaiveDate) -> Result<(), AgdError> {
-    let repeater = timestamp
-        .repeater
-        .as_deref()
-        .ok_or_else(|| AgdError::new(ErrorCode::InvalidRepeater, "timestamp has no repeater"))?;
-    // A habit's maximum interval (`.+2d/3d`) stays in the repeater text.
-    let (kind, amount, unit) = parse_repeater(repeater)?;
-    let original = parse_org_date(&timestamp.date)?;
-    let mut next = if kind == ".+" {
-        add_period(today, amount, unit)?
-    } else {
-        add_period(original, amount, unit)?
-    };
-    if kind == "++" {
-        while next <= today {
-            next = add_period(next, amount, unit)?;
-        }
-    }
-    timestamp.date = next.format("%Y-%m-%d").to_string();
+    timestamp.date = next_repeat(timestamp, today)?
+        .format("%Y-%m-%d")
+        .to_string();
     timestamp.raw = None;
     Ok(())
 }

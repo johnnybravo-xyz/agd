@@ -3,20 +3,16 @@
 //! 10:00`, an ISO date), with a repeater and warning after it (`fri +1w
 //! -3d`), taking as many words as form one date; [`parse_date_input`] is the
 //! same for a whole answer, and [`parse_date_change`] also takes `none`.
-//! [`date_preview`] shows the Org text an answer writes, and
 //! [`format_active_timestamp`] renders a [`PlanningTimestamp`].
 //!
 //! Every surface reads dates here: `agd agenda --from`, a capture line's
 //! `due:` and `on:`, the TUI's prompts and MCP. Dates count from the `today`
-//! the caller passes, so results are deterministic; only [`now_local_naive`]
-//! reads the clock. A date it cannot read is an `invalid_date` error that
-//! lists every accepted form.
+//! the caller passes, so results are deterministic. A date it cannot read is
+//! an `invalid_date` error that lists every accepted form.
 
 use std::sync::LazyLock;
 
-use chrono::{
-    Datelike, Days, Duration, Local, Months, NaiveDate, NaiveDateTime, NaiveTime, Weekday,
-};
+use chrono::{Datelike, Days, Duration, Months, NaiveDate, NaiveTime, Weekday};
 use regex::Regex;
 
 use crate::{AgdError, Change, ErrorCode, PlanningTimestamp};
@@ -130,12 +126,6 @@ pub fn read_date(
         taken += 1;
     }
     Ok(Some((timestamp, taken)))
-}
-
-/// How a date-prompt answer reads as Org text, e.g. `<2026-10-19 Mon 09:00>`
-/// for `mon 9am`, so a prompt can show what it will write.
-pub fn date_preview(input: &str, today: NaiveDate) -> Result<String, AgdError> {
-    format_active_timestamp(&parse_date_input(input, today)?)
 }
 
 /// An `invalid_date` error: what is wrong, then every accepted form.
@@ -363,10 +353,6 @@ fn parse_month(name: &str) -> Option<u32> {
     Some(month)
 }
 
-pub fn now_local_naive() -> NaiveDateTime {
-    Local::now().naive_local()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,9 +481,5 @@ mod tests {
                 "{input}"
             );
         }
-        assert_eq!(
-            date_preview("mon 9am", friday).unwrap(),
-            "<2026-10-19 Mon 09:00>"
-        );
     }
 }

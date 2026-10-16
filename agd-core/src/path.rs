@@ -499,16 +499,12 @@ fn has_hidden_component(relative: &Path) -> bool {
         .any(|component| component.as_os_str().to_string_lossy().starts_with('.'))
 }
 
+/// The matcher for agenda patterns relative to a root; both callers set
+/// absolute entries aside first.
 fn build_globset(patterns: &[String]) -> Result<GlobSet, AgdError> {
     let mut builder = GlobSetBuilder::new();
     for pattern in patterns {
         reject_parent_segments(Path::new(pattern))?;
-        if Path::new(pattern).is_absolute() {
-            return Err(AgdError::new(
-                ErrorCode::InvalidAgendaPattern,
-                format!("agenda pattern must be relative to a root: {pattern}"),
-            ));
-        }
         builder.add(Glob::new(pattern).map_err(|error| {
             AgdError::new(
                 ErrorCode::InvalidAgendaPattern,

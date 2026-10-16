@@ -24,5 +24,5 @@ pub use headline::{HeadlineSpan, PropertySpan};
 pub(crate) use headline::{is_org_tag, leading_priority_cookie, sha256_hex, split_trailing_tags};
 pub use index::WorkspaceIndex;
 pub use org_document::OrgDocument;
-pub use source::{ByteSpan, SourceLine};
+pub use source::ByteSpan;
 pub use timestamp::{TimestampSpan, parse_timestamp};

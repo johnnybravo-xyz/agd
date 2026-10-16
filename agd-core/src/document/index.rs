@@ -28,27 +28,6 @@ pub struct WorkspaceIndex {
     skipped: BTreeMap<PathBuf, String>,
 }
 
-/// Reads and parses one agenda file. A non-UTF-8 file is returned as a
-/// skip reason instead of an error so that one unreadable file never hides
-/// the rest of the agenda.
-fn load_document(
-    path: &Path,
-    settings: &Settings,
-) -> Result<Result<OrgDocument, AgdError>, AgdError> {
-    let bytes = std::fs::read(path).map_err(|error| {
-        AgdError::with_source(
-            ErrorCode::IoFailed,
-            format!("cannot read {}: {error}", path.display()),
-            error,
-        )
-    })?;
-    match OrgDocument::parse(path.to_path_buf(), bytes, settings) {
-        Ok(document) => Ok(Ok(document)),
-        Err(error) if error.code() == ErrorCode::InvalidUtf8 => Ok(Err(error)),
-        Err(error) => Err(error),
-    }
-}
-
 fn scan_property_ids(path: &Path) -> Vec<String> {
     let Ok(bytes) = std::fs::read(path) else {
         return Vec::new();
@@ -70,42 +49,64 @@ fn scan_property_ids(path: &Path) -> Vec<String> {
 impl WorkspaceIndex {
     pub fn load(settings: Settings) -> Result<Self, AgdError> {
         let roots = RootSet::new(&settings.roots, &settings.agenda_files)?;
-        let mut documents = BTreeMap::new();
         let agenda_files = roots.agenda_files()?;
-        let mut skipped: BTreeMap<PathBuf, String> = agenda_files
+        let skipped = agenda_files
             .skipped
             .iter()
             .map(|(path, reason)| (path.clone(), reason.describe(path)))
             .collect();
-        for path in agenda_files.files {
-            match load_document(&path, &settings)? {
-                Ok(document) => {
-                    documents.insert(path, document);
-                }
-                Err(reason) => {
-                    skipped.insert(path, reason.to_string());
-                }
-            }
-        }
-        let mut outside_ids: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
-        for path in roots.all_org_files()?.files {
-            if documents.contains_key(&path) || skipped.contains_key(&path) {
-                continue;
-            }
-            for id in scan_property_ids(&path) {
-                outside_ids.entry(id).or_default().push(path.clone());
-            }
-        }
         let mut index = Self {
             roots,
             settings,
-            documents,
+            documents: BTreeMap::new(),
             ids: BTreeMap::new(),
-            outside_ids,
+            outside_ids: BTreeMap::new(),
             skipped,
         };
+        for path in agenda_files.files {
+            index.add_agenda_file(path)?;
+        }
+        for path in index.roots.all_org_files()?.files {
+            if !index.documents.contains_key(&path) && !index.skipped.contains_key(&path) {
+                index.add_outside_ids(&path);
+            }
+        }
         index.rebuild_ids();
         Ok(index)
+    }
+
+    /// Reads and parses one agenda file. A non-UTF-8 file is skipped with
+    /// its reason instead of failing, so one unreadable file never hides the
+    /// rest of the agenda.
+    fn add_agenda_file(&mut self, path: PathBuf) -> Result<(), AgdError> {
+        let bytes = std::fs::read(&path).map_err(|error| {
+            AgdError::with_source(
+                ErrorCode::IoFailed,
+                format!("cannot read {}: {error}", path.display()),
+                error,
+            )
+        })?;
+        match OrgDocument::parse(path.clone(), bytes, &self.settings) {
+            Ok(document) => {
+                self.documents.insert(path, document);
+            }
+            Err(error) if error.code() == ErrorCode::InvalidUtf8 => {
+                self.skipped.insert(path, error.to_string());
+            }
+            Err(error) => return Err(error),
+        }
+        Ok(())
+    }
+
+    /// Records the `:ID:`s of an org file under the roots that is not an
+    /// agenda file.
+    fn add_outside_ids(&mut self, path: &Path) {
+        for id in scan_property_ids(path) {
+            self.outside_ids
+                .entry(id)
+                .or_default()
+                .push(path.to_path_buf());
+        }
     }
 
     /// Agenda files left out of the index, with the reason: non-UTF-8
@@ -151,18 +152,9 @@ impl WorkspaceIndex {
         };
         self.forget_paths_under(&path);
         if self.roots.is_agenda_file(&path)? {
-            match load_document(&path, &self.settings)? {
-                Ok(document) => {
-                    self.documents.insert(path, document);
-                }
-                Err(reason) => {
-                    self.skipped.insert(path, reason.to_string());
-                }
-            }
+            self.add_agenda_file(path)?;
         } else {
-            for id in scan_property_ids(&path) {
-                self.outside_ids.entry(id).or_default().push(path.clone());
-            }
+            self.add_outside_ids(&path);
         }
         self.rebuild_ids();
         Ok(())
@@ -223,7 +215,7 @@ impl WorkspaceIndex {
     pub fn duplicate_ids(&self) -> impl Iterator<Item = (&str, &[(PathBuf, usize)])> {
         self.ids
             .iter()
-            .filter(|(id, locations)| locations.len() + self.outside_id_count(id) > 1)
+            .filter(|(id, _)| self.id_count(id) > 1)
             .map(|(id, locations)| (id.as_str(), locations.as_slice()))
     }
 
@@ -233,15 +225,17 @@ impl WorkspaceIndex {
         self.ids.contains_key(id) || self.outside_ids.contains_key(id)
     }
 
-    fn outside_id_count(&self, id: &str) -> usize {
-        self.outside_ids.get(id).map_or(0, Vec::len)
+    /// How many headings under the roots, agenda files or not, have this
+    /// `:ID:`.
+    fn id_count(&self, id: &str) -> usize {
+        self.ids.get(id).map_or(0, Vec::len) + self.outside_ids.get(id).map_or(0, Vec::len)
     }
 
-    fn refuse_duplicate_id(&self, headline: &HeadlineSpan) -> Result<(), AgdError> {
-        let Some(id) = &headline.item.id else {
+    fn refuse_duplicate_id(&self, id: Option<&str>) -> Result<(), AgdError> {
+        let Some(id) = id else {
             return Ok(());
         };
-        let count = self.ids.get(id).map_or(0, Vec::len) + self.outside_id_count(id);
+        let count = self.id_count(id);
         if count > 1 {
             return Err(AgdError::new(
                 ErrorCode::IdConflict,
@@ -257,39 +251,20 @@ impl WorkspaceIndex {
 
     pub fn resolve(&self, item_ref: &str) -> Result<(&OrgDocument, &HeadlineSpan), AgdError> {
         if !item_ref.contains("#sha256:") {
-            let matches = self
-                .ids
-                .get(item_ref)
-                .map(Vec::as_slice)
-                .unwrap_or_default();
-            let outside = self.outside_id_count(item_ref);
-            if matches.len() + outside > 1 {
-                return Err(AgdError::new(
-                    ErrorCode::IdConflict,
-                    format!(
-                        "ID '{item_ref}' occurs {} times under the configured roots",
-                        matches.len() + outside
-                    ),
-                ));
-            }
-            return match matches {
-                [] if outside == 1 => Err(AgdError::new(
+            self.refuse_duplicate_id(Some(item_ref))?;
+            return match self.ids.get(item_ref).and_then(|matches| matches.first()) {
+                Some((path, index)) => {
+                    let document = self.documents.get(path).expect("indexed document");
+                    Ok((document, &document.headlines()[*index]))
+                }
+                None if self.outside_ids.contains_key(item_ref) => Err(AgdError::new(
                     ErrorCode::RefConflict,
                     format!("ID '{item_ref}' is in a file outside the agenda files"),
                 )),
-                [] => Err(AgdError::new(
+                None => Err(AgdError::new(
                     ErrorCode::RefConflict,
                     format!("no item has ID '{item_ref}'"),
                 )),
-                [(path, index)] => Ok((
-                    self.documents.get(path).expect("indexed document"),
-                    &self
-                        .documents
-                        .get(path)
-                        .expect("indexed document")
-                        .headlines()[*index],
-                )),
-                _ => unreachable!("duplicate IDs are rejected above"),
             };
         }
 
@@ -343,7 +318,7 @@ impl WorkspaceIndex {
         if let Some(headline) = document.headline_at_line(line)
             && headline.digest == digest
         {
-            self.refuse_duplicate_id(headline)?;
+            self.refuse_duplicate_id(headline.item.id.as_deref())?;
             return Ok((document, headline));
         }
         let matches: Vec<&HeadlineSpan> = document
@@ -353,7 +328,7 @@ impl WorkspaceIndex {
             .collect();
         match matches.as_slice() {
             [headline] => {
-                self.refuse_duplicate_id(headline)?;
+                self.refuse_duplicate_id(headline.item.id.as_deref())?;
                 Ok((document, headline))
             }
             [] => {

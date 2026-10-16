@@ -16,21 +16,18 @@ use super::directive::{
     LogSettings, PriorityRange, TodoKeyword, directive, log_settings, priority_range, todo_keywords,
 };
 use super::headline::{HeadlineSpan, parse_colon_tags, scan_headlines};
-use super::source::{SourceLine, source_lines};
+use super::source::source_lines;
 
 #[derive(Clone, Debug)]
 pub struct OrgDocument {
     path: PathBuf,
     source: String,
-    lines: Vec<SourceLine>,
     pub(super) headlines: Vec<HeadlineSpan>,
     todo_active: Vec<String>,
     todo_done: Vec<String>,
     todo_keywords: Vec<TodoKeyword>,
     logging: LogSettings,
     priorities: PriorityRange,
-    file_tags: Vec<String>,
-    file_category: String,
 }
 
 impl OrgDocument {
@@ -98,15 +95,12 @@ impl OrgDocument {
         Ok(Self {
             path,
             source,
-            lines,
             headlines: raw,
             todo_active,
             todo_done,
             todo_keywords,
             logging,
             priorities,
-            file_tags,
-            file_category,
         })
     }
 
@@ -116,10 +110,6 @@ impl OrgDocument {
 
     pub fn source(&self) -> &str {
         &self.source
-    }
-
-    pub fn lines(&self) -> &[SourceLine] {
-        &self.lines
     }
 
     pub fn headlines(&self) -> &[HeadlineSpan] {
@@ -157,14 +147,6 @@ impl OrgDocument {
     /// This file's priority range: `#+PRIORITIES`, else the configured one.
     pub fn priorities(&self) -> PriorityRange {
         self.priorities
-    }
-
-    pub fn file_tags(&self) -> &[String] {
-        &self.file_tags
-    }
-
-    pub fn file_category(&self) -> &str {
-        &self.file_category
     }
 }
 

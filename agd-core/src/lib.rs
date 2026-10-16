@@ -51,7 +51,7 @@
 //! std::fs::write(&config, "deadline_warning_days = 7\n")?;
 //!
 //! // `load_settings(None, None)` reads the user's own config.toml instead.
-//! let settings = load_settings(Some(&config), Some(dir.path()))?.settings;
+//! let settings = load_settings(Some(&config), Some(dir.path()))?;
 //! let index = WorkspaceIndex::load(settings.clone())?;
 //! let today = NaiveDate::from_ymd_opt(2026, 10, 16).unwrap();
 //! let todo = AgendaEngine::new(&index).todo(None, today)?;
@@ -93,7 +93,7 @@ mod write;
 pub use agenda::{
     AgendaEngine, AgendaQuery, AgendaSpan, AgendaSummary, ViewSection, ViewSectionGroup,
     agenda_csv, agenda_row, agenda_text, agenda_title, item_row, items_csv, keyword_color,
-    keyword_colors, overdue_entries,
+    keyword_colors, next_repeat, overdue_entries,
 };
 pub use capture_line::{CaptureDraft, parse_capture_line};
 pub use capture_template::{CapturePrompt, capture_prompts, render_capture_template};
@@ -101,18 +101,14 @@ pub use check::{
     CheckFileReport, CheckProblem, CheckReport, CheckSummary, check_settings, journal_problems,
 };
 pub use config::{
-    AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, LogMode, Notation,
-    SORTING_KEYS, Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings,
-    WeekStart, default_config_path, load_settings, parse_agenda_day, parse_config_file,
-    render_config,
+    AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LogMode, Notation, SORTING_KEYS,
+    Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, WeekStart,
+    default_config_path, load_settings, parse_agenda_day, parse_config_file, render_config,
 };
-pub use date::{
-    date_preview, format_active_timestamp, now_local_naive, parse_date_change, parse_date_input,
-    read_date,
-};
+pub use date::{format_active_timestamp, parse_date_change, parse_date_input, read_date};
 pub use document::{
     ByteSpan, HeadlineSpan, LogKind, LogSettings, OrgDocument as IndexedDocument, PriorityRange,
-    PropertySpan, SourceLine, TimestampSpan, TodoKeyword, WorkspaceIndex, parse_timestamp,
+    PropertySpan, TimestampSpan, TodoKeyword, WorkspaceIndex, parse_timestamp,
 };
 pub use import::{
     ConfigEditor, ConfigSources, ImportDiagnostic, ImportResult, ImportStatus, ImportedCapture,
@@ -127,6 +123,6 @@ pub use model::{
 pub use path::{OrgFiles, RootSet, SkipReason};
 pub use write::{
     BatchMutation, Change, EditIntent, ItemEdit, JournalOperation, JournalRecord, JournalStatus,
-    Patch, RefileResult, StoredPatch, UndoResult, WriteContext, WriteEngine, actor_name,
-    agent_actor, agent_name, apply_patches,
+    Patch, RefileResult, StoredPatch, UndoResult, WriteContext, WriteEngine, agent_actor,
+    agent_name, apply_patches,
 };

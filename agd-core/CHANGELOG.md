@@ -67,8 +67,7 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`Repeat`) reports a repeating task marked done that moved to its next
   date.
 - `read_date` reads the date at the start of some words, `parse_date_input`
-  a whole answer, `parse_date_change` also `none`, and `date_preview` shows
-  the Org text an answer writes.
+  a whole answer, and `parse_date_change` also `none`.
 - `capture_prompts` returns `CapturePrompt`s: each prompt's name, whether it
   takes a date, the planning keyword it fills (`planning`), and
   `answered_by` tells whether a capture line's `due:`/`on:` gives it.
@@ -79,8 +78,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   interrupted writes.
 - `JournalRecord::operation` (`JournalOperation`) says what a write did,
   with `operation_label`, `agent` and `actor_name`; `JournalStatus::Resolved`
-  marks a settled conflict. `agent_actor`, `agent_name` and `actor_name`
-  turn MCP client names into journal actors and back.
+  marks a settled conflict. `agent_actor` and `agent_name` turn MCP client
+  names into journal actors and back.
 - `RootSet::agenda_files` and `RootSet::all_org_files` return `OrgFiles`:
   the files, and the paths left out with their `SkipReason`.
   `WorkspaceIndex::id_in_use` tells whether any heading under the roots

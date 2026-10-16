@@ -18,12 +18,6 @@ use crate::{AgdError, AgendaSpan, ErrorCode};
 use super::model::{AgentProfile, CaptureTemplate, Settings, ViewGroup, ViewSettings};
 use super::validation::{validate_roots, validate_settings};
 
-#[derive(Clone, Debug)]
-pub struct LoadedSettings {
-    pub settings: Settings,
-    pub config_path: PathBuf,
-}
-
 pub fn default_config_path() -> Result<PathBuf, AgdError> {
     Ok(crate::path::config_dir()?.join("config.toml"))
 }
@@ -31,7 +25,7 @@ pub fn default_config_path() -> Result<PathBuf, AgdError> {
 pub fn load_settings(
     path: Option<&Path>,
     root_override: Option<&Path>,
-) -> Result<LoadedSettings, AgdError> {
+) -> Result<Settings, AgdError> {
     let config_path = path
         .map(Path::to_path_buf)
         .unwrap_or(default_config_path()?);
@@ -52,10 +46,7 @@ pub fn load_settings(
     }
     validate_settings(&settings)?;
     read_template_files(&mut settings.captures, &settings.roots)?;
-    Ok(LoadedSettings {
-        settings,
-        config_path,
-    })
+    Ok(settings)
 }
 
 /// With neither a config file nor the default root there is nothing to
@@ -370,14 +361,11 @@ mod tests {
             ),
         )
         .unwrap();
-        let loaded = load_settings(Some(&config), None).unwrap();
-        assert_eq!(loaded.settings.deadline_warning_days, 9);
-        assert_eq!(loaded.settings.captures.len(), 1);
-        assert_eq!(loaded.settings.capture_template("n").unwrap().desc, "Note");
-        assert_eq!(
-            loaded.settings.view("w").unwrap().blocks[0].kind,
-            "tags-todo"
-        );
+        let settings = load_settings(Some(&config), None).unwrap();
+        assert_eq!(settings.deadline_warning_days, 9);
+        assert_eq!(settings.captures.len(), 1);
+        assert_eq!(settings.capture_template("n").unwrap().desc, "Note");
+        assert_eq!(settings.view("w").unwrap().blocks[0].kind, "tags-todo");
 
         fs::write(
             &config,
@@ -547,9 +535,9 @@ mod tests {
             ),
         )
         .unwrap();
-        let loaded = load_settings(Some(&config), None).unwrap();
+        let settings = load_settings(Some(&config), None).unwrap();
         assert_eq!(
-            loaded.settings.capture_template("j").unwrap().template,
+            settings.capture_template("j").unwrap().template,
             "* %U %?\n"
         );
 
@@ -637,7 +625,7 @@ mod tests {
         )
         .unwrap();
 
-        let loaded = load_settings(Some(&config), Some(&overridden)).unwrap();
-        assert_eq!(loaded.settings.roots, vec![overridden.to_string_lossy()]);
+        let settings = load_settings(Some(&config), Some(&overridden)).unwrap();
+        assert_eq!(settings.roots, vec![overridden.to_string_lossy()]);
     }
 }

@@ -432,8 +432,7 @@ fn run_mode(
     let settings = load_settings(
         config.as_deref().map(Path::new),
         root.as_deref().map(Path::new),
-    )?
-    .settings;
+    )?;
     let index = WorkspaceIndex::load(settings.clone())?;
     let (events, _watcher) = watch_roots(&index)?;
     let (light, reply, typed) = theme::ask_background(&settings.theme);

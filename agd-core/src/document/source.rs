@@ -39,21 +39,5 @@ pub(super) fn source_lines(source: &str) -> Vec<SourceLine> {
         });
         start = end;
     }
-    if source.is_empty() {
-        return lines;
-    }
-    if start < source.len() {
-        lines.push(SourceLine {
-            number: lines.len() + 1,
-            full: ByteSpan {
-                start,
-                end: source.len(),
-            },
-            content: ByteSpan {
-                start,
-                end: source.len(),
-            },
-        });
-    }
     lines
 }

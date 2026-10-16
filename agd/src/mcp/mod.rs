@@ -63,8 +63,7 @@ impl McpCommand {
         let settings = load_settings(
             config.as_deref().map(Path::new),
             root_directory.as_deref().map(Path::new),
-        )?
-        .settings;
+        )?;
         let log_level = tracing::Level::from(self.log_level);
         tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env().add_directive(log_level.into()))

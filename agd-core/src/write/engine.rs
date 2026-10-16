@@ -44,11 +44,6 @@ pub fn agent_name(actor: &str) -> Option<&str> {
     actor.strip_prefix(AGENT_ACTOR_PREFIX)
 }
 
-/// Who an actor is as agd names them: the agent (`codex`), or `you`.
-pub fn actor_name(actor: &str) -> &str {
-    agent_name(actor).unwrap_or("you")
-}
-
 /// The actor an MCP client's writes are journaled under: `mcp:<client>`,
 /// without the `-mcp-client` suffix Codex sends (`codex-mcp-client` is
 /// `mcp:codex`); other names are kept as sent.
@@ -133,10 +128,6 @@ impl WriteEngine {
 
     pub fn with_default_journal(settings: Settings) -> Result<Self, AgdError> {
         Self::new(settings, crate::path::data_dir()?.join("journal.jsonl"))
-    }
-
-    pub fn settings(&self) -> &Settings {
-        &self.settings
     }
 }
 

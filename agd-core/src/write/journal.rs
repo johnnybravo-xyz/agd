@@ -107,7 +107,7 @@ impl JournalRecord {
     /// Who made the change as agd names them: the agent (`codex`), or
     /// `you` for the CLI and TUI.
     pub fn actor_name(&self) -> &str {
-        super::engine::actor_name(&self.actor)
+        self.agent().unwrap_or("you")
     }
 
     /// What the change did in words (JournalOperation::label); `change`

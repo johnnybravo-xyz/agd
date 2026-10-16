@@ -343,7 +343,7 @@ impl<'a> AgendaEngine<'a> {
                         continue;
                     }
                 }
-                for date in repeated_dates(&timestamp.timestamp, from, to, false)? {
+                for date in repeated_dates(&timestamp.timestamp, from, to)? {
                     entries.push(entry(
                         item,
                         OccurrenceType::Timestamp,

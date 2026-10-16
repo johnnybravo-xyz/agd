@@ -31,8 +31,7 @@ impl UndoCommand {
         let settings = load_settings(
             config.as_deref().map(Path::new),
             root.as_deref().map(Path::new),
-        )?
-        .settings;
+        )?;
         let engine = WriteEngine::with_default_journal(settings.clone())?;
         // Newest first.
         let journal = engine.journal()?;
