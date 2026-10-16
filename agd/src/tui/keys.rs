@@ -528,7 +528,9 @@ fn run_list(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget
             app.overlay = Overlay::Prompt(Prompt::new(PromptKind::Filter, app.filter.clone()))
         }
         A::Edit => {
-            if let Some(form) = super::edit::EditForm::open(app) {
+            if !app.expand_overdue()?
+                && let Some(form) = super::edit::EditForm::open(app)
+            {
                 app.overlay = Overlay::Edit(Box::new(form));
             }
         }

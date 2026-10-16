@@ -109,6 +109,9 @@ struct DisplayRow {
     section: String,
     item: Item,
     occurrence: Option<Occurrence>,
+    /// Overdue rows folded under this one: when above zero the row is
+    /// Today's "+N more" line, which ⏎ expands, and no key acts on `item`.
+    more: usize,
 }
 
 /// The full layout needs this many columns; under it only the pane fits.
@@ -197,6 +200,8 @@ struct App {
     journals: Vec<JournalRecord>,
     selected: usize,
     marks: BTreeSet<String>,
+    /// Today shows every OVERDUE row, not the first few; reset on leaving.
+    overdue_expanded: bool,
     /// Context filter cycled with `<`: None is all categories.
     context: Option<String>,
     filter: String,
@@ -247,6 +252,7 @@ impl App {
             journals: Vec::new(),
             selected: 0,
             marks: BTreeSet::new(),
+            overdue_expanded: false,
             context: None,
             filter: String::new(),
             classic: false,

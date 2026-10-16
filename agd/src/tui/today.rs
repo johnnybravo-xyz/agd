@@ -215,7 +215,7 @@ fn list_title(app: &App) -> String {
 fn total_effort(app: &App) -> u32 {
     app.rows
         .iter()
-        .filter(|row| !row.item.done)
+        .filter(|row| !row.item.done && row.more == 0)
         .filter_map(|row| {
             let (_, headline) = app.index.resolve(&row.item.item_ref).ok()?;
             let effort = headline
@@ -347,12 +347,8 @@ fn section_header(app: &App, header: &Header, rows: &[usize], width: usize) -> L
         (None, DOING) => theme.done,
         (None, _) => theme.accent,
     };
-    // OVERDUE counts every overdue item; it shows only the first rows.
-    let count = if section == OVERDUE {
-        app.counts.overdue
-    } else {
-        rows.len()
-    };
+    // A "+N more" row stands for N rows.
+    let count: usize = rows.iter().map(|index| app.rows[*index].more.max(1)).sum();
     let style = if count == 0 {
         theme.muted().add_modifier(Modifier::BOLD)
     } else {
@@ -378,6 +374,13 @@ fn section_header(app: &App, header: &Header, rows: &[usize], width: usize) -> L
 /// title, priority and tags, and a right-aligned context column.
 fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'static> {
     let theme = &app.theme;
+    if row.more > 0 {
+        return Line::from(vec![
+            Span::raw(" ".repeat(7)),
+            Span::styled(format!("+{} more", row.more), theme.strong(theme.overdue)),
+            Span::styled("  ⏎ shows them", theme.muted()),
+        ]);
+    }
     let item = &row.item;
     let mut spans = Vec::new();
     if app.marks.contains(&item.item_ref) {

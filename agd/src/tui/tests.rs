@@ -999,6 +999,50 @@ fn cancel_uses_the_last_done_keyword_of_the_files_workflow() {
     });
 }
 
+const FIVE_OVERDUE: &str = "* TODO Sched old\nSCHEDULED: <2026-10-01 Thu>\n\
+* TODO Sched older\nSCHEDULED: <2026-09-20 Sun>\n\
+* TODO Sched recent\nSCHEDULED: <2026-10-10 Sat>\n\
+* TODO Missed filing\nDEADLINE: <2026-10-12 Mon>\n\
+* TODO Missed renewal\nDEADLINE: <2026-10-08 Thu>\n";
+
+#[test]
+#[serial]
+fn today_folds_overdue_behind_a_more_row_with_missed_deadlines_first() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, FIVE_OVERDUE).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let titles: Vec<&str> = app.rows.iter().map(|row| row.item.title.as_str()).collect();
+        assert_eq!(
+            titles[..3],
+            ["Missed renewal", "Missed filing", "Sched older"]
+        );
+        assert_eq!(app.rows[3].more, 2);
+        let screen = render(&mut app, 100, 20).join("\n");
+        assert!(screen.contains("OVERDUE  5"), "{screen}");
+        assert!(screen.contains("+2 more"), "{screen}");
+        assert!(!screen.contains("Sched recent"), "{screen}");
+
+        // On the "+N more" row, change keys have no task to act on.
+        app.selected = 3;
+        let _refused = super::keys::dispatch(
+            &mut app,
+            crossterm::event::KeyEvent::from(KeyCode::Char('x')),
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), FIVE_OVERDUE);
+
+        press(&mut app, KeyCode::Enter);
+        assert!(matches!(app.overlay, Overlay::None));
+        assert_eq!(app.rows.len(), 5);
+        assert!(app.rows.iter().all(|row| row.more == 0));
+        let screen = render(&mut app, 100, 20).join("\n");
+        assert!(screen.contains("OVERDUE  5"), "{screen}");
+        assert!(screen.contains("Sched recent"), "{screen}");
+    });
+}
+
 #[test]
 #[serial]
 fn an_empty_no_color_keeps_colour() {

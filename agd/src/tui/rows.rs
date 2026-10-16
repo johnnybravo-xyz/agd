@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use agd_core::{
     AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalRecord, JournalStatus,
-    OccurrenceType, WorkspaceIndex, WriteEngine,
+    Occurrence, OccurrenceType, WorkspaceIndex, WriteEngine,
 };
 use anyhow::Result;
 use chrono::{Datelike, Duration, NaiveDate};
@@ -58,11 +58,26 @@ impl App {
         self.rows.clear();
         self.selected = 0;
         self.marks.clear();
+        self.overdue_expanded = false;
         self.reload_rows()
     }
 
+    /// The task under the cursor; None on Today's "+N more" row, so no key
+    /// acts on a task it hides.
     pub(super) fn selected_row(&self) -> Option<&DisplayRow> {
-        self.rows.get(self.selected)
+        self.rows.get(self.selected).filter(|row| row.more == 0)
+    }
+
+    /// ⏎ on Today's "+N more" row shows every overdue row; returns false
+    /// when the cursor is on a task.
+    pub(super) fn expand_overdue(&mut self) -> Result<bool> {
+        let on_more_row = self.rows.get(self.selected).is_some_and(|row| row.more > 0);
+        if !on_more_row {
+            return Ok(false);
+        }
+        self.overdue_expanded = true;
+        self.reload_rows()?;
+        Ok(true)
     }
 
     pub(super) fn row_count(&self) -> usize {
@@ -157,11 +172,18 @@ impl App {
                 headers.extend(day_labels(self.day, self.day));
                 self.day_rows(&engine)?
             }
+            // Filtered before OVERDUE folds, so "+N more" counts what the
+            // filters let through.
             Screen::Today => today_rows(
-                engine.agenda(&self.query(self.day, self.day))?,
+                engine
+                    .agenda(&self.query(self.day, self.day))?
+                    .into_iter()
+                    .filter(|entry| self.visible(&entry.item))
+                    .collect(),
                 &engine.todo(None, self.today)?,
                 &inbox,
                 &self.index,
+                self.overdue_expanded,
             ),
             Screen::Week => {
                 let (from, to) = AgendaSpan::Week.bounds(self.day, &self.settings.week_start);
@@ -174,6 +196,7 @@ impl App {
                     section: INBOX.to_string(),
                     item,
                     occurrence: None,
+                    more: 0,
                 })
                 .collect(),
             Screen::View(key) => {
@@ -196,11 +219,13 @@ impl App {
                                     section: group.name.clone(),
                                     item: entry.item,
                                     occurrence: Some(entry.occurrence),
+                                    more: 0,
                                 }));
                                 rows.extend(group.items.into_iter().map(|item| DisplayRow {
                                     section: group.name.clone(),
                                     item,
                                     occurrence: None,
+                                    more: 0,
                                 }));
                             }
                             continue;
@@ -227,6 +252,7 @@ impl App {
                             section: section.header.clone(),
                             item,
                             occurrence: None,
+                            more: 0,
                         }));
                     }
                 }
@@ -287,12 +313,14 @@ impl App {
 }
 
 /// Today's sections in the order you act on them. OVERDUE shows only the
-/// first few; DOING lists in-progress TODOs without a date today.
+/// first few unless expanded; DOING lists in-progress TODOs without a date
+/// today.
 fn today_rows(
     entries: Vec<AgendaEntry>,
     todos: &[Item],
     inbox: &[Item],
     index: &WorkspaceIndex,
+    overdue_expanded: bool,
 ) -> Vec<DisplayRow> {
     let mut sections: [(&str, Vec<DisplayRow>); 5] = [
         (OVERDUE, Vec::new()),
@@ -318,9 +346,11 @@ fn today_rows(
             section: sections[slot].0.to_string(),
             item: entry.item,
             occurrence: Some(entry.occurrence),
+            more: 0,
         });
     }
-    sections[0].1.truncate(OVERDUE_ON_TODAY);
+    let overdue = std::mem::take(&mut sections[0].1);
+    sections[0].1 = collapse_overdue(overdue, overdue_expanded);
     for item in todos {
         if !shown.contains(&item.item_ref) && is_in_progress(item, index) {
             shown.insert(item.item_ref.clone());
@@ -328,6 +358,7 @@ fn today_rows(
                 section: DOING.to_string(),
                 item: item.clone(),
                 occurrence: None,
+                more: 0,
             });
         }
     }
@@ -337,10 +368,46 @@ fn today_rows(
                 section: INBOX.to_string(),
                 item: item.clone(),
                 occurrence: None,
+                more: 0,
             });
         }
     }
     sections.into_iter().flat_map(|(_, rows)| rows).collect()
+}
+
+/// Missed deadlines before old scheduled items, most days late first;
+/// unless expanded, the first few and a "+N more" row standing for the
+/// rest. One hidden row is simply shown.
+fn collapse_overdue(mut rows: Vec<DisplayRow>, expanded: bool) -> Vec<DisplayRow> {
+    rows.sort_by_key(|row| {
+        let occurrence = row.occurrence.as_ref();
+        let scheduled =
+            occurrence.is_some_and(|occurrence| occurrence.kind == OccurrenceType::PastScheduled);
+        (
+            scheduled,
+            std::cmp::Reverse(occurrence.map_or(0, days_late)),
+        )
+    });
+    if expanded || rows.len() <= OVERDUE_ON_TODAY + 1 {
+        return rows;
+    }
+    let hidden = rows.len() - OVERDUE_ON_TODAY;
+    rows.truncate(OVERDUE_ON_TODAY + 1);
+    if let Some(more) = rows.last_mut() {
+        more.more = hidden;
+    }
+    rows
+}
+
+/// Days late from org's `Sched.12x:` or `3 d. ago:` leader.
+fn days_late(occurrence: &Occurrence) -> i64 {
+    occurrence
+        .extra
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .unwrap_or(0)
 }
 
 /// The pane: today's dated rows, timed ones by clock time, then untimed,
@@ -353,6 +420,7 @@ fn pane_rows(entries: Vec<AgendaEntry>) -> Vec<DisplayRow> {
             section: SCHEDULE.to_string(),
             item: entry.item,
             occurrence: Some(entry.occurrence),
+            more: 0,
         })
         .collect();
     rows.sort_by_key(|row| {
@@ -455,6 +523,7 @@ fn day_grouped(entries: Vec<AgendaEntry>) -> Vec<DisplayRow> {
                 section,
                 item: entry.item,
                 occurrence: Some(entry.occurrence),
+                more: 0,
             }
         })
         .collect()
@@ -471,6 +540,7 @@ fn triage_rows(entries: Vec<AgendaEntry>, inbox: Vec<Item>) -> Vec<DisplayRow> {
             section: OVERDUE.to_string(),
             item: entry.item,
             occurrence: Some(entry.occurrence),
+            more: 0,
         })
         .collect();
     rows.extend(
@@ -481,6 +551,7 @@ fn triage_rows(entries: Vec<AgendaEntry>, inbox: Vec<Item>) -> Vec<DisplayRow> {
                 section: INBOX.to_string(),
                 item,
                 occurrence: None,
+                more: 0,
             }),
     );
     rows
