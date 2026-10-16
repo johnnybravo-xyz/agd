@@ -757,6 +757,10 @@ fn prompt_text(app: &App, kind: PromptKind) -> (&'static str, String) {
         PromptKind::Priority => ("Priority", format!("{highest} to {lowest}; empty clears")),
         PromptKind::Tags => ("Tags", "+tag adds · -tag removes".to_string()),
         PromptKind::Filter => ("Filter", "text or tag; empty clears".to_string()),
+        PromptKind::Note => (
+            "Note",
+            "one line, logged with the change; empty logs it alone".to_string(),
+        ),
     }
 }
 
@@ -774,6 +778,8 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
     };
     let title = if prompt.kind == PromptKind::Filter || target.is_empty() {
         title.to_string()
+    } else if prompt.kind == PromptKind::Note {
+        format!("{title} for {} · {target}", prompt.state)
     } else {
         format!("{title} · {target}")
     };

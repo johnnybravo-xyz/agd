@@ -1411,6 +1411,35 @@ fn who_captured_an_inbox_item_survives_lines_added_above_it() {
 
 #[test]
 #[serial]
+fn a_state_that_logs_a_note_asks_for_it_before_writing() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        let original =
+            "#+TODO: TODO WAIT(w@/!) | DONE\n* TODO Vendor contract\nSCHEDULED: <2026-10-13 Tue>\n";
+        fs::write(&path, original).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('t'));
+        assert!(matches!(app.overlay, Overlay::Prompt(_)));
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+
+        type_keys(&mut app, "waiting on legal");
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("Note for WAIT"), "{screen}");
+        assert!(screen.contains("waiting on legal"), "{screen}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+
+        press(&mut app, KeyCode::Enter);
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains("* WAIT Vendor contract"), "{written}");
+        assert!(written.contains("- State \"WAIT\""), "{written}");
+        assert!(written.contains("  waiting on legal\n"), "{written}");
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {

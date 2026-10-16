@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use agd_core::{
-    AgdError, Change, EditIntent, JournalStatus, PlanningTimestamp, WriteEngine, parse_date_input,
+    AgdError, Change, EditIntent, JournalStatus, LogKind, PlanningTimestamp, WriteEngine,
+    parse_date_input,
 };
 use anyhow::{Result, bail};
 use chrono::{Datelike, Duration, NaiveDate};
@@ -24,6 +25,8 @@ pub(super) const OTHER: usize = 6;
 pub(super) struct Prompt {
     pub kind: PromptKind,
     pub input: String,
+    /// For a Note prompt, the TODO state the note goes with.
+    pub state: String,
     /// The changed lines Enter would write (and a count for marked rows),
     /// or why it would write nothing, as a sentence.
     pub preview: Result<Vec<String>, String>,
@@ -36,8 +39,17 @@ impl Prompt {
         Self {
             kind,
             input,
+            state: String::new(),
             preview: Ok(Vec::new()),
             stale: true,
+        }
+    }
+
+    /// The note for a change to `state`, asked before anything is written.
+    fn note(state: &str) -> Self {
+        Self {
+            state: state.to_string(),
+            ..Self::new(PromptKind::Note, String::new())
         }
     }
 }
@@ -60,7 +72,7 @@ pub(super) fn refresh_stale_prompt(app: &mut App) {
     if !prompt.stale {
         return;
     }
-    let preview = app.prompt_preview(prompt.kind, &prompt.input);
+    let preview = app.prompt_preview(prompt);
     if let Overlay::Prompt(prompt) = &mut app.overlay {
         prompt.preview = preview;
         prompt.stale = false;
@@ -183,11 +195,28 @@ impl App {
         self.reload_rows()
     }
 
-    /// Sets one TODO state on every target. The status names the change
-    /// from the target's own state, which with marks is not the cursor row's.
+    /// Sets one TODO state on every target. When the file's workflow logs
+    /// the change with a note (`WAIT(w@)`), the note is asked for first, as
+    /// Org does, and nothing is written until it is given.
     pub(super) fn set_state(&mut self, state: &str) -> Result<()> {
+        if self
+            .targets()
+            .iter()
+            .any(|target| self.wants_note(target, state))
+        {
+            self.overlay = Overlay::Prompt(Prompt::note(state));
+            return Ok(());
+        }
+        let edit = self.state_edit(state, None);
+        self.apply(edit)
+    }
+
+    /// The state change, with the note when one was asked for. The status
+    /// names the change from the target's own state, which with marks is
+    /// not the cursor row's.
+    fn state_edit(&self, state: &str, note: Option<String>) -> PromptEdit {
         let targets = self.targets();
-        let change = match targets.as_slice() {
+        let label = match targets.as_slice() {
             [only] => {
                 let from = self
                     .index
@@ -204,14 +233,51 @@ impl App {
         } else {
             OTHER
         };
-        self.edit_targets(
-            EditIntent {
+        PromptEdit {
+            intent: EditIntent {
                 state: Change::Set(state.to_string()),
+                note,
                 ..EditIntent::default()
             },
             outcome,
-            &change,
-        )
+            label,
+            unchanged: format!("already {state}"),
+        }
+    }
+
+    /// Whether Org would ask for a note when `state` is set on `target`:
+    /// the new keyword's `@`, else the old one's `@` on leaving it; with no
+    /// keyword marker, `lognotedone` for done states (`lognoterepeat` when
+    /// the task repeats). The core writes the note into that log entry.
+    fn wants_note(&self, target: &str, state: &str) -> bool {
+        let Ok((document, headline)) = self.index.resolve(target) else {
+            return false;
+        };
+        let current = headline.item.todo.as_deref();
+        if current == Some(state) {
+            return false;
+        }
+        let keyword = document.todo_keyword(state);
+        let marker = keyword.and_then(|keyword| keyword.log_enter).or_else(|| {
+            current
+                .and_then(|current| document.todo_keyword(current))
+                .and_then(|keyword| keyword.log_leave)
+        });
+        let planning = &headline.item.planning;
+        let repeats = [&planning.scheduled, &planning.deadline]
+            .into_iter()
+            .flatten()
+            .any(|timestamp| timestamp.repeater.is_some());
+        let done = keyword.is_some_and(|keyword| keyword.done);
+        let logging = document.logging();
+        let kind = if done && repeats {
+            logging.repeat
+        } else if marker.is_some() || !done {
+            marker
+        } else {
+            logging.done
+        };
+        kind == Some(LogKind::Note)
     }
 
     /// `x`: the first done keyword of the item's own sequence.
@@ -418,15 +484,20 @@ impl App {
 
     /// The edit a prompt's text asks for; None while there is nothing to
     /// write (no date or tag typed yet, or the filter).
-    fn prompt_edit(&self, kind: PromptKind, input: &str) -> Result<Option<PromptEdit>, String> {
-        let input = input.trim();
-        match kind {
+    fn prompt_edit(&self, prompt: &Prompt) -> Result<Option<PromptEdit>, String> {
+        let input = prompt.input.trim();
+        match prompt.kind {
             PromptKind::Filter => Ok(None),
             PromptKind::Schedule | PromptKind::Deadline if input.is_empty() => Ok(None),
             PromptKind::Schedule => self.schedule_edit(input).map(Some),
             PromptKind::Deadline => deadline_edit(input, self.today).map(Some),
             PromptKind::Priority => self.priority_edit(input).map(Some),
             PromptKind::Tags => Ok(tags_edit(input)),
+            // An empty note logs the change without one, as Org does.
+            PromptKind::Note => {
+                let note = (!input.is_empty()).then(|| input.to_string());
+                Ok(Some(self.state_edit(&prompt.state, note)))
+            }
         }
     }
 
@@ -498,12 +569,8 @@ impl App {
     }
 
     /// The preview a prompt shows: what Enter would write, or why not.
-    pub(super) fn prompt_preview(
-        &self,
-        kind: PromptKind,
-        input: &str,
-    ) -> Result<Vec<String>, String> {
-        match self.prompt_edit(kind, input)? {
+    pub(super) fn prompt_preview(&self, prompt: &Prompt) -> Result<Vec<String>, String> {
+        match self.prompt_edit(prompt)? {
             Some(edit) => self.dry_run(&edit),
             None => Ok(Vec::new()),
         }
@@ -515,13 +582,12 @@ impl App {
         let Overlay::Prompt(prompt) = &self.overlay else {
             return Ok(());
         };
-        let (kind, input) = (prompt.kind, prompt.input.trim().to_string());
-        if kind == PromptKind::Filter {
+        if prompt.kind == PromptKind::Filter {
+            self.filter = prompt.input.trim().to_string();
             self.overlay = Overlay::None;
-            self.filter = input;
             return self.reload_rows();
         }
-        let checked = self.prompt_edit(kind, &input).and_then(|edit| match edit {
+        let checked = self.prompt_edit(prompt).and_then(|edit| match edit {
             Some(edit) => self.dry_run(&edit).map(|_| Some(edit)),
             None => Ok(None),
         });

@@ -62,6 +62,8 @@ enum PromptKind {
     Priority,
     Tags,
     Filter,
+    /// The note Org asks for when a state change is logged with `@`.
+    Note,
 }
 
 #[derive(Debug)]
