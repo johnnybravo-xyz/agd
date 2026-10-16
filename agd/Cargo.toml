@@ -45,6 +45,9 @@ documentation.workspace = true
 repository.workspace = true
 keywords = ["org-mode", "agenda", "productivity", "cli", "knowledge-management"]
 categories = ["command-line-utilities"]
+# The binary embeds only the plugin's skill (`agd setup install`); the rest
+# of the Claude Code plugin ships through its marketplace, not this crate.
+exclude = ["claude-plugin/*", "!claude-plugin/skills/"]
 
 [[bin]]
 name = "agd"
