@@ -724,7 +724,7 @@ fn lead_style(theme: &Theme, kind: OccurrenceType, extra: &str) -> Style {
 
 /// Done keywords green, the first keyword of a sequence amber, middle
 /// states (NEXT, WAIT, …) in accent.
-fn keyword_style(app: &App, row: &DisplayRow) -> Style {
+pub(super) fn keyword_style(app: &App, row: &DisplayRow) -> Style {
     let name = keyword_color(&app.index, &row.item);
     let color = app.theme.named(&name);
     // Done keywords and a sequence's first keyword (TODO) are not bold.

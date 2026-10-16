@@ -1981,6 +1981,44 @@ fn sectioned_rows_line_titles_up_after_the_widest_keyword() {
 
 #[test]
 #[serial]
+fn a_triage_card_shows_only_the_facts_it_has_and_earns_its_nudge() {
+    with_home(|root| {
+        let logged = "- Rescheduled from \"[2026-09-20 Sun]\" on [2026-09-21 Mon]\n".repeat(3);
+        fs::write(
+            root.join("work.org"),
+            format!(
+                "* TODO Migrate cron jobs\nSCHEDULED: <2026-10-01 Thu>\n:LOGBOOK:\n{logged}:END:\n"
+            ),
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, crossterm::event::KeyCode::Char('T'));
+        let screen = render(&mut app, 100, 30);
+        let text = screen.join("\n");
+        // The counter ends the gauge's own row.
+        let gauge = screen
+            .iter()
+            .find(|line| line.contains('━') || line.contains('─') && line.contains(" / "))
+            .unwrap_or_else(|| panic!("{text}"));
+        assert!(gauge.trim_end().ends_with("1 / 1"), "{text}");
+        assert!(text.contains("Overdue · 12d"), "{text}");
+        assert!(text.contains("scheduled Thu 1 Oct"), "{text}");
+        assert!(text.contains("rescheduled 3x"), "{text}");
+        assert!(!text.contains("no deadline"), "{text}");
+        assert!(text.contains("↳ Someday?  S"), "{text}");
+        // One blank row between the card and its keys.
+        let bottom = screen
+            .iter()
+            .position(|line| line.contains('╰'))
+            .unwrap_or_else(|| panic!("{text}"));
+        assert!(screen[bottom + 1].trim().is_empty(), "{text}");
+        assert!(screen[bottom + 2].contains(".  today"), "{text}");
+    });
+}
+
+#[test]
+#[serial]
 fn every_agent_card_has_the_same_two_line_shape() {
     use crossterm::event::KeyCode;
     with_home(|root| {
