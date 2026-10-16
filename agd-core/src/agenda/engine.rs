@@ -230,7 +230,7 @@ impl<'a> AgendaEngine<'a> {
             let warning_days = deadline
                 .warning
                 .as_deref()
-                .and_then(parse_day_interval)
+                .and_then(warning_days)
                 .unwrap_or(settings.deadline_warning_days)
                 .max(0);
             if !item.done && today >= from && today <= to {
@@ -351,10 +351,22 @@ fn entry(
     }
 }
 
-fn parse_day_interval(input: &str) -> Option<i64> {
-    let value = input.strip_prefix('-')?;
-    let days = value.strip_suffix('d')?;
-    days.parse().ok()
+/// A deadline's warning period in days, as org-get-wdays reads `-3d`,
+/// `-1w`, `-1m`, `-1y` or `-48h`: the count times the unit's days (a month
+/// is 30.4, a year 365.25, an hour 0.041667), rounded down.
+fn warning_days(warning: &str) -> Option<i64> {
+    let value = warning.trim_start_matches('-');
+    let unit = value.chars().last()?;
+    let factor = match unit {
+        'h' => 0.041667,
+        'd' => 1.0,
+        'w' => 7.0,
+        'm' => 30.4,
+        'y' => 365.25,
+        _ => return None,
+    };
+    let count: u32 = value[..value.len() - 1].parse().ok()?;
+    Some((f64::from(count) * factor).floor() as i64)
 }
 
 pub(super) fn parse_date(input: &str) -> Result<NaiveDate, AgdError> {
