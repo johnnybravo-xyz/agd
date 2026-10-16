@@ -267,6 +267,7 @@ impl WriteEngine {
     ) -> Result<(PreparedFile, Item), AgdError> {
         let (document, headline) = index.resolve(item_ref)?;
         let path = document.path().to_path_buf();
+        validate_intent_for_file(intent, document)?;
         let patches = build_edit_patches(document, headline, intent, &self.settings, now)?;
         let (post_image, stored) = apply_patches(document.source(), patches)?;
         if post_image == document.source() {
@@ -300,6 +301,7 @@ impl WriteEngine {
                 )
             })?;
         let (template, draft) = apply_agent_capture_gate(template, draft, &self.settings, context);
+        validate_capture_input(&draft, body, prompts)?;
         let template = with_template_file_text(template)?;
         let input = CaptureInput {
             template: &template,
@@ -370,6 +372,7 @@ impl WriteEngine {
         input: &CaptureInput<'_>,
     ) -> Result<PreparedCapture, AgdError> {
         let pre_image = read_org_file(path)?;
+        validate_capture_for_file(input.draft, &parse_text(path, &pre_image, &self.settings)?)?;
         let rendered = render_capture_template(
             input.template,
             input.draft,
@@ -1510,53 +1513,175 @@ fn sequence_head(document: &IndexedDocument, state: Option<&str>) -> Option<Stri
         .map(|keyword| keyword.name.clone())
 }
 
+/// The edit's fields that need no file: a title, tags and properties
+/// that write back as exactly one heading with those fields.
 fn validate_intent(intent: &EditIntent) -> Result<(), AgdError> {
     if intent == &EditIntent::default() {
         return Err(AgdError::new("invalid_edit", "nothing to edit"));
     }
-    if let Change::Set(title) = &intent.title
-        && (title.trim().is_empty() || title.contains(['\n', '\r']))
-    {
+    if let Change::Set(title) = &intent.title {
+        validate_title_text(title)?;
+    }
+    for tag in intent.tags_add.iter().chain(&intent.tags_remove) {
+        validate_tag(tag)?;
+    }
+    for (key, value) in &intent.properties {
+        validate_property(key, value.as_deref())?;
+    }
+    Ok(())
+}
+
+/// The edit's fields checked against the item's file: a title must not
+/// start with one of its TODO keywords, a priority must be in its range.
+fn validate_intent_for_file(
+    intent: &EditIntent,
+    document: &IndexedDocument,
+) -> Result<(), AgdError> {
+    if let Change::Set(title) = &intent.title {
+        validate_title_keyword(title, document)?;
+    }
+    if let Change::Set(priority) = &intent.priority {
+        validate_priority(priority, document)?;
+    }
+    Ok(())
+}
+
+/// A capture's fields that need no file, checked before anything is read.
+fn validate_capture_input(
+    draft: &CaptureDraft,
+    body: &str,
+    prompts: &BTreeMap<String, String>,
+) -> Result<(), AgdError> {
+    validate_title_text(&draft.title)?;
+    for tag in &draft.tags {
+        validate_tag(tag)?;
+    }
+    for (key, value) in &draft.properties {
+        validate_property(key, Some(value))?;
+    }
+    for (name, answer) in prompts {
+        if answer.contains(['\n', '\r']) {
+            return Err(AgdError::new(
+                ErrorCode::InvalidPrompt,
+                format!("the answer to prompt '{name}' must be one line"),
+            ));
+        }
+    }
+    validate_body(body)
+}
+
+/// A capture's fields checked against the target file (or, for a new
+/// file, the configuration).
+fn validate_capture_for_file(
+    draft: &CaptureDraft,
+    document: &IndexedDocument,
+) -> Result<(), AgdError> {
+    validate_title_keyword(&draft.title, document)?;
+    if let Some(priority) = &draft.priority {
+        validate_priority(priority, document)?;
+    }
+    Ok(())
+}
+
+/// One non-empty line that the parser reads back as the whole title: no
+/// leading priority cookie and no trailing tag group.
+fn validate_title_text(title: &str) -> Result<(), AgdError> {
+    if title.trim().is_empty() || title.contains(['\n', '\r']) {
         return Err(AgdError::new(
-            "invalid_title",
+            ErrorCode::InvalidTitle,
             "title must be one non-empty line",
         ));
     }
-    if let Change::Set(priority) = &intent.priority
-        && (priority.len() != 1 || !priority.bytes().all(|byte| byte.is_ascii_alphanumeric()))
-    {
+    if let Some(cookie) = crate::document::leading_priority_cookie(title.trim_start()) {
         return Err(AgdError::new(
-            "invalid_priority",
-            "priority must be one alphanumeric character",
+            ErrorCode::InvalidTitle,
+            format!("title starts with the priority cookie {cookie}; set the priority instead"),
         ));
     }
-    for tag in intent.tags_add.iter().chain(&intent.tags_remove) {
-        if tag.is_empty()
-            || !tag
-                .chars()
-                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
-        {
-            return Err(AgdError::new("invalid_tag", format!("invalid tag: {tag}")));
-        }
+    if let Some((_, tags)) = crate::document::split_trailing_tags(title) {
+        return Err(AgdError::new(
+            ErrorCode::InvalidTitle,
+            format!("title ends with the tag group {tags}; give tags separately"),
+        ));
     }
-    for (key, value) in &intent.properties {
-        if key.is_empty()
-            || !key
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-        {
+    Ok(())
+}
+
+/// A title starting with one of the file's TODO keywords would be read
+/// back as that state.
+fn validate_title_keyword(title: &str, document: &IndexedDocument) -> Result<(), AgdError> {
+    let first = title.split_whitespace().next().unwrap_or_default();
+    if document.todo_keyword(first).is_some() {
+        return Err(AgdError::new(
+            ErrorCode::InvalidTitle,
+            format!("title starts with the TODO keyword {first}; set the state instead"),
+        ));
+    }
+    Ok(())
+}
+
+/// Org's tag characters: letters, digits, `_`, `@`, `#` and `%`.
+fn validate_tag(tag: &str) -> Result<(), AgdError> {
+    if tag.is_empty()
+        || !tag
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
+    {
+        return Err(AgdError::new(
+            ErrorCode::InvalidTag,
+            format!("invalid tag '{tag}': use letters, digits, _, @, # or %"),
+        ));
+    }
+    Ok(())
+}
+
+/// One cookie character within the file's `#+PRIORITIES` range (else the
+/// configured one).
+fn validate_priority(priority: &str, document: &IndexedDocument) -> Result<(), AgdError> {
+    let range = document.priorities();
+    if !range.contains(priority) {
+        return Err(AgdError::new(
+            ErrorCode::InvalidPriority,
+            format!(
+                "priority '{priority}' is outside the range {} of {}",
+                range.describe(),
+                document.path().display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// A property key of `[A-Za-z0-9_-]` and a one-line value.
+fn validate_property(key: &str, value: Option<&str>) -> Result<(), AgdError> {
+    if key.is_empty()
+        || !key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return Err(AgdError::new(
+            ErrorCode::InvalidProperty,
+            format!("invalid property key '{key}': use letters, digits, _ or -"),
+        ));
+    }
+    if value.is_some_and(|value| value.contains(['\n', '\r'])) {
+        return Err(AgdError::new(
+            ErrorCode::InvalidProperty,
+            format!("property {key} must be one line"),
+        ));
+    }
+    Ok(())
+}
+
+/// A body line that would start a heading (`*` then a space) would split
+/// the entry in two.
+fn validate_body(body: &str) -> Result<(), AgdError> {
+    for (index, line) in body.lines().enumerate() {
+        let stars = line.bytes().take_while(|byte| *byte == b'*').count();
+        if stars > 0 && line[stars..].starts_with(char::is_whitespace) {
             return Err(AgdError::new(
-                "invalid_property",
-                format!("invalid property key: {key}"),
-            ));
-        }
-        if value
-            .as_ref()
-            .is_some_and(|value| value.contains(['\n', '\r']))
-        {
-            return Err(AgdError::new(
-                "invalid_property",
-                format!("property {key} must be one line"),
+                ErrorCode::InvalidBody,
+                format!("body line {} would start a heading: {line}", index + 1),
             ));
         }
     }
@@ -3146,6 +3271,186 @@ mod tests {
             written,
             format!("* TODO Renew{}:admin:\n", " ".repeat(30 - 12 - 7))
         );
+    }
+
+    #[test]
+    fn capture_refuses_fields_that_would_write_other_org_syntax() {
+        let temp = tempfile::tempdir().unwrap();
+        let inbox = temp.path().join("inbox.org");
+        let original = "#+PRIORITIES: A E C\n* Inbox\n";
+        fs::write(&inbox, original).unwrap();
+        let mut settings = settings(temp.path());
+        settings.captures[0].file = Some("inbox.org".to_string());
+        settings.captures[0].template = "* TODO %?\n%^{Where}".to_string();
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let answer = BTreeMap::from([("Where".to_string(), "desk".to_string())]);
+        let capture = |draft: CaptureDraft, body: &str, prompts: &BTreeMap<String, String>| {
+            engine
+                .capture("t", &draft, body, prompts, false, &context())
+                .map(|_| ())
+                .map_err(|error| (error.code().to_string(), error.to_string()))
+        };
+        let titled = |title: &str| CaptureDraft {
+            title: title.to_string(),
+            ..CaptureDraft::default()
+        };
+        let refusals = [
+            (
+                titled("Innocent\n* DONE Injected\n:PROPERTIES:\n:ID: abc-123\n:END:"),
+                "",
+                answer.clone(),
+                "invalid_title",
+            ),
+            (titled("DONE sneaky"), "", answer.clone(), "invalid_title"),
+            (
+                titled("[#A] Cookie first"),
+                "",
+                answer.clone(),
+                "invalid_title",
+            ),
+            (titled("Tagged :a:b:"), "", answer.clone(), "invalid_title"),
+            (
+                CaptureDraft {
+                    tags: vec!["bad tag".to_string()],
+                    ..titled("Task")
+                },
+                "",
+                answer.clone(),
+                "invalid_tag",
+            ),
+            (
+                CaptureDraft {
+                    priority: Some("F".to_string()),
+                    ..titled("Task")
+                },
+                "",
+                answer.clone(),
+                "invalid_priority",
+            ),
+            (
+                CaptureDraft {
+                    properties: BTreeMap::from([("X\n#+TODO".to_string(), "y".to_string())]),
+                    ..titled("Task")
+                },
+                "",
+                answer.clone(),
+                "invalid_property",
+            ),
+            (
+                CaptureDraft {
+                    properties: BTreeMap::from([("SOURCE".to_string(), "a\nb".to_string())]),
+                    ..titled("Task")
+                },
+                "",
+                answer.clone(),
+                "invalid_property",
+            ),
+            (
+                titled("Task"),
+                "fine\n* DONE Injected",
+                answer.clone(),
+                "invalid_body",
+            ),
+            (
+                titled("Task"),
+                "",
+                BTreeMap::from([("Where".to_string(), "desk\n* DONE x".to_string())]),
+                "invalid_prompt",
+            ),
+        ];
+        for (draft, body, prompts, code) in refusals {
+            let (actual, message) = capture(draft.clone(), body, &prompts).unwrap_err();
+            assert_eq!(actual, code, "{draft:?} {body:?}: {message}");
+        }
+        let (_, message) = capture(
+            CaptureDraft {
+                priority: Some("F".to_string()),
+                ..titled("Task")
+            },
+            "",
+            &answer,
+        )
+        .unwrap_err();
+        assert!(message.contains("A–E"), "{message}");
+        let (_, message) = capture(titled("Task"), "fine\n* DONE Injected", &answer).unwrap_err();
+        assert!(message.contains("line 2"), "{message}");
+        assert_eq!(fs::read_to_string(&inbox).unwrap(), original);
+        assert!(engine.journal().unwrap().is_empty());
+
+        // The file's own range admits E.
+        capture(
+            CaptureDraft {
+                priority: Some("E".to_string()),
+                ..titled("Low but fine")
+            },
+            "",
+            &answer,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn edit_refuses_titles_tags_priorities_and_properties_that_would_change_the_syntax() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("tasks.org");
+        let original = "* TODO Task\n";
+        fs::write(&path, original).unwrap();
+        let settings = settings(temp.path());
+        let item_ref = WorkspaceIndex::load(settings.clone())
+            .unwrap()
+            .items()
+            .next()
+            .unwrap()
+            .item_ref
+            .clone();
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let refusals = [
+            (
+                EditIntent {
+                    title: Change::Set("DONE sneaky :x:".to_string()),
+                    ..EditIntent::default()
+                },
+                "invalid_title",
+            ),
+            (
+                EditIntent {
+                    title: Change::Set("NEXT step".to_string()),
+                    ..EditIntent::default()
+                },
+                "invalid_title",
+            ),
+            (
+                EditIntent {
+                    priority: Change::Set("D".to_string()),
+                    ..EditIntent::default()
+                },
+                "invalid_priority",
+            ),
+            (
+                EditIntent {
+                    tags_add: BTreeSet::from(["a:b".to_string()]),
+                    ..EditIntent::default()
+                },
+                "invalid_tag",
+            ),
+            (
+                EditIntent {
+                    properties: BTreeMap::from([("A B".to_string(), Some("x".to_string()))]),
+                    ..EditIntent::default()
+                },
+                "invalid_property",
+            ),
+        ];
+        for (intent, code) in refusals {
+            for dry_run in [true, false] {
+                let error = engine
+                    .edit(&item_ref, &intent, dry_run, &context())
+                    .unwrap_err();
+                assert_eq!(error.code(), code, "{intent:?}");
+            }
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        assert!(engine.journal().unwrap().is_empty());
     }
 
     #[test]

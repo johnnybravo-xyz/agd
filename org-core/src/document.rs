@@ -857,6 +857,13 @@ fn scan_headlines(
     Ok(result)
 }
 
+/// The `[#X]` cookie at the start of `text`, as the parser reads a
+/// headline's priority.
+pub(crate) fn leading_priority_cookie(text: &str) -> Option<&str> {
+    let cookie = PRIORITY_RE.captures(text)?.get(0)?.as_str();
+    Some(cookie.trim_end())
+}
+
 /// Splits a headline's trailing tag group (`:a:b:`) off as the parser reads
 /// it: the text before it, trailing blanks removed, and the group.
 pub(crate) fn split_trailing_tags(line: &str) -> Option<(&str, &str)> {

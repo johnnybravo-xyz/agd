@@ -98,12 +98,31 @@ pub struct ErrorResponse {
 pub enum ErrorCode {
     /// A write met an interrupted earlier write whose file changed since.
     JournalConflict,
+    /// A title that is not one line, or that the parser would read as a
+    /// TODO keyword, priority cookie or tags.
+    InvalidTitle,
+    /// A tag with characters outside Org's tag characters.
+    InvalidTag,
+    /// A priority outside the file's range.
+    InvalidPriority,
+    /// A property key outside `[A-Za-z0-9_-]`, or a value of several lines.
+    InvalidProperty,
+    /// A capture prompt answer of several lines.
+    InvalidPrompt,
+    /// A capture body line that would start a heading.
+    InvalidBody,
 }
 
 impl ErrorCode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::JournalConflict => "journal_conflict",
+            Self::InvalidTitle => "invalid_title",
+            Self::InvalidTag => "invalid_tag",
+            Self::InvalidPriority => "invalid_priority",
+            Self::InvalidProperty => "invalid_property",
+            Self::InvalidPrompt => "invalid_prompt",
+            Self::InvalidBody => "invalid_body",
         }
     }
 }
