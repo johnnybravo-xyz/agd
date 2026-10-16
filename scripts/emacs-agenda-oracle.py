@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 import argparse
-import csv
 import datetime
-import io
 import pathlib
 import subprocess
 import sys
@@ -10,17 +8,6 @@ import tomllib
 import uuid
 
 IMAGE = "silex/emacs:30.2-alpine@sha256:2dd43b22af2e2592753ad92c3cb78fc580ce5981fc4d8ad1edee60ec92241ae5"
-KINDS = {
-    "tagsmatch",
-    "scheduled",
-    "past-scheduled",
-    "deadline",
-    "upcoming-deadline",
-    "timestamp",
-    "block",
-    "closed",
-    "todo",
-}
 
 
 def docker(*args: str, capture: bool = False) -> str:
@@ -52,6 +39,7 @@ def emacs_rows(case_dir: pathlib.Path, case: dict) -> str:
         "AGD_SKIP_TIMESTAMP_IF_DONE": str(
             case.get("skip_timestamp_if_done", False)
         ).lower(),
+        "AGD_LOG": str(case.get("log", False)).lower(),
     }
     if case.get("sorting_strategy"):
         environment["AGD_SORTING"] = " ".join(case["sorting_strategy"])
@@ -67,29 +55,15 @@ def emacs_rows(case_dir: pathlib.Path, case: dict) -> str:
         docker("cp", str(case_dir) + "/.", f"{name}:/case")
         oracle = pathlib.Path(__file__).resolve().parent.parent / "conformance" / "emacs-agenda-oracle.el"
         docker("cp", str(oracle), f"{name}:/oracle.el")
-        raw = docker("start", "-a", name, capture=True)
+        # Emacs's own rows, byte for byte: agd's --csv must print the same.
+        # Their order is the org-agenda sorting strategy under test.
+        return docker("start", "-a", name, capture=True)
     finally:
         subprocess.run(
             ["docker", "rm", "-f", name],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-
-    rows = []
-    for row in csv.reader(io.StringIO(raw)):
-        if len(row) < 9 or row[2] not in KINDS:
-            continue
-        if len(row) > 10:
-            row[5] = row[10]
-        row[6] = row[6].rstrip(".")
-        if row[2] == "past-scheduled" and row[7] == "Scheduled:":
-            row[2] = "scheduled"
-        rows.append(row[:9])
-    # Keep Emacs row order: it is the org-agenda sorting strategy under test.
-    output = io.StringIO()
-    writer = csv.writer(output, lineterminator="\n")
-    writer.writerows(rows)
-    return output.getvalue()
 
 
 def cases(root: pathlib.Path):

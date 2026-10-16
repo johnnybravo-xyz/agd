@@ -56,7 +56,7 @@ pub struct AgendaCommand {
     /// agd.agenda-entry/v1 objects
     #[arg(long, conflicts_with_all = ["csv", "brief"])]
     json: bool,
-    /// The same columns as Emacs org-batch-agenda-csv
+    /// Emacs org-batch-agenda-csv rows: the same eleven columns and values
     #[arg(long, conflicts_with = "brief")]
     csv: bool,
 }
@@ -119,11 +119,15 @@ impl AgendaCommand {
                 for section in &sections {
                     print!(
                         "{}{}",
-                        agenda_csv(&section.entries),
-                        items_csv(&section.items)
+                        agenda_csv(&section.entries, today, &settings),
+                        items_csv(&section.items, &section.kind, &settings)
                     );
                     for group in &section.groups {
-                        print!("{}{}", agenda_csv(&group.entries), items_csv(&group.items));
+                        print!(
+                            "{}{}",
+                            agenda_csv(&group.entries, today, &settings),
+                            items_csv(&group.items, &section.kind, &settings)
+                        );
                     }
                 }
             } else {
@@ -148,7 +152,7 @@ impl AgendaCommand {
         if self.json {
             println!("{}", serde_json::to_string_pretty(&entries)?);
         } else if self.csv {
-            print!("{}", agenda_csv(&entries));
+            print!("{}", agenda_csv(&entries, today, &settings));
         } else if self.brief {
             for entry in &entries {
                 println!("{} {}", entry.occurrence.date, agenda_title(&entry.item));

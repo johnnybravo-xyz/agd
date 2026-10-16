@@ -1,0 +1,27 @@
+#+TODO: TODO NEXT | DONE
+#+FILETAGS: :file:
+#+CATEGORY: export
+* TODO Range meeting
+SCHEDULED: <2027-01-05 Tue 09:00-10:30>
+* TODO Early range
+SCHEDULED: <2027-01-06 Wed 08:00-09:30>
+* Timestamp range <2027-01-06 Wed 14:00-15:15>
+* DONE Finished
+CLOSED: [2027-01-05 Tue 08:15]
+* DONE Finished untimed
+CLOSED: [2027-01-04 Mon]
+* TODO Due later timed
+DEADLINE: <2027-01-07 Thu 17:00>
+* TODO Weekly :a:
+SCHEDULED: <2027-01-01 Fri +1w>
+** NEXT Child of weekly :b:
+DEADLINE: <2027-01-08 Fri>
+* TODO Middle <2027-01-09 Sat> of title
+* TODO Talk <2027-01-09 Sat> about it
+SCHEDULED: <2027-01-07 Thu>
+* Old deadline repeat
+DEADLINE: <2026-12-01 Tue +1w>
+* TODO Weekly due
+DEADLINE: <2026-12-31 Thu +1w>
+* NEXT [#A] Call bank, about fees
+SCHEDULED: <2027-01-05 Tue 0:10>

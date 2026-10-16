@@ -1,0 +1,18 @@
+export,Finished untimed,closed,DONE,file,2027-01-04,,Closed:,,100000,2027-01-04
+export,Call bank; about fees,scheduled,NEXT,file,2027-01-05,0:10......,Scheduled:,A,2000,2027-01-05
+export,Finished,closed,DONE,file,2027-01-05,8:15......,Closed:,,100000,2027-01-05
+export,Range meeting,scheduled,TODO,file,2027-01-05,9:00-10:30,Scheduled:,,1000,2027-01-05
+export,Weekly,past-scheduled,TODO,file:a,2027-01-01,,Sched. 4x:,,1000,2027-01-05
+export,Old deadline repeat,deadline,,file,2026-12-01,,35 d. ago:,,1000,2027-01-05
+export,Weekly due,deadline,TODO,file,2026-12-31,,5 d. ago:,,1000,2027-01-05
+export,Due later timed,upcoming-deadline,TODO,file,2027-01-05,,In   2 d.:,,1000,2027-01-05
+export,Child of weekly,upcoming-deadline,NEXT,file:a:b,2027-01-05,,In   3 d.:,,1000,2027-01-05
+export,Early range,scheduled,TODO,file,2027-01-06,8:00-9:30,Scheduled:,,1000,2027-01-06
+export,Timestamp range,timestamp,,file,2027-01-06,14:00-15:15,,,1000,2027-01-06
+export,Due later timed,deadline,TODO,file,2027-01-07,17:00......,Deadline:,,1000,2027-01-07
+export,Talk <2027-01-09 Sat> about it,scheduled,TODO,file,2027-01-07,,Scheduled:,,1000,2027-01-07
+export,Weekly due,deadline,TODO,file,2026-12-31,,Deadline:,,1000,2027-01-07
+export,Weekly,past-scheduled,TODO,file:a,2027-01-01,,Scheduled:,,1000,2027-01-08
+export,Child of weekly,deadline,NEXT,file:a:b,2027-01-08,,Deadline:,,1000,2027-01-08
+export,Middle  of title,timestamp,TODO,file,2027-01-09,,,,1000,2027-01-09
+export,Talk  about it,timestamp,TODO,file,2027-01-09,,,,1000,2027-01-09

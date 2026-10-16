@@ -57,6 +57,9 @@ pub struct Occurrence {
     pub kind: OccurrenceType,
     pub date: String,
     pub time: Option<String>,
+    /// The end of a time range such as `10:00-11:30`; null without one.
+    #[serde(default)]
+    pub end_time: Option<String>,
     pub extra: String,
 }
 

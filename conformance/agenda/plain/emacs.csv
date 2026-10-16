@@ -1,2 +1,2 @@
-plain,Scheduled task,scheduled,TODO,work,2026-10-13,10:00,Scheduled:,A
-plain,Due task,deadline,NEXT,,2026-10-13,,Deadline:,
+plain,Scheduled task,scheduled,TODO,work,2026-10-13,10:00......,Scheduled:,A,2000,2026-10-13
+plain,Due task,deadline,NEXT,,2026-10-13,,Deadline:,,1000,2026-10-13

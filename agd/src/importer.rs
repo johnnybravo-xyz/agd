@@ -232,7 +232,7 @@ fn verify_import(
             match_expression: None,
             log_mode: false,
         })
-        .map(|entries| normalize_csv(&agenda_csv(&entries)));
+        .map(|entries| normalize_csv(&agenda_csv(&entries, today, &settings)));
     if editor == "emacs" {
         results.push(compare_rows(
             "a",
@@ -279,7 +279,10 @@ fn verify_import(
             .map(|sections| {
                 let rows: String = sections
                     .iter()
-                    .map(|section| agenda_csv(&section.entries) + &items_csv(&section.items))
+                    .map(|section| {
+                        agenda_csv(&section.entries, today, &settings)
+                            + &items_csv(&section.items, &section.kind, &settings)
+                    })
                     .collect();
                 normalize_csv(&rows)
             });
