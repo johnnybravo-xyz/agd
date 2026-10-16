@@ -27,9 +27,13 @@ function typed(command: string, args = '') {
   return { command, args, origin: { kind: 'composer' as const }, presentation: { isFullscreen: true, columns: 120 } }
 }
 
+// The pane reads the time as 12:00 on Thursday 15 October 2026, local.
+const NOON = new Date(2026, 9, 15, 12, 0).getTime()
+
 // Claude Code's side of opening and closing a pane, which a test supplies,
-// and the person's Claude Code theme as /config lists it.
+// the person's Claude Code theme as /config lists it, and its clock.
 function panes(on: On, claudeTheme = 'dark') {
+  mock.clock(on, { now: NOON })
   on('ui.open', async () => ({ value: { isPlaced: true } }))
   on('ui.close', async () => ({ value: undefined }))
   on('config.list', async () => ({
@@ -204,14 +208,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
     // An empty section has no count and is muted.
     expect((await ui.find(exactly('WAITING')))?.props.color).toBe('#808896')
     // The keyword in its configured color, a link read as its description,
-    // the priority as a rounded chip (nerd_font) and the tags in accent.
+    // the priority as a rounded chip (nerd_font) and the tags muted.
     expect((await ui.find(exactly('NEXT ')))?.props.color).toBe('#6ea8fe')
     expect(await ui.find(exactly('Write the report'))).toBeDefined()
     const chip = await ui.find(exactly('A'))
     expect(chip?.props.color).toBe('#e5b567')
     expect(chip?.props.backgroundColor).toBe('#20252e')
     expect(await ui.find(exactly('\ue0b6'))).toBeDefined()
-    expect((await ui.find(exactly('  #work')))?.props.color).toBe('#6ea8fe')
+    expect((await ui.find(exactly('  #work')))?.props.color).toBe('#808896')
     // A done row: its keyword in dim-red, not bold; its title muted, struck
     // through and without its active timestamp.
     const cancelled = await ui.find(exactly('CANCELLED '))
@@ -302,50 +306,100 @@ for (const [claudeTheme, accent] of [
   })
 }
 
-test('without a start_view the pane shows today\'s agenda with org-agenda leads', async ($, on) => {
+test('the Today tab draws the TUI pane\'s compact rows: lead, title, right mark', async ($, on) => {
+  const entry = (title: string, occurrence: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+    schema: 'agd.agenda-entry/v1',
+    item: item('TODO', title, extra),
+    occurrence: { date: '2026-10-15', time: null, extra: '', ...occurrence },
+  })
   const entries = [
-    {
-      schema: 'agd.agenda-entry/v1',
-      item: item('TODO', 'Call the bank'),
-      occurrence: { type: 'scheduled', date: '2026-10-15', time: '10:00', extra: 'Scheduled:' },
-    },
-    {
-      schema: 'agd.agenda-entry/v1',
-      item: item('TODO', 'File the taxes', { category: 'home' }),
-      occurrence: { type: 'past-scheduled', date: '2026-10-15', time: null, extra: 'Sched. 2x:' },
-    },
-    {
-      schema: 'agd.agenda-entry/v1',
-      item: item('TODO', 'Pay the rent'),
-      occurrence: { type: 'deadline', date: '2026-10-15', time: null, extra: '1 d. ago:' },
-    },
-    {
-      schema: 'agd.agenda-entry/v1',
-      item: item('TODO', 'Renew the lease'),
-      occurrence: { type: 'deadline', date: '2026-10-15', time: null, extra: 'Deadline:' },
-    },
+    entry('Call the bank', { type: 'scheduled', time: '10:00', extra: 'Scheduled:' }),
+    entry('Review the PR', { type: 'scheduled', time: '15:00', extra: 'Scheduled:' }, { priority: 'A' }),
+    entry('Water plants', { type: 'scheduled', extra: 'Scheduled:' }, {
+      planning: { scheduled: { date: '2026-10-15', repeater: '+3d' } },
+    }),
+    entry('Renew the lease', { type: 'deadline', extra: 'Deadline:' }),
+    entry('Quarterly report', { type: 'upcoming-deadline', extra: 'In   3 d.:' }),
+    entry('File the taxes', { type: 'past-scheduled', extra: 'Sched. 2x:' }),
+    entry('Pay the rent', { type: 'deadline', extra: '1 d. ago:' }),
+    entry('Stand-up', { type: 'scheduled', time: '09:00', extra: 'Scheduled:' }, { todo: 'DONE', done: true }),
   ]
   panes(on)
   agd(on, {
-    'agenda --status': { stdout: '1 today · 0 inbox\n' },
+    'agenda --status': { stdout: '' },
     'agenda --views --json': { stdout: viewsJson([{ key: 'n', desc: 'Next', start: false }]) },
     'agenda --span day --json': { stdout: JSON.stringify(entries) },
   })
   await $.command.run(typed('agd'))
+  const ui = await $.ui.mount({ plugin: 'agd', surface: 'terminal', component: 'Pane', requestId: 'agd', props: { ...PANE, bodyColumns: 44 } })
+  // A section header with the open count, as in the TUI.
+  expect((await ui.find(exactly('TODAY')))?.props.color).toBe('#6ea8fe')
+  expect(await ui.find(exactly('  7'))).toBeDefined()
+  // No org-agenda prefix: the six-cell lead says when.
+  expect(await ui.find(exactly('tasks:      '))).toBeUndefined()
+  const badge = await ui.find(exactly('   2d '))
+  expect(badge?.props.color).toBe('#f07178')
+  expect(badge?.props.backgroundColor).toBe('#20252e')
+  expect((await ui.find(exactly('  -1d ')))?.props.color).toBe('#f07178')
+  expect((await ui.find(exactly('in 3d ')))?.props.color).toBe('#e5b567')
+  const due = await ui.find(exactly('due   '))
+  expect(due?.props.color).toBe('#e5b567')
+  expect(due?.props.bold).toBe(true)
+  // At 12:00 the 10:00 task is past and muted, 15:00 is next: ▸ and bold.
+  expect((await ui.find(exactly('10:00 ')))?.props.color).toBe('#808896')
+  const next = await ui.find(exactly('15:00 '))
+  expect(next?.props.color).toBe('#6ea8fe')
+  expect(next?.props.bold).toBe(true)
+  expect((await ui.find(exactly('▸ ')))?.props.color).toBe('#6ea8fe')
+  expect((await ui.find(exactly('Review the PR')))?.props.bold).toBe(true)
+  // The right mark: priority, ↻ for a repeat, ✓ for done.
+  expect((await ui.find(exactly(' A ')))?.props.color).toBe('#e5b567')
+  expect(await ui.find(exactly('↻'))).toBeDefined()
+  expect((await ui.find(exactly('✓')))?.props.color).toBe('#7ec68f')
+  expect((await ui.find(exactly('Stand-up')))?.props.strikethrough).toBe(true)
+  // Overdue rows come first, the most days late first.
+  const titles = (await ui.findAll({ type: 'Text', text: /^(File the taxes|Pay the rent|Call the bank)$/ })).map((found) => found.text)
+  expect(titles).toEqual(['File the taxes', 'Pay the rent', 'Call the bank'])
+  await ui.unmount()
+})
+
+test('a saved view keeps org-agenda\'s prefix under the TUI\'s day lines', async ($, on) => {
+  const section = {
+    header: '',
+    from: '2026-10-14',
+    to: '2026-10-15',
+    entries: [
+      {
+        schema: 'agd.agenda-entry/v1',
+        item: item('TODO', 'File the taxes', { category: 'home' }),
+        occurrence: { type: 'past-scheduled', date: '2026-10-15', time: null, extra: 'Sched. 2x:' },
+      },
+      {
+        schema: 'agd.agenda-entry/v1',
+        item: item('TODO', 'Call the bank'),
+        occurrence: { type: 'scheduled', date: '2026-10-14', time: '10:00', extra: 'Scheduled:' },
+      },
+    ],
+    items: [],
+    groups: [],
+    color: 'blue',
+  }
+  panes(on)
+  agd(on, {
+    'agenda --status': { stdout: '' },
+    'agenda --views --json': { stdout: viewsJson([{ key: 'w', desc: 'Week', start: true }]) },
+    'agenda --view w --json': { stdout: JSON.stringify([section]) },
+  })
+  await $.command.run(typed('agd'))
   const ui = await $.ui.mount({ plugin: 'agd', surface: 'terminal', component: 'Pane', requestId: 'agd', props: PANE })
-  expect(await ui.find(exactly('TODAY'))).toBeDefined()
-  expect(await ui.find(exactly('Thu 15 Oct'))).toBeDefined()
-  expect((await ui.find(exactly('tasks:      ')))?.props.color).toBe('#808896')
-  expect(await ui.find(exactly('10:00...... '))).toBeDefined()
-  // An overdue lead is red, a deadline's amber, the rest muted; the first
-  // keyword of a sequence is orange, not bold.
+  expect((await ui.find(exactly('home:       ')))?.props.color).toBe('#808896')
   expect((await ui.find(exactly('Sched. 2x:  ')))?.props.color).toBe('#f07178')
-  expect((await ui.find(exactly('1 d. ago:   ')))?.props.color).toBe('#f07178')
-  expect((await ui.find(exactly('Deadline:   ')))?.props.color).toBe('#e5b567')
-  expect((await ui.find(exactly('Scheduled:  ')))?.props.color).toBe('#808896')
-  const todo = await ui.find(exactly('TODO '))
-  expect(todo?.props.color).toBe('#e5b567')
-  expect(todo?.props.bold).toBe(false)
+  expect(await ui.find(exactly('10:00...... '))).toBeDefined()
+  // Day lines as org-agenda and the TUI head them; today's in accent.
+  expect((await ui.find(exactly('Wednesday  14 October 2026')))?.props.color).toBe('#dee2e8')
+  const today = await ui.find(exactly('Thursday   15 October 2026'))
+  expect(today?.props.color).toBe('#6ea8fe')
+  expect(today?.props.underline).toBe(true)
   await ui.unmount()
 })
 

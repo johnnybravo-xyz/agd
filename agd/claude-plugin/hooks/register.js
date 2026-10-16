@@ -47,6 +47,9 @@ let palette = THEME_KEYS
 let current = null
 let showBand = true
 let refreshes = 0
+// When the pane last read agd, for which timed rows are past and which is
+// next, and which day is today.
+let now = new Date()
 
 // Runs agd with an argument list (no shell). Resolves { stdout } or { error }.
 async function agd($, args) {
@@ -147,12 +150,13 @@ async function refresh($) {
     current = pane.current
     problem = pane.problem
     sections = pane.sections
+    now = pane.now
   }
   $.ui.invalidate('ui.render')
 }
 
 // Everything the pane draws, read fresh: the views and display settings,
-// the palette, the open tab and its sections.
+// the palette, the open tab and its sections, and the time.
 async function readPane($) {
   const shown = await readDisplay($)
   const tab = openTab(current, shown.views)
@@ -164,6 +168,16 @@ async function readPane($) {
     current: tab,
     problem: opened.error || '',
     sections: opened.sections || [],
+    now: await readNow($),
+  }
+}
+
+// The time from Claude Code's clock, or the machine's when it has none.
+async function readNow($) {
+  try {
+    return new Date(await $.clock.now())
+  } catch {
+    return new Date()
   }
 }
 
@@ -245,18 +259,19 @@ function tabs($, Box, Button) {
   })
 }
 
-// The priority as the TUI's chip: amber on the surface color, rounded with
-// Nerd Font caps when nerd_font is on; black on amber without a surface.
-function priorityChip(Text, priority) {
+// A pill as the TUI's theme.pill draws it: the label on the surface color,
+// rounded with Nerd Font caps when nerd_font is on; without a surface (16
+// colours) the hue reversed, so it keeps its fill on any row.
+function pill(Text, text, color) {
   if (!palette.surface) {
-    return [Text({ color: 'black', backgroundColor: palette.due, bold: true, children: [' ' + priority + ' '] })]
+    return [Text({ color, inverse: true, bold: true, children: [' ' + text + ' '] })]
   }
-  const chip = { color: palette.due, backgroundColor: palette.surface, bold: true }
-  if (!display.nerd_font) return [Text({ ...chip, children: [' ' + priority + ' '] })]
+  const chip = { color, backgroundColor: palette.surface, bold: true }
+  if (!display.nerd_font) return [Text({ ...chip, children: [' ' + text + ' '] })]
   return [
-    Text({ color: palette.surface, children: ['\ue0b6'] }),
-    Text({ ...chip, children: [priority] }),
-    Text({ color: palette.surface, children: ['\ue0b4'] }),
+    Text({ color: palette.surface, children: [''] }),
+    Text({ ...chip, children: [text] }),
+    Text({ color: palette.surface, children: [''] }),
   ]
 }
 
@@ -269,10 +284,50 @@ function leadColor(occurrence) {
   return null
 }
 
+// Whether an agenda row is overdue: a reminder past its date or a missed
+// deadline.
+function isOverdue(occurrence) {
+  return occurrence.type === 'past-scheduled' || (occurrence.type === 'deadline' && occurrence.extra.endsWith('ago:'))
+}
+
+// The first number in org's leader: 12 in `Sched.12x:`, 3 in `In   3 d.:`.
+function leaderDays(extra) {
+  const digits = extra.match(/\d+/)
+  return digits ? Number(digits[0]) : 0
+}
+
+// The clock time a row's lead shows (`16:30`, the start of a range), as
+// minutes since midnight; null when its lead is a badge or countdown.
+function leadMinutes(occurrence) {
+  if (isOverdue(occurrence) || occurrence.type === 'deadline' || occurrence.type === 'upcoming-deadline') return null
+  const time = (occurrence.time || '').match(/^(\d{1,2}):(\d{2})/)
+  return time ? Number(time[1]) * 60 + Number(time[2]) : null
+}
+
+// The six-cell lead that always says when, as the TUI's lead_cell: an
+// overdue badge (`12d`, `-2d`, right-aligned), a countdown (`in 3d`), `due`
+// on a deadline's day, or the time: muted once past or done, bold on the
+// next timed task, accent later.
+function leadCell(Text, occurrence, done, clock) {
+  if (occurrence.type === 'past-scheduled') return pill(Text, (leaderDays(occurrence.extra) + 'd').padStart(4), palette.overdue)
+  if (occurrence.type === 'deadline' && occurrence.extra.endsWith('ago:')) {
+    return pill(Text, ('-' + leaderDays(occurrence.extra) + 'd').padStart(4), palette.overdue)
+  }
+  if (occurrence.type === 'upcoming-deadline') {
+    return [Text(colored(palette.due, { children: [('in ' + leaderDays(occurrence.extra) + 'd').padEnd(6)] }))]
+  }
+  if (occurrence.type === 'deadline') return [Text(colored(palette.due, { bold: true, children: ['due   '] }))]
+  if (!occurrence.time) return [Text({ children: ['      '] })]
+  const time = { children: [occurrence.time.padEnd(6)] }
+  if (done || clock === 'past') return [Text(muted(time))]
+  if (clock === 'next') return [Text(colored(palette.accent, { ...time, bold: true }))]
+  return [Text(colored(palette.accent, time))]
+}
+
 // One task as the TUI's view rows draw it: for an agenda entry the category
 // and org-agenda's lead (`10:00......`, `In 2 d.:`, `Sched. 2x:`), else an
 // indent; then the keyword in its color, the title, the priority chip and
-// the tags.
+// the tags, muted.
 function taskRow(Text, item, occurrence) {
   const parts = []
   if (occurrence) {
@@ -291,12 +346,17 @@ function taskRow(Text, item, occurrence) {
     const bold = !item.done && name !== 'orange'
     parts.push(Text(colored(colorOf(name), { bold, children: [item.todo + ' '] })))
   }
-  // A done title is muted and struck through, as in the TUI.
-  const title = item.done ? muted({ strikethrough: true }) : colored(palette.text)
-  parts.push(Text({ ...title, children: [displayTitle(item.title)] }))
-  if (item.priority) parts.push(Text({ children: [' '] }), ...priorityChip(Text, item.priority))
-  if (item.tags.length > 0) parts.push(Text(colored(palette.accent, { children: ['  #' + item.tags.join(' #')] })))
+  parts.push(Text({ ...titleStyle(item, false), children: [displayTitle(item.title)] }))
+  if (item.priority) parts.push(Text({ children: [' '] }), ...pill(Text, item.priority, palette.due))
+  if (item.tags.length > 0) parts.push(Text(muted({ children: ['  #' + item.tags.join(' #')] })))
   return Text({ wrap: 'truncate-end', children: parts })
+}
+
+// A title's style: muted and struck through when done, as in the TUI, bold
+// on the next timed task.
+function titleStyle(item, next) {
+  if (item.done) return muted({ strikethrough: true })
+  return colored(palette.text, next ? { bold: true } : {})
 }
 
 // The title as agd's lists show it: active timestamps dropped, and
@@ -316,7 +376,9 @@ function rows(Text, entries, items) {
   for (const entry of entries) {
     if (entry.occurrence.date !== day) {
       day = entry.occurrence.date
-      lines.push(Text(colored(palette.text, { bold: true, children: [dayLabel(day)] })))
+      // Today's date stands out in accent, underlined, as in the TUI.
+      const style = day === isoDate(now) ? colored(palette.accent, { underline: true }) : colored(palette.text)
+      lines.push(Text({ ...style, bold: true, children: [dayLabel(day)] }))
     }
     lines.push(taskRow(Text, entry.item, entry.occurrence))
   }
@@ -324,13 +386,35 @@ function rows(Text, entries, items) {
   return lines
 }
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+]
 
-// 2026-10-15 as "Thu 15 Oct", in UTC so the date never shifts.
+// 2026-10-15 as org-agenda and the TUI's day lists head it,
+// `Thursday   15 October 2026`, in UTC so the date never shifts.
 function dayLabel(date) {
   const parsed = new Date(date + 'T00:00:00Z')
-  return WEEKDAYS[parsed.getUTCDay()] + ' ' + parsed.getUTCDate() + ' ' + MONTHS[parsed.getUTCMonth()]
+  const weekday = WEEKDAYS[parsed.getUTCDay()].padEnd(10)
+  const day = String(parsed.getUTCDate()).padStart(2)
+  return weekday + ' ' + day + ' ' + MONTHS[parsed.getUTCMonth()] + ' ' + parsed.getUTCFullYear()
+}
+
+// A Date as `2026-10-16`, in local time as agd reads today.
+function isoDate(date) {
+  const pad = (number) => String(number).padStart(2, '0')
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
 }
 
 // An uppercase header in its color with a muted row count, as in the TUI;
@@ -366,12 +450,70 @@ function sectionLines(Text, section) {
   return lines
 }
 
+// Today as the TUI's pane draws it, compact enough for a 40-column pane:
+// overdue rows first, most days late first, then timed rows by time,
+// untimed ones, and done rows last; each row the marker (`▸` on the next
+// timed task), the lead, the title, and at the right the priority, ↻ for
+// a repeating task or ✓ for done.
+function todayLines(Box, Text, entries) {
+  const minutes = now.getHours() * 60 + now.getMinutes()
+  const late = entries.filter((entry) => isOverdue(entry.occurrence))
+  late.sort((left, right) => leaderDays(right.occurrence.extra) - leaderDays(left.occurrence.extra))
+  const rest = entries.filter((entry) => !isOverdue(entry.occurrence))
+  const order = (entry) => {
+    const time = leadMinutes(entry.occurrence)
+    return [entry.item.done ? 1 : 0, time === null ? 1 : 0, time ?? 0]
+  }
+  rest.sort((left, right) => {
+    const [a, b] = [order(left), order(right)]
+    return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
+  })
+  const next = rest.find((entry) => !entry.item.done && (leadMinutes(entry.occurrence) ?? -1) >= minutes)
+  const open = entries.filter((entry) => !entry.item.done).length
+  const lines = [header(Text, 'Today', open, 'blue')]
+  for (const entry of [...late, ...rest]) {
+    const time = leadMinutes(entry.occurrence)
+    const clock = entry === next ? 'next' : time !== null && time < minutes ? 'past' : 'later'
+    lines.push(compactRow(Box, Text, entry, clock))
+  }
+  if (entries.length === 0) lines.push(Text(muted({ children: ['All clear for today.'] })))
+  return lines
+}
+
+// One compact row: what is left of the right mark's room goes to the
+// title, which ends in "…" when it does not fit.
+function compactRow(Box, Text, entry, clock) {
+  const { item, occurrence } = entry
+  const marker = clock === 'next' ? Text(colored(palette.accent, { bold: true, children: ['▸ '] })) : Text({ children: ['  '] })
+  const left = Text({
+    wrap: 'truncate-end',
+    children: [
+      marker,
+      ...leadCell(Text, occurrence, item.done, clock),
+      Text({ children: [' '] }),
+      Text({ ...titleStyle(item, clock === 'next'), children: [displayTitle(item.title)] }),
+    ],
+  })
+  const planning = item.planning || {}
+  const repeats = [planning.scheduled, planning.deadline].some((timestamp) => timestamp && timestamp.repeater)
+  let right = null
+  if (item.done) right = [Text(colored(palette.done, { bold: true, children: ['✓'] }))]
+  else if (item.priority) right = pill(Text, item.priority, palette.due)
+  else if (repeats) right = [Text(muted({ children: ['↻'] }))]
+  const children = [Box({ flexGrow: 1, flexShrink: 1, children: [left] })]
+  if (right) children.push(Box({ flexDirection: 'row', flexShrink: 0, marginLeft: 1, children: right }))
+  return Box({ flexDirection: 'row', children })
+}
+
 function paneBody($, e) {
   const { Box, Text, Button } = $.ui.resolve(e)
   const blank = () => Text({ children: [' '] })
+  const today = current === TODAY
   const body = problem
     ? [Text(colored(palette.overdue, { children: [problem] }))]
-    : sections.flatMap((section, index) => [...(index > 0 ? [blank()] : []), ...sectionLines(Text, section)])
+    : today
+      ? todayLines(Box, Text, sections.flatMap((section) => section.entries || []))
+      : sections.flatMap((section, index) => [...(index > 0 ? [blank()] : []), ...sectionLines(Text, section)])
   const footer = Box({
     flexDirection: 'row',
     columnGap: 3,
