@@ -829,6 +829,29 @@ fn help_starts_with_the_screen_on_view() {
 
 #[test]
 #[serial]
+fn the_footer_keeps_help_visible_at_80_columns_with_whole_hints() {
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 80, 24);
+        let footer = screen.last().unwrap();
+        assert!(footer.ends_with("? help "), "{footer}");
+        assert!(footer.contains("x done"), "{footer}");
+        // A hint that does not fit is left out, not cut.
+        for word in ["schedule", "deadline", "triage"] {
+            let start = &word[..3];
+            assert!(!footer.contains(start) || footer.contains(word), "{footer}");
+        }
+        app.set_status("work.org:2  TODO → DONE · u undo");
+        let footer = render(&mut app, 80, 24).last().unwrap().clone();
+        assert!(footer.contains("TODO → DONE"), "{footer}");
+        assert!(footer.ends_with("? help "), "{footer}");
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {

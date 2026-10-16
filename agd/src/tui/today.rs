@@ -130,6 +130,13 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Screen::Triage => "TRIAGE",
         Screen::Review => "AGENTS",
     };
+    // `? help` is reserved at the right, so it shows at any width and
+    // beside any status message.
+    let help = Line::from(vec![
+        Span::styled("?", theme.strong(theme.accent)),
+        Span::styled(" help ", theme.muted()),
+    ]);
+    let room = (area.width as usize).saturating_sub(help.width() + 1);
     let mut spans = theme.pill(mode, theme.accent);
     spans.push(Span::raw("  "));
     if let Some(status) = &app.status {
@@ -139,34 +146,48 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
             theme.done
         };
         spans.push(Span::styled(status.text.clone(), theme.strong(color)));
-        frame.render_widget(Paragraph::new(Line::from(spans)), area);
-        return;
+    } else {
+        spans.extend(footer_hints(app, room.saturating_sub(span_width(&spans))));
     }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    frame.render_widget(Paragraph::new(help).alignment(Alignment::Right), area);
+}
+
+fn span_width(spans: &[Span<'_>]) -> usize {
+    spans.iter().map(Span::width).sum()
+}
+
+/// The cursor row's location, the marked count and the most-used keys
+/// (`?` lists the rest), as many whole hints as fit in `room` columns.
+fn footer_hints(app: &App, room: usize) -> Vec<Span<'static>> {
+    let theme = &app.theme;
+    let mut spans = Vec::new();
     if let Some(row) = app.selected_row()
         && !matches!(app.screen, Screen::Review)
     {
         spans.push(Span::styled(app.short_location(&row.item), theme.muted()));
         spans.push(Span::styled("  │  ", theme.fg(theme.border)));
     }
-    // Only the most-used keys; ? lists the rest.
     let (groups, actions) = match app.screen {
         Screen::Triage => (keys::TRIAGE_KEYS, keys::TRIAGE_FOOTER),
         Screen::Review => (keys::AGENT_KEYS, keys::AGENT_FOOTER),
         _ if !app.marks.is_empty() => (keys::LIST_KEYS, keys::MARKED_FOOTER),
         _ => (keys::LIST_KEYS, keys::LIST_FOOTER),
     };
-    let mut hints = keys::hints(groups, actions);
-    hints.push(("?", "help"));
     if !app.marks.is_empty() {
         spans.push(Span::styled(
             format!("{} marked  ", app.marks.len()),
             theme.strong(theme.accent),
         ));
     }
-    for (key, action) in hints {
-        spans.extend(theme.key_hint(key, action));
+    for (key, action) in keys::hints(groups, actions) {
+        let hint = theme.key_hint(key, action);
+        if span_width(&spans) + span_width(&hint) > room {
+            break;
+        }
+        spans.extend(hint);
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    spans
 }
 
 fn list_title(app: &App) -> String {
