@@ -115,7 +115,13 @@ fn today_groups_sections_in_the_order_you_act_on_them() {
         );
         let screen = render(&mut app, 120, 30).join("\n");
         assert!(screen.contains("OVERDUE"), "{screen}");
-        assert!(screen.contains("12x"), "{screen}");
+        assert!(screen.contains("12d"), "{screen}");
+        assert!(!screen.contains("12x"), "{screen}");
+        // The classic layout keeps Org's own leader.
+        app.classic = true;
+        app.reload_rows().unwrap();
+        let classic = render(&mut app, 120, 30).join("\n");
+        assert!(classic.contains("Sched.12x:"), "{classic}");
         assert!(screen.contains("in 3d"), "{screen}");
         assert!(screen.contains("Compare jiff and chrono"), "{screen}");
     });
@@ -547,7 +553,7 @@ fn no_color_badges_stand_out_on_the_cursor_row() {
         app.reload_rows().unwrap();
         let buffer = render_buffer(&mut app, 120, 30);
         let y = row_of(&buffer, "Migrate cron jobs");
-        let badge = column_of(&buffer, y, "12x");
+        let badge = column_of(&buffer, y, "12d");
         let title = column_of(&buffer, y, "Migrate");
         let reversed = |x: u16| buffer[(x, y)].modifier.contains(Modifier::REVERSED);
         assert!(reversed(badge));

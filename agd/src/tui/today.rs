@@ -635,7 +635,9 @@ fn lead_cell(app: &App, row: &DisplayRow) -> Vec<Span<'static>> {
                 .trim()
                 .trim_end_matches("x:")
                 .to_string();
-            badge(theme, format!("{days}x"))
+            // The age in days: `12x` would read as "twelve times" beside
+            // "rescheduled 3x". The classic view keeps Org's `Sched.12x:`.
+            badge(theme, format!("{days}d"))
         }
         OccurrenceType::Deadline if occurrence.extra.ends_with("ago:") => {
             let days = occurrence.extra.split_whitespace().next().unwrap_or("?");
