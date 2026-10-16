@@ -553,6 +553,50 @@ fn no_color_badges_stand_out_on_the_cursor_row() {
     });
 }
 
+/// Presses one key as the event loop would; returns the $EDITOR request.
+fn press(app: &mut App, code: crossterm::event::KeyCode) -> super::keys::EditorTarget {
+    super::keys::dispatch(app, crossterm::event::KeyEvent::from(code)).unwrap()
+}
+
+/// Captures `title` into inbox.org as an MCP agent would.
+fn agent_capture(app: &App, root: &Path, title: &str) {
+    let mut settings = app.settings.clone();
+    settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+    let draft = agd_core::parse_capture_line(title, today()).unwrap();
+    let context = agd_core::WriteContext {
+        actor: "mcp:test-agent".to_string(),
+        project: root.to_string_lossy().into_owned(),
+        now: None,
+    };
+    agd_core::WriteEngine::with_default_journal(settings)
+        .unwrap()
+        .capture("t", &draft, "", &Default::default(), false, &context)
+        .unwrap();
+}
+
+#[test]
+#[serial]
+fn shift_a_on_the_agents_tab_accepts_every_change() {
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        agent_capture(&app, root, "First agent task");
+        agent_capture(&app, root, "Second agent task");
+        app.index.refresh_path(&root.join("inbox.org")).unwrap();
+        press(&mut app, crossterm::event::KeyCode::Char('A'));
+        assert_eq!(app.screen, Screen::Review);
+        assert_eq!(app.journals.len(), 2);
+        press(&mut app, crossterm::event::KeyCode::Char('A'));
+        assert_eq!(app.screen, Screen::Review);
+        assert!(
+            app.journals
+                .iter()
+                .all(|record| record.status == agd_core::JournalStatus::Reviewed)
+        );
+        assert_eq!(app.counts.agents, 0);
+    });
+}
+
 #[test]
 #[serial]
 fn an_empty_no_color_keeps_colour() {
