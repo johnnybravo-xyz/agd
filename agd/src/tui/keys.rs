@@ -9,8 +9,9 @@
 //!   level.
 //! - Keys follow org-agenda wherever it has one (`t`, `C-c C-s`, `f b .`,
 //!   `l`, `<`, `/`, `m U B` for marks); the help shows its key beside ours.
-//! - Triage and the bulk menu add one-key outcomes: `.` today, `m`
-//!   tomorrow, `w` next week, `N` make NEXT.
+//! - Triage and the bulk menu add one-key outcomes: `.` today (in the
+//!   lists `.` goes to today), `>` tomorrow, `w` next week, `N` make NEXT.
+//!   `m` only ever marks.
 //! - Where letters are typed or name items (the Views popup, capture's
 //!   templates, the refile picker, `?`'s filter, the edit popup's fields),
 //!   only `↓ C-n C-j` and `↑ C-p C-k` move, as in fzf and Emacs.
@@ -249,7 +250,7 @@ pub(super) const TRIAGE_KEYS: &[KeyGroup] = &[KeyGroup {
     title: "Decide",
     bindings: &[
         bind(".", &[Char('.')], A::Today, "today", "schedule today", ""),
-        bind("m", &[Char('m')], A::Tomorrow, "tomorrow", "schedule tomorrow", ""),
+        bind(">", &[Char('>')], A::Tomorrow, "tomorrow", "schedule tomorrow", ""),
         bind("w", &[Char('w')], A::NextWeek, "next week", "schedule in a week", ""),
         bind("s", &[Char('s')], A::Schedule, "pick date", "schedule on a date you type", "C-c C-s"),
         bind("d", &[Char('d')], A::Deadline, "move deadline", "move a missed deadline", "C-c C-d"),
@@ -291,7 +292,7 @@ pub(super) const BULK_KEYS: &[KeyGroup] = &[KeyGroup {
     title: "On every marked row",
     bindings: &[
         bind(".", &[Char('.')], A::Today, "today", "schedule today", ""),
-        bind("m", &[Char('m')], A::Tomorrow, "tomorrow", "schedule tomorrow", ""),
+        bind(">", &[Char('>')], A::Tomorrow, "tomorrow", "schedule tomorrow", ""),
         bind("w", &[Char('w')], A::NextWeek, "next week", "schedule in a week", ""),
         bind("s", &[Char('s')], A::Schedule, "pick date", "schedule on a date you type", "s"),
         bind("d", &[Char('d')], A::Deadline, "deadline…", "deadline on a date you type", "d"),

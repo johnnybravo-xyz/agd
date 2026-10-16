@@ -421,8 +421,12 @@ fn shift_b_opens_a_bulk_menu_for_the_marked_rows_and_shift_u_unmarks_all() {
         type_keys(&mut app, "mmB");
         let screen = render(&mut app, 100, 30).join("\n");
         assert!(screen.contains("Bulk · 2 marked rows"), "{screen}");
-        assert!(screen.contains("schedule tomorrow"), "{screen}");
+        assert!(screen.contains(">        schedule tomorrow"), "{screen}");
+        // `m` only ever marks: in the menu it schedules nothing.
         press(&mut app, KeyCode::Char('m'));
+        assert!(matches!(app.overlay, Overlay::Bulk));
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_TODAY);
+        press(&mut app, KeyCode::Char('>'));
         assert!(matches!(app.overlay, Overlay::None));
         assert_eq!(
             fs::read_to_string(&path).unwrap(),

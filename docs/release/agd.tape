@@ -35,7 +35,7 @@ Type "a" Sleep 1.5s
 Type "1" Sleep 500ms
 Type "T" Sleep 3s
 Type "S" Sleep 1.5s
-Type "m" Sleep 1.5s
+Type ">" Sleep 1.5s
 Escape Sleep 800ms
 
 # Capture: tokens become chips, the preview is the exact org text.

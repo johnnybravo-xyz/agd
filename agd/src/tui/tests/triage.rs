@@ -58,10 +58,16 @@ fn triage_advances_after_every_decision_with_a_fixed_counter() {
         }
         let screen = render(&mut app, 100, 30).join("\n");
         assert!(screen.contains("d  move deadline"), "{screen}");
+        assert!(screen.contains(">  tomorrow"), "{screen}");
         let before = app.triage.position;
 
-        // Scheduling leaves the deadline missed; the card still moves on.
+        // `m` only ever marks, and Triage has no marks: it decides nothing.
         press(&mut app, KeyCode::Char('m'));
+        assert_eq!(app.triage.position, before);
+        assert!(!fs::read_to_string(&path).unwrap().contains("2026-10-14"));
+
+        // Scheduling leaves the deadline missed; the card still moves on.
+        press(&mut app, KeyCode::Char('>'));
         assert_eq!(app.triage.position, before + 1);
         let written = fs::read_to_string(&path).unwrap();
         assert!(written.contains("SCHEDULED: <2026-10-14 Wed>"), "{written}");
