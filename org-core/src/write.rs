@@ -214,7 +214,6 @@ struct PreparedCapture {
 
 /// An edited item as it reads after the edit, and whether marking it done
 /// repeated it.
-#[derive(Clone)]
 struct EditedItem {
     item: Item,
     repeated: Option<Repeat>,
@@ -319,6 +318,9 @@ struct JournalImage<'a> {
 }
 
 impl WriteEngine {
+    /// An engine writing under the configured roots and journaling to
+    /// `journal_path`. Opening it only reads; interrupted writes are settled
+    /// by the next write to their file, or by `resolve_conflicts`.
     pub fn new(settings: Settings, journal_path: PathBuf) -> Result<Self, AgdError> {
         let roots = RootSet::new(&settings.roots, &settings.agenda_files)?;
         Ok(Self {
@@ -356,9 +358,7 @@ impl WriteEngine {
             return Ok(item.into_mutation(preview.diff, DRY_RUN_JOURNAL_ID));
         }
 
-        let _lock = self.lock_target(&path)?;
-        refuse_emacs_lock(&path)?;
-        self.recover_files(std::slice::from_ref(&path))?;
+        let _locks = self.lock_paths(std::slice::from_ref(&path))?;
         let fresh = WorkspaceIndex::load(self.settings.clone())?;
         let (prepared, item) = self.prepare_edit(&fresh, item_ref, intent, now)?;
         if prepared.path != path {
@@ -440,9 +440,7 @@ impl WriteEngine {
             fs::create_dir_all(parent).map_err(AgdError::from)?;
         }
         self.roots.resolve_write(&path, true)?;
-        let _lock = self.lock_target(&path)?;
-        refuse_emacs_lock(&path)?;
-        self.recover_files(std::slice::from_ref(&path))?;
+        let _locks = self.lock_paths(std::slice::from_ref(&path))?;
         let prepared = self.prepare_capture(&path, &input)?;
         let record = self.commit_image(
             prepared.file.journal_image(Some(&prepared.item.item_ref)),
@@ -707,102 +705,83 @@ impl WriteEngine {
         edits: &[ItemEdit],
         now: NaiveDateTime,
     ) -> Result<PreparedBatch, AgdError> {
-        let mut by_file: BTreeMap<PathBuf, Vec<(usize, &HeadlineSpan)>> = BTreeMap::new();
-        let mut new_ids: BTreeSet<&str> = BTreeSet::new();
-        for (position, edit) in edits.iter().enumerate() {
-            let (document, headline) = index
-                .resolve(&edit.item_ref)
-                .map_err(|error| error.with_context(&edit.item_ref))?;
-            let label = |error: AgdError| error.with_context(&headline.item.title);
-            validate_intent_for_file(&edit.intent, document).map_err(label)?;
-            validate_id_change(&edit.intent, headline, index).map_err(label)?;
-            let new_id = edit
-                .intent
-                .properties
-                .iter()
-                .find(|(key, _)| key.eq_ignore_ascii_case("ID"))
-                .and_then(|(_, value)| value.as_deref());
-            if let Some(id) = new_id
-                && headline.item.id.is_none()
-                && !new_ids.insert(id)
-            {
-                return Err(label(AgdError::new(
-                    ErrorCode::DuplicateId,
-                    format!("ID '{id}' is given to two of the targets"),
-                )));
-            }
-            let targets = by_file.entry(document.path().to_path_buf()).or_default();
-            if targets
-                .iter()
-                .any(|(_, other)| other.line_span.start == headline.line_span.start)
-            {
-                return Err(label(AgdError::new(
-                    "invalid_edit",
-                    "the same item is listed twice",
-                )));
-            }
-            targets.push((position, headline));
-        }
-
         let mut batch = PreparedBatch {
             files: Vec::new(),
             file_refs: Vec::new(),
-            items: vec![None; edits.len()],
+            items: (0..edits.len()).map(|_| None).collect(),
             file_of: vec![0; edits.len()],
         };
-        for (path, targets) in by_file {
+        for (path, targets) in resolve_batch_targets(index, edits)? {
             let document = index.document(&path).expect("a resolved item's document");
-            let mut patches = Vec::new();
-            let mut starts = Vec::new();
-            for (position, headline) in &targets {
-                let edit = &edits[*position];
-                let label = |error: AgdError| error.with_context(&headline.item.title);
-                let own = build_edit_patches(document, headline, &edit.intent, &self.settings, now)
-                    .map_err(label)?;
-                if apply_patches(document.source(), own.clone())
-                    .map_err(label)?
-                    .0
-                    == document.source()
-                {
-                    return Err(label(AgdError::new(
-                        "no_change",
-                        "edit does not change the item",
-                    )));
-                }
-                starts.push((*position, headline.line_span.start));
-                patches.extend(own);
-            }
-            let shifted: Vec<(usize, usize)> = starts
-                .iter()
-                .map(|(position, start)| (*position, post_image_offset(&patches, *start)))
-                .collect();
-            let (post_image, stored) = apply_patches(document.source(), patches)?;
-            let updated = parse_text(&path, &post_image, &self.settings)?;
-            for (position, offset) in shifted {
-                let line = post_image[..offset]
-                    .bytes()
-                    .filter(|byte| *byte == b'\n')
-                    .count()
-                    + 1;
-                let item = updated
-                    .headline_at_line(line)
-                    .map(|headline| headline.item.clone())
-                    .ok_or_else(|| {
-                        AgdError::new("parse_error", "edit produced no target headline")
-                    })?;
-                batch.items[position] =
-                    Some(EditedItem::new(item, &edits[position].intent, document));
+            let (file, items) = self.prepare_batch_file(document, &targets, edits, now)?;
+            for (position, item) in items {
+                batch.items[position] = Some(item);
                 batch.file_of[position] = batch.files.len();
             }
             batch.file_refs.push(edits[targets[0].0].item_ref.clone());
-            batch.files.push(PreparedFile::new(
-                path,
-                document.source().to_string(),
-                post_image,
-                stored,
-            ));
+            batch.files.push(file);
         }
         Ok(batch)
+    }
+
+    /// One file's edits applied together: each target's own patches, all
+    /// applied at once, and each edited item found again in the result.
+    fn prepare_batch_file(
+        &self,
+        document: &IndexedDocument,
+        targets: &[(usize, &HeadlineSpan)],
+        edits: &[ItemEdit],
+        now: NaiveDateTime,
+    ) -> Result<(PreparedFile, Vec<(usize, EditedItem)>), AgdError> {
+        let mut patches = Vec::new();
+        for (position, headline) in targets {
+            let label = |error: AgdError| error.with_context(&headline.item.title);
+            let intent = &edits[*position].intent;
+            let own = build_edit_patches(document, headline, intent, &self.settings, now)
+                .map_err(label)?;
+            let (alone, _) = apply_patches(document.source(), own.clone()).map_err(label)?;
+            if alone == document.source() {
+                return Err(label(AgdError::new(
+                    "no_change",
+                    "edit does not change the item",
+                )));
+            }
+            patches.extend(own);
+        }
+        let starts: Vec<(usize, usize)> = targets
+            .iter()
+            .map(|(position, headline)| {
+                (
+                    *position,
+                    post_image_offset(&patches, headline.line_span.start),
+                )
+            })
+            .collect();
+        let (post_image, stored) = apply_patches(document.source(), patches)?;
+        let updated = parse_text(document.path(), &post_image, &self.settings)?;
+        let mut items = Vec::with_capacity(starts.len());
+        for (position, start) in starts {
+            let line = post_image[..start]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count()
+                + 1;
+            let item = updated
+                .headline_at_line(line)
+                .map(|headline| headline.item.clone())
+                .ok_or_else(|| AgdError::new("parse_error", "edit produced no target headline"))?;
+            items.push((
+                position,
+                EditedItem::new(item, &edits[position].intent, document),
+            ));
+        }
+        let file = PreparedFile::new(
+            document.path().to_path_buf(),
+            document.source().to_string(),
+            post_image,
+            stored,
+        );
+        Ok((file, items))
     }
 
     /// Reverts one journal entry, or every file of its transaction, given
@@ -2793,6 +2772,55 @@ fn touched_heading(
             .find(|headline| headline.line_span.start <= at)
     })?;
     Some((headline.item.title.clone(), headline.item.line))
+}
+
+/// A batch's targets by file: (position of the edit, its heading).
+type BatchTargets<'a> = BTreeMap<PathBuf, Vec<(usize, &'a HeadlineSpan)>>;
+
+/// Resolves every edit's target and checks them against each other and
+/// their files, grouped by file: (edit position, heading) pairs. A refusal
+/// names the target.
+fn resolve_batch_targets<'a>(
+    index: &'a WorkspaceIndex,
+    edits: &[ItemEdit],
+) -> Result<BatchTargets<'a>, AgdError> {
+    let mut by_file = BatchTargets::new();
+    let mut new_ids: BTreeSet<&str> = BTreeSet::new();
+    for (position, edit) in edits.iter().enumerate() {
+        let (document, headline) = index
+            .resolve(&edit.item_ref)
+            .map_err(|error| error.with_context(&edit.item_ref))?;
+        let label = |error: AgdError| error.with_context(&headline.item.title);
+        validate_intent_for_file(&edit.intent, document).map_err(label)?;
+        validate_id_change(&edit.intent, headline, index).map_err(label)?;
+        let new_id = edit
+            .intent
+            .properties
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("ID"))
+            .and_then(|(_, value)| value.as_deref());
+        if let Some(id) = new_id
+            && headline.item.id.is_none()
+            && !new_ids.insert(id)
+        {
+            return Err(label(AgdError::new(
+                ErrorCode::DuplicateId,
+                format!("ID '{id}' is given to two of the targets"),
+            )));
+        }
+        let targets = by_file.entry(document.path().to_path_buf()).or_default();
+        if targets
+            .iter()
+            .any(|(_, other)| other.line_span.start == headline.line_span.start)
+        {
+            return Err(label(AgdError::new(
+                "invalid_edit",
+                "the same item is listed twice",
+            )));
+        }
+        targets.push((position, headline));
+    }
+    Ok(by_file)
 }
 
 /// Where `offset` in the pre-image lands after `patches`: shifted by every
