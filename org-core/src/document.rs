@@ -402,6 +402,9 @@ impl WorkspaceIndex {
             .retain(|_, locations| !locations.is_empty());
     }
 
+    /// Recounts `:ID:` values, then gives every item whose ID is not unique
+    /// under the roots a file/line/digest ref, so two items never share a
+    /// ref; resolving it still refuses the write as `duplicate_id`.
     fn rebuild_ids(&mut self) {
         self.ids.clear();
         for (path, document) in &self.documents {
@@ -412,6 +415,20 @@ impl WorkspaceIndex {
                         .or_default()
                         .push((path.clone(), index));
                 }
+            }
+        }
+        let duplicated: BTreeSet<String> =
+            self.duplicate_ids().map(|(id, _)| id.to_string()).collect();
+        for document in self.documents.values_mut() {
+            for headline in &mut document.headlines {
+                headline.item.item_ref = match &headline.item.id {
+                    Some(id) if !duplicated.contains(id) => id.clone(),
+                    _ => location_ref(
+                        Path::new(&headline.item.file),
+                        headline.item.line,
+                        &headline.digest,
+                    ),
+                };
             }
         }
     }
@@ -723,12 +740,7 @@ fn scan_headlines(
             .collect();
         olpath.push(headline.title.clone());
         let item_ref = id.clone().unwrap_or_else(|| {
-            format!(
-                "{}:{}#sha256:{}",
-                path.display(),
-                lines[headline.line_index].number,
-                headline.digest
-            )
+            location_ref(path, lines[headline.line_index].number, &headline.digest)
         });
         let item = Item {
             schema: ITEM_SCHEMA.to_string(),
@@ -1164,6 +1176,11 @@ fn scan_timestamps(source: &str, start: usize, end: usize) -> Vec<TimestampSpan>
     found
 }
 
+/// The ref of a heading without a unique ID: `file:line#sha256:digest`.
+fn location_ref(path: &Path, line: usize, digest: &str) -> String {
+    format!("{}:{line}#sha256:{digest}", path.display())
+}
+
 fn headline_digest(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     digest[..16]
@@ -1350,6 +1367,34 @@ mod tests {
             .resolve("/no/such/file:1#sha256:00000000000000000000000000000000")
             .unwrap_err();
         assert_eq!(error.code(), "outside_roots");
+    }
+
+    #[test]
+    fn items_sharing_an_id_get_distinct_location_refs_that_refuse_writes() {
+        let temp = tempfile::tempdir().unwrap();
+        let tasks = temp.path().join("tasks.org");
+        std::fs::write(
+            &tasks,
+            "* TODO One\n:PROPERTIES:\n:ID: dup-id-1\n:END:\n* TODO Two\n:PROPERTIES:\n:ID: dup-id-1\n:END:\n",
+        )
+        .unwrap();
+        let mut index = WorkspaceIndex::load(settings(temp.path())).unwrap();
+        let refs: Vec<String> = index.items().map(|item| item.item_ref.clone()).collect();
+        assert_eq!(refs.len(), 2);
+        assert_ne!(refs[0], refs[1]);
+        for item_ref in &refs {
+            assert!(item_ref.contains("#sha256:"), "{item_ref}");
+            assert_eq!(index.resolve(item_ref).unwrap_err().code(), "duplicate_id");
+        }
+
+        // Once the ID is unique again, the item's ref is its ID.
+        std::fs::write(
+            &tasks,
+            "* TODO One\n:PROPERTIES:\n:ID: dup-id-1\n:END:\n* TODO Two\n",
+        )
+        .unwrap();
+        index.refresh_path(&tasks).unwrap();
+        assert_eq!(index.items().next().unwrap().item_ref, "dup-id-1");
     }
 
     #[test]
