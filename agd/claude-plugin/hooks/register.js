@@ -373,8 +373,14 @@ function taskRow(Text, item, occurrence) {
   }
   parts.push(Text({ ...titleStyle(item, false), children: [displayTitle(item.title)] }))
   if (item.priority) parts.push(Text({ children: [' '] }), ...pill(Text, item.priority, palette.due))
-  if (item.tags.length > 0) parts.push(Text(muted({ children: ['  #' + item.tags.join(' #')] })))
+  if (item.tags.length > 0) parts.push(Text(muted({ children: ['  ' + tagsText(item.tags)] })))
   return Text({ wrap: 'truncate-end', children: parts })
+}
+
+// Tags as agd shows them (words::tags): `#work #ops`; every tag the pane
+// draws goes through here.
+function tagsText(tags) {
+  return tags.map((tag) => '#' + tag).join(' ')
 }
 
 // A title's style: muted and struck through when done, as in the TUI, bold
