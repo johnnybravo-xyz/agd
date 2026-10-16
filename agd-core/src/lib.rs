@@ -25,9 +25,9 @@
 //! - An error is an [`AgdError`] whose `code` is one of [`ErrorCode`], the one
 //!   list of agd.error/v1 codes, named by one rule (`invalid_<thing>`,
 //!   `unknown_<thing>`, `<thing>_not_found`, `<thing>_conflict`,
-//!   `<thing>_failed`; see [`model`]); its message says what to do.
+//!   `<thing>_failed`; see [`ErrorCode`]); its message says what to do.
 //! - Every serialized record names its schema, `agd.<name>/v1`, with a
-//!   constant from [`model`] such as [`ITEM_SCHEMA`] or [`MUTATION_SCHEMA`].
+//!   `*_SCHEMA` constant such as [`ITEM_SCHEMA`] or [`MUTATION_SCHEMA`].
 //! - Config keys are snake_case. Values are lowercase, kebab-case when they
 //!   name an Org option (`ids = "add-on-write"`, `sorting_strategy =
 //!   ["time-up"]`, `kind = "tags-todo"`).
@@ -76,17 +76,19 @@
 //! # }
 //! ```
 
-pub mod agenda;
-pub mod capture_line;
-pub mod capture_template;
-pub mod check;
-pub mod config;
-pub mod date;
-pub mod document;
-pub mod import;
-pub mod model;
-pub mod path;
-pub mod write;
+// Every module is private; each public item has one path, the re-export
+// from this root below.
+mod agenda;
+mod capture_line;
+mod capture_template;
+mod check;
+mod config;
+mod date;
+mod document;
+mod import;
+mod model;
+mod path;
+mod write;
 
 pub use agenda::{
     AgendaEngine, AgendaQuery, AgendaSpan, AgendaSummary, ViewSection, ViewSectionGroup,
