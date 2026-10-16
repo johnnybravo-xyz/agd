@@ -37,7 +37,8 @@ use crate::mcp::{OrgModeRouter, describe};
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AgendaRequest {
-    /// day, week or month; defaults to day.
+    /// day, week, month or a number of days; defaults to the configured
+    /// agenda_span, as `agd agenda` does.
     span: Option<String>,
     /// First day: today, tomorrow, a weekday (fri), +2d (also +1w, +1m,
     /// +1y) or 2026-10-30; defaults to the configured agenda_start_day,
@@ -192,7 +193,7 @@ const DEFAULT_LIMIT: usize = 100;
 impl OrgModeRouter {
     #[tool(
         name = "agenda",
-        description = "Return agd.agenda-entry/v1 rows for today, or a span, or a saved view's sections",
+        description = "Return agd.agenda-entry/v1 rows for the configured agenda_span, or a given span, or a saved view's sections",
         input_schema = input_schema::<AgendaRequest>(),
         annotations(read_only_hint = true)
     )]
@@ -334,7 +335,11 @@ fn agenda(settings: &agd_core::Settings, request: AgendaRequest) -> Result<Rows,
         let (shown, total) = truncate_sections(&mut sections, limit);
         return Rows::new(&sections, shown, total, bodies);
     }
-    let (from, to) = agenda_span(request.span.as_deref())?.bounds(start, settings.week_start);
+    let span = match request.span.as_deref() {
+        Some(span) => span.parse::<AgendaSpan>()?,
+        None => settings.agenda_span,
+    };
+    let (from, to) = span.bounds(start, settings.week_start);
     let mut entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
         from,
         to,
@@ -371,11 +376,6 @@ fn start_day(
         Some(from) => agd_core::parse_agenda_day(from, today),
         None => settings.agenda_start(today),
     }
-}
-
-/// The call's span; a day when it gives none.
-fn agenda_span(span: Option<&str>) -> Result<AgendaSpan, AgdError> {
-    span.map_or(Ok(AgendaSpan::Day), str::parse)
 }
 
 /// The saved view `key` names. A view runs its own spans and matches, so a

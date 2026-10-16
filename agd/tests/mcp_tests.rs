@@ -220,17 +220,19 @@ fn busy_fixture() -> tempfile::TempDir {
         tomorrow.format("%Y-%m-%d %a")
     ));
     fs::write(directory.path().join("busy.org"), source).expect("org fixture");
+    write_config(&directory, "agenda_span = 2\n");
     directory
 }
 
 #[tokio::test]
-async fn reads_default_to_a_day_and_100_rows_and_say_what_they_left_out()
+async fn reads_default_to_agenda_span_and_100_rows_and_say_what_they_left_out()
 -> Result<(), Box<dyn std::error::Error>> {
     let directory = busy_fixture();
     let service = service(&directory).await?;
 
-    // No span is today only; no limit is 100 rows, and a second block says
-    // how many there were. The first block keeps its array shape.
+    // No span is the configured agenda_span, today and tomorrow here; no
+    // limit is 100 rows, and a second block says how many there were. The
+    // first block keeps its array shape.
     let result = call(&service, "agenda", json!({})).await?;
     let entries = first_block(&result);
     assert_eq!(entries.as_array().map(Vec::len), Some(100));
@@ -238,7 +240,7 @@ async fn reads_default_to_a_day_and_100_rows_and_say_what_they_left_out()
     assert_eq!(entries[0]["item"].get("body"), None);
     assert_eq!(
         result.content[1].as_text().map(|text| text.text.as_str()),
-        Some("showing 100 of 150; pass limit or narrow the query")
+        Some("showing 100 of 151; pass limit or narrow the query")
     );
     let encoded = content_json(&result).to_string();
     assert!(!encoded.contains("Tomorrow's task"));
@@ -246,7 +248,7 @@ async fn reads_default_to_a_day_and_100_rows_and_say_what_they_left_out()
     let result = call(&service, "agenda", json!({"limit": 500, "with_body": true})).await?;
     assert_eq!(result.content.len(), 1);
     let entries = first_block(&result);
-    assert_eq!(entries.as_array().map(Vec::len), Some(150));
+    assert_eq!(entries.as_array().map(Vec::len), Some(151));
     assert_eq!(entries[0]["item"]["title"], "Task 000");
     assert_eq!(entries[0]["item"]["body"], "Call Ana first.\n");
     assert_eq!(entries[1]["item"]["body"], "");
@@ -413,6 +415,7 @@ async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn 
 
 const VIEW_CONFIG: &str = r#"
 agenda_start_day = "-1d"
+agenda_span = "day"
 
 [[view]]
 key = "w"
