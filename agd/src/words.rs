@@ -47,6 +47,27 @@ pub fn location(file: &str, line: usize, roots: &[PathBuf]) -> String {
     format!("{}:{line}", relative.display())
 }
 
+/// A path with the home directory written as `~`, as people read it:
+/// `~/src/app`. Only a whole path component is replaced, so a sibling such
+/// as `/Users/bob2` of home `/Users/bob` stays as it is.
+pub fn home_path(path: &str) -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    abbreviated(path, &home)
+}
+
+/// `path` with `home` written as `~`, at a component boundary only.
+fn abbreviated(path: &str, home: &str) -> String {
+    let home = home.trim_end_matches('/');
+    if home.is_empty() {
+        return path.to_string();
+    }
+    match path.strip_prefix(home) {
+        Some("") => "~".to_string(),
+        Some(rest) if rest.starts_with('/') => format!("~{rest}"),
+        _ => path.to_string(),
+    }
+}
+
 /// A tag as agd shows it: `#work`. Every tag drawn goes through here, so
 /// its notation lives in one place; `+work` is only what capture and the
 /// tags prompt take as input.
@@ -132,6 +153,17 @@ mod tests {
         assert_eq!(day(date("2027-01-04"), today), "Mon 4 Jan 2027");
         assert_eq!(when("2026-10-16", Some("14:00"), today), "Fri 16 Oct 14:00");
         assert_eq!(when("someday", None, today), "someday");
+    }
+
+    #[test]
+    fn home_is_abbreviated_only_at_a_whole_component() {
+        assert_eq!(abbreviated("/Users/bob/src/app", "/Users/bob"), "~/src/app");
+        assert_eq!(abbreviated("/Users/bob", "/Users/bob/"), "~");
+        assert_eq!(
+            abbreviated("/Users/bob2/src", "/Users/bob"),
+            "/Users/bob2/src"
+        );
+        assert_eq!(abbreviated("/srv/org", ""), "/srv/org");
     }
 
     #[test]

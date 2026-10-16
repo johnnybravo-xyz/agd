@@ -423,7 +423,7 @@ pub(super) fn empty_message(app: &App) -> Vec<Line<'static>> {
             .settings
             .roots
             .first()
-            .map_or(String::new(), |root| home_relative(root));
+            .map_or(String::new(), |root| crate::words::home_path(root));
         // Two lines, so a long root does not push the advice out of view.
         return vec![
             Line::from(format!("No .org files under {root} yet —")),
@@ -462,16 +462,6 @@ pub(super) fn empty_message(app: &App) -> Vec<Line<'static>> {
         ))],
         Screen::Inbox => vec![muted("Inbox is empty.".to_string())],
         _ => vec![muted("Nothing here.".to_string())],
-    }
-}
-
-/// A path with the home directory written as `~`.
-fn home_relative(path: &str) -> String {
-    match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && path.starts_with(&home) => {
-            format!("~{}", &path[home.len()..])
-        }
-        _ => path.to_string(),
     }
 }
 

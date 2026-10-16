@@ -501,17 +501,15 @@ impl Card {
 /// The agent's project as `~/src/app`, or its last two path parts, cut
 /// from the left to 22 cells.
 fn shorten_project(path: &str) -> String {
-    let short = match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && path.starts_with(&home) => {
-            format!("~{}", &path[home.len()..])
-        }
-        _ => {
-            let parts: Vec<&str> = path.trim_end_matches('/').rsplit('/').take(2).collect();
-            format!(
-                "…/{}",
-                parts.into_iter().rev().collect::<Vec<_>>().join("/")
-            )
-        }
+    let home = crate::words::home_path(path);
+    let short = if home.starts_with('~') {
+        home
+    } else {
+        let parts: Vec<&str> = path.trim_end_matches('/').rsplit('/').take(2).collect();
+        format!(
+            "…/{}",
+            parts.into_iter().rev().collect::<Vec<_>>().join("/")
+        )
     };
     if short.chars().count() <= 22 {
         return short;
