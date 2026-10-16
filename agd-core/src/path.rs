@@ -84,15 +84,17 @@ impl SkipReason {
         }
     }
 
-    /// The reason alone, for a report that names the path separately.
+    /// The reason alone, for a report that names the path separately. A
+    /// warning says `skipped` before it, so the reason does not.
     pub fn message(&self) -> String {
         match self {
-            Self::OutsideRoots => "symlink resolves outside the roots; skipped".to_string(),
-            Self::Unreadable(error) => format!("cannot read; skipped: {error}"),
+            Self::OutsideRoots => "symlink resolves outside the roots".to_string(),
+            Self::Unreadable(error) => format!("cannot read: {error}"),
         }
     }
 
-    /// One line naming the path and the reason, for warnings.
+    /// One line naming the path and the reason, for warnings: `warning:
+    /// skipped <this>`.
     pub fn describe(&self, path: &Path) -> String {
         format!("{}: {}", path.display(), self.message())
     }
@@ -655,6 +657,10 @@ mod tests {
                 ]
             );
         }
+        assert_eq!(
+            SkipReason::OutsideRoots.describe(Path::new("escape.org")),
+            "escape.org: symlink resolves outside the roots"
+        );
     }
 
     #[test]
