@@ -1,7 +1,9 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use agd_core::{ImportStatus, Settings, default_config_path, import_root, parse_config_file};
+use agd_core::{
+    ImportStatus, Notation, Settings, default_config_path, import_root, parse_config_file,
+};
 use anyhow::{Result, bail};
 use clap::Args;
 
@@ -134,6 +136,9 @@ impl ImportCommand {
             writeln!(out, "  {note}")?;
         }
         writeln!(out, "{}", imported_summary(&execution.result.settings))?;
+        if let Some(hint) = notation_hint(&execution.result.settings) {
+            writeln!(out, "{hint}")?;
+        }
         for diagnostic in &execution.result.diagnostics {
             writeln!(
                 out,
@@ -177,6 +182,14 @@ fn imported_summary(settings: &Settings) -> String {
     )
 }
 
+/// One line offering Org's notation, which an import leaves to the person:
+/// agd's `#work` and `!A` until config.toml says `notation = "org"`.
+fn notation_hint(settings: &Settings) -> Option<&'static str> {
+    (settings.notation == Notation::Agd).then_some(
+        "tip  notation = \"org\" in config.toml types and shows tags and priorities as Org writes them (:work:, #A), not #work and !A",
+    )
+}
+
 fn mark(status: &ImportStatus) -> &'static str {
     match status {
         ImportStatus::Exact => "✓",
@@ -206,5 +219,14 @@ mod tests {
             imported_summary(&settings),
             "imported  roots ~/org, 2 agenda entries, 2 capture templates, 0 views"
         );
+    }
+
+    #[test]
+    fn the_report_offers_orgs_notation_until_it_is_set() {
+        let mut settings = Settings::default();
+        let hint = notation_hint(&settings).unwrap();
+        assert!(hint.contains("notation = \"org\""), "{hint}");
+        settings.notation = Notation::Org;
+        assert_eq!(notation_hint(&settings), None);
     }
 }
