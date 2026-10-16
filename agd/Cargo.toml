@@ -9,10 +9,13 @@ agd-core = { version = "0.1.0", path = "../org-core" }
 rmcp.workspace = true
 ratatui.workspace = true
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+# preserve_order: `setup install` rewrites opencode.json with its keys in
+# the person's order.
+serde_json = { workspace = true, features = ["preserve_order"] }
 similar.workspace = true
 tokio = { workspace = true, features = ["io-std", "rt-multi-thread", "signal", "sync"] }
 toml = { workspace = true }
+toml_edit = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tempfile.workspace = true

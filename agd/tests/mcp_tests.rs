@@ -328,8 +328,9 @@ async fn bad_arguments_are_error_schemas_naming_the_argument()
         message.starts_with("invalid `ref`: invalid type"),
         "{message}"
     );
+    // In the request's own order, required ones first.
     assert!(
-        message.contains("accepted arguments: note, ref (required), state (required)"),
+        message.ends_with("accepted arguments: ref (required), state (required), note"),
         "{message}"
     );
 
@@ -360,12 +361,11 @@ async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn 
     let error = first_block(&result);
     assert_eq!(error["code"], "invalid_arguments");
     let message = error["message"].as_str().expect("message");
-    assert!(
-        message.starts_with("unknown argument `due`; accepted arguments: body, deadline,"),
-        "{message}"
+    assert_eq!(
+        message,
+        "unknown argument `due`; accepted arguments: template (required), title (required), \
+         scheduled, deadline, tags, priority, body, prompts, properties"
     );
-    assert!(message.contains("deadline,"), "{message}");
-    assert!(message.contains("template (required)"), "{message}");
     assert_eq!(org_files(&directory), 1);
 
     let result = call(

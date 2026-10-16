@@ -44,6 +44,7 @@ tempfile = "3.26"
 temp-env = "0.3.6"
 tokio = "1"
 toml = "1.0"
+toml_edit = "0.25.17"
 tracing = "0.1.44"
 unicode-width = "0.2"
 uuid = { version = "1.18", features = ["v4"] }
