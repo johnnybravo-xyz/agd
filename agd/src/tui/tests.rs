@@ -1697,6 +1697,25 @@ fn only_captures_say_who_captured_a_task() {
 
 #[test]
 #[serial]
+fn a_full_pane_title_keeps_a_space_before_its_mark() {
+    with_home(|root| {
+        // 21 characters: exactly the room a 34-column pane leaves.
+        fs::write(
+            root.join("work.org"),
+            "* TODO Submit expense claims\nDEADLINE: <2026-10-22 Thu>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.pane = true;
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 34, 10).join("\n");
+        assert!(!screen.contains("claims9d"), "{screen}");
+        assert!(screen.contains(" 9d│"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {

@@ -215,10 +215,11 @@ fn pane_line(app: &App, row: &DisplayRow, next: bool, width: usize) -> Line<'sta
         theme.muted()
     };
     // Display width, not characters: a CJK or emoji title takes two
-    // columns a character.
+    // columns a character. A right-hand mark keeps a space before it.
+    let gap = usize::from(right.width() > 0);
     let title = truncate(
         &super::peek::display_title(item),
-        width.saturating_sub(8 + right.width()),
+        width.saturating_sub(8 + right.width() + gap),
     );
     let used = 2 + 6 + Span::raw(title.as_str()).width();
     Line::from(vec![
