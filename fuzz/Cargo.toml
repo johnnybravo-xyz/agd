@@ -12,7 +12,7 @@ ignored = ["agd-core"]
 
 [dependencies]
 libfuzzer-sys = "0.4"
-agd-core = { path = "../org-core" }
+agd-core = { path = "../agd-core" }
 
 [[bin]]
 name = "roundtrip"

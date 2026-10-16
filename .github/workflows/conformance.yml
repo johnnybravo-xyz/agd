@@ -5,8 +5,8 @@ on:
     paths:
       - "agd/readers/**"
       - "conformance/**"
-      - "org-core/src/**"
-      - "org-core/tests/conformance_*.rs"
+      - "agd-core/src/**"
+      - "agd-core/tests/conformance_*.rs"
       - "scripts/*oracle.py"
       - "scripts/fetch-*.sh"
       - ".github/workflows/conformance.yml"
@@ -15,8 +15,8 @@ on:
     paths:
       - "agd/readers/**"
       - "conformance/**"
-      - "org-core/src/**"
-      - "org-core/tests/conformance_*.rs"
+      - "agd-core/src/**"
+      - "agd-core/tests/conformance_*.rs"
       - "scripts/*oracle.py"
       - "scripts/fetch-*.sh"
       - ".github/workflows/conformance.yml"

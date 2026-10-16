@@ -273,7 +273,7 @@ just install      # release build to ~/.local/bin
 just oracles      # compare with the pinned Emacs and Neovim (needs Docker)
 ```
 
-`agd/` is the executable (CLI, TUI, MCP), `org-core/` the `agd-core` library
+`agd/` is the executable (CLI, TUI, MCP), `agd-core/` the `agd-core` library
 (parsing, agenda, writes), and `conformance/` the Emacs and nvim-orgmode oracle
 fixtures with their scripts in `scripts/`. `vhs docs/release/agd.tape` records
 the GIF above from `docs/demo`.

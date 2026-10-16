@@ -30,10 +30,10 @@ help: ## List the release targets
 
 version: ## Set VERSION=x.y.z in every manifest and date both changelogs
 	@test "$(VERSION)" != "$(CURRENT)" || { echo "pass VERSION=x.y.z; $(CURRENT) is already the version"; exit 1; }
-	perl -0pi -e 's/^version = "\Q$(CURRENT)\E"/version = "$(VERSION)"/m' Cargo.toml agd/Cargo.toml org-core/Cargo.toml
+	perl -0pi -e 's/^version = "\Q$(CURRENT)\E"/version = "$(VERSION)"/m' Cargo.toml agd/Cargo.toml agd-core/Cargo.toml
 	perl -pi -e 's/(agd-core = \{ version = )"\Q$(CURRENT)\E"/$$1"$(VERSION)"/' agd/Cargo.toml
 	perl -pi -e 's/"version": "\Q$(CURRENT)\E"/"version": "$(VERSION)"/' agd/claude-plugin/.claude-plugin/plugin.json
-	perl -pi -e 's/^## \[Unreleased\]$$/## [Unreleased]\n\n## [$(VERSION)] - $(TODAY)/' agd/CHANGELOG.md org-core/CHANGELOG.md
+	perl -pi -e 's/^## \[Unreleased\]$$/## [Unreleased]\n\n## [$(VERSION)] - $(TODAY)/' agd/CHANGELOG.md agd-core/CHANGELOG.md
 	$(CARGO) update --workspace
 	@echo "$(CURRENT) -> $(VERSION); review the diff and commit it"
 
@@ -41,11 +41,11 @@ release-check: ## Check that v$(VERSION) is ready to tag, changing nothing
 	@git diff --quiet && git diff --cached --quiet || { echo "commit or stash your changes first"; exit 1; }
 	@test "$$(git rev-parse --abbrev-ref HEAD)" = main || { echo "release from main"; exit 1; }
 	@! git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || { echo "$(TAG) already exists"; exit 1; }
-	@for file in agd/Cargo.toml org-core/Cargo.toml; do \
+	@for file in agd/Cargo.toml agd-core/Cargo.toml; do \
 		grep -q '^version = "$(VERSION)"' $$file || { echo "$$file is not at $(VERSION)"; exit 1; }; \
 	done
 	@grep -q '"version": "$(VERSION)"' agd/claude-plugin/.claude-plugin/plugin.json || { echo "plugin.json is not at $(VERSION)"; exit 1; }
-	@for file in agd/CHANGELOG.md org-core/CHANGELOG.md; do \
+	@for file in agd/CHANGELOG.md agd-core/CHANGELOG.md; do \
 		grep -q '^## \[$(VERSION)\]' $$file || { echo "$$file has no $(VERSION) entry"; exit 1; }; \
 	done
 	just check

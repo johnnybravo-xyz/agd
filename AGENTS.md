@@ -5,7 +5,7 @@
 `agd` is a local-first Rust workspace for reading and safely changing org-mode
 files from terminals and coding agents.
 
-- `org-core/` publishes `agd-core` and owns parsing, discovery, agenda, search,
+- `agd-core/` publishes `agd-core` and owns parsing, discovery, agenda, search,
   capture, update, and source-preserving behavior.
 - `agd/` publishes the single `agd` executable and owns command-line input,
   output, exit status, and the stdio MCP adapter.

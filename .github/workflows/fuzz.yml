@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "org-core/**"
+      - "agd-core/**"
       - "fuzz/**"
       - ".github/workflows/fuzz.yml"
   schedule:
