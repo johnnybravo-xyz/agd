@@ -1,3 +1,10 @@
+//! Repeaters for agenda dates: the days a repeating timestamp shows on within
+//! a range, and the interval a `+N`, `++N` or `.+N` cookie names (a habit's
+//! `/max` part is ignored).
+//!
+//! It only reads dates; moving a repeating task on when it is marked done is
+//! the write engine's.
+
 use chrono::{Duration, Months, NaiveDate};
 
 use crate::{AgdError, ErrorCode, PlanningTimestamp};

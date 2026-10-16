@@ -1,3 +1,12 @@
+//! Files during a write: advisory locks in agd's data directory (never beside
+//! the org files), refusing a file Emacs has locked, reading an org file, and
+//! atomic replacement through a synced temporary file and a rename.
+//!
+//! Locks are taken in sorted order, so two writers never deadlock. A replaced
+//! file keeps its mode and a new one gets the default mode. When one file of a
+//! multi-file write cannot be written, the ones already written get their old
+//! bytes back.
+
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};

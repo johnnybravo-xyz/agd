@@ -1,3 +1,12 @@
+//! Edits: `WriteEngine::edit` for one item and `WriteEngine::edit_batch` for
+//! several as one journal transaction, with the request types (`EditIntent`,
+//! `Change`, `ItemEdit`) and the batch result (`BatchMutation`).
+//!
+//! A batch resolves and computes every edit first; if any is refused, nothing
+//! is written and the error names that target. Each edit is computed again
+//! under the write lock, and a target that moved to another file meanwhile is
+//! refused (`stale_ref`). The Org text an edit writes is `org_edit`'s.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 

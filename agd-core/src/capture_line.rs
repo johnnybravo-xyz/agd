@@ -1,3 +1,11 @@
+//! The one-line capture syntax: `Renew passport due:fri +admin #A` read into a
+//! [`CaptureDraft`], with `due:` and `on:` dates in any [`parse_date_input`]
+//! form, `+tags`, and an uppercase `#A` priority.
+//!
+//! A token it does not recognize stays in the title (`+5`, `#42`, `#a`), so a
+//! line never loses text. Whether a priority is in the target file's range is
+//! checked when the capture is written, not here.
+
 use std::collections::BTreeMap;
 
 use chrono::NaiveDate;

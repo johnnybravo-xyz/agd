@@ -1,3 +1,11 @@
+//! `WriteEngine::undo`: reverting a journal entry, or every file of its
+//! transaction, by inverting its stored patches.
+//!
+//! A change is reverted only where the file still holds exactly what it wrote,
+//! found again by its surrounding text when the file changed elsewhere;
+//! otherwise nothing is written, and the `undo_conflict` error names the
+//! heading, who changed it, and what to do.
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

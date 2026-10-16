@@ -1,3 +1,13 @@
+//! Capture templates: the `%^{prompt}` fields a template asks for
+//! ([`capture_prompts`]), and the entry text it renders for a draft, body and
+//! answers ([`render_capture_template`]), expanding org-capture's escapes
+//! (`%?`, `%i`, `%U`, `%u`, `%T`, `%t`, `%^g`, date prompts) and merging the
+//! draft's dates into one planning line.
+//!
+//! Title, body and answers are inserted literally and never expanded again,
+//! and a `%(sexp)` form is refused: a template never runs code. Where the
+//! entry goes in a file is the write engine's placement, not this module's.
+
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 

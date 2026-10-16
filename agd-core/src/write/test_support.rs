@@ -1,3 +1,6 @@
+//! Helpers shared by the write modules' tests: settings over a temporary root,
+//! a write context, and small fixtures.
+
 use std::collections::BTreeMap;
 use std::path::Path;
 

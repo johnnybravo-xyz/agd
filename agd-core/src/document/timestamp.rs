@@ -1,3 +1,10 @@
+//! Org timestamps in text: `parse_timestamp` reads one (date, time range,
+//! repeater, warning and raw text), and `scan_timestamps` finds the ones Org
+//! would list in a span of source.
+//!
+//! Timestamps in verbatim blocks (src, example, export, comment), fixed-width
+//! lines and link targets are skipped, as Org skips them.
+
 use std::sync::LazyLock;
 
 use regex::Regex;

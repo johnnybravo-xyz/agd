@@ -1,3 +1,12 @@
+//! `WriteEngine::capture`: a capture through a template, from the target file
+//! (a configured file, or the file of an `id` target, inside the roots) to the
+//! rendered entry inserted and journaled; and the agent inbox gate, which sends
+//! an agent's capture to `agent_inbox` without dates.
+//!
+//! The capture is computed once before any directory is created and again
+//! under the write lock, so a refused capture leaves nothing behind. Where the
+//! entry goes is `placement`'s; the template text is `crate::capture_template`'s.
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};

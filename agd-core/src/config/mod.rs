@@ -1,3 +1,15 @@
+//! The configuration: [`Settings`] and the records in `config.toml`, reading
+//! the file ([`load_settings`]), writing it back ([`render_config`]), and
+//! checking every value before anything uses it.
+//!
+//! `config.toml` is one flat table. Settings are top-level snake_case keys,
+//! and only `[[capture]]`, `[[view]]` and `[[agent_profile]]` are lists of
+//! records. Values are lowercase, kebab-case when they name an Org option
+//! (`add-on-write`, `time-up`, `tags-todo`). Unknown keys are errors, and each
+//! problem is a `config` error that names the key and how to fix it. A file's
+//! own Org syntax overrides these settings for that file; [`crate::document`]
+//! reads it.
+
 mod file;
 mod model;
 #[cfg(test)]

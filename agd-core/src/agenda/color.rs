@@ -1,3 +1,11 @@
+//! TODO keyword colors as agd draws them: a keyword's `todo_keyword_colors`
+//! entry, else green when done, orange for the first keyword of its sequence,
+//! and blue otherwise.
+//!
+//! Colors are names from `COLOR_NAMES`, never terminal codes; the TUI maps
+//! them onto its palette. A keyword two files order differently takes the
+//! first file's color, so the result never depends on hash order.
+
 use std::collections::BTreeMap;
 
 use crate::{Item, Settings, WorkspaceIndex};

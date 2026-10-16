@@ -1,3 +1,13 @@
+//! `WorkspaceIndex`: every agenda file under the roots, parsed, plus the
+//! `:ID:`s of the other org files there; resolving an item ref to its heading;
+//! and refreshing one changed path.
+//!
+//! A ref is the heading's `:ID:` when it is unique, else
+//! `file:line#sha256:digest`. An ID that occurs more than once anywhere under
+//! the roots is refused for writes (`duplicate_id`). A non-UTF-8 file or a
+//! symlink out of the roots is skipped with a reason instead of failing the
+//! whole index.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 

@@ -1,3 +1,10 @@
+//! `AgendaSpan`, how many days an agenda shows (org-agenda-span): its first
+//! and last day from a start day and week start, and how it reads from
+//! config.toml and from command-line or MCP input.
+//!
+//! Spans of 1 and 7 days are `Day` and `Week`, and 14 days start on the week
+//! start, as in Org.
+
 use chrono::{Datelike, Duration, Months, NaiveDate};
 use serde::Serialize;
 

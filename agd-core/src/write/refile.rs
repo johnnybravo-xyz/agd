@@ -1,3 +1,10 @@
+//! `WriteEngine::refile`: moving an item's subtree under another heading, in
+//! one file or across two, with its headings relevelled.
+//!
+//! Across files it is one journal transaction that writes the target first, so
+//! an interruption can leave the item in both files but never in neither. An
+//! item cannot be refiled into itself or its descendants.
+
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};

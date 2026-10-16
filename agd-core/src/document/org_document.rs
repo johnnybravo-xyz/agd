@@ -1,3 +1,11 @@
+//! `OrgDocument`: one org file parsed from its bytes, keeping the source
+//! exactly, with its headlines and the TODO keywords, logging, priorities, file
+//! tags and category its directives give.
+//!
+//! It refuses a file that is not UTF-8 (`non_utf8`) or that orgize would not
+//! round-trip byte for byte (`parse_drift`), so every span points into bytes
+//! that are exactly the file's.
+
 use std::path::{Path, PathBuf};
 
 use orgize::ParseConfig;

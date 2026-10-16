@@ -1,3 +1,13 @@
+//! Headlines as the index sees them: `HeadlineSpan`, holding the `Item`, the
+//! level and the byte spans of the headline, planning line, property drawer,
+//! section and subtree, and the scan that builds them with tag and category
+//! inheritance.
+//!
+//! Planning is read only from the line right after the headline, as Org reads
+//! it. Tags and priority cookies are split off exactly as the parser reads
+//! them (`split_trailing_tags`, `leading_priority_cookie`); writes use the same
+//! functions to refuse a title that would read back differently.
+
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::LazyLock;

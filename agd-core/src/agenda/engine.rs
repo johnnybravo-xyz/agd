@@ -1,3 +1,12 @@
+//! `AgendaEngine` and what the agenda collects: the rows each heading gives on
+//! each day (scheduled, deadline and its warning, past-scheduled reminders,
+//! timestamps, date ranges, and closed entries in log mode), as
+//! org-agenda-get-scheduled and org-agenda-get-deadlines collect them, and the
+//! TODO, inbox and tags lists. Also the date helpers the agenda modules share.
+//!
+//! Ordering is `sort`'s, repeaters `repeat`'s, matching `matcher`'s, views
+//! `view`'s and org-ql `query`'s. The engine only reads the index it is given.
+
 use chrono::{Duration, NaiveDate};
 
 use crate::{

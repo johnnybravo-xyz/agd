@@ -1,3 +1,5 @@
+//! Helpers shared by the document modules' tests.
+
 use std::path::Path;
 
 use crate::Settings;

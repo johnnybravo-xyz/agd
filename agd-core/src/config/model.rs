@@ -1,3 +1,12 @@
+//! The configuration's types: `Settings`, the view, capture and agent profile
+//! records, the value enums (`IdPolicy`, `WeekStart`, `LogMode`), the lists of
+//! accepted values (`SORTING_KEYS`, `VIEW_BLOCK_KINDS`, `VIEW_GROUP_BY`,
+//! `COLOR_NAMES`), the defaults, the built-in `n` view, and lookups such as
+//! `Settings::view`.
+//!
+//! The serde shapes are the config file format: field names are the keys.
+//! Checks the types cannot express live in `validation`.
+
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 

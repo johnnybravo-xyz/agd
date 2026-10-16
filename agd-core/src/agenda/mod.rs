@@ -1,3 +1,12 @@
+//! Reading the agenda from a [`WorkspaceIndex`](crate::WorkspaceIndex): agenda
+//! days, TODO lists, tags matches, org-ql queries and saved views as org-agenda
+//! shows them, and their Emacs text and CSV exports.
+//!
+//! Nothing here writes; changes go through [`crate::write`]. Results are
+//! deterministic: rows sort by the configured org-agenda sorting strategy and
+//! otherwise keep file and buffer order, checked against pinned Emacs in
+//! `conformance/agenda`.
+
 mod color;
 mod engine;
 mod export;

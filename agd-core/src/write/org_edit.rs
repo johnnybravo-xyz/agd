@@ -1,3 +1,12 @@
+//! The Org text an edit writes: patches for the headline (state, title,
+//! priority, tags aligned to `tags_column`), the planning line, the property
+//! drawer and LOGBOOK entries, following Org's logging (`!` and `@` markers,
+//! the org-log-* settings) and repeaters (org-auto-repeat-maybe).
+//!
+//! Each patch spans only the line or drawer it replaces and keeps the entry's
+//! indentation and line endings, so every other byte is untouched. It only
+//! computes patches; applying and writing them is the caller's.
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{Duration, Months, NaiveDate, NaiveDateTime};

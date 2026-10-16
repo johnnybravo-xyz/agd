@@ -1,3 +1,6 @@
+//! Fixtures shared by the agenda modules' tests: an index over one temporary
+//! org file.
+
 use crate::{Settings, WorkspaceIndex};
 
 pub(super) fn fixture(source: &str) -> (tempfile::TempDir, WorkspaceIndex) {

@@ -1,3 +1,11 @@
+//! Which paths agd may touch. [`RootSet`] confines reads and writes to the
+//! configured roots and lists the org and agenda files under them
+//! ([`OrgFiles`]); [`config_dir`] and [`data_dir`] are agd's own directories.
+//!
+//! `..` segments are refused, a symlink is followed only while it stays inside
+//! a root and is never written through, and an entry discovery cannot read is
+//! skipped with a [`SkipReason`] instead of failing the walk.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 

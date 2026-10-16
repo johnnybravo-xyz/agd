@@ -1,3 +1,12 @@
+//! Org's date prompt. [`parse_date_input`] reads a date the way org-read-date
+//! does (`fri`, `+2d`, `-wed`, `oct 30`, `3pm`, `mon 10:00`, or an ISO date
+//! with repeater and warning), [`date_preview`] shows the Org text an answer
+//! writes, and [`format_active_timestamp`] renders a [`PlanningTimestamp`].
+//!
+//! Dates count from the `today` the caller passes, so results are
+//! deterministic; only [`now_local_naive`] reads the clock. A date it cannot
+//! read is an `invalid_date` error that lists every accepted form.
+
 use std::sync::LazyLock;
 
 use chrono::{

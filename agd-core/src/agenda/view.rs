@@ -1,3 +1,11 @@
+//! Saved views: `AgendaEngine::view` runs a view's blocks in order like a
+//! block agenda and groups a block's rows as org-super-agenda does; this
+//! module also checks a block's match (`validate_view_block`) and reads Org
+//! effort durations (`duration_minutes`).
+//!
+//! The view settings themselves are config types. A row goes to the first
+//! group that takes it, and rows no group takes come last as "Other items".
+
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::LazyLock;

@@ -1,3 +1,12 @@
+//! The records agd hands to callers: [`Item`], [`AgendaEntry`], [`Mutation`]
+//! and their parts, the `agd.<name>/v1` schema names, and errors: [`AgdError`],
+//! its [`ErrorResponse`], and [`ErrorCode`], the one list of agd.error/v1
+//! codes.
+//!
+//! These are plain data with no behavior beyond construction and display,
+//! and a code is raised only through [`ErrorCode`], never spelled as a
+//! literal.
+
 use std::fmt;
 
 use serde::{Deserialize, Serialize};

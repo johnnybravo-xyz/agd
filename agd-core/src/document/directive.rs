@@ -1,3 +1,11 @@
+//! In-file directives and the settings they override: TODO keyword sequences
+//! with their logging markers (`#+TODO`, `#+SEQ_TODO`, `#+TYP_TODO`), logging
+//! from `#+STARTUP`, the priority range from `#+PRIORITIES`, and the readers
+//! for `#+KEY:` lines.
+//!
+//! A file's own lines replace the configured ones; a malformed `#+PRIORITIES`
+//! keeps the configured range rather than guessing.
+
 use crate::{LogMode, Settings};
 
 /// How a state change or planning change is recorded, as in Org's `!` (time)

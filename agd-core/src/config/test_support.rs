@@ -1,3 +1,6 @@
+//! Helpers shared by the config modules' tests: loading a config body from a
+//! temporary file.
+
 use std::fs;
 
 use crate::Settings;

@@ -1,3 +1,14 @@
+//! `agd setup import`: finding the files of an Emacs or Neovim configuration
+//! that mention Org ([`find_config_sources`]), and applying the settings the
+//! editor reports ([`ResolvedEditorConfig`]) over the current configuration
+//! ([`apply_import`]), with a diagnostic for everything that differs or cannot
+//! be imported.
+//!
+//! The editor resolves its own settings (the agd binary runs it with a reader
+//! script); this module never evaluates editor code, it maps the result. A
+//! result that would not load as a config is refused
+//! (`unsupported_import_shape`).
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

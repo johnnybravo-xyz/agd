@@ -1,3 +1,11 @@
+//! `AgendaEngine::query`: the org-ql subset agd supports (`and`, `or`, `not`,
+//! `todo`, `done`, `tags`, `priority`, `category`, `text`, `deadline :to` and
+//! `scheduled :to`), with org-ql's meanings.
+//!
+//! An unknown predicate or malformed query is an `invalid_query` error that
+//! says what was expected and lists every supported predicate; nothing is
+//! silently ignored.
+
 use chrono::{Duration, NaiveDate};
 
 use crate::{AgdError, ErrorCode, Item};

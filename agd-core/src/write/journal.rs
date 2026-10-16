@@ -1,3 +1,13 @@
+//! The write journal, `journal.jsonl`: `JournalRecord`s appended before and
+//! after each write, the latest record of each entry, review, and settling
+//! interrupted writes from the file's bytes.
+//!
+//! A pending record is synced before its file changes, so every interruption
+//! can be settled: a file holding the post-image was committed, one holding the
+//! pre-image was never changed, and anything else is a conflict that blocks
+//! writes to that file until `agd setup check --resolve`. The journal is the
+//! user's alone (mode 0600 in a 0700 directory).
+
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;

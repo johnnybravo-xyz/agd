@@ -1,3 +1,10 @@
+//! The agenda as Emacs prints it: `org-batch-agenda` text rows,
+//! `org-batch-agenda-csv` columns, and the headline text a row shows.
+//!
+//! The layouts match pinned Emacs byte for byte (checked in
+//! `conformance/agenda`), so change one only together with its fixture. This
+//! module decides nothing about which rows exist or their order.
+
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 

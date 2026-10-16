@@ -1,3 +1,11 @@
+//! Checks on what a write would put into Org text: a title, tag, priority,
+//! property, prompt answer or capture body must read back as exactly the field
+//! given, and an `:ID:` is unique and never changes once set.
+//!
+//! Checks that need no file run before anything is read; the rest run against
+//! the target file's own keywords and priority range. A refusal names the
+//! field and the rule.
+
 use std::collections::BTreeMap;
 
 use crate::{AgdError, CaptureDraft, ErrorCode, HeadlineSpan, IndexedDocument, WorkspaceIndex};

@@ -1,3 +1,11 @@
+//! Byte patches: `Patch` and its journaled form `StoredPatch`, `apply_patches`,
+//! the one patch between two texts, line helpers, and the unified diff a
+//! mutation shows.
+//!
+//! Patches must not overlap, run past the source or split a UTF-8 character
+//! (`invalid_patch`), and every byte outside them is copied exactly. A stored
+//! patch keeps the text around it so undo can find it again.
+
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};

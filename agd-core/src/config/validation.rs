@@ -1,3 +1,11 @@
+//! Checks a configuration: the roots exist and differ, then every value in a
+//! fixed order (`validate_values`); the first check that fails is the error.
+//!
+//! Each failure is a `config` error that names the key and the accepted
+//! values. A view's match is checked by the agenda's own parser, so a view
+//! that loads is a view that runs. Roots are checked apart from the values so
+//! `agd setup import` can check a config before its roots exist.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 

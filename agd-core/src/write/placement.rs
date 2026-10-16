@@ -1,3 +1,11 @@
+//! Where a capture goes: org-capture's target types (`file`, `file+headline`,
+//! `file+olp`, `id`, and `datetree` under them), the year, month and day
+//! headings a datetree creates, and org-capture-place-entry's blank-line rules.
+//!
+//! The result matches what pinned Emacs org-capture writes for the same file,
+//! target and day. Besides the entry, only blank lines at the insertion point
+//! and the headings a target creates change.
+
 use std::path::Path;
 use std::sync::LazyLock;
 

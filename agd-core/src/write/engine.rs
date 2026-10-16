@@ -1,3 +1,11 @@
+//! `WriteEngine` and `WriteContext`, and what every write shares: the dry-run
+//! journal id, a computed file image (`PreparedFile`) and its journal image,
+//! parsing written text again, and the `Mutation` result.
+//!
+//! The operations live by concern: `edit`, `capture`, `refile`, `undo`,
+//! `journal` (review and interrupted writes) and `file` (locks and atomic
+//! writes). Opening an engine only reads.
+
 use std::path::{Path, PathBuf};
 
 use chrono::{Local, NaiveDateTime};

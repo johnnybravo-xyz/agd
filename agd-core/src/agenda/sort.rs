@@ -1,3 +1,9 @@
+//! Agenda order: the org-agenda-sorting-strategy keys, org-agenda urgency, and
+//! priority values from each file's own `#+PRIORITIES` range.
+//!
+//! Every sort is stable, so rows that compare equal keep collection order
+//! (file, then buffer position) and the output is deterministic.
+
 use std::cmp::Ordering;
 
 use chrono::NaiveDate;

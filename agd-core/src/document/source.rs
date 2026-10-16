@@ -1,3 +1,9 @@
+//! Positions in a document's source: `ByteSpan`, `SourceLine`, and the split of
+//! the source into numbered lines.
+//!
+//! Spans are byte offsets into the exact source. A line's `content` leaves out
+//! its `\n` or `\r\n` and its `full` span includes it.
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ByteSpan {
     pub start: usize,

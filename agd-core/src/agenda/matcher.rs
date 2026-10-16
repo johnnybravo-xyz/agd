@@ -1,3 +1,11 @@
+//! Emacs's tags/TODO match syntax (`work-someday|home/!NEXT`), with property
+//! terms (`TODO="NEXT"`, `Effort<15`, `CLOSED>="<-3w>"`) compared as Org
+//! compares them.
+//!
+//! Regexp terms (`{...}`) are refused with `invalid_match` rather than
+//! guessed at. A property is read from the heading itself, not inherited, as
+//! Org's matcher does by default.
+
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::sync::LazyLock;

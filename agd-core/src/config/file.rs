@@ -1,3 +1,13 @@
+//! `config.toml` on disk: where it lives, reading it into `Settings`
+//! (`load_settings`, `parse_config_file`), explaining TOML errors such as a
+//! top-level key written below a record, reading each `template_file`, and
+//! writing settings back as a commented file (`render_config`).
+//!
+//! Loading validates before it returns, so a caller never holds settings that
+//! fail validation. Rendering leaves out values equal to the defaults, so the
+//! file shows only what differs. `CONFIG_GROUPS` is the one list of top-level
+//! keys, shared by both directions.
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

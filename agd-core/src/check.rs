@@ -1,3 +1,16 @@
+//! `agd setup check`: a read-only report ([`CheckReport`], schema
+//! `agd.check/v1`) on the org files under the roots and on the configuration:
+//! files that cannot be read or parsed, files the Org parser would not
+//! reproduce byte for byte, repeated `:ID:`s, TODO keywords a file uses
+//! without enabling them, and interrupted writes.
+//!
+//! It parses with its own light [`OrgDocument`] (`agd_core::OrgDocument`),
+//! separate from the index's [`IndexedDocument`](crate::IndexedDocument), and
+//! never writes. Its problem `code`s (`read_error`, `invalid_org`,
+//! `byte_drift`, `non_utf8`, `duplicate_id`, `unknown_todo_keyword`,
+//! `outside_roots`, `journal_conflict`) belong to agd.check/v1, not to
+//! [`ErrorCode`](crate::ErrorCode).
+
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
