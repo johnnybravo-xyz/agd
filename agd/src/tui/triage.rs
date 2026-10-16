@@ -320,14 +320,19 @@ fn summary(app: &App) -> Vec<Line<'static>> {
             )),
         ])
     };
-    // `u` is offered only when the pass wrote something it can undo.
-    let mut keys = Vec::new();
+    // Undo is offered only when the pass wrote something it can undo.
+    let key = |action: Action| {
+        keys::hints(keys::TRIAGE_KEYS, &[action])
+            .first()
+            .map_or("", |(key, _)| *key)
+    };
+    let mut hints = Vec::new();
     if !app.triage.undo.is_empty() {
-        keys.extend(theme.key_hint("u", "undoes all"));
+        hints.extend(theme.key_hint(key(Action::Undo), "undoes all"));
     }
     if !app.triage.queue.is_empty() {
-        keys.extend(theme.key_hint("p", "last card"));
+        hints.extend(theme.key_hint(key(Action::Previous), "last card"));
     }
-    keys.extend(theme.key_hint("⏎", "returns to Today"));
-    vec![headline, Line::default(), Line::from(keys)]
+    hints.extend(theme.key_hint(key(Action::Back), "goes back"));
+    vec![headline, Line::default(), Line::from(hints)]
 }

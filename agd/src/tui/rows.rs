@@ -73,6 +73,18 @@ impl App {
         tabs
     }
 
+    /// The tabs as the header shows them, left to right, for tab, S-tab
+    /// and 1–9: the tabs, then a saved view open that is not one, then
+    /// Triage while it runs.
+    pub(super) fn shown_tabs(&self) -> Vec<Screen> {
+        let mut shown = self.tabs();
+        if matches!(self.screen, Screen::View(_) | Screen::Triage) && !shown.contains(&self.screen)
+        {
+            shown.push(self.screen.clone());
+        }
+        shown
+    }
+
     /// Changes screen with the cursor on the first row; esc comes back from
     /// Triage, Agents and saved views other than the start view, which is a
     /// tab.
@@ -89,6 +101,7 @@ impl App {
         self.selected = 0;
         self.marks.clear();
         self.marked_changes.clear();
+        self.review_diff = false;
         self.overdue_expanded = false;
         self.reload_rows()?;
         self.cursor_to_today();

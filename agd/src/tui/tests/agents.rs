@@ -209,3 +209,36 @@ fn every_agent_card_has_the_same_two_line_shape() {
         assert_eq!(moved[0], selected[1] + 2, "{}", screen.join("\n"));
     });
 }
+
+#[test]
+#[serial]
+fn on_the_agents_tab_esc_steps_back_and_q_quits() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        agent_capture(&app, root, "Agent task");
+        app.index.refresh_path(&root.join("inbox.org")).unwrap();
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('A'));
+        // esc closes peek, then clears the marks, then goes back.
+        press(&mut app, KeyCode::Char(' '));
+        press(&mut app, KeyCode::Char('*'));
+        press(&mut app, KeyCode::Esc);
+        assert!(!app.peek);
+        assert_eq!(app.marked_changes.len(), 1);
+        press(&mut app, KeyCode::Esc);
+        assert!(app.marked_changes.is_empty());
+        assert_eq!(app.screen, Screen::Review);
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.screen, Screen::Today);
+        assert!(!app.quit);
+        // T goes to Triage from the Agents tab too; q quits.
+        press(&mut app, KeyCode::Char('A'));
+        press(&mut app, KeyCode::Char('T'));
+        assert_eq!(app.screen, Screen::Triage);
+        press(&mut app, KeyCode::Char('A'));
+        press(&mut app, KeyCode::Char('q'));
+        assert!(app.quit);
+    });
+}

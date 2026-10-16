@@ -105,30 +105,29 @@ fn header_tabs(app: &App, width: usize) -> Vec<Span<'static>> {
             .view(key)
             .map_or_else(|| key.to_string(), |view| view.desc.clone())
     };
-    let screens = app.tabs();
-    let mut tabs: Vec<(Vec<Span<'static>>, bool)> = screens
+    let tab_screens = app.tabs();
+    // The order tab and 1–9 follow (App::shown_tabs).
+    let mut tabs: Vec<(Vec<Span<'static>>, bool)> = app
+        .shown_tabs()
         .iter()
         .map(|screen| {
             let label = match screen {
+                // A view open that is not a tab names its key too.
+                Screen::View(key) if !tab_screens.contains(screen) => {
+                    format!("{key} {}", view_desc(key))
+                }
                 Screen::View(key) => view_desc(key),
                 Screen::Week => "Week".to_string(),
                 Screen::Inbox => format!("Inbox {}", app.counts.inbox),
                 Screen::Review => "Agents".to_string(),
-                _ => "Today".to_string(),
+                Screen::Triage => "Triage".to_string(),
+                Screen::Today => "Today".to_string(),
             };
             let alert = (*screen == Screen::Review && app.counts.agents > 0)
                 .then(|| format!("● {}", app.counts.agents));
             tab(label, alert, app.screen == *screen)
         })
         .collect();
-    if let Screen::View(key) = &app.screen
-        && !screens.contains(&app.screen)
-    {
-        tabs.push(tab(format!("{key} {}", view_desc(key)), None, true));
-    }
-    if app.screen == Screen::Triage {
-        tabs.push(tab("Triage".to_string(), None, true));
-    }
     let mut left = theme.pill("Agenda", theme.accent);
     left.push(Span::raw(" "));
     let total = |tabs: &[(Vec<Span<'static>>, bool)]| {

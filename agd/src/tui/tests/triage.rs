@@ -194,3 +194,58 @@ fn triage_keys_mean_what_they_mean_in_the_lists() {
         assert!(screen.contains("s  pick date"), "{screen}");
     });
 }
+
+#[test]
+#[serial]
+fn in_triage_q_quits_esc_goes_back_and_tab_switches_tabs() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, THREE_OVERDUE).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('T'));
+        // Triage is the last tab while it runs, so tab wraps to the first
+        // and S-tab goes to the one before it, as on every screen.
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(app.screen, Screen::Today);
+        press(&mut app, KeyCode::Char('T'));
+        press(&mut app, KeyCode::BackTab);
+        assert_eq!(app.screen, Screen::Review);
+        // T on Triage stays on its card; A goes to the Agents tab.
+        press(&mut app, KeyCode::Char('T'));
+        press(&mut app, KeyCode::Char('j'));
+        press(&mut app, KeyCode::Char('T'));
+        assert_eq!(app.screen, Screen::Triage);
+        assert_eq!(app.triage.position, 1);
+        press(&mut app, KeyCode::Char('A'));
+        assert_eq!(app.screen, Screen::Review);
+        // esc goes back to where Triage began.
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Char('T'));
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.screen, Screen::Today);
+        assert!(!app.quit);
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_OVERDUE);
+
+        // On a card and on the finished pass, q quits.
+        press(&mut app, KeyCode::Char('T'));
+        press(&mut app, KeyCode::Char('q'));
+        assert!(app.quit);
+        app.quit = false;
+        press(&mut app, KeyCode::Char('T'));
+        while !app.triage.finished() {
+            press(&mut app, KeyCode::Char('n'));
+        }
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("p last card   esc goes back"), "{screen}");
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.screen, Screen::Today);
+        press(&mut app, KeyCode::Char('T'));
+        while !app.triage.finished() {
+            press(&mut app, KeyCode::Char('n'));
+        }
+        press(&mut app, KeyCode::Char('q'));
+        assert!(app.quit);
+    });
+}

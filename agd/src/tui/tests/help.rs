@@ -49,11 +49,13 @@ fn help_scrolls_through_every_screens_keys_at_60_by_24() {
         // being cut.
         assert!(!text.contains("C-c C-s"), "{text}");
         assert!(text.contains("clear marks or filter,"), "{text}");
-        let wrapped = text
-            .lines()
-            .find(|line| line.contains("leave a view"))
-            .unwrap_or_else(|| panic!("{text}"));
-        assert!(!wrapped.contains("esc"), "{wrapped}");
+        // esc's help ends on a row of its own, under its column.
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.trim_matches(['│', '┃', ' ']) == "back"),
+            "{text}"
+        );
         press(&mut app, crossterm::event::KeyCode::Esc);
         assert!(matches!(app.overlay, Overlay::None));
     });
@@ -143,7 +145,12 @@ fn help_is_a_palette_that_runs_the_action_it_finds() {
         type_keys(&mut app, "sched");
         let screen = render(&mut app, 120, 30).join("\n");
         assert!(screen.contains("› sched"), "{screen}");
-        assert!(screen.contains("▌s            schedule"), "{screen}");
+        assert!(
+            screen
+                .lines()
+                .any(|line| line.contains("▌s ") && line.contains(" schedule ")),
+            "{screen}"
+        );
         assert!(screen.contains("C-c C-s"), "{screen}");
         assert!(!screen.contains("next row"), "{screen}");
         // Triage's own `s` is listed, naming where it runs.
