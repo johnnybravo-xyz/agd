@@ -51,18 +51,32 @@ let refreshes = 0
 // next, and which day is today.
 let now = new Date()
 
-// Runs agd with an argument list (no shell). Resolves { stdout } or { error }.
+// Runs agd with an argument list (no shell). Resolves { stdout } or { error },
+// the error the sentence agd's terminal shows, never its code.
 async function agd($, args) {
   try {
     const result = await $.process.run(['agd', ...args], { timeoutMs: 15000 })
     if (result.exitCode !== 0) {
-      const message = result.stderr.trim().replace(/^error:\s*/i, '')
+      const message = errorSentence(result.stderr.trim())
       return { error: message || 'agd ' + args[0] + ' exited with ' + result.exitCode }
     }
     return { stdout: result.stdout }
   } catch (error) {
     return { error: 'cannot run agd (is it installed and on PATH?): ' + error.message }
   }
+}
+
+// agd's stderr as a sentence: agd.error/v1's message under --json, else
+// the text after `error:`.
+function errorSentence(stderr) {
+  if (stderr.startsWith('{')) {
+    try {
+      return String(JSON.parse(stderr).message || '')
+    } catch {
+      return stderr
+    }
+  }
+  return stderr.replace(/^error:\s*/i, '')
 }
 
 // A saved view's sections, or today's agenda as one section.
@@ -535,16 +549,48 @@ function paneBody($, e) {
 }
 
 // "/capture t buy milk due:fri" runs `agd capture t "buy milk due:fri"`.
+// It says what it wrote as agd's TUI and terminal do:
+// `inbox.org:7  captured · buy milk · deadline Fri 23 Oct`.
 async function capture($, args) {
   const match = args.trim().match(/^(\S+)\s+(.+)$/)
   if (!match) return { text: 'usage: /capture KEY text, such as /capture t buy milk due:fri' }
-  const result = await agd($, ['capture', match[1], match[2]])
+  const result = await agd($, ['capture', match[1], match[2], '--json'])
   // Claude Code prefixes the plugin's name, so the text starts with agd's own.
   if (result.error) return { text: result.error }
+  const today = await readNow($)
   await refresh($)
-  // agd prints the new item's ref, "<file>:<line>#sha256:…".
-  const location = result.stdout.trim().split('#')[0].split('/').pop()
-  return { text: 'captured to ' + location }
+  try {
+    return { text: capturedLine(JSON.parse(result.stdout).item, today) }
+  } catch {
+    return { text: 'captured' }
+  }
+}
+
+// agd's words::captured: the file and line, `captured`, the title, then its
+// dates (`scheduled Sat 17 Oct`, `deadline Fri 23 Oct`).
+function capturedLine(item, today) {
+  let line = item.file.split('/').pop() + ':' + item.line + '  captured · ' + item.title
+  const planning = item.planning || {}
+  for (const [label, timestamp] of [
+    ['scheduled', planning.scheduled],
+    ['deadline', planning.deadline],
+  ]) {
+    if (timestamp) line += ' · ' + label + ' ' + when(timestamp.date, timestamp.time, today)
+  }
+  return line
+}
+
+const SHORT_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// agd's words::when: `Fri 16 Oct`, with the year when it is not `today`'s,
+// and the time after it.
+function when(date, time, today) {
+  const parsed = new Date(date + 'T00:00:00Z')
+  if (Number.isNaN(parsed.getTime())) return date
+  let text = SHORT_WEEKDAYS[parsed.getUTCDay()] + ' ' + parsed.getUTCDate() + ' ' + SHORT_MONTHS[parsed.getUTCMonth()]
+  if (parsed.getUTCFullYear() !== today.getFullYear()) text += ' ' + parsed.getUTCFullYear()
+  return time ? text + ' ' + time : text
 }
 
 // Literal names, so `claude plugin validate` sees each command.run hook

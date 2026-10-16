@@ -18,7 +18,7 @@ use super::{
 
 /// Width at which peek sits beside the list and tags get their column.
 const WIDE: u16 = 100;
-/// Width of the right-aligned column (category, ✓, ↻, provenance).
+/// Width of the right-aligned column (category, ↻, provenance).
 const RIGHT: usize = 14;
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {

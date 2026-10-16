@@ -471,25 +471,41 @@ test('the band above the prompt shows the day\'s counts', async ($, on) => {
   await ui.unmount()
 })
 
-test('/capture runs agd capture with the key and the rest of the line', async ($, on) => {
+test('/capture runs agd capture and says what it wrote as agd does', async ($, on) => {
+  mock.clock(on, { now: NOON })
   const calls: string[] = []
+  const mutation = {
+    schema: 'agd.mutation/v1',
+    item: item('TODO', 'buy milk', {
+      file: '/home/me/org/inbox.org',
+      line: 7,
+      planning: { deadline: { date: '2026-10-16', time: null }, scheduled: { date: '2027-01-04', time: '09:00' } },
+    }),
+  }
   agd(
     on,
     {
       'agenda --status': { stdout: '1 today · 1 inbox\n' },
-      'capture t buy milk due:fri': { stdout: '/home/me/org/inbox.org:7#sha256:abc\n' },
+      'capture t buy milk due:fri --json': { stdout: JSON.stringify(mutation) },
     },
     calls,
   )
   const captured = await $.command.run(typed('capture', 't buy milk due:fri'))
-  expect(captured.text).toBe('captured to inbox.org:7')
-  expect(calls).toContain('capture t buy milk due:fri')
+  expect(captured.text).toBe(
+    'inbox.org:7  captured · buy milk · scheduled Mon 4 Jan 2027 09:00 · deadline Fri 16 Oct',
+  )
+  expect(calls).toContain('capture t buy milk due:fri --json')
 })
 
-test('/capture reports agd\'s own error and its usage', async ($, on) => {
+test('/capture reports agd\'s own error as a sentence, and its usage', async ($, on) => {
+  const refused = {
+    schema: 'agd.error/v1',
+    code: 'unknown_template',
+    message: "capture template 'zz' is not configured",
+  }
   agd(on, {
     'agenda --status': { stdout: '' },
-    'capture zz nothing': { exitCode: 1, stderr: "error: capture template 'zz' is not configured" },
+    'capture zz nothing --json': { exitCode: 1, stderr: JSON.stringify(refused) },
   })
   expect((await $.command.run(typed('capture', 'zz nothing'))).text).toBe(
     "capture template 'zz' is not configured",
