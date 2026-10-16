@@ -1,7 +1,8 @@
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 use agd_core::{
     AgendaEngine, AgendaQuery, ConfigEditor, ConfigSources, ImportResult, ImportStatus,
@@ -14,6 +15,9 @@ use similar::TextDiff;
 
 const EMACS_READER: &str = include_str!("../readers/emacs.el");
 const NEOVIM_READER: &str = include_str!("../readers/nvim.lua");
+/// How long an editor may take to read the config and, with --verify, run
+/// every imported view.
+const READER_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Clone, Debug)]
 pub struct VerificationResult {
@@ -72,7 +76,7 @@ pub fn import_config(
     };
     command.0.env("AGD_IMPORT_FILES", files);
     let label = format!("{} config reader", sources.editor.name());
-    let output = run(&mut command.0, &label)?;
+    let output = run(&mut command.0, &label, READER_TIMEOUT)?;
     let resolved = parse_process_json(&output, sources.editor.name())?;
     finish_import(
         sources,
@@ -96,11 +100,45 @@ fn neovim_config_root(file: &Path) -> PathBuf {
         .unwrap_or_default()
 }
 
-fn run(command: &mut Command, label: &str) -> Result<Output> {
-    tracing::info!(?command, "starting editor config reader");
-    let output = command
-        .output()
+/// Runs the reader with no stdin, so an editor prompt reads end of file
+/// instead of waiting, and stops it after `timeout`.
+fn run(command: &mut Command, label: &str, timeout: Duration) -> Result<Output> {
+    tracing::info!(?command, ?timeout, "starting editor config reader");
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .with_context(|| format!("cannot start {label}; is the editor on PATH?"))?;
+    // Both pipes drain on their own threads, so a full pipe never stalls
+    // the child.
+    let stdout = read_to_end_in_background(child.stdout.take());
+    let stderr = read_to_end_in_background(child.stderr.take());
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child
+            .try_wait()
+            .with_context(|| format!("cannot wait for {label}"))?
+        {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            tracing::warn!(?timeout, "stopping editor config reader");
+            // Kill fails only when the child has already exited.
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!(
+                "{label} did not finish within {timeout:?} and was stopped; an editor prompt or, with --verify, a slow agenda view can cause this"
+            );
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let output = Output {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    };
+    tracing::info!(status = %output.status, "editor config reader finished");
     if !output.status.success() {
         bail!(
             "{label} failed with {}: {}",
@@ -109,6 +147,19 @@ fn run(command: &mut Command, label: &str) -> Result<Output> {
         );
     }
     Ok(output)
+}
+
+fn read_to_end_in_background(
+    pipe: Option<impl Read + Send + 'static>,
+) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = pipe {
+            // A read error leaves what was read; the exit status reports why.
+            let _ = pipe.read_to_end(&mut bytes);
+        }
+        bytes
+    })
 }
 
 fn parse_process_json(output: &Output, editor: &str) -> Result<ResolvedEditorConfig> {
@@ -444,4 +495,30 @@ fn reader_file(name: &str, contents: &str) -> Result<tempfile::NamedTempFile> {
         .flush()
         .context("cannot write the editor config reader")?;
     Ok(reader)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reader_that_never_finishes_is_stopped_with_an_error() {
+        let started = Instant::now();
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 30"]);
+        let error = run(&mut command, "test reader", Duration::from_millis(200)).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "test reader did not finish within 200ms and was stopped; an editor prompt or, with --verify, a slow agenda view can cause this"
+        );
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn a_reader_prompt_reads_end_of_file() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "read answer; echo \"answer:$answer\""]);
+        let output = run(&mut command, "test reader", Duration::from_secs(10)).unwrap();
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "answer:\n");
+    }
 }

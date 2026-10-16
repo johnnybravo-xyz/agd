@@ -18,6 +18,10 @@
 (require 'org-agenda)
 (require 'org-capture nil t)
 
+;; A missing agenda file makes org-agenda ask "[R]emove from list or
+;; [A]bort?", which batch Emacs asks forever; agd skips such files too.
+(setq org-agenda-skip-unavailable-files t)
+
 (defconst agd--imported
   '(org-directory org-default-notes-file org-agenda-files org-todo-keywords
     org-tags-column org-tags-exclude-from-inheritance
