@@ -14,9 +14,10 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Wrap};
 
-use super::input::{self, TextInput};
+use super::input::TextInput;
+use super::keys::{self, Action};
 use super::theme::centered;
-use super::{App, Overlay, Screen, keys, write_context};
+use super::{App, Overlay, Screen, write_context};
 
 const TITLE: usize = 0;
 const STATE: usize = 1;
@@ -189,12 +190,10 @@ impl EditForm {
     }
 
     /// State and Priority are choices: ←/→ step, a letter picks the first
-    /// choice starting with it, Backspace picks none. Returns false for
-    /// C-g, which closes the popup.
-    fn choose(&mut self, key: KeyEvent) -> bool {
+    /// choice starting with it, Backspace picks none.
+    fn choose(&mut self, key: KeyEvent) {
         let control = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
-            KeyCode::Char('g') if control => return false,
             KeyCode::Left => self.cycle(-1),
             KeyCode::Right => self.cycle(1),
             KeyCode::Backspace => self.values[self.field].set(""),
@@ -215,7 +214,6 @@ impl EditForm {
             }
             _ => {}
         }
-        true
     }
 }
 
@@ -248,33 +246,24 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<keys::EditorTar
     let Overlay::Edit(mut form) = std::mem::replace(&mut app.overlay, Overlay::None) else {
         return Ok(None);
     };
-    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('o') {
-        return Ok(Some((form.file, form.line)));
-    }
-    match key.code {
-        KeyCode::Esc => return Ok(None),
-        KeyCode::Enter => {
+    let next = (form.field + 1) % LABELS.len();
+    let previous = (form.field + LABELS.len() - 1) % LABELS.len();
+    match keys::popup_action(key) {
+        Some(Action::Editor) => return Ok(Some((form.file, form.line))),
+        Some(Action::Back) => return Ok(None),
+        Some(Action::Save) => {
             if !form.unchanged() {
                 commit(app, form)?;
             }
             return Ok(None);
         }
-        KeyCode::Tab => form.focus((form.field + 1) % LABELS.len()),
-        KeyCode::BackTab => form.focus((form.field + LABELS.len() - 1) % LABELS.len()),
-        _ if keys::picker_step(key) == Some(1) => form.focus((form.field + 1) % LABELS.len()),
-        _ if keys::picker_step(key) == Some(-1) => {
-            form.focus((form.field + LABELS.len() - 1) % LABELS.len())
-        }
-        _ if form.field == STATE || form.field == PRIORITY => {
-            if !form.choose(key) {
-                return Ok(None);
-            }
-        }
+        Some(Action::NextField) => form.focus(next),
+        Some(Action::PreviousField) => form.focus(previous),
+        _ if keys::picker_step(key) == Some(1) => form.focus(next),
+        _ if keys::picker_step(key) == Some(-1) => form.focus(previous),
+        _ if form.field == STATE || form.field == PRIORITY => form.choose(key),
         _ => {
-            let field = form.field;
-            if form.values[field].handle(key) == input::Edit::Cancel {
-                return Ok(None);
-            }
+            form.values[form.field].handle(key);
         }
     }
     form.stale = true;
@@ -410,13 +399,14 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             .block(theme.inset()),
         parts[2],
     );
+    let key = |action| keys::key_label(keys::POPUP_KEYS, action);
     frame.render_widget(
         Paragraph::new(Line::from(
             [
-                theme.key_hint("⏎", "save"),
-                theme.key_hint("tab", "next field"),
-                theme.key_hint("esc", "cancel"),
-                theme.key_hint("C-o", "open in $EDITOR"),
+                theme.key_hint(key(Action::Save), "save"),
+                theme.key_hint(key(Action::NextField), "next field"),
+                theme.key_hint(key(Action::Back), "cancel"),
+                theme.key_hint(key(Action::Editor), "open in $EDITOR"),
             ]
             .concat(),
         )),

@@ -25,9 +25,10 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
 
-use super::input::{self, TextInput};
+use super::input::TextInput;
+use super::keys::{self, Action};
 use super::theme::{Theme, centered};
-use super::{App, Overlay, keys, stop_terminal, write_context};
+use super::{App, Overlay, stop_terminal, write_context};
 
 /// The capture popup's state. Field 0 is the one-line title with tokens;
 /// later fields answer the template's `%^{prompt}`s.
@@ -199,10 +200,11 @@ pub(super) fn handle_key(
     };
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
     // In the text fields C-e is end of line, so the body editor is C-o.
+    let action = keys::popup_action(key);
     match key.code {
-        KeyCode::Esc => return close(app),
-        KeyCode::Char('o') if control => edit_body(terminal, app, &mut draft)?,
-        KeyCode::Tab => {
+        _ if action == Some(Action::Back) => return close(app),
+        _ if action == Some(Action::Editor) => edit_body(terminal, app, &mut draft)?,
+        _ if action == Some(Action::NextField) => {
             let keys: Vec<String> = app
                 .settings
                 .captures
@@ -230,7 +232,7 @@ pub(super) fn handle_key(
             }
         }
         _ if keys::picker_step(key) == Some(-1) => draft.field = draft.previous_field(app),
-        KeyCode::Enter if draft.template.is_none() => {
+        _ if action == Some(Action::Save) && draft.template.is_none() => {
             if let Some(template) = app.settings.captures.get(draft.selected) {
                 let key = template.key.clone();
                 draft.choose(app, &key);
@@ -241,8 +243,8 @@ pub(super) fn handle_key(
             draft.template = None;
             draft.prompts.clear();
         }
-        KeyCode::Enter => {
-            if draft.template.is_some() && !draft.input.text().trim().is_empty() {
+        _ if action == Some(Action::Save) => {
+            if !draft.input.text().trim().is_empty() {
                 match draft.next_field(app) {
                     Some(field) => draft.field = field,
                     None => return commit(app, draft),
@@ -257,12 +259,9 @@ pub(super) fn handle_key(
                 app.set_status(format!("no capture template '{character}'"));
             }
         }
-        KeyCode::Char('g') if draft.template.is_none() && control => return close(app),
         _ if draft.template.is_none() => {}
         _ => {
-            if draft.current().handle(key) == input::Edit::Cancel {
-                return close(app);
-            }
+            draft.current().handle(key);
         }
     }
     draft.stale = true;
@@ -450,8 +449,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Paragraph::new(Span::styled(destination, theme.fg(theme.text))),
         parts[next + 2],
     );
+    let key = |action| keys::key_label(keys::POPUP_KEYS, action);
     frame.render_widget(
-        Paragraph::new(Line::from(theme.key_hint("tab", "change")))
+        Paragraph::new(Line::from(theme.key_hint(key(Action::NextField), "change")))
             .alignment(ratatui::layout::Alignment::Right),
         parts[next + 2],
     );
@@ -464,9 +464,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(
         Paragraph::new(Line::from(
             [
-                theme.key_hint("⏎", "save"),
-                theme.key_hint("C-o", "body in $EDITOR"),
-                theme.key_hint("esc", "cancel"),
+                theme.key_hint(key(Action::Save), "save"),
+                theme.key_hint(key(Action::Editor), "body in $EDITOR"),
+                theme.key_hint(key(Action::Back), "cancel"),
             ]
             .concat(),
         )),
@@ -562,7 +562,7 @@ fn draw_chooser(frame: &mut Frame<'_>, app: &App, draft: &Draft, area: Rect) {
             [
                 theme.key_hint("key", "choose"),
                 theme.key_hint("↑↓ ⏎", "pick"),
-                theme.key_hint("esc", "cancel"),
+                theme.key_hint(keys::key_label(keys::POPUP_KEYS, Action::Back), "cancel"),
             ]
             .concat(),
         )),

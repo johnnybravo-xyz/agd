@@ -19,6 +19,9 @@
 //! - Where letters are typed or name items (the Views popup, capture's
 //!   templates, the refile picker, `?`'s filter, the edit popup's fields),
 //!   only `↓ C-n C-j` and `↑ C-p C-k` move, as in fzf and Emacs.
+//! - `C-e` opens $EDITOR from the lists, Triage, Agents and the pane. In a
+//!   popup with a text field it is the end of the line, as in Emacs's
+//!   minibuffer, so $EDITOR there is `C-o` (POPUP_KEYS).
 //! - Footers show a key's first label; help shows every label.
 //! - One notation: Emacs's for chords (`C-e`, `C-c C-w`, `S-tab`, `M-DEL`),
 //!   words or glyphs for named keys (`⏎`, `esc`, `tab`, `SPC`, `PgDn`, `↓`).
@@ -49,6 +52,8 @@ pub(super) enum Key {
     Code(KeyCode),
     /// ctrl and a letter.
     Ctrl(char),
+    /// alt (Emacs's meta) and a named key.
+    Meta(KeyCode),
     /// 1 to 9, for the tabs.
     Digit,
 }
@@ -61,6 +66,7 @@ impl Key {
             Key::Char(character) => !control && !alt && key.code == KeyCode::Char(character),
             Key::Code(code) => key.code == code,
             Key::Ctrl(character) => control && key.code == KeyCode::Char(character),
+            Key::Meta(code) => alt && key.code == code,
             Key::Digit => !control && matches!(key.code, KeyCode::Char('1'..='9')),
         }
     }
@@ -121,6 +127,14 @@ pub(super) enum Action {
     Accept,
     FilterAgent,
     FullView,
+    Save,
+    NextField,
+    PreviousField,
+    LineStart,
+    LineEnd,
+    DeleteChar,
+    DeleteWord,
+    ClearLine,
 }
 
 /// One binding: the keys, what they do, and how footers and help name it.
@@ -163,7 +177,7 @@ const fn bind(
 }
 
 use Action as A;
-use Key::{Char, Code, Ctrl, Digit};
+use Key::{Char, Code, Ctrl, Digit, Meta};
 
 // The tables are kept one binding per line, as a table reads.
 // Columns: label, keys, action, footer word, help text, org-agenda key.
@@ -361,7 +375,7 @@ pub(super) const PICKER_KEYS: &[KeyGroup] = &[KeyGroup {
 }];
 
 /// Help's sections, one per screen: (title, keys).
-pub(super) const SCREENS: [(&str, &[KeyGroup]); 6] = [
+pub(super) const SCREENS: [(&str, &[KeyGroup]); 7] = [
     ("Today · Week · Inbox · views", LIST_KEYS),
     ("Bulk menu · B with rows marked", BULK_KEYS),
     ("Triage", TRIAGE_KEYS),
@@ -371,7 +385,44 @@ pub(super) const SCREENS: [(&str, &[KeyGroup]); 6] = [
         "Pickers · views, templates, refile, edit fields",
         PICKER_KEYS,
     ),
+    ("Popups · capture, edit, prompts, refile", POPUP_KEYS),
 ];
+
+/// Popups with a text field: capture, the edit popup, the prompts and the
+/// refile picker. Fields take Emacs's minibuffer keys, so here C-e is the
+/// end of the line and $EDITOR is C-o.
+#[rustfmt::skip]
+pub(super) const POPUP_KEYS: &[KeyGroup] = &[KeyGroup {
+    title: "Type",
+    bindings: &[
+        bind("⏎", &[Code(KeyCode::Enter)], A::Save, "save", "save what the preview shows", ""),
+        bind("tab", &[Code(KeyCode::Tab)], A::NextField, "next field", "next field; in capture, the next template", ""),
+        bind("S-tab", &[Code(KeyCode::BackTab)], A::PreviousField, "previous field", "previous field", ""),
+        bind("esc C-g", &[Code(KeyCode::Esc), Ctrl('g')], A::Back, "cancel", "close without writing", "C-g"),
+        bind("C-o", &[Ctrl('o')], A::Editor, "$EDITOR", "the heading, or capture's body, in $EDITOR", ""),
+        bind("C-a Home", &[Ctrl('a'), Code(KeyCode::Home)], A::LineStart, "start", "start of the line", "C-a"),
+        bind("C-e End", &[Ctrl('e'), Code(KeyCode::End)], A::LineEnd, "end", "end of the line", "C-e"),
+        bind("C-d Delete", &[Ctrl('d'), Code(KeyCode::Delete)], A::DeleteChar, "delete", "delete the character at the cursor", "C-d"),
+        bind("C-w M-DEL", &[Ctrl('w'), Meta(KeyCode::Backspace)], A::DeleteWord, "delete word", "delete the word before the cursor", "M-DEL"),
+        bind("C-u", &[Ctrl('u')], A::ClearLine, "clear", "clear the line", ""),
+    ],
+}];
+
+/// What `key` does in a popup with a text field (POPUP_KEYS), if anything.
+pub(super) fn popup_action(key: KeyEvent) -> Option<Action> {
+    action_for(POPUP_KEYS, key)
+}
+
+/// The first key of `action`'s binding in `groups`, as hints show it.
+pub(super) fn key_label(groups: &'static [KeyGroup], action: Action) -> &'static str {
+    groups
+        .iter()
+        .flat_map(|group| group.bindings.iter())
+        .find(|binding| binding.action == action)
+        .map_or("", |binding| {
+            binding.label.split(' ').next().unwrap_or(binding.label)
+        })
+}
 
 /// One line under help's keys: how moving works everywhere.
 pub(super) const MOVING: &str = "j/k move like n/p everywhere; C-n/C-p or C-j/C-k move in pickers";
@@ -455,14 +506,7 @@ pub(super) fn footer_hints(app: &App) -> Vec<(String, &'static str)> {
         ),
         _ => (LIST_KEYS, row_hints(app)),
     };
-    let key = |action: Action| {
-        groups
-            .iter()
-            .flat_map(|group| group.bindings.iter())
-            .find(|binding| binding.action == action)
-            .map(|binding| binding.label.split(' ').next().unwrap_or(binding.label))
-            .unwrap_or("")
-    };
+    let key = |action: Action| key_label(groups, action);
     hints
         .iter()
         .map(|(action, word)| match action {
@@ -1053,6 +1097,7 @@ fn first_key(binding: &Binding) -> Option<KeyEvent> {
         Key::Char(character) => KeyEvent::from(KeyCode::Char(*character)),
         Key::Code(code) => KeyEvent::from(*code),
         Key::Ctrl(character) => KeyEvent::new(KeyCode::Char(*character), KeyModifiers::CONTROL),
+        Key::Meta(code) => KeyEvent::new(*code, KeyModifiers::ALT),
         Key::Digit => KeyEvent::from(KeyCode::Char('1')),
     })
 }
@@ -1064,9 +1109,9 @@ fn prompt_key(app: &mut App, key: KeyEvent) -> Result<()> {
         return Ok(());
     };
     let filter = prompt.kind == PromptKind::Filter;
-    let edit = match key.code {
-        KeyCode::Esc => Edit::Cancel,
-        KeyCode::Enter => return app.commit_prompt(),
+    // The field itself answers esc and C-g with Cancel.
+    let edit = match popup_action(key) {
+        Some(A::Save) => return app.commit_prompt(),
         _ => prompt.input.handle(key),
     };
     let typed = prompt.input.text().to_string();
@@ -1092,9 +1137,8 @@ fn prompt_key(app: &mut App, key: KeyEvent) -> Result<()> {
 fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
     match &mut app.overlay {
         Overlay::Prompt(_) => prompt_key(app, key)?,
-        Overlay::Refile(picker) => match key.code {
-            KeyCode::Esc => app.overlay = Overlay::None,
-            KeyCode::Enter => app.commit_refile()?,
+        Overlay::Refile(picker) => match popup_action(key) {
+            Some(A::Save) => app.commit_refile()?,
             _ if picker_step(key).is_some() => {
                 let count = picker.matches().len();
                 picker.selected = stepped(picker.selected, picker_step(key), count);

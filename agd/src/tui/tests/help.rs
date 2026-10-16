@@ -187,6 +187,32 @@ fn help_is_a_palette_that_runs_the_action_it_finds() {
 }
 
 #[test]
+#[serial]
+fn popups_take_c_o_for_editor_because_c_e_ends_the_line_there() {
+    use crate::tui::keys::{Action, POPUP_KEYS, key_label};
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        assert_eq!(key_label(POPUP_KEYS, Action::Editor), "C-o");
+        assert_eq!(key_label(POPUP_KEYS, Action::LineEnd), "C-e");
+        // Help lists the popups' keys with the rest.
+        press(&mut app, crossterm::event::KeyCode::Char('?'));
+        type_keys(&mut app, "end of the line");
+        let screen = render(&mut app, 120, 30).join("\n");
+        assert!(screen.contains("C-e End"), "{screen}");
+        assert!(screen.contains("· Popups"), "{screen}");
+        // Each popup's hint row names C-o.
+        press(&mut app, crossterm::event::KeyCode::Esc);
+        press(&mut app, crossterm::event::KeyCode::Esc);
+        press(&mut app, crossterm::event::KeyCode::Char('c'));
+        crate::tui::capture::type_key(&mut app, 't');
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("C-o body in $EDITOR"), "{screen}");
+    });
+}
+
+#[test]
 fn every_key_label_reads_in_one_notation() {
     // Emacs's notation for chords (C-e, S-tab), words or glyphs for named
     // keys; never `ctrl-`, `Ctrl+` or `shift-`.

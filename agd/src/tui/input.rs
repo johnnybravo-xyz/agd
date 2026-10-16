@@ -6,6 +6,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Modifier;
 use ratatui::text::Span;
 
+use super::keys::{self, Action};
 use super::theme::Theme;
 
 /// The text, the cursor as a character index, and whether the whole text
@@ -22,7 +23,7 @@ pub(super) struct TextInput {
 pub(super) enum Edit {
     /// The text or cursor changed.
     Changed,
-    /// C-g: leave the input without doing anything, like esc.
+    /// esc or C-g: leave the input without doing anything.
     Cancel,
     /// Not an editing key; the popup decides what it means.
     Other,
@@ -54,24 +55,29 @@ impl TextInput {
         *self = Self::new(text);
     }
 
-    /// Applies one key: characters insert at the cursor; ←/→, Home/End and
-    /// C-a/C-e move; Backspace, Delete and C-d delete; C-u clears; C-w and
-    /// M-DEL delete the word before the cursor; C-g cancels.
+    /// Applies one key: characters insert at the cursor, ←/→ move, and
+    /// Backspace deletes; the rest are keys::POPUP_KEYS (C-a C-e to the
+    /// start and end, C-d, C-w, C-u; esc and C-g cancel).
     pub(super) fn handle(&mut self, key: KeyEvent) -> Edit {
+        match keys::popup_action(key) {
+            Some(Action::Back) => return Edit::Cancel,
+            Some(Action::ClearLine) => self.set(""),
+            Some(Action::DeleteWord) => self.delete_word(),
+            Some(Action::LineStart) => self.cursor = 0,
+            Some(Action::LineEnd) => self.cursor = self.text.chars().count(),
+            Some(Action::DeleteChar) => self.delete_at_cursor(),
+            _ => return self.type_key(key),
+        }
+        self.selected = false;
+        Edit::Changed
+    }
+
+    /// The keys a text field has of its own: characters, ←/→, Backspace.
+    fn type_key(&mut self, key: KeyEvent) -> Edit {
         let control = key.modifiers.contains(KeyModifiers::CONTROL);
         let alt = key.modifiers.contains(KeyModifiers::ALT);
         let length = self.text.chars().count();
         match key.code {
-            KeyCode::Char('g') if control => return Edit::Cancel,
-            KeyCode::Char('u') if control => self.set(""),
-            KeyCode::Char('w') if control => self.delete_word(),
-            KeyCode::Backspace if alt => self.delete_word(),
-            KeyCode::Char('a') if control => self.cursor = 0,
-            KeyCode::Home => self.cursor = 0,
-            KeyCode::Char('e') if control => self.cursor = length,
-            KeyCode::End => self.cursor = length,
-            KeyCode::Char('d') if control => self.delete_at_cursor(),
-            KeyCode::Delete => self.delete_at_cursor(),
             KeyCode::Left => self.cursor = self.cursor.saturating_sub(1),
             KeyCode::Right => self.cursor = (self.cursor + 1).min(length),
             KeyCode::Backspace if self.selected => self.set(""),

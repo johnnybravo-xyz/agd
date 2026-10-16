@@ -15,6 +15,7 @@ use chrono::{NaiveTime, Timelike};
 use unicode_width::UnicodeWidthStr;
 
 use super::input::TextInput;
+use super::keys::Action;
 use super::rows::days_since;
 use super::theme::{Theme, centered, scrollbar_track, truncate};
 use super::{
@@ -967,8 +968,8 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
     frame.render_widget(
         Paragraph::new(Line::from(
             [
-                theme.key_hint("⏎", "apply"),
-                theme.key_hint("esc", "cancel"),
+                theme.key_hint(popup_key(Action::Save), "apply"),
+                theme.key_hint(popup_key(Action::Back), "cancel"),
             ]
             .concat(),
         )),
@@ -991,10 +992,15 @@ fn draw_filter_line(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, 
         format!("  {} rows  ", app.rows.len()),
         theme.muted(),
     ));
-    spans.extend(theme.key_hint("⏎", "keep"));
-    spans.extend(theme.key_hint("esc", "restore"));
+    spans.extend(theme.key_hint(popup_key(Action::Save), "keep"));
+    spans.extend(theme.key_hint(popup_key(Action::Back), "restore"));
     frame.render_widget(Clear, row);
     frame.render_widget(Paragraph::new(Line::from(spans)), row);
+}
+
+/// A popup's key for `action`, from keys::POPUP_KEYS.
+fn popup_key(action: Action) -> &'static str {
+    keys::key_label(keys::POPUP_KEYS, action)
 }
 
 /// A focused one-line input after its `›` marker.
@@ -1083,9 +1089,9 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
             );
             frame.render_widget(
                 Paragraph::new(footer(&[
-                    ("⏎", "refile"),
+                    (popup_key(Action::Save), "refile"),
                     ("↑↓", "choose"),
-                    ("esc", "cancel"),
+                    (popup_key(Action::Back), "cancel"),
                 ])),
                 parts[4],
             );
