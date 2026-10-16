@@ -261,11 +261,15 @@ Details: [`docs/SAFETY.md`](docs/SAFETY.md).
 
 ## Development
 
+Development commands are in the `justfile`, release tasks in the `Makefile`
+(`make` lists them in order). Both run cargo through `scripts/cargo`, which on
+macOS outside `nix develop` links with Apple's clang and SDK.
+
 ```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-targets --all-features
-nix flake check
+just check        # fmt, clippy, tests, the Claude Code plugin, nix flake check
+just run agenda --status
+just install      # release build to ~/.local/bin
+just oracles      # compare with the pinned Emacs and Neovim (needs Docker)
 ```
 
 `agd/` is the executable (CLI, TUI, MCP), `org-core/` the `agd-core` library

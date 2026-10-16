@@ -1,0 +1,14 @@
+#!/bin/sh
+# cargo for the justfile and the Makefile. On macOS outside `nix develop` it
+# links with Apple's clang and SDK, which carry libiconv; a Nix cc on PATH does
+# not. Inside the Nix shell, and on other systems, it is plain cargo.
+if [ "$(uname -s)" = Darwin ] && [ -z "${IN_NIX_SHELL:-}" ]; then
+    clang=$(xcrun --find clang)
+    CC=$clang
+    CXX=$(xcrun --find clang++)
+    SDKROOT=$(xcrun --show-sdk-path)
+    CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=$clang
+    CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER=$clang
+    export CC CXX SDKROOT CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER
+fi
+exec cargo "$@"
