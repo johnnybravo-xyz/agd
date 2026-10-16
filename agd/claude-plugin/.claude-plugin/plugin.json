@@ -5,5 +5,13 @@
   "author": { "name": "johnnybravo-xyz" },
   "homepage": "https://github.com/johnnybravo-xyz/agd",
   "repository": "https://github.com/johnnybravo-xyz/agd",
-  "license": "GPL-3.0-or-later"
+  "license": "GPL-3.0-or-later",
+  "userConfig": {
+    "show_band": {
+      "type": "boolean",
+      "title": "Show agd's counts above the prompt",
+      "description": "The band above the prompt with today's overdue, due, inbox and agent counts",
+      "default": true
+    }
+  }
 }

@@ -63,8 +63,8 @@ const WRITE_TOOL = /^mcp__(plugin_agd_)?agd__(capture|edit|plan|set_state)$/
 // `display` come from `agd agenda --views --json`, which reads config.toml:
 // the saved views, and the TUI's theme, nerd_font and keyword colors.
 // `current` is the open tab, a view's key or TODAY, starting on start_view.
-// `refreshes` counts refresh() calls, so only the latest one started may
-// replace what is drawn.
+// `showBand` is the plugin's show_band option; `refreshes` counts refresh()
+// calls, so only the latest one started may replace what is drawn.
 let status = ''
 let sections = []
 let problem = ''
@@ -73,6 +73,7 @@ let views = []
 let display = { theme: 'auto', nerd_font: false, keyword_colors: {} }
 let palette = PALETTES.dark
 let current = null
+let showBand = true
 let refreshes = 0
 
 // Runs agd with an argument list (no shell). Resolves { stdout } or { error }.
@@ -156,7 +157,8 @@ function openTab(tab, views) {
 async function refresh($) {
   refreshes += 1
   const mine = refreshes
-  const counts = await agd($, ['agenda', '--status'])
+  // The band's counts; with the band hidden, nothing reads them.
+  const counts = showBand ? await agd($, ['agenda', '--status']) : { stdout: '' }
   const pane = paneOpen ? await readPane($) : null
   if (mine !== refreshes) return
   status = counts.error ? '' : counts.stdout.trim()
@@ -434,7 +436,11 @@ async function registerCommands($) {
   }
 }
 
-export function register(on) {
+// `options` holds plugin.json's userConfig values; a change to one loads
+// the module again with the new values.
+export function register(on, options) {
+  showBand = options?.show_band !== false
+
   // The session waits on this hook, so agd is read after it answers.
   on('session.start', async ($, e, next) => {
     await registerCommands($)
@@ -477,6 +483,7 @@ export function register(on) {
     return paneBody($, e)
   })
 
+  if (!showBand) return
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     // Stay out of the way of Claude Code's own survey in the band.
     if (!status || e.props.hasSurvey) return next(e)

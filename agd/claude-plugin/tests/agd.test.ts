@@ -456,3 +456,21 @@ test('a slower, older refresh never draws over a newer one', async ($, on) => {
   expect(runs).toBe(2)
   expect(await bandLine($)).toBe('agd · 2 today')
 })
+
+test('show_band off hides the band and reads no counts', { options: { show_band: false } }, async ($, on) => {
+  panes(on)
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e) => $.ui.resolve(e).Box({ children: [] }))
+  const calls: string[] = []
+  agd(
+    on,
+    {
+      'agenda --status': { stdout: '2 today\n' },
+      'agenda --views --json': { stdout: viewsJson([]) },
+      'agenda --span day --json': { stdout: '[]' },
+    },
+    calls,
+  )
+  await $.command.run(typed('agd'))
+  expect(await bandLine($)).toBeUndefined()
+  expect(calls).not.toContain('agenda --status')
+})
