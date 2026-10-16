@@ -1608,6 +1608,71 @@ fn the_footer_offers_what_the_selected_row_needs() {
 
 #[test]
 #[serial]
+fn triage_advances_after_every_decision_with_a_fixed_counter() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(
+            &path,
+            "* TODO Book conference travel\nDEADLINE: <2026-10-10 Sat>\n\
+* TODO Old chore\nSCHEDULED: <2026-10-01 Thu>\n\
+* Inbox\n** Compare jiff and chrono\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('T'));
+        assert_eq!(app.triage.queue.len(), 3);
+        while app.selected_row().unwrap().item.title != "Book conference travel" {
+            press(&mut app, KeyCode::Char('j'));
+        }
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("d  move deadline"), "{screen}");
+        let before = app.triage.position;
+
+        // Scheduling leaves the deadline missed; the card still moves on.
+        press(&mut app, KeyCode::Char('m'));
+        assert_eq!(app.triage.position, before + 1);
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains("SCHEDULED: <2026-10-14 Wed>"), "{written}");
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains(&format!("{} / 3", before + 2)), "{screen}");
+        assert!(!screen.contains("no_change"), "{screen}");
+
+        // Inbox cards lead with refile.
+        app.triage.position = 2;
+        app.reload_rows().unwrap();
+        assert_eq!(
+            app.selected_row().unwrap().item.title,
+            "Compare jiff and chrono"
+        );
+        let screen = render(&mut app, 100, 30).join("\n");
+        let chips = screen
+            .lines()
+            .find(|line| line.contains("refile"))
+            .unwrap_or_else(|| panic!("{screen}"));
+        assert!(chips.find("refile") < chips.find("today"), "{chips}");
+
+        // k goes back to the decided card and u returns to it after undo.
+        press(&mut app, KeyCode::Char('u'));
+        assert_eq!(app.triage.position, before);
+        assert!(
+            !fs::read_to_string(&path)
+                .unwrap()
+                .contains("SCHEDULED: <2026-10-14")
+        );
+
+        while !app.triage.finished() {
+            press(&mut app, KeyCode::Char('j'));
+        }
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("0 decided"), "{screen}");
+        assert!(screen.contains("3 / 3"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {

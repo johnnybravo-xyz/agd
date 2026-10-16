@@ -625,10 +625,15 @@ impl App {
         }
     }
 
+    /// A decision in Triage: count it once (a refile across files writes
+    /// two journal entries) and move on to the next card.
     fn record_triage(&mut self, journals: Vec<String>, outcome: usize) {
         if self.screen == Screen::Triage && !journals.is_empty() {
-            self.triage.outcomes[outcome] += journals.len();
+            self.triage.outcomes[outcome] += 1;
             self.triage.undo.push((journals, outcome));
+            self.triage.decided.push(self.triage.position);
+            self.triage.position += 1;
+            self.triage.last_decision = Some(std::time::Instant::now());
         }
     }
 

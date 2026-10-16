@@ -192,12 +192,28 @@ struct Counts {
     agents: usize,
 }
 
-/// Progress of one triage pass; outcomes index TriageOutcome.
+/// Progress of one triage pass; outcomes index the actions::TODAY… slots.
 #[derive(Debug, Default)]
 struct TriageState {
     started: Option<Instant>,
+    /// When the last decision was written, for the pass's duration.
+    last_decision: Option<Instant>,
     outcomes: [usize; 7],
     undo: Vec<(Vec<String>, usize)>,
+    /// The cards as the pass began. A decision never adds, drops or
+    /// reorders them, so a task still overdue after `m` (a missed
+    /// deadline) does not come back, and the counter stays `3 / 8`.
+    queue: Vec<DisplayRow>,
+    /// The card on view; `queue.len()` once the pass is through.
+    position: usize,
+    /// The position of each decision, in order, for undo to return to.
+    decided: Vec<usize>,
+}
+
+impl TriageState {
+    fn finished(&self) -> bool {
+        self.position >= self.queue.len()
+    }
 }
 
 struct App {

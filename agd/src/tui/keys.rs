@@ -11,7 +11,7 @@ use ratatui::backend::CrosstermBackend;
 
 use super::actions::Prompt;
 use super::input::Edit;
-use super::{App, Overlay, PromptKind, Screen, TriageState, capture, open_in_editor};
+use super::{App, Overlay, PromptKind, Screen, capture, open_in_editor};
 
 type Term = Terminal<CrosstermBackend<Stdout>>;
 
@@ -235,6 +235,7 @@ pub(super) const TRIAGE_KEYS: &[KeyGroup] = &[KeyGroup {
         bind("m", &[Char('m')], A::Tomorrow, "tomorrow", "schedule tomorrow", ""),
         bind("w", &[Char('w')], A::NextWeek, "next week", "schedule in a week", ""),
         bind("p", &[Char('p')], A::Schedule, "pick date", "schedule on a date you type", ""),
+        bind("d", &[Char('d')], A::Deadline, "move deadline", "move a missed deadline", ""),
         bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
         bind("n", &[Char('n')], A::MakeNext, "make NEXT", "make it NEXT", ""),
         bind("s", &[Char('s')], A::Someday, "someday", "someday: tag it, drop the date", ""),
@@ -312,11 +313,29 @@ pub(super) const SCREENS: [(&str, &[KeyGroup]); 5] = [
     ("Pane", PANE_KEYS),
 ];
 
-/// Triage's two rows of decision chips under the card.
-pub(super) const TRIAGE_CHIPS: [&[Action]; 2] = [
-    &[A::Today, A::Tomorrow, A::NextWeek, A::Schedule, A::Done],
-    &[A::MakeNext, A::Someday, A::Cancel, A::Refile, A::Undo],
-];
+/// Triage's two rows of decision chips under a card: an inbox card leads
+/// with refiling it, a missed deadline with moving the deadline.
+pub(super) fn triage_chips(row: &super::DisplayRow) -> [&'static [Action]; 2] {
+    let missed_deadline = row.occurrence.as_ref().is_some_and(|occurrence| {
+        occurrence.kind == agd_core::OccurrenceType::Deadline && occurrence.extra.ends_with("ago:")
+    });
+    if row.section == super::INBOX {
+        [
+            &[A::Refile, A::Today, A::Tomorrow, A::NextWeek, A::Schedule],
+            &[A::Done, A::MakeNext, A::Someday, A::Cancel],
+        ]
+    } else if missed_deadline {
+        [
+            &[A::Deadline, A::Today, A::Tomorrow, A::NextWeek, A::Done],
+            &[A::Schedule, A::MakeNext, A::Someday, A::Cancel, A::Refile],
+        ]
+    } else {
+        [
+            &[A::Today, A::Tomorrow, A::NextWeek, A::Schedule, A::Done],
+            &[A::MakeNext, A::Someday, A::Cancel, A::Refile],
+        ]
+    }
+}
 
 /// A footer hint: an action and the word for it in this context.
 type Hint = (Action, &'static str);
@@ -330,6 +349,7 @@ pub(super) fn footer_hints(app: &App) -> Vec<(String, &'static str)> {
             &[
                 (A::Next, "next card"),
                 (A::Previous, "previous card"),
+                (A::Undo, "undo"),
                 (A::Back, "back"),
             ],
         ),
@@ -726,11 +746,7 @@ fn prompt(app: &mut App, kind: PromptKind) {
 }
 
 fn start_triage(app: &mut App) -> Result<()> {
-    app.triage = TriageState {
-        started: Some(Instant::now()),
-        ..TriageState::default()
-    };
-    app.switch_screen(Screen::Triage)
+    app.start_triage()
 }
 
 /// The selected row's heading, for $EDITOR.
@@ -739,12 +755,16 @@ fn selected_location(app: &App) -> EditorTarget {
         .map(|row| (row.item.file.clone(), row.item.line))
 }
 
-/// A finished pass: `u` undoes all of it, and ⏎, esc or q return to Today,
-/// as its summary card says.
+/// A finished pass: `u` undoes all of it, `k` goes back to the last card,
+/// and ⏎, esc or q return to Today, as its summary card says.
 fn finished_triage_key(app: &mut App, key: KeyEvent) -> Result<()> {
     match key.code {
-        // Only the pass's own writes: never an older, unrelated one.
-        KeyCode::Char('u') if !app.triage.undo.is_empty() => app.undo(),
+        KeyCode::Char('u') => triage_undo(app),
+        KeyCode::Char('k' | 'p') | KeyCode::Up | KeyCode::BackTab
+            if !app.triage.queue.is_empty() =>
+        {
+            triage_move(app, -1)
+        }
         KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => app.switch_screen(Screen::Today),
         KeyCode::Char('?') => {
             app.overlay = Overlay::Help { scroll: 0 };
@@ -754,20 +774,47 @@ fn finished_triage_key(app: &mut App, key: KeyEvent) -> Result<()> {
     }
 }
 
+/// Moves through the frozen queue; past the last card the pass is done.
+fn triage_move(app: &mut App, delta: isize) -> Result<()> {
+    let position = app.triage.position as isize + delta;
+    app.triage.position = position.clamp(0, app.triage.queue.len() as isize) as usize;
+    app.reload_rows()
+}
+
+/// `u` in Triage: undoes the last decision and returns to its card; at the
+/// end of a pass, undoes all of it and starts the pass over. Only the
+/// pass's own writes, never an older, unrelated one.
+fn triage_undo(app: &mut App) -> Result<()> {
+    if app.triage.undo.is_empty() {
+        app.set_status("nothing to undo in this pass");
+        return Ok(());
+    }
+    let whole = app.triage.finished();
+    app.undo()?;
+    if whole {
+        app.triage.decided.clear();
+        app.triage.position = 0;
+    } else if let Some(position) = app.triage.decided.pop() {
+        app.triage.position = position;
+    }
+    app.reload_rows()
+}
+
 fn run_triage(app: &mut App, action: Action) -> Result<()> {
     match action {
         A::Today => app.schedule("today")?,
         A::Tomorrow => app.schedule("+1d")?,
         A::NextWeek => app.schedule("+1w")?,
         A::Schedule => prompt(app, PromptKind::Schedule),
+        A::Deadline => prompt(app, PromptKind::Deadline),
         A::Done => app.mark_done()?,
         A::MakeNext => app.set_state("NEXT")?,
         A::Someday => app.someday()?,
         A::Cancel => app.cancel()?,
         A::Refile => app.open_refile(),
-        A::Undo => app.undo()?,
-        A::Next => app.move_selection(1),
-        A::Previous => app.move_selection(-1),
+        A::Undo => triage_undo(app)?,
+        A::Next => triage_move(app, 1)?,
+        A::Previous => triage_move(app, -1)?,
         A::Help => app.overlay = Overlay::Help { scroll: 0 },
         A::Back => {
             let back = app.back.clone();

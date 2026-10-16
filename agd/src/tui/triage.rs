@@ -22,13 +22,10 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             Constraint::Min(0),
         ])
         .split(area);
-    let completed: usize = app.triage.outcomes.iter().sum();
-    let total = completed + app.rows.len();
-    let position = if app.rows.is_empty() {
-        total
-    } else {
-        completed + app.selected + 1
-    };
+    // The queue is fixed for the pass, so the counter only moves forward.
+    let total = app.triage.queue.len();
+    let decided = app.triage.decided.len();
+    let position = (app.triage.position + 1).min(total);
     frame.render_widget(
         Paragraph::new(Span::styled(
             format!("{position} / {total} "),
@@ -44,7 +41,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             .ratio(if total == 0 {
                 1.0
             } else {
-                completed as f64 / total as f64
+                (decided as f64 / total as f64).min(1.0)
             })
             .label(""),
         parts[1],
@@ -73,7 +70,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         }
         Line::from(spans)
     };
-    for (actions, area) in keys::TRIAGE_CHIPS.iter().zip([parts[3], parts[4]]) {
+    for (actions, area) in keys::triage_chips(row).iter().zip([parts[3], parts[4]]) {
         frame.render_widget(Paragraph::new(chips(actions)), area);
     }
 }
@@ -253,12 +250,13 @@ fn overdue_days(row: &DisplayRow, today: chrono::NaiveDate) -> i64 {
 fn summary(app: &App) -> Vec<Line<'static>> {
     let theme = &app.theme;
     let outcomes = &app.triage.outcomes;
-    let total: usize = outcomes.iter().sum();
-    let elapsed = app
-        .triage
-        .started
-        .map(|started| started.elapsed().as_secs())
-        .unwrap_or(0);
+    let decided = app.triage.decided.len();
+    // From the start to the last decision, so the time does not keep
+    // running while the summary is on screen.
+    let elapsed = match (app.triage.started, app.triage.last_decision) {
+        (Some(started), Some(last)) => last.duration_since(started).as_secs(),
+        _ => 0,
+    };
     let mut parts = Vec::new();
     for (index, label) in [
         (TODAY, "today"),
@@ -272,17 +270,21 @@ fn summary(app: &App) -> Vec<Line<'static>> {
             parts.push(format!("{} {label}", outcomes[index]));
         }
     }
-    let headline = if total == 0 {
+    let headline = if app.triage.queue.is_empty() {
         Line::from(vec![
             Span::styled("Nothing to triage", theme.strong(theme.done)),
             Span::raw(": no overdue items, inbox empty."),
         ])
     } else {
+        let lead = if app.counts.inbox == 0 {
+            "Inbox zero"
+        } else {
+            "Triage done"
+        };
         Line::from(vec![
-            Span::styled("Triage done", theme.strong(theme.done)),
+            Span::styled(lead, theme.strong(theme.done)),
             Span::raw(format!(
-                ", {total} item{} in {}m {}s{}{}.",
-                if total == 1 { "" } else { "s" },
+                " · {decided} decided in {}m {}s{}{}",
                 elapsed / 60,
                 elapsed % 60,
                 if parts.is_empty() { "" } else { ": " },
@@ -294,6 +296,9 @@ fn summary(app: &App) -> Vec<Line<'static>> {
     let mut keys = Vec::new();
     if !app.triage.undo.is_empty() {
         keys.extend(theme.key_hint("u", "undoes all"));
+    }
+    if !app.triage.queue.is_empty() {
+        keys.extend(theme.key_hint("k", "last card"));
     }
     keys.extend(theme.key_hint("⏎", "returns to Today"));
     vec![headline, Line::default(), Line::from(keys)]

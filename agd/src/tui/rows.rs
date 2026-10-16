@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::time::Instant;
 
 use agd_core::{
     AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalRecord, JournalStatus,
@@ -9,6 +10,7 @@ use chrono::{Datelike, Duration, NaiveDate};
 
 use super::{
     App, DOING, DUE, DisplayRow, Header, INBOX, OVERDUE, SCHEDULE, Screen, SelectionAnchor,
+    TriageState,
 };
 
 /// Rows shown under OVERDUE on Today; the rest wait in Triage.
@@ -26,11 +28,33 @@ impl App {
             .selected_row()
             .map(|row| SelectionAnchor::from_item(&row.item));
         self.rebuild_rows()?;
+        if self.screen == Screen::Triage {
+            // Triage's cursor is the pass's position in its frozen queue.
+            self.selected = self.triage.position.min(self.rows.len().saturating_sub(1));
+            return Ok(());
+        }
         self.selected = anchor
             .and_then(|anchor| anchor.find(&self.rows))
             .unwrap_or(previous)
             .min(self.row_count().saturating_sub(1));
         Ok(())
+    }
+
+    /// `T`: overdue tasks, most days late first, then the inbox, frozen as
+    /// the pass's queue.
+    pub(super) fn start_triage(&mut self) -> Result<()> {
+        let engine = AgendaEngine::new(&self.index);
+        let entries = engine.agenda(&self.query(self.today, self.today))?;
+        let someday = &self.settings.someday_tag;
+        let mut queue = triage_rows(entries, engine.inbox());
+        // Demoted tasks are done being triaged.
+        queue.retain(|row| !row.item.tags.contains(someday) && self.visible(&row.item));
+        self.triage = TriageState {
+            started: Some(Instant::now()),
+            queue,
+            ..TriageState::default()
+        };
+        self.switch_screen(Screen::Triage)
     }
 
     /// The header tabs in order: the start view first when one is set.
@@ -279,11 +303,20 @@ impl App {
             }
             Screen::Triage => {
                 self.reschedules = reschedule_counts(&journals, &self.index);
-                let someday = self.settings.someday_tag.clone();
-                let mut rows = triage_rows(today_entries, inbox);
-                // Demoted tasks are done being triaged.
-                rows.retain(|row| !row.item.tags.contains(&someday));
-                rows
+                // Cards show each task as the files read now, in the order
+                // the pass began with; a finished pass has no rows.
+                for card in &mut self.triage.queue {
+                    if let Some(item) = current_item(&self.index, &card.item) {
+                        card.item = item;
+                    }
+                }
+                self.rows = if self.triage.finished() {
+                    Vec::new()
+                } else {
+                    self.triage.queue.clone()
+                };
+                self.headers.clear();
+                return Ok(());
             }
         };
         rows.retain(|row| self.visible(&row.item));
@@ -566,6 +599,18 @@ fn day_grouped(entries: Vec<AgendaEntry>) -> Vec<DisplayRow> {
             }
         })
         .collect()
+}
+
+/// The task a card shows, as the files read now: by ID, else by file and
+/// outline path, which state, date and tag changes leave alone.
+fn current_item(index: &WorkspaceIndex, item: &Item) -> Option<Item> {
+    index
+        .items()
+        .find(|candidate| match &item.id {
+            Some(id) => candidate.id.as_ref() == Some(id),
+            None => candidate.file == item.file && candidate.olpath == item.olpath,
+        })
+        .cloned()
 }
 
 /// Overdue items first (most days late first), then the inbox.
