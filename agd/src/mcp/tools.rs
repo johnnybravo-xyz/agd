@@ -323,10 +323,18 @@ impl OrgModeRouter {
 /// the start day defaults to agenda_start_day, and a view returns its
 /// sections instead of rows.
 fn agenda(settings: &agd_core::Settings, request: AgendaRequest) -> Result<Rows, AgdError> {
-    let (settings, match_expression) = with_profile(settings, &request)?;
+    // A `profile` replaces the agenda files and supplies a missing match.
+    let mut settings = settings.clone();
+    let match_expression = match request.profile.as_deref() {
+        Some(name) => settings.apply_agent_profile(name, request.match_expression.clone())?,
+        None => request.match_expression.clone(),
+    };
     let index = WorkspaceIndex::load(settings.clone())?;
     let today = Local::now().date_naive();
-    let start = start_day(&settings, request.from.as_deref(), today)?;
+    let start = match request.from.as_deref() {
+        Some(from) => agd_core::parse_agenda_day(from, today)?,
+        None => settings.agenda_start(today)?,
+    };
     let limit = request.limit.unwrap_or(DEFAULT_LIMIT);
     let bodies = request.with_body.then_some(&index);
     if let Some(key) = request.view.as_deref() {
@@ -350,32 +358,6 @@ fn agenda(settings: &agd_core::Settings, request: AgendaRequest) -> Result<Rows,
     let total = entries.len();
     entries.truncate(limit);
     Rows::new(&entries, entries.len(), total, bodies)
-}
-
-/// The settings and match an agenda runs with: the call's `profile`, when
-/// it names one, replaces the agenda files and supplies a missing match.
-fn with_profile(
-    settings: &agd_core::Settings,
-    request: &AgendaRequest,
-) -> Result<(agd_core::Settings, Option<String>), AgdError> {
-    let mut settings = settings.clone();
-    let match_expression = match request.profile.as_deref() {
-        Some(name) => settings.apply_agent_profile(name, request.match_expression.clone())?,
-        None => request.match_expression.clone(),
-    };
-    Ok((settings, match_expression))
-}
-
-/// The agenda's first day: `from`, else agenda_start_day, else today.
-fn start_day(
-    settings: &agd_core::Settings,
-    from: Option<&str>,
-    today: NaiveDate,
-) -> Result<NaiveDate, AgdError> {
-    match from {
-        Some(from) => agd_core::parse_agenda_day(from, today),
-        None => settings.agenda_start(today),
-    }
 }
 
 /// The saved view `key` names. A view runs its own spans and matches, so a
@@ -548,7 +530,7 @@ fn capture(
 /// and the dates are dropped. Said, so the model does not report a template
 /// or a date the file never got.
 fn inbox_notes(settings: &agd_core::Settings, template: &str, draft: &CaptureDraft) -> Vec<String> {
-    let Some(inbox) = describe::agent_inbox(settings) else {
+    let Some(inbox) = settings.agent_inbox.as_deref() else {
         return Vec::new();
     };
     let mut notes = Vec::new();

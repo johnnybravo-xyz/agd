@@ -56,10 +56,11 @@ struct FileChange {
 impl InstallCommand {
     pub fn execute(self) -> Result<()> {
         let directory = existing_directory(&self.directory)?;
-        let (name, changes) = match self.target {
-            InstallTarget::Codex => ("Codex", codex_changes(&directory)?),
-            InstallTarget::Opencode => ("OpenCode", opencode_changes(&directory)?),
+        let name = match self.target {
+            InstallTarget::Codex => "Codex",
+            InstallTarget::Opencode => "OpenCode",
         };
+        let changes = changes(&directory, &self.target)?;
         if self.dry_run {
             for change in &changes {
                 print!("{}", diff(change));
@@ -109,49 +110,38 @@ fn existing_directory(directory: &Path) -> Result<PathBuf> {
         .with_context(|| format!("cannot resolve integration directory {}", path.display()))
 }
 
-fn codex_changes(directory: &Path) -> Result<Vec<FileChange>> {
+/// The skill and the target's config file with agd's entry, each only when
+/// it changes.
+fn changes(directory: &Path, target: &InstallTarget) -> Result<Vec<FileChange>> {
+    let path = match target {
+        InstallTarget::Codex => directory.join(".codex/config.toml"),
+        InstallTarget::Opencode => {
+            let jsonc = directory.join("opencode.jsonc");
+            if jsonc.exists() {
+                bail!(
+                    "{} exists, and agd does not rewrite JSONC (its comments would be lost); add this to its \"mcp\" object by hand:\n\"agd\": {}",
+                    jsonc.display(),
+                    opencode_entry()
+                );
+            }
+            directory.join("opencode.json")
+        }
+    };
     let skill = skill_change(directory)?;
-    let path = directory.join(".codex/config.toml");
     let before = read_text(&path)?;
-    let after = add_codex_server(&before, &path)?;
-    Ok(changed([
-        skill,
-        FileChange {
-            path,
-            before,
-            after,
-        },
-    ]))
-}
-
-fn opencode_changes(directory: &Path) -> Result<Vec<FileChange>> {
-    let jsonc = directory.join("opencode.jsonc");
-    if jsonc.exists() {
-        bail!(
-            "{} exists, and agd does not rewrite JSONC (its comments would be lost); add this to its \"mcp\" object by hand:\n\"agd\": {}",
-            jsonc.display(),
-            opencode_entry()
-        );
-    }
-    let skill = skill_change(directory)?;
-    let path = directory.join("opencode.json");
-    let before = read_text(&path)?;
-    let after = add_opencode_server(&before, &path)?;
-    Ok(changed([
-        skill,
-        FileChange {
-            path,
-            before,
-            after,
-        },
-    ]))
-}
-
-fn changed(changes: [FileChange; 2]) -> Vec<FileChange> {
-    changes
+    let after = match target {
+        InstallTarget::Codex => add_codex_server(&before, &path)?,
+        InstallTarget::Opencode => add_opencode_server(&before, &path)?,
+    };
+    let config = FileChange {
+        path,
+        before,
+        after,
+    };
+    Ok([skill, config]
         .into_iter()
         .filter(|change| change.before != change.after)
-        .collect()
+        .collect())
 }
 
 /// A file's text, empty when it does not exist. Any other read failure,
@@ -545,7 +535,7 @@ mod tests {
         assert!(!directory.path().join(".codex").exists());
         assert!(!directory.path().join(".agents").exists());
 
-        let changes = codex_changes(directory.path()).unwrap();
+        let changes = changes(directory.path(), &InstallTarget::Codex).unwrap();
         let config = diff(&changes[1]);
         assert!(config.starts_with("--- /dev/null\n+++ "), "{config}");
         assert!(config.contains("+[mcp_servers.agd]\n"), "{config}");

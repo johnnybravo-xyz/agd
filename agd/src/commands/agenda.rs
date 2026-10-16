@@ -68,18 +68,13 @@ pub struct AgendaCommand {
     views: bool,
     /// agd.agenda-entry/v1 objects
     #[arg(long, conflicts_with_all = ["csv", "brief"])]
-    json: bool,
+    pub json: bool,
     /// Emacs org-batch-agenda-csv rows: the same eleven columns and values
     #[arg(long, conflicts_with = "brief")]
     csv: bool,
 }
 
 impl AgendaCommand {
-    /// True when the output, and so any error, is JSON.
-    pub fn json(&self) -> bool {
-        self.json
-    }
-
     pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<()> {
         let mut settings = load_settings(
             config.as_deref().map(Path::new),

@@ -43,15 +43,10 @@ pub struct CaptureCommand {
     /// Print the agd.mutation/v1 result, with the item's file:line under
     /// its root as `location`
     #[arg(long)]
-    json: bool,
+    pub json: bool,
 }
 
 impl CaptureCommand {
-    /// True when the output, and so any error, is JSON.
-    pub fn json(&self) -> bool {
-        self.json
-    }
-
     /// Prints the diff with --dry-run, the mutation with --json (and its
     /// `location` as people read it, `projects/alpha.org:3`, which the
     /// Claude Code mod's /capture says), a sentence on a terminal, and

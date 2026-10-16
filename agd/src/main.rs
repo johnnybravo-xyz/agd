@@ -54,9 +54,9 @@ impl Cli {
     /// True when the command prints JSON, so its errors are agd.error/v1.
     fn json(&self) -> bool {
         match &self.command {
-            Some(Commands::Agenda(command)) => command.json(),
-            Some(Commands::Capture(command)) => command.json(),
-            Some(Commands::Undo(command)) => command.json(),
+            Some(Commands::Agenda(command)) => command.json,
+            Some(Commands::Capture(command)) => command.json,
+            Some(Commands::Undo(command)) => command.json,
             Some(Commands::Setup(command)) => command.json(),
             Some(Commands::Mcp(_)) | Some(Commands::Completions(_)) | None => false,
         }

@@ -76,18 +76,15 @@ impl ServerHandler for OrgModeRouter {
 /// What a model needs before its first call. Kept short: clients put it in
 /// every prompt, and `describe` carries the details.
 fn instructions(settings: &Settings) -> String {
-    let capture = match (
-        describe::agent_inbox(settings),
-        describe::default_template(settings),
-    ) {
-        (Some(inbox), _) => format!(
+    let capture = match settings.agent_inbox.as_deref() {
+        Some(inbox) => format!(
             "Every capture goes through the inbox template `{inbox}`, undated, for the person to triage."
         ),
-        (None, Some(_)) => {
+        None if settings.captures.is_empty() => "No capture templates are configured.".to_string(),
+        None => {
             "Capture with the first template (leave template_key out) unless the person names another."
                 .to_string()
         }
-        (None, None) => "No capture templates are configured.".to_string(),
     };
     format!(
         "agd reads and writes the person's org files on this machine; nothing leaves it, so keep agenda data in this session. \

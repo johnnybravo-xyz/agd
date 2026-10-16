@@ -10,7 +10,8 @@ use std::path::Path;
 
 use agd_core::{Settings, load_settings};
 use anyhow::{Context, Result};
-use clap::{Args, ValueEnum};
+use clap::Args;
+use clap::builder::{PossibleValuesParser, TypedValueParser};
 use rmcp::{ServiceExt, transport::stdio};
 use tokio::runtime::Builder;
 use tracing::{error, info};
@@ -19,29 +20,13 @@ use tracing_subscriber::EnvFilter;
 #[derive(Args, Debug)]
 pub(crate) struct McpCommand {
     /// Log level for stderr
-    #[arg(long, value_enum, default_value_t = LogLevel::Info)]
-    pub(crate) log_level: LogLevel,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub(crate) enum LogLevel {
-    Trace,
-    Debug,
-    Info,
-    Warn,
-    Error,
-}
-
-impl From<LogLevel> for tracing::Level {
-    fn from(level: LogLevel) -> Self {
-        match level {
-            LogLevel::Trace => Self::TRACE,
-            LogLevel::Debug => Self::DEBUG,
-            LogLevel::Info => Self::INFO,
-            LogLevel::Warn => Self::WARN,
-            LogLevel::Error => Self::ERROR,
-        }
-    }
+    #[arg(
+        long,
+        default_value = "info",
+        value_parser = PossibleValuesParser::new(["trace", "debug", "info", "warn", "error"])
+            .map(|level| level.parse::<tracing::Level>().expect("a listed level")),
+    )]
+    pub(crate) log_level: tracing::Level,
 }
 
 pub(crate) struct OrgModeRouter {
@@ -64,9 +49,8 @@ impl McpCommand {
             config.as_deref().map(Path::new),
             root_directory.as_deref().map(Path::new),
         )?;
-        let log_level = tracing::Level::from(self.log_level);
         tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env().add_directive(log_level.into()))
+            .with_env_filter(EnvFilter::from_default_env().add_directive(self.log_level.into()))
             .with_writer(std::io::stderr)
             .try_init()
             .map_err(|error| anyhow::anyhow!("failed to initialize MCP logging: {error}"))?;

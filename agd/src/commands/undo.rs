@@ -14,15 +14,10 @@ use crate::words;
 pub struct UndoCommand {
     /// Print the agd.undo/v1 result
     #[arg(long)]
-    json: bool,
+    pub json: bool,
 }
 
 impl UndoCommand {
-    /// True when the output, and so any error, is JSON.
-    pub fn json(&self) -> bool {
-        self.json
-    }
-
     /// Reverts the newest change made from the command line that is still
     /// in effect, never another actor's (the TUI's, an agent's), and only
     /// where the file still holds what it wrote. Says what it undid as the
@@ -74,15 +69,6 @@ fn undone_sentence(record: &JournalRecord, settings: &agd_core::Settings) -> Str
                 .find(|item| record.item_ref.as_deref() == Some(item.item_ref.as_str()))
                 .cloned()
         });
-    let added = |sign: char| {
-        record
-            .diff
-            .lines()
-            .filter(move |line| !line.starts_with("+++") && !line.starts_with("---"))
-            .filter_map(move |line| line.strip_prefix(sign))
-            .filter(|line| line.starts_with('*'))
-            .collect::<Vec<_>>()
-    };
     let change = format!("undid {}", record.operation_label());
     let (title, location) = match &item {
         Some(item) => (
@@ -98,7 +84,15 @@ fn undone_sentence(record: &JournalRecord, settings: &agd_core::Settings) -> Str
                 .and_then(|(_, line)| line.parse().ok())
                 .unwrap_or(1);
             let file = record.file.split(',').next().unwrap_or_default();
-            let heading = added('+').last().copied().unwrap_or_default();
+            // The last headline the change added.
+            let heading = record
+                .diff
+                .lines()
+                .rev()
+                .filter(|line| !line.starts_with("+++"))
+                .filter_map(|line| line.strip_prefix('+'))
+                .find(|line| line.starts_with('*'))
+                .unwrap_or_default();
             (
                 words::headline_title(heading),
                 words::location(file, line, &roots),
