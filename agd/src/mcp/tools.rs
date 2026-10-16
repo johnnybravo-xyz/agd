@@ -86,7 +86,7 @@ struct QueryRequest {
     expression: String,
 }
 
-#[tool_router(router = "tool_router_native", vis = "pub(crate)")]
+#[tool_router(vis = "pub(crate)")]
 impl OrgModeRouter {
     #[tool(
         name = "agenda",

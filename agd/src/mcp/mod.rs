@@ -1,4 +1,7 @@
-mod resources;
+//! `agd mcp`: the stdio MCP server. `server` holds the handler (instructions
+//! and the agenda://today resource), `tools` the tools.
+
+mod server;
 mod tools;
 
 use std::path::Path;
@@ -6,7 +9,7 @@ use std::path::Path;
 use agd_core::{Settings, load_settings};
 use anyhow::{Context, Result};
 use clap::Args;
-use rmcp::{ServiceExt, handler::server::tool::ToolRouter, transport::stdio};
+use rmcp::{ServiceExt, transport::stdio};
 use tokio::runtime::Builder;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
@@ -70,10 +73,4 @@ async fn serve(settings: Settings, project: String) -> Result<()> {
         .await
         .context("MCP server stopped with an error")?;
     Ok(())
-}
-
-impl OrgModeRouter {
-    pub(crate) fn tool_router() -> ToolRouter<Self> {
-        Self::tool_router_native()
-    }
 }
