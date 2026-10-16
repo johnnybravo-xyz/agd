@@ -1201,6 +1201,41 @@ fn the_list_title_follows_f_and_b_and_week_opens_on_today() {
 
 #[test]
 #[serial]
+fn a_narrow_header_keeps_the_open_views_tab_and_drops_pills_first() {
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.settings.views = toml::from_str::<ViewsOnly>(
+            r#"[[view]]
+key = "d"
+desc = "Dashboard"
+blocks = [{ kind = "alltodo" }]
+
+[[view]]
+key = "w"
+desc = "Weekly review"
+blocks = [{ kind = "alltodo" }]"#,
+        )
+        .unwrap()
+        .view;
+        app.settings.start_view = "d".to_string();
+        app.reload_rows().unwrap();
+        // No context is set, so no context pill.
+        let wide = render(&mut app, 120, 20)[0].clone();
+        assert!(!wide.contains("ctx"), "{wide}");
+        assert!(wide.contains("Tue 13 Oct"), "{wide}");
+
+        app.switch_screen(Screen::View("w".to_string())).unwrap();
+        app.context = Some("tasks".to_string());
+        let narrow = render(&mut app, 60, 20)[0].clone();
+        assert!(narrow.contains("w Weekly review"), "{narrow}");
+        assert!(narrow.contains("Agenda"), "{narrow}");
+        assert!(!narrow.contains("Tue 13 Oct"), "{narrow}");
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {
