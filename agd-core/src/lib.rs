@@ -104,7 +104,10 @@ pub use config::{
     Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, WeekStart,
     default_config_path, load_settings, parse_agenda_day, parse_config_file, render_config,
 };
-pub use date::{date_preview, format_active_timestamp, now_local_naive, parse_date_input};
+pub use date::{
+    date_preview, format_active_timestamp, now_local_naive, parse_date_change, parse_date_input,
+    read_date,
+};
 pub use document::{
     ByteSpan, HeadlineSpan, LogKind, LogSettings, OrgDocument as IndexedDocument, PriorityRange,
     PropertySpan, SourceLine, TimestampSpan, TodoKeyword, WorkspaceIndex, parse_timestamp,

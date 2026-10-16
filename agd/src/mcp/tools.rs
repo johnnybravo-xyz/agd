@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use agd_core::{
     AgdError, AgendaEngine, AgendaQuery, AgendaSpan, CaptureDraft, Change, EditIntent, ErrorCode,
     ITEM_SCHEMA, PlanningTimestamp, ViewSection, WorkspaceIndex, WriteContext, WriteEngine,
-    agent_actor, parse_date_input,
+    agent_actor, parse_date_change, parse_date_input,
 };
 use chrono::{Local, NaiveDate};
 use rmcp::{
@@ -594,16 +594,12 @@ fn plan(
 }
 
 /// A `plan` date argument: left out keeps the date, `none` removes it, and
-/// anything else is a date to set.
+/// anything else is a date to set (parse_date_change).
 fn planning_change(
     value: Option<&str>,
     today: NaiveDate,
 ) -> Result<Change<PlanningTimestamp>, AgdError> {
-    match value {
-        None => Ok(Change::Keep),
-        Some(value) if value.trim().eq_ignore_ascii_case("none") => Ok(Change::Clear),
-        Some(value) => parse_date_input(value, today).map(Change::Set),
-    }
+    value.map_or(Ok(Change::Keep), |value| parse_date_change(value, today))
 }
 
 fn edit(
