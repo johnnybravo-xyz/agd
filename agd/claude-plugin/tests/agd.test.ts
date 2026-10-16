@@ -558,7 +558,7 @@ test('/capture reports agd\'s own error as a sentence, and its usage', async ($,
     code: 'unknown_template',
     message: "capture template 'zz' is not configured",
   }
-  const stale = { schema: 'agd.error/v1', code: 'stale_ref', message: 'ref /org/a.org:3#sha256:0 is stale' }
+  const stale = { schema: 'agd.error/v1', code: 'ref_conflict', message: 'ref /org/a.org:3#sha256:0 is stale' }
   agd(on, {
     'agenda --status': { stdout: '' },
     // A skipped file is a warning line before agd's error.

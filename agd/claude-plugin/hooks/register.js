@@ -69,8 +69,8 @@ async function agd($, args) {
 // The codes whose message words::error_sentence says plainly instead, as
 // agd's terminal and TUI do.
 const PLAIN_ERRORS = {
-  stale_ref: 'this heading changed on disk since agd read it',
-  no_change: 'nothing would change',
+  ref_conflict: 'this heading changed on disk since agd read it',
+  invalid_edit: 'nothing would change',
 }
 
 // agd's stderr as the sentence its TUI shows: the agd.error/v1 line under
