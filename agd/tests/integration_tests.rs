@@ -398,9 +398,8 @@ fn capture_parses_tokens_and_keeps_body_literal() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "** TODO [#A] Call embassy :admin:",
-        ))
+        // Tags align to tags_column (-77), as an edit writes them.
+        .stdout(predicate::str::is_match(r"\+\*\* TODO \[#A\] Call embassy {2,}:admin:\n").unwrap())
         .stdout(predicate::str::contains("%(never-evaluate)"))
         .stdout(predicate::str::contains("DEADLINE: <2026-10-30 Fri>"));
     assert_eq!(fs::read(&fixture.tasks).expect("post-preview"), before);

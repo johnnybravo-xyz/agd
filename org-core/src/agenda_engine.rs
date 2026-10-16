@@ -10,8 +10,8 @@ use serde::Serialize;
 
 use crate::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, HeadlineSpan, Item, Occurrence, OccurrenceType,
-    PlanningTimestamp, Settings, VIEW_SECTION_SCHEMA, ViewBlock, ViewGroup, ViewSettings,
-    WeekStart, WorkspaceIndex,
+    PlanningTimestamp, PriorityRange, Settings, VIEW_SECTION_SCHEMA, ViewBlock, ViewGroup,
+    ViewSettings, WeekStart, WorkspaceIndex,
 };
 
 /// Checks a view block's match the way `AgendaEngine::view` will use it.
@@ -333,7 +333,7 @@ impl<'a> AgendaEngine<'a> {
         }
         let mut keyed: Vec<(i64, AgendaEntry)> = entries
             .into_iter()
-            .map(|entry| (urgency(&entry, query.today, settings), entry))
+            .map(|entry| (urgency(&entry, query.today, self.index), entry))
             .collect();
         let todo_order: Vec<String> = self
             .index
@@ -349,7 +349,7 @@ impl<'a> AgendaEngine<'a> {
                 .occurrence
                 .date
                 .cmp(&right.1.occurrence.date)
-                .then_with(|| compare_by_strategy(left, right, settings, &todo_order))
+                .then_with(|| compare_by_strategy(left, right, self.index, &todo_order))
         });
         Ok(keyed.into_iter().map(|(_, entry)| entry).collect())
     }
@@ -372,7 +372,7 @@ impl<'a> AgendaEngine<'a> {
             })
             .map(|headline| headline.item.clone())
             .collect();
-        items.sort_by(compare_items);
+        items.sort_by(|left, right| compare_items(left, right, self.index));
         Ok(items)
     }
 
@@ -420,7 +420,7 @@ impl<'a> AgendaEngine<'a> {
             .filter(|headline| matcher.matches(headline, now, settings))
             .map(|headline| headline.item.clone())
             .collect();
-        items.sort_by(compare_items);
+        items.sort_by(|left, right| compare_items(left, right, self.index));
         Ok(items)
     }
 
@@ -603,7 +603,7 @@ impl<'a> AgendaEngine<'a> {
             .filter(|item| expression.matches(item, today))
             .cloned()
             .collect();
-        items.sort_by(compare_items);
+        items.sort_by(|left, right| compare_items(left, right, self.index));
         Ok(items)
     }
 
@@ -1691,9 +1691,10 @@ fn collection_rank(kind: OccurrenceType) -> u8 {
 fn compare_by_strategy(
     (left_urgency, left): &(i64, AgendaEntry),
     (right_urgency, right): &(i64, AgendaEntry),
-    settings: &Settings,
+    index: &WorkspaceIndex,
     todo_order: &[String],
 ) -> Ordering {
+    let settings = index.settings();
     let todo_rank = |entry: &AgendaEntry| {
         entry.item.todo.as_deref().map_or(-1, |todo| {
             todo_order
@@ -1707,8 +1708,9 @@ fn compare_by_strategy(
         let ordering = match name {
             "time" => compare_time_of_day(&left.occurrence.time, &right.occurrence.time),
             "urgency" => left_urgency.cmp(right_urgency),
-            "priority" => priority_value(left.item.priority.as_deref(), settings)
-                .cmp(&priority_value(right.item.priority.as_deref(), settings)),
+            "priority" => {
+                priority_value(&left.item, index).cmp(&priority_value(&right.item, index))
+            }
             "category" if direction != "keep" => left.item.category.cmp(&right.item.category),
             "alpha" => agenda_title(&left.item).cmp(&agenda_title(&right.item)),
             "todo-state" => todo_rank(left).cmp(&todo_rank(right)),
@@ -1733,8 +1735,8 @@ fn keyword_name(keyword: &str) -> &str {
 /// org-agenda urgency: priority value (A=2000, B=1000, C=0 by default),
 /// raised by days overdue for today's deadline reminders, lowered by days
 /// left for upcoming ones, and raised by 99 plus days late for scheduled.
-fn urgency(entry: &AgendaEntry, today: NaiveDate, settings: &Settings) -> i64 {
-    let priority = priority_value(entry.item.priority.as_deref(), settings);
+fn urgency(entry: &AgendaEntry, today: NaiveDate, index: &WorkspaceIndex) -> i64 {
+    let priority = priority_value(&entry.item, index);
     let date = parse_date(&entry.occurrence.date).ok();
     match entry.occurrence.kind {
         OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline => {
@@ -1765,11 +1767,15 @@ fn urgency(entry: &AgendaEntry, today: NaiveDate, settings: &Settings) -> i64 {
     }
 }
 
-fn priority_value(priority: Option<&str>, settings: &Settings) -> i64 {
-    let letter = |value: &str| value.chars().next().map_or(0, |c| c as i64);
-    let lowest = letter(&settings.lowest_priority);
-    let value = priority.map_or_else(|| letter(&settings.default_priority), letter);
-    1000 * (lowest - value)
+/// The item's priority value in its own file's range (`#+PRIORITIES`).
+fn priority_value(item: &Item, index: &WorkspaceIndex) -> i64 {
+    index
+        .document(std::path::Path::new(&item.file))
+        .map_or_else(
+            || PriorityRange::from_settings(index.settings()),
+            |document| document.priorities(),
+        )
+        .value(item.priority.as_deref())
 }
 
 // time-up with org-agenda-sort-notime-is-late: timed entries first.
@@ -1789,16 +1795,11 @@ fn time_minutes(time: &str) -> u32 {
 
 // org-agenda TODO lists: urgency-down category-keep, i.e. priority first and
 // otherwise file and buffer order.
-fn compare_items(left: &Item, right: &Item) -> Ordering {
-    compare_priority(&left.priority, &right.priority)
+fn compare_items(left: &Item, right: &Item, index: &WorkspaceIndex) -> Ordering {
+    priority_value(right, index)
+        .cmp(&priority_value(left, index))
         .then_with(|| left.file.cmp(&right.file))
         .then_with(|| left.line.cmp(&right.line))
-}
-
-fn compare_priority(left: &Option<String>, right: &Option<String>) -> Ordering {
-    left.as_deref()
-        .unwrap_or("B")
-        .cmp(right.as_deref().unwrap_or("B"))
 }
 
 fn occurrence_name(kind: OccurrenceType) -> &'static str {
@@ -1826,7 +1827,7 @@ static HEADLINE_TIMESTAMP_RE: LazyLock<Regex> =
 /// priority-n, agenda-day) with Emacs's values. As in Emacs, a field's
 /// commas become semicolons and nothing is quoted. `today` decides which
 /// scheduled rows Emacs calls past-scheduled.
-pub fn agenda_csv(entries: &[AgendaEntry], today: NaiveDate, settings: &Settings) -> String {
+pub fn agenda_csv(entries: &[AgendaEntry], today: NaiveDate, index: &WorkspaceIndex) -> String {
     let mut output = String::new();
     for entry in entries {
         let item = &entry.item;
@@ -1834,7 +1835,7 @@ pub fn agenda_csv(entries: &[AgendaEntry], today: NaiveDate, settings: &Settings
         // Org gives every closed row the same priority-n.
         let priority = match entry.occurrence.kind {
             OccurrenceType::Closed => 100_000,
-            _ => priority_value(item.priority.as_deref(), settings),
+            _ => priority_value(item, index),
         };
         push_csv_row(
             &mut output,
@@ -1859,7 +1860,7 @@ pub fn agenda_csv(entries: &[AgendaEntry], today: NaiveDate, settings: &Settings
 /// A TODO-list or tags block's rows in the same layout: type `tagsmatch`
 /// for a `tags` or `tags-todo` block and `todo` for the others, with no
 /// date, time, extra or agenda day.
-pub fn items_csv(items: &[Item], block_kind: &str, settings: &Settings) -> String {
+pub fn items_csv(items: &[Item], block_kind: &str, index: &WorkspaceIndex) -> String {
     let kind = match block_kind {
         "tags" | "tags-todo" => "tagsmatch",
         _ => "todo",
@@ -1878,7 +1879,7 @@ pub fn items_csv(items: &[Item], block_kind: &str, settings: &Settings) -> Strin
                 "",
                 "",
                 item.priority.as_deref().unwrap_or_default(),
-                &priority_value(item.priority.as_deref(), settings).to_string(),
+                &priority_value(item, index).to_string(),
                 "",
             ],
         );
@@ -2118,6 +2119,29 @@ mod tests {
         };
         let index = WorkspaceIndex::load(settings).unwrap();
         (temp, index)
+    }
+
+    #[test]
+    fn todo_lists_sort_by_each_files_own_priority_range() {
+        // agenda.org: no cookie means its default, E, the lowest; later.org
+        // keeps the configured default B.
+        let (temp, _) = fixture("#+PRIORITIES: A E E\n* TODO Default lowest\n* TODO [#D] Fourth\n");
+        std::fs::write(temp.path().join("later.org"), "* TODO Default middle\n").unwrap();
+        let index = WorkspaceIndex::load(Settings {
+            roots: vec![temp.path().to_string_lossy().into_owned()],
+            agenda_files: vec!["**/*.org".to_string()],
+            ..Settings::default()
+        })
+        .unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+        let titles: Vec<String> = AgendaEngine::new(&index)
+            .todo(None, today)
+            .unwrap()
+            .into_iter()
+            .map(|item| item.title)
+            .collect();
+        // D of A-E and B of A-C are both one step above their lowest.
+        assert_eq!(titles, ["Fourth", "Default middle", "Default lowest"]);
     }
 
     #[test]
@@ -2497,7 +2521,7 @@ mod tests {
                 log_mode: false,
             })
             .unwrap();
-        let rows = agenda_csv(&entries, today, index.settings());
+        let rows = agenda_csv(&entries, today, &index);
         let category = &entries[0].item.category;
         assert_eq!(
             rows,

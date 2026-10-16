@@ -174,7 +174,7 @@ struct Counts {
 struct TriageState {
     started: Option<Instant>,
     outcomes: [usize; 7],
-    undo: Vec<(Vec<String>, usize)>,
+    undo: Vec<actions::TriageStep>,
 }
 
 struct App {
@@ -217,6 +217,8 @@ struct App {
     /// item ref -> (actor, HH:MM) of the capture that created it.
     provenance: BTreeMap<String, (String, String)>,
     recent_targets: Vec<String>,
+    /// Writes this TUI made, newest last, for `u`.
+    undo_steps: Vec<actions::UndoStep>,
     triage: TriageState,
     review_diff: bool,
     agent_filter: Option<String>,
@@ -255,6 +257,7 @@ impl App {
             reschedules: BTreeMap::new(),
             provenance: BTreeMap::new(),
             recent_targets: Vec::new(),
+            undo_steps: Vec::new(),
             triage: TriageState::default(),
             review_diff: false,
             agent_filter: None,

@@ -239,10 +239,9 @@ fn capture_preview_is_the_exact_text_that_will_be_written() {
             .iter()
             .map(|cell| cell.symbol())
             .collect();
-        assert!(
-            screen.contains("TODO [#A] Renew passport :personal:"),
-            "{screen}"
-        );
+        // Tags align to tags_column, as an edit writes them.
+        assert!(screen.contains("TODO [#A] Renew passport"), "{screen}");
+        assert!(screen.contains(":personal:"), "{screen}");
         assert!(screen.contains("DEADLINE: <2026-10-16 Fri>"), "{screen}");
         // Chips name the month, and the year when it is not this one.
         assert!(screen.contains("deadline Fri 16 Oct"), "{screen}");
@@ -487,5 +486,153 @@ fn shift_x_cancels_with_the_files_own_keyword() {
             "{}",
             fs::read_to_string(&path).unwrap()
         );
+    });
+}
+
+#[test]
+#[serial]
+fn marked_rows_are_written_together_or_not_at_all() {
+    with_home(|root| {
+        let rent = "* TODO Pay rent\nSCHEDULED: <2026-10-13 Tue>\n";
+        let plants = "#+TODO: OPEN | CLOSED\n* OPEN Water plants\nSCHEDULED: <2026-10-13 Tue>\n";
+        fs::write(root.join("a.org"), rent).unwrap();
+        fs::write(root.join("b.org"), plants).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.marks = app
+            .rows
+            .iter()
+            .map(|row| row.item.item_ref.clone())
+            .collect();
+        assert_eq!(app.marks.len(), 2);
+
+        // DONE is no keyword of b.org: neither file is written.
+        let error = app.set_state("DONE").unwrap_err();
+        app.set_error(&error);
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert!(status.contains("Water plants"), "{status}");
+        assert_eq!(fs::read_to_string(root.join("a.org")).unwrap(), rent);
+        assert_eq!(fs::read_to_string(root.join("b.org")).unwrap(), plants);
+        assert_eq!(app.marks.len(), 2);
+
+        app.schedule("2026-10-20").unwrap();
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert!(
+            status.starts_with("2 items  scheduled Tue 20 Oct"),
+            "{status}"
+        );
+        assert!(status.contains("Pay rent + 1 more"), "{status}");
+        assert!(
+            fs::read_to_string(root.join("a.org"))
+                .unwrap()
+                .contains("<2026-10-20 Tue>")
+        );
+        assert!(
+            fs::read_to_string(root.join("b.org"))
+                .unwrap()
+                .contains("<2026-10-20 Tue>")
+        );
+
+        app.undo().unwrap();
+        assert_eq!(fs::read_to_string(root.join("a.org")).unwrap(), rent);
+        assert_eq!(fs::read_to_string(root.join("b.org")).unwrap(), plants);
+    });
+}
+
+#[test]
+#[serial]
+fn u_undoes_only_this_sessions_changes_and_names_them() {
+    with_home(|root| {
+        let tasks = root.join("tasks.org");
+        fs::write(&tasks, "* TODO Pay rent\nSCHEDULED: <2026-10-13 Tue>\n").unwrap();
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.schedule("2026-10-20").unwrap();
+
+        // An agent captures after the TUI's own change.
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        let agent = agd_core::WriteContext {
+            actor: "mcp:codex".to_string(),
+            project: root.to_string_lossy().into_owned(),
+            now: None,
+        };
+        agd_core::WriteEngine::with_default_journal(app.settings.clone())
+            .unwrap()
+            .capture(
+                "t",
+                &agd_core::parse_capture_line("From codex", today()).unwrap(),
+                "",
+                &Default::default(),
+                false,
+                &agent,
+            )
+            .unwrap();
+        let inbox = fs::read_to_string(root.join("inbox.org")).unwrap();
+
+        app.undo().unwrap();
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "undid scheduled Tue 20 Oct · Pay rent"
+        );
+        assert!(
+            fs::read_to_string(&tasks)
+                .unwrap()
+                .contains("<2026-10-13 Tue>")
+        );
+        app.undo().unwrap();
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "nothing to undo from this session"
+        );
+        assert_eq!(fs::read_to_string(root.join("inbox.org")).unwrap(), inbox);
+    });
+}
+
+#[test]
+#[serial]
+fn x_on_a_repeating_task_says_it_repeated_and_when_it_is_next() {
+    with_home(|root| {
+        let path = root.join("home.org");
+        fs::write(
+            &path,
+            "* TODO Water plants\nSCHEDULED: <2026-10-13 Tue +1w>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.mark_done().unwrap();
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "repeated · Water plants → Tue 20 Oct · u undo"
+        );
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("<2026-10-20 Tue +1w>")
+        );
+        app.undo().unwrap();
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "undid repeated · Water plants → Tue 20 Oct"
+        );
+    });
+}
+
+#[test]
+#[serial]
+fn priority_keys_step_through_the_files_own_range() {
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(
+            &path,
+            "#+PRIORITIES: A E C\n* TODO [#D] Low\nSCHEDULED: <2026-10-13 Tue>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.shift_priority(false).unwrap();
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains("* TODO [#E] Low"), "{written}");
     });
 }

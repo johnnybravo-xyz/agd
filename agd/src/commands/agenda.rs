@@ -104,7 +104,7 @@ impl AgendaCommand {
         if let Some(key) = self.view.as_deref() {
             let view = find_view(&settings, key)?;
             let sections = AgendaEngine::new(&index).view(view, start, today, self.log)?;
-            let output = view_output(&sections, self.json, self.csv, today, &settings)?;
+            let output = view_output(&sections, self.json, self.csv, today, &index)?;
             return Ok(write_stdout(&output)?);
         }
         let span = self.span.unwrap_or(settings.agenda_span);
@@ -119,7 +119,7 @@ impl AgendaCommand {
         let output = if self.json {
             format!("{}\n", serde_json::to_string_pretty(&entries)?)
         } else if self.csv {
-            agenda_csv(&entries, today, &settings)
+            agenda_csv(&entries, today, &index)
         } else if self.brief {
             entries
                 .iter()
@@ -191,7 +191,7 @@ fn view_output(
     json: bool,
     csv: bool,
     today: NaiveDate,
-    settings: &Settings,
+    index: &WorkspaceIndex,
 ) -> Result<String> {
     if json {
         return Ok(format!("{}\n", serde_json::to_string_pretty(sections)?));
@@ -201,11 +201,11 @@ fn view_output(
     }
     let mut rows = String::new();
     for section in sections {
-        rows.push_str(&agenda_csv(&section.entries, today, settings));
-        rows.push_str(&items_csv(&section.items, &section.kind, settings));
+        rows.push_str(&agenda_csv(&section.entries, today, index));
+        rows.push_str(&items_csv(&section.items, &section.kind, index));
         for group in &section.groups {
-            rows.push_str(&agenda_csv(&group.entries, today, settings));
-            rows.push_str(&items_csv(&group.items, &section.kind, settings));
+            rows.push_str(&agenda_csv(&group.entries, today, index));
+            rows.push_str(&items_csv(&group.items, &section.kind, index));
         }
     }
     Ok(rows)

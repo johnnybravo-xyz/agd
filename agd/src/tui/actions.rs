@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use agd_core::{
-    Change, EditIntent, JournalStatus, PlanningTimestamp, WriteEngine, parse_date_input,
+    AgdError, Change, EditIntent, ErrorCode, Item, ItemEdit, JournalStatus, PlanningTimestamp,
+    PriorityRange, WriteEngine, parse_date_input,
 };
 use anyhow::{Result, bail};
 use chrono::{Duration, NaiveDate};
@@ -17,6 +18,23 @@ pub(super) const SOMEDAY: usize = 3;
 pub(super) const DONE: usize = 4;
 pub(super) const REFILED: usize = 5;
 pub(super) const OTHER: usize = 6;
+
+/// A write this TUI made, undone as a unit by `u`: a journal entry or
+/// transaction, and what to call it on the status line.
+#[derive(Debug)]
+pub(super) struct UndoStep {
+    journal_id: String,
+    label: String,
+}
+
+/// One triage write, undone as a unit: a journal entry or transaction and
+/// the outcome it counted for its items.
+#[derive(Debug)]
+pub(super) struct TriageStep {
+    journal_id: String,
+    outcome: usize,
+    items: usize,
+}
 
 /// Fuzzy refile target picker over every heading, recent targets first.
 #[derive(Debug)]
@@ -38,39 +56,78 @@ impl RefilePicker {
 
 impl App {
     /// Applies one edit to every target (marked rows, else the selected
-    /// row) through the guarded write path and confirms it on the status
-    /// line the way org-agenda does: `work.org:142  TODO → DONE · u undo`.
+    /// row) as one transaction: if any target is refused, nothing is
+    /// written. Confirms it on the status line the way org-agenda does,
+    /// naming the targets: `work.org:142  TODO → DONE · Pay rent · u undo`.
     fn edit_targets(&mut self, intent: EditIntent, outcome: usize, change: &str) -> Result<()> {
-        let targets = self.targets();
-        if targets.is_empty() {
+        let edits: Vec<ItemEdit> = self
+            .targets()
+            .into_iter()
+            .map(|item_ref| ItemEdit {
+                item_ref,
+                intent: intent.clone(),
+            })
+            .collect();
+        if edits.is_empty() {
             return Ok(());
         }
-        let location = self
-            .selected_row()
-            .map(|row| self.short_location(&row.item))
-            .unwrap_or_default();
-        let engine = WriteEngine::with_default_journal(self.settings.clone())?;
-        let mut journals = Vec::new();
-        for item_ref in &targets {
-            let mutation = engine.edit(item_ref, &intent, false, &write_context())?;
-            self.index.refresh_path(Path::new(&mutation.item.file))?;
-            journals.push(mutation.journal_id);
+        let batch = WriteEngine::with_default_journal(self.settings.clone())?.edit_batch(
+            &edits,
+            false,
+            &write_context(),
+        )?;
+        let files: BTreeSet<String> = batch
+            .mutations
+            .iter()
+            .map(|mutation| mutation.item.file.clone())
+            .collect();
+        for file in files {
+            self.index.refresh_path(Path::new(&file))?;
         }
-        self.record_triage(journals, outcome);
+        self.record_triage(&batch.transaction, batch.mutations.len(), outcome);
         self.marks.clear();
-        self.set_status(if targets.len() == 1 {
-            format!("{location}  {change} · u undo")
+        let items: Vec<&Item> = batch
+            .mutations
+            .iter()
+            .map(|mutation| &mutation.item)
+            .collect();
+        let summary = targets_summary(&items);
+        let label = match batch.mutations.as_slice() {
+            [single] => single.repeated.as_ref().map(|repeat| {
+                format!(
+                    "repeated · {} → {}",
+                    single.item.title,
+                    display_date(&repeat.next_date)
+                )
+            }),
+            _ => None,
+        };
+        let label = label.unwrap_or_else(|| format!("{change} · {summary}"));
+        self.set_status(if label.starts_with("repeated") {
+            format!("{label} · u undo")
         } else {
-            format!("{} items  {change} · u undo", targets.len())
+            format!("{}  {label} · u undo", self.targets_location(&items))
         });
+        self.remember_undo(&batch.transaction, label);
         self.reload_rows()
     }
 
+    /// `work.org:142` for one target, `3 items` for several.
+    fn targets_location(&self, items: &[&Item]) -> String {
+        match items {
+            [item] => self.short_location(item),
+            _ => format!("{} items", items.len()),
+        }
+    }
+
     pub(super) fn set_state(&mut self, state: &str) -> Result<()> {
-        let from = self
-            .selected_row()
-            .and_then(|row| row.item.todo.clone())
-            .unwrap_or_else(|| "·".to_string());
+        // With marked rows the cursor row's state says nothing about them.
+        let from = match self.selected_row() {
+            Some(row) if self.marks.is_empty() => {
+                row.item.todo.clone().unwrap_or_else(|| "·".to_string())
+            }
+            _ => String::new(),
+        };
         let outcome = if self.is_done_keyword(state) {
             DONE
         } else {
@@ -82,7 +139,7 @@ impl App {
                 ..EditIntent::default()
             },
             outcome,
-            &format!("{from} → {state}"),
+            format!("{from} → {state}").trim_start(),
         )
     }
 
@@ -152,6 +209,14 @@ impl App {
             .collect()
     }
 
+    /// The priority range of the item's file.
+    pub(super) fn priority_range(&self, item: &Item) -> PriorityRange {
+        self.index.document(Path::new(&item.file)).map_or_else(
+            || PriorityRange::from_settings(&self.settings),
+            |document| document.priorities(),
+        )
+    }
+
     fn is_done_keyword(&self, state: &str) -> bool {
         self.selected_row()
             .and_then(|row| self.index.document(Path::new(&row.item.file)))
@@ -210,27 +275,24 @@ impl App {
         )
     }
 
-    /// `+`/`-`: raise or lower priority within the configured range, as
-    /// org-agenda's priority-up and priority-down.
+    /// `+`/`-`: raise or lower priority within the file's range
+    /// (`#+PRIORITIES`, else the configured one), as org-agenda's
+    /// priority-up and priority-down.
     pub(super) fn shift_priority(&mut self, up: bool) -> Result<()> {
         let Some(row) = self.selected_row() else {
             return Ok(());
         };
-        let agenda = &self.settings;
-        let letter = |value: &str| value.chars().next().unwrap_or('B');
-        let (highest, lowest) = (
-            letter(&agenda.highest_priority),
-            letter(&agenda.lowest_priority),
-        );
+        let range = self.priority_range(&row.item);
         let current = row
             .item
             .priority
             .as_deref()
-            .map_or(letter(&agenda.default_priority), letter);
+            .and_then(|value| value.chars().next())
+            .unwrap_or(range.default);
         let next = if up {
-            (current as u8).saturating_sub(1).max(highest as u8) as char
+            (current as u8).saturating_sub(1).max(range.highest as u8) as char
         } else {
-            (current as u8 + 1).min(lowest as u8) as char
+            (current as u8 + 1).min(range.lowest as u8) as char
         };
         self.edit_targets(
             EditIntent {
@@ -294,42 +356,78 @@ impl App {
         }
     }
 
-    fn record_triage(&mut self, journals: Vec<String>, outcome: usize) {
-        if self.screen == Screen::Triage && !journals.is_empty() {
-            self.triage.outcomes[outcome] += journals.len();
-            self.triage.undo.push((journals, outcome));
+    fn record_triage(&mut self, journal_id: &str, items: usize, outcome: usize) {
+        if self.screen == Screen::Triage && items > 0 {
+            self.triage.outcomes[outcome] += items;
+            self.triage.undo.push(TriageStep {
+                journal_id: journal_id.to_string(),
+                outcome,
+                items,
+            });
         }
     }
 
-    /// `u` undoes the last write; in a finished triage pass it undoes the
-    /// whole pass, replaying the journal backwards.
+    /// Keeps a write this TUI made, so `u` can undo it later; `label`
+    /// names it on the status line, such as `scheduled Mon 19 Oct · Pay rent`.
+    pub(super) fn remember_undo(&mut self, journal_id: &str, label: String) {
+        self.undo_steps.push(UndoStep {
+            journal_id: journal_id.to_string(),
+            label,
+        });
+    }
+
+    /// `u` in the lists and triage undoes the latest change this TUI made,
+    /// never another actor's (agent changes are undone per card on the
+    /// Agents tab); in a finished triage pass it undoes the whole pass.
     pub(super) fn undo(&mut self) -> Result<()> {
-        let engine = WriteEngine::with_default_journal(self.settings.clone())?;
         if self.screen == Screen::Triage && !self.triage.undo.is_empty() {
-            let undo_all = self.rows.is_empty();
-            let groups = if undo_all {
-                std::mem::take(&mut self.triage.undo)
-            } else {
-                self.triage.undo.pop().into_iter().collect()
-            };
-            for (journals, outcome) in groups.into_iter().rev() {
-                for journal in journals.iter().rev() {
-                    let result = engine.undo(Some(journal), &write_context())?;
-                    self.refresh_files(&result.file)?;
-                }
-                self.triage.outcomes[outcome] =
-                    self.triage.outcomes[outcome].saturating_sub(journals.len());
-            }
-            self.set_status(if undo_all {
-                "undid the whole triage pass"
-            } else {
-                "undid the last triage step"
-            });
-            return self.reload_rows();
+            return self.undo_triage();
         }
-        let result = engine.undo(None, &write_context())?;
+        let Some(step) = self.undo_steps.last() else {
+            self.set_status("nothing to undo from this session");
+            return Ok(());
+        };
+        let result = WriteEngine::with_default_journal(self.settings.clone())?
+            .undo(&step.journal_id, &write_context())?;
+        let step = self.undo_steps.pop().expect("the step just undone");
         self.refresh_files(&result.file)?;
-        self.set_status(format!("undid {}", result.journal_id));
+        if let Some(position) = self
+            .triage
+            .undo
+            .iter()
+            .position(|triage| triage.journal_id == step.journal_id)
+        {
+            let triage = self.triage.undo.remove(position);
+            self.triage.outcomes[triage.outcome] =
+                self.triage.outcomes[triage.outcome].saturating_sub(triage.items);
+        }
+        self.set_status(format!("undid {}", step.label));
+        self.reload_rows()
+    }
+
+    /// Undoes the last triage step, or the whole pass once it is finished,
+    /// newest first.
+    fn undo_triage(&mut self) -> Result<()> {
+        let engine = WriteEngine::with_default_journal(self.settings.clone())?;
+        let undo_all = self.rows.is_empty();
+        let steps = if undo_all {
+            std::mem::take(&mut self.triage.undo)
+        } else {
+            self.triage.undo.pop().into_iter().collect()
+        };
+        for step in steps.into_iter().rev() {
+            let result = engine.undo(&step.journal_id, &write_context())?;
+            self.refresh_files(&result.file)?;
+            self.triage.outcomes[step.outcome] =
+                self.triage.outcomes[step.outcome].saturating_sub(step.items);
+            self.undo_steps
+                .retain(|undo| undo.journal_id != step.journal_id);
+        }
+        self.set_status(if undo_all {
+            "undid the whole triage pass"
+        } else {
+            "undid the last triage step"
+        });
         self.reload_rows()
     }
 
@@ -377,7 +475,17 @@ impl App {
             return Ok(());
         };
         let result = WriteEngine::with_default_journal(self.settings.clone())?
-            .undo(Some(&id), &write_context())?;
+            .undo(&id, &write_context())
+            .map_err(|error| {
+                if error.code() == ErrorCode::UndoConflict.as_str() {
+                    AgdError::new(
+                        ErrorCode::UndoConflict,
+                        format!("{error} or press ⏎ to open it"),
+                    )
+                } else {
+                    error
+                }
+            })?;
         self.refresh_files(&result.file)?;
         self.set_status("undid the agent change");
         self.reload_rows()
@@ -473,7 +581,10 @@ impl App {
         self.recent_targets.retain(|recent| recent != &target);
         self.recent_targets.insert(0, target);
         self.recent_targets.truncate(10);
-        self.record_triage(result.journal_ids, REFILED);
+        if let Some(journal_id) = result.journal_ids.first() {
+            self.record_triage(journal_id, 1, REFILED);
+            self.remember_undo(journal_id, format!("refile · {}", result.item.title));
+        }
         self.set_status(format!("refiled to {label} · u undo"));
         self.reload_rows()
     }
@@ -501,6 +612,15 @@ impl App {
     }
 }
 
+/// The first target's title, and how many more: `Pay rent + 2 more`.
+pub(super) fn targets_summary(items: &[&Item]) -> String {
+    match items {
+        [] => String::new(),
+        [item] => item.title.clone(),
+        [first, rest @ ..] => format!("{} + {} more", first.title, rest.len()),
+    }
+}
+
 /// Characters of `query` appear in `value` in order, ignoring case.
 pub(super) fn fuzzy_match(value: &str, query: &str) -> bool {
     let mut wanted = query.chars().flat_map(char::to_lowercase).peekable();
@@ -510,6 +630,13 @@ pub(super) fn fuzzy_match(value: &str, query: &str) -> bool {
         }
     }
     wanted.peek().is_none()
+}
+
+/// `Mon 19 Oct` for a `YYYY-MM-DD` date.
+fn display_date(date: &str) -> String {
+    date.parse::<NaiveDate>()
+        .map(|date| date.format("%a %-d %b").to_string())
+        .unwrap_or_else(|_| date.to_string())
 }
 
 /// Inactive timestamp text from a planning timestamp, for display.

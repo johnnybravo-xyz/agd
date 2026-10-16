@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::string::FromUtf8Error;
 
-use crate::{AgdError, RootSet, Settings};
+use crate::{AgdError, JournalRecord, RootSet, Settings};
 use ignore::WalkBuilder;
 use orgize::{Org, ParseConfig, ast::Headline as OrgHeadline, rowan::ast::AstNode};
 use serde::Serialize;
@@ -96,6 +96,29 @@ impl CheckReport {
     pub fn has_errors(&self) -> bool {
         self.summary.errors != 0
     }
+
+    /// Adds problems found outside the files, such as journal conflicts.
+    pub fn add_problems(&mut self, problems: Vec<CheckProblem>) {
+        self.summary.errors += problems.len();
+        self.problems.extend(problems);
+    }
+}
+
+/// One problem per interrupted write whose file changed since (see
+/// `WriteEngine::journal_conflicts`), naming the command that settles it.
+pub fn journal_problems(conflicts: &[JournalRecord]) -> Vec<CheckProblem> {
+    conflicts
+        .iter()
+        .map(|record| CheckProblem {
+            file: record.file.clone(),
+            line: None,
+            code: "journal_conflict",
+            message: format!(
+                "an agd write was interrupted (journal entry {}) and the file changed since; writes to it are refused until `agd setup check --resolve` keeps it as it is",
+                record.id
+            ),
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -208,7 +231,8 @@ pub fn check_paths(roots: &[PathBuf]) -> CheckReport {
 
 pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgdError> {
     let roots = RootSet::new(&settings.roots, &settings.agenda_files)?;
-    let paths = roots.all_org_files()?;
+    let org_files = roots.all_org_files()?;
+    let paths = org_files.files;
     let configured_keywords: std::collections::HashSet<&str> = settings
         .todo_keywords
         .iter()
@@ -217,7 +241,16 @@ pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgdError> {
         .filter_map(|keyword| keyword.split('(').next())
         .collect();
     let mut files = Vec::with_capacity(paths.len());
-    let mut problems = Vec::new();
+    let mut problems: Vec<CheckProblem> = org_files
+        .skipped
+        .into_iter()
+        .map(|(path, reason)| CheckProblem {
+            file: path.to_string_lossy().into_owned(),
+            line: None,
+            code: reason.code(),
+            message: reason.message(),
+        })
+        .collect();
     let mut ids: HashMap<String, (String, usize)> = HashMap::new();
     let mut headline_count = 0;
 
@@ -552,5 +585,26 @@ mod tests {
         assert_eq!(report.problems[0].code, "duplicate_id");
         assert_eq!(report.problems[0].line, Some(1));
         assert!(report.problems[0].message.contains("one.org:1"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn settings_check_reports_symlinks_that_leave_the_roots() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        fs::write(directory.path().join("tasks.org"), "* TODO Kept\n").expect("fixture");
+        let outside = tempfile::tempdir().expect("outside directory");
+        std::os::unix::fs::symlink(outside.path(), directory.path().join("elsewhere"))
+            .expect("symlink");
+        let settings = Settings {
+            roots: vec![directory.path().to_string_lossy().into_owned()],
+            ..Settings::default()
+        };
+
+        let report = check_settings(&settings).expect("check runs");
+
+        assert_eq!(report.summary.files, 1);
+        assert_eq!(report.problems.len(), 1);
+        assert_eq!(report.problems[0].code, "outside_roots");
+        assert!(report.problems[0].file.ends_with("elsewhere"));
     }
 }

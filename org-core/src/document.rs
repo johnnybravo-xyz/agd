@@ -78,6 +78,7 @@ pub struct OrgDocument {
     todo_done: Vec<String>,
     todo_keywords: Vec<TodoKeyword>,
     logging: LogSettings,
+    priorities: PriorityRange,
     file_tags: Vec<String>,
     file_category: String,
 }
@@ -99,6 +100,59 @@ pub struct TodoKeyword {
     pub sequence: usize,
     pub log_enter: Option<LogKind>,
     pub log_leave: Option<LogKind>,
+}
+
+/// A file's priority cookies, highest to lowest, and the priority of a
+/// heading without one: `#+PRIORITIES: A C B` (org-priority-highest,
+/// -lowest and -default), else the configured range.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PriorityRange {
+    pub highest: char,
+    pub lowest: char,
+    pub default: char,
+}
+
+impl PriorityRange {
+    /// The configured range (`highest_priority`, `lowest_priority`,
+    /// `default_priority`).
+    pub fn from_settings(settings: &Settings) -> Self {
+        let first = |value: &str, fallback: char| value.chars().next().unwrap_or(fallback);
+        Self {
+            highest: first(&settings.highest_priority, 'A'),
+            lowest: first(&settings.lowest_priority, 'C'),
+            default: first(&settings.default_priority, 'B'),
+        }
+    }
+
+    /// Whether `priority` is one cookie character within the range.
+    pub fn contains(&self, priority: &str) -> bool {
+        let mut characters = priority.chars();
+        match (characters.next(), characters.next()) {
+            (Some(value), None) => (self.highest..=self.lowest).contains(&value),
+            _ => false,
+        }
+    }
+
+    /// Every cookie from highest to lowest, as `[A, B, C]`.
+    pub fn cookies(&self) -> Vec<String> {
+        (self.highest..=self.lowest)
+            .map(|value| value.to_string())
+            .collect()
+    }
+
+    /// Org's numeric priority (org-get-priority): 1000 for each step above
+    /// the lowest cookie, a heading without one counting as the default.
+    pub fn value(&self, priority: Option<&str>) -> i64 {
+        let cookie = priority
+            .and_then(|value| value.chars().next())
+            .unwrap_or(self.default);
+        1000 * (self.lowest as i64 - cookie as i64)
+    }
+
+    /// `A–C`, for messages.
+    pub fn describe(&self) -> String {
+        format!("{}–{}", self.highest, self.lowest)
+    }
 }
 
 /// Effective logging for one file: configuration overridden by `#+STARTUP`.
@@ -184,6 +238,7 @@ impl OrgDocument {
             .map(|keyword| keyword.name.clone())
             .collect();
         let logging = log_settings(&source, settings);
+        let priorities = priority_range(&source, settings);
         let file_tags = directive(&source, "FILETAGS")
             .map(parse_colon_tags)
             .unwrap_or_default();
@@ -232,6 +287,7 @@ impl OrgDocument {
             todo_done,
             todo_keywords,
             logging,
+            priorities,
             file_tags,
             file_category,
         })
@@ -281,6 +337,11 @@ impl OrgDocument {
         self.logging
     }
 
+    /// This file's priority range: `#+PRIORITIES`, else the configured one.
+    pub fn priorities(&self) -> PriorityRange {
+        self.priorities
+    }
+
     pub fn file_tags(&self) -> &[String] {
         &self.file_tags
     }
@@ -294,8 +355,13 @@ impl WorkspaceIndex {
     pub fn load(settings: Settings) -> Result<Self, AgdError> {
         let roots = RootSet::new(&settings.roots, &settings.agenda_files)?;
         let mut documents = BTreeMap::new();
-        let mut skipped = BTreeMap::new();
-        for path in roots.agenda_files()? {
+        let agenda_files = roots.agenda_files()?;
+        let mut skipped: BTreeMap<PathBuf, String> = agenda_files
+            .skipped
+            .iter()
+            .map(|(path, reason)| (path.clone(), reason.describe(path)))
+            .collect();
+        for path in agenda_files.files {
             match load_document(&path, &settings)? {
                 Ok(document) => {
                     documents.insert(path, document);
@@ -306,7 +372,7 @@ impl WorkspaceIndex {
             }
         }
         let mut outside_ids: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
-        for path in roots.all_org_files()? {
+        for path in roots.all_org_files()?.files {
             if documents.contains_key(&path) || skipped.contains_key(&path) {
                 continue;
             }
@@ -326,8 +392,8 @@ impl WorkspaceIndex {
         Ok(index)
     }
 
-    /// Agenda files left out of the index, with the reason (currently only
-    /// non-UTF-8 content).
+    /// Agenda files left out of the index, with the reason: non-UTF-8
+    /// content, or a symlink that resolves outside the roots.
     pub fn skipped_files(&self) -> impl Iterator<Item = (&Path, &str)> {
         self.skipped
             .iter()
@@ -342,41 +408,64 @@ impl WorkspaceIndex {
         &self.settings
     }
 
+    /// Re-reads one changed path, as a file watcher reports it. An agenda
+    /// file, including one created after the index loaded, is parsed again;
+    /// another `.org` file under the roots only updates the IDs that make
+    /// targets ambiguous; a removed file or directory leaves the index; a
+    /// symlink resolving outside the roots is skipped. Other paths are
+    /// ignored.
     pub fn refresh_path(&mut self, path: &Path) -> Result<(), AgdError> {
-        if path.exists() {
-            if path.extension().is_none_or(|extension| extension != "org") {
+        if !path.exists() {
+            let removed = crate::paths::resolve_existing_prefix(path)?;
+            self.forget_paths_under(&removed);
+            self.rebuild_ids();
+            return Ok(());
+        }
+        if path.extension().is_none_or(|extension| extension != "org") {
+            return Ok(());
+        }
+        let path = match self.roots.resolve_read(path) {
+            Ok(path) => path,
+            Err(error) if error.code() == "outside_roots" => {
+                let reason = crate::SkipReason::OutsideRoots.describe(path);
+                self.skipped.insert(path.to_path_buf(), reason);
                 return Ok(());
             }
-            let path = self.roots.resolve_read(path)?;
-            if !self.documents.contains_key(&path) && !self.skipped.contains_key(&path) {
-                for locations in self.outside_ids.values_mut() {
-                    locations.retain(|location| location != &path);
-                }
-                for id in scan_property_ids(&path) {
-                    self.outside_ids.entry(id).or_default().push(path.clone());
-                }
-                self.outside_ids
-                    .retain(|_, locations| !locations.is_empty());
-                return Ok(());
-            }
+            Err(error) => return Err(error),
+        };
+        self.forget_paths_under(&path);
+        if self.roots.is_agenda_file(&path)? {
             match load_document(&path, &self.settings)? {
                 Ok(document) => {
-                    self.skipped.remove(&path);
                     self.documents.insert(path, document);
                 }
                 Err(reason) => {
-                    self.documents.remove(&path);
                     self.skipped.insert(path, reason.to_string());
                 }
             }
         } else {
-            self.documents.remove(path);
-            self.skipped.remove(path);
+            for id in scan_property_ids(&path) {
+                self.outside_ids.entry(id).or_default().push(path.clone());
+            }
         }
         self.rebuild_ids();
         Ok(())
     }
 
+    /// Drops every document, skip and outside ID at or below `path`.
+    fn forget_paths_under(&mut self, path: &Path) {
+        self.documents.retain(|known, _| !known.starts_with(path));
+        self.skipped.retain(|known, _| !known.starts_with(path));
+        for locations in self.outside_ids.values_mut() {
+            locations.retain(|location| !location.starts_with(path));
+        }
+        self.outside_ids
+            .retain(|_, locations| !locations.is_empty());
+    }
+
+    /// Recounts `:ID:` values, then gives every item whose ID is not unique
+    /// under the roots a file/line/digest ref, so two items never share a
+    /// ref; resolving it still refuses the write as `duplicate_id`.
     fn rebuild_ids(&mut self) {
         self.ids.clear();
         for (path, document) in &self.documents {
@@ -387,6 +476,20 @@ impl WorkspaceIndex {
                         .or_default()
                         .push((path.clone(), index));
                 }
+            }
+        }
+        let duplicated: BTreeSet<String> =
+            self.duplicate_ids().map(|(id, _)| id.to_string()).collect();
+        for document in self.documents.values_mut() {
+            for headline in &mut document.headlines {
+                headline.item.item_ref = match &headline.item.id {
+                    Some(id) if !duplicated.contains(id) => id.clone(),
+                    _ => location_ref(
+                        Path::new(&headline.item.file),
+                        headline.item.line,
+                        &headline.digest,
+                    ),
+                };
             }
         }
     }
@@ -406,6 +509,12 @@ impl WorkspaceIndex {
             .iter()
             .filter(|(id, locations)| locations.len() + self.outside_id_count(id) > 1)
             .map(|(id, locations)| (id.as_str(), locations.as_slice()))
+    }
+
+    /// Whether any heading under the roots, agenda file or not, has this
+    /// `:ID:`.
+    pub fn id_in_use(&self, id: &str) -> bool {
+        self.ids.contains_key(id) || self.outside_ids.contains_key(id)
     }
 
     fn outside_id_count(&self, id: &str) -> usize {
@@ -694,12 +803,7 @@ fn scan_headlines(
             .collect();
         olpath.push(headline.title.clone());
         let item_ref = id.clone().unwrap_or_else(|| {
-            format!(
-                "{}:{}#sha256:{}",
-                path.display(),
-                lines[headline.line_index].number,
-                headline.digest
-            )
+            location_ref(path, lines[headline.line_index].number, &headline.digest)
         });
         let item = Item {
             schema: ITEM_SCHEMA.to_string(),
@@ -753,6 +857,20 @@ fn scan_headlines(
         });
     }
     Ok(result)
+}
+
+/// The `[#X]` cookie at the start of `text`, as the parser reads a
+/// headline's priority.
+pub(crate) fn leading_priority_cookie(text: &str) -> Option<&str> {
+    let cookie = PRIORITY_RE.captures(text)?.get(0)?.as_str();
+    Some(cookie.trim_end())
+}
+
+/// Splits a headline's trailing tag group (`:a:b:`) off as the parser reads
+/// it: the text before it, trailing blanks removed, and the group.
+pub(crate) fn split_trailing_tags(line: &str) -> Option<(&str, &str)> {
+    let group = TAGS_RE.captures(line)?.get(1)?;
+    Some((line[..group.start()].trim_end(), group.as_str()))
 }
 
 fn parse_headline_content(
@@ -1014,6 +1132,39 @@ fn log_settings(source: &str, settings: &Settings) -> LogSettings {
     logging
 }
 
+/// `#+PRIORITIES: highest lowest default`, each one cookie character with
+/// highest before lowest; anything else keeps the configured range.
+fn priority_range(source: &str, settings: &Settings) -> PriorityRange {
+    let configured = PriorityRange::from_settings(settings);
+    let Some(value) = directive(source, "PRIORITIES") else {
+        return configured;
+    };
+    let cookies: Vec<char> = value
+        .split_whitespace()
+        .filter_map(|token| {
+            let mut characters = token.chars();
+            match (characters.next(), characters.next()) {
+                (Some(cookie), None) if cookie.is_ascii_alphanumeric() => Some(cookie),
+                _ => None,
+            }
+        })
+        .collect();
+    match cookies.as_slice() {
+        [highest, lowest, default]
+            if value.split_whitespace().count() == 3
+                && highest <= lowest
+                && (highest..=lowest).contains(&default) =>
+        {
+            PriorityRange {
+                highest: *highest,
+                lowest: *lowest,
+                default: *default,
+            }
+        }
+        _ => configured,
+    }
+}
+
 fn directives<'a>(source: &'a str, names: &'a [&str]) -> impl Iterator<Item = &'a str> {
     source.lines().filter_map(move |line| {
         let (key, value) = line.strip_prefix("#+")?.split_once(':')?;
@@ -1132,6 +1283,11 @@ fn scan_timestamps(source: &str, start: usize, end: usize) -> Vec<TimestampSpan>
     found
 }
 
+/// The ref of a heading without a unique ID: `file:line#sha256:digest`.
+fn location_ref(path: &Path, line: usize, digest: &str) -> String {
+    format!("{}:{line}#sha256:{digest}", path.display())
+}
+
 fn headline_digest(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     digest[..16]
@@ -1247,6 +1403,145 @@ mod tests {
         let item_ref = index.items().next().unwrap().item_ref.clone();
         assert_eq!(index.resolve(&item_ref).unwrap_err().code(), "duplicate_id");
         assert_eq!(index.duplicate_ids().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_leaving_the_roots_are_skipped_not_fatal() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("tasks.org"), "* TODO Kept\n").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.org"), "* TODO Secret\n").unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.org"),
+            temp.path().join("escape.org"),
+        )
+        .unwrap();
+        let index = WorkspaceIndex::load(settings(temp.path())).unwrap();
+        let titles: Vec<&str> = index.items().map(|item| item.title.as_str()).collect();
+        assert_eq!(titles, ["Kept"]);
+        let skipped: Vec<_> = index.skipped_files().collect();
+        assert_eq!(skipped.len(), 1);
+        assert!(skipped[0].0.ends_with("escape.org"));
+        assert!(
+            skipped[0].1.contains("outside the roots"),
+            "{}",
+            skipped[0].1
+        );
+    }
+
+    #[test]
+    fn files_created_after_loading_join_the_index_by_agenda_pattern() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(temp.path().join("archive")).unwrap();
+        let mut settings = settings(temp.path());
+        settings.agenda_files = vec!["inbox.org".to_string()];
+        let mut index = WorkspaceIndex::load(settings).unwrap();
+        assert_eq!(index.items().count(), 0);
+
+        let inbox = temp.path().join("inbox.org");
+        std::fs::write(&inbox, "* TODO First task\n").unwrap();
+        index.refresh_path(&inbox).unwrap();
+        let titles: Vec<&str> = index.items().map(|item| item.title.as_str()).collect();
+        assert_eq!(titles, ["First task"]);
+
+        // Not an agenda file: its ID still makes the agenda's copy ambiguous.
+        std::fs::write(
+            &inbox,
+            "* TODO First task\n:PROPERTIES:\n:ID: shared\n:END:\n",
+        )
+        .unwrap();
+        index.refresh_path(&inbox).unwrap();
+        let notes = temp.path().join("archive/notes.org");
+        std::fs::write(&notes, "* Notes\n:PROPERTIES:\n:ID: shared\n:END:\n").unwrap();
+        index.refresh_path(&notes).unwrap();
+        assert_eq!(index.items().count(), 1);
+        assert_eq!(index.resolve("shared").unwrap_err().code(), "duplicate_id");
+
+        std::fs::remove_file(&notes).unwrap();
+        index.refresh_path(&notes).unwrap();
+        assert_eq!(index.resolve("shared").unwrap().1.item.title, "First task");
+        std::fs::remove_file(&inbox).unwrap();
+        index.refresh_path(&inbox).unwrap();
+        assert_eq!(index.items().count(), 0);
+    }
+
+    #[test]
+    fn refs_to_missing_files_outside_the_roots_are_outside_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("tasks.org"), "* TODO One\n").unwrap();
+        let index = WorkspaceIndex::load(settings(temp.path())).unwrap();
+        let error = index
+            .resolve("/no/such/file:1#sha256:00000000000000000000000000000000")
+            .unwrap_err();
+        assert_eq!(error.code(), "outside_roots");
+    }
+
+    #[test]
+    fn items_sharing_an_id_get_distinct_location_refs_that_refuse_writes() {
+        let temp = tempfile::tempdir().unwrap();
+        let tasks = temp.path().join("tasks.org");
+        std::fs::write(
+            &tasks,
+            "* TODO One\n:PROPERTIES:\n:ID: dup-id-1\n:END:\n* TODO Two\n:PROPERTIES:\n:ID: dup-id-1\n:END:\n",
+        )
+        .unwrap();
+        let mut index = WorkspaceIndex::load(settings(temp.path())).unwrap();
+        let refs: Vec<String> = index.items().map(|item| item.item_ref.clone()).collect();
+        assert_eq!(refs.len(), 2);
+        assert_ne!(refs[0], refs[1]);
+        for item_ref in &refs {
+            assert!(item_ref.contains("#sha256:"), "{item_ref}");
+            assert_eq!(index.resolve(item_ref).unwrap_err().code(), "duplicate_id");
+        }
+
+        // Once the ID is unique again, the item's ref is its ID.
+        std::fs::write(
+            &tasks,
+            "* TODO One\n:PROPERTIES:\n:ID: dup-id-1\n:END:\n* TODO Two\n",
+        )
+        .unwrap();
+        index.refresh_path(&tasks).unwrap();
+        assert_eq!(index.items().next().unwrap().item_ref, "dup-id-1");
+    }
+
+    #[test]
+    fn in_file_priorities_override_the_configured_range() {
+        let parse = |source: &str| {
+            OrgDocument::parse(
+                PathBuf::from("/tmp/p.org"),
+                source.as_bytes().to_vec(),
+                &Settings::default(),
+            )
+            .unwrap()
+            .priorities()
+        };
+        let in_file = parse("#+PRIORITIES: A E C\n* TODO [#E] Low\n");
+        assert_eq!(
+            in_file,
+            PriorityRange {
+                highest: 'A',
+                lowest: 'E',
+                default: 'C'
+            }
+        );
+        assert!(in_file.contains("E"));
+        assert!(!in_file.contains("F"));
+        assert_eq!(in_file.value(None), in_file.value(Some("C")));
+        assert!(in_file.value(Some("A")) > in_file.value(Some("E")));
+        let numeric = parse("#+PRIORITIES: 1 5 3\n");
+        assert_eq!(numeric.cookies(), ["1", "2", "3", "4", "5"]);
+        // Malformed lines keep the configured A-C, default B.
+        for source in [
+            "#+PRIORITIES: C A B\n",
+            "#+PRIORITIES: A C\n",
+            "#+PRIORITIES: 1 10 5\n",
+        ] {
+            assert_eq!(
+                parse(source),
+                PriorityRange::from_settings(&Settings::default())
+            );
+        }
     }
 
     #[test]

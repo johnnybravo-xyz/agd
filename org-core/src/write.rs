@@ -3,15 +3,18 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use std::sync::LazyLock;
+
 use chrono::{Duration, Local, Months, NaiveDate, NaiveDateTime};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use similar::TextDiff;
 
 use crate::{
-    AgdError, ByteSpan, CaptureDraft, CaptureTemplate, HeadlineSpan, IdPolicy, IndexedDocument,
-    Item, LogKind, MUTATION_SCHEMA, Mutation, PlanningTimestamp, RootSet, Settings, WorkspaceIndex,
-    format_active_timestamp, render_capture_template,
+    AgdError, ByteSpan, CaptureDraft, CaptureTemplate, ErrorCode, HeadlineSpan, IdPolicy,
+    IndexedDocument, Item, LogKind, MUTATION_SCHEMA, Mutation, PlanningTimestamp, Repeat, RootSet,
+    Settings, WorkspaceIndex, format_active_timestamp, render_capture_template,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,6 +60,23 @@ pub struct EditIntent {
     pub note: Option<String>,
 }
 
+/// One item and the edit to apply to it, for [`WriteEngine::edit_batch`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ItemEdit {
+    pub item_ref: String,
+    pub intent: EditIntent,
+}
+
+/// What [`WriteEngine::edit_batch`] wrote: one mutation per edit, in the
+/// order given, all under one journal transaction; undoing any of its
+/// journal ids, or the transaction id, reverts them all. A dry run's
+/// transaction and journal ids are `dry-run`.
+#[derive(Clone, Debug)]
+pub struct BatchMutation {
+    pub transaction: String,
+    pub mutations: Vec<Mutation>,
+}
+
 #[derive(Clone, Debug)]
 pub struct WriteContext {
     pub actor: String,
@@ -87,6 +107,9 @@ pub enum JournalStatus {
     Conflict,
     Reviewed,
     Undone,
+    /// A conflict the user settled with `agd setup check --resolve`; the
+    /// file was kept as it was.
+    Resolved,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -132,6 +155,159 @@ pub struct WriteEngine {
     journal_path: PathBuf,
 }
 
+/// The `journal_id` of a dry-run mutation, which writes no journal entry.
+const DRY_RUN_JOURNAL_ID: &str = "dry-run";
+
+/// One file's computed write: its bytes now, its bytes after, and the
+/// journal patches and diff between them.
+struct PreparedFile {
+    path: PathBuf,
+    pre_image: String,
+    post_image: String,
+    patches: Vec<StoredPatch>,
+    diff: String,
+}
+
+impl PreparedFile {
+    fn new(
+        path: PathBuf,
+        pre_image: String,
+        post_image: String,
+        patches: Vec<StoredPatch>,
+    ) -> Self {
+        let diff = unified_diff(&path, &pre_image, &post_image);
+        Self {
+            path,
+            pre_image,
+            post_image,
+            patches,
+            diff,
+        }
+    }
+
+    fn journal_image<'a>(&'a self, item_ref: Option<&'a str>) -> JournalImage<'a> {
+        JournalImage {
+            path: &self.path,
+            item_ref,
+            pre_image: &self.pre_image,
+            post_image: &self.post_image,
+            patches: &self.patches,
+            diff: &self.diff,
+        }
+    }
+}
+
+/// What a capture renders, gathered so it can be prepared twice: once to
+/// validate and preview, once under the write lock.
+struct CaptureInput<'a> {
+    template: &'a CaptureTemplate,
+    draft: &'a CaptureDraft,
+    body: &'a str,
+    prompts: &'a BTreeMap<String, String>,
+    now: NaiveDateTime,
+}
+
+struct PreparedCapture {
+    file: PreparedFile,
+    item: Item,
+}
+
+/// An edited item as it reads after the edit, and whether marking it done
+/// repeated it.
+struct EditedItem {
+    item: Item,
+    repeated: Option<Repeat>,
+}
+
+impl EditedItem {
+    /// A done state requested for an item that is still not done after
+    /// the edit means a repeater moved its dates on.
+    fn new(item: Item, intent: &EditIntent, document: &IndexedDocument) -> Self {
+        let repeated = match &intent.state {
+            Change::Set(state) if document.todo_done().contains(state) && !item.done => {
+                let repeating = |timestamp: &Option<PlanningTimestamp>| {
+                    timestamp
+                        .as_ref()
+                        .filter(|timestamp| timestamp.repeater.is_some())
+                        .map(|timestamp| timestamp.date.clone())
+                };
+                repeating(&item.planning.scheduled)
+                    .or_else(|| repeating(&item.planning.deadline))
+                    .map(|next_date| Repeat {
+                        done_state: state.clone(),
+                        next_date,
+                    })
+            }
+            _ => None,
+        };
+        Self { item, repeated }
+    }
+
+    fn into_mutation(self, diff: String, journal_id: &str) -> Mutation {
+        Mutation {
+            repeated: self.repeated,
+            ..mutation(self.item, diff, journal_id)
+        }
+    }
+}
+
+/// A refile's file images: one, or the source and then the target.
+struct PreparedRefile {
+    files: Vec<PreparedFile>,
+    item: Item,
+}
+
+impl PreparedRefile {
+    fn paths(&self) -> Vec<PathBuf> {
+        let mut paths: Vec<PathBuf> = self.files.iter().map(|file| file.path.clone()).collect();
+        paths.sort();
+        paths
+    }
+
+    fn result(self, journal_ids: Vec<String>) -> RefileResult {
+        RefileResult {
+            schema: "agd.refile/v1".to_string(),
+            ok: true,
+            item: self.item,
+            diffs: self.files.into_iter().map(|file| file.diff).collect(),
+            journal_ids,
+        }
+    }
+}
+
+/// A batch's file images, sorted by path, and each edit's updated item and
+/// file, in the order the edits were given.
+struct PreparedBatch {
+    files: Vec<PreparedFile>,
+    /// The first edited item's ref in each file, for its journal record.
+    file_refs: Vec<String>,
+    items: Vec<Option<EditedItem>>,
+    file_of: Vec<usize>,
+}
+
+impl PreparedBatch {
+    /// The batch's result; `records` are the committed files' records, in
+    /// file order, or empty for a dry run.
+    fn result(self, transaction: String, records: &[JournalRecord]) -> BatchMutation {
+        let mutations = self
+            .items
+            .into_iter()
+            .zip(self.file_of)
+            .map(|(item, file)| {
+                let journal_id = records
+                    .get(file)
+                    .map_or(transaction.as_str(), |record| record.id.as_str());
+                item.expect("every edit has an item")
+                    .into_mutation(self.files[file].diff.clone(), journal_id)
+            })
+            .collect();
+        BatchMutation {
+            transaction,
+            mutations,
+        }
+    }
+}
+
 struct JournalImage<'a> {
     path: &'a Path,
     item_ref: Option<&'a str>,
@@ -142,15 +318,16 @@ struct JournalImage<'a> {
 }
 
 impl WriteEngine {
+    /// An engine writing under the configured roots and journaling to
+    /// `journal_path`. Opening it only reads; interrupted writes are settled
+    /// by the next write to their file, or by `resolve_conflicts`.
     pub fn new(settings: Settings, journal_path: PathBuf) -> Result<Self, AgdError> {
         let roots = RootSet::new(&settings.roots, &settings.agenda_files)?;
-        let engine = Self {
+        Ok(Self {
             settings,
             roots,
             journal_path,
-        };
-        engine.recover_pending()?;
-        Ok(engine)
+        })
     }
 
     pub fn with_default_journal(settings: Settings) -> Result<Self, AgdError> {
@@ -161,6 +338,8 @@ impl WriteEngine {
         &self.settings
     }
 
+    /// Applies one edit. A dry run computes the same diff from the current
+    /// bytes and touches nothing: no lock, journal entry or file.
     pub fn edit(
         &self,
         item_ref: &str,
@@ -169,64 +348,55 @@ impl WriteEngine {
         context: &WriteContext,
     ) -> Result<Mutation, AgdError> {
         validate_intent(intent)?;
+        let now = context.org_now();
         let initial = WorkspaceIndex::load(self.settings.clone())?;
-        let (initial_document, _) = initial.resolve(item_ref)?;
-        let path = initial_document.path().to_path_buf();
+        let (preview, item) = self.prepare_edit(&initial, item_ref, intent, now)?;
+        let path = preview.path.clone();
         self.roots.resolve_write(&path, false)?;
-        let _lock = self.lock_target(&path)?;
         refuse_emacs_lock(&path)?;
+        if dry_run {
+            return Ok(item.into_mutation(preview.diff, DRY_RUN_JOURNAL_ID));
+        }
 
+        let _locks = self.lock_paths(std::slice::from_ref(&path))?;
         let fresh = WorkspaceIndex::load(self.settings.clone())?;
-        let (document, headline) = fresh.resolve(item_ref)?;
-        if document.path() != path {
+        let (prepared, item) = self.prepare_edit(&fresh, item_ref, intent, now)?;
+        if prepared.path != path {
             return Err(AgdError::new(
                 "stale_ref",
                 "item resolved to a different file while acquiring the write lock",
             ));
         }
-        let patches = build_edit_patches(
-            document,
-            headline,
-            intent,
-            &self.settings,
-            context.org_now(),
-        )?;
+        let record = self.commit_image(prepared.journal_image(Some(item_ref)), context)?;
+        Ok(item.into_mutation(prepared.diff, &record.id))
+    }
+
+    /// The edit's patches against the item's file as `index` read it.
+    fn prepare_edit(
+        &self,
+        index: &WorkspaceIndex,
+        item_ref: &str,
+        intent: &EditIntent,
+        now: NaiveDateTime,
+    ) -> Result<(PreparedFile, EditedItem), AgdError> {
+        let (document, headline) = index.resolve(item_ref)?;
+        let path = document.path().to_path_buf();
+        validate_intent_for_file(intent, document)?;
+        validate_id_change(intent, headline, index)?;
+        let patches = build_edit_patches(document, headline, intent, &self.settings, now)?;
         let (post_image, stored) = apply_patches(document.source(), patches)?;
         if post_image == document.source() {
             return Err(AgdError::new("no_change", "edit does not change the item"));
         }
-        let diff = unified_diff(&path, document.source(), &post_image);
-        let updated = parse_updated_item(&path, &post_image, headline.item.line, &self.settings)?;
-        if dry_run {
-            return Ok(Mutation {
-                schema: MUTATION_SCHEMA.to_string(),
-                ok: true,
-                item: updated,
-                diff,
-                journal_id: "dry-run".to_string(),
-            });
-        }
-
-        let record = self.commit_image(
-            JournalImage {
-                path: &path,
-                item_ref: Some(item_ref),
-                pre_image: document.source(),
-                post_image: &post_image,
-                patches: &stored,
-                diff: &diff,
-            },
-            context,
-        )?;
-        Ok(Mutation {
-            schema: MUTATION_SCHEMA.to_string(),
-            ok: true,
-            item: updated,
-            diff,
-            journal_id: record.id,
-        })
+        let item = parse_updated_item(&path, &post_image, headline.item.line, &self.settings)?;
+        let prepared = PreparedFile::new(path, document.source().to_string(), post_image, stored);
+        Ok((prepared, EditedItem::new(item, intent, document)))
     }
 
+    /// Captures through a template. A dry run renders the same diff and
+    /// touches nothing: no directory, lock, journal entry or file. A real
+    /// capture is computed once before any directory is created, so a
+    /// refused capture leaves nothing behind either.
     pub fn capture(
         &self,
         template_key: &str,
@@ -255,94 +425,116 @@ impl WriteEngine {
                 )
             })?;
         let (template, draft) = apply_agent_capture_gate(template, draft, &self.settings, context);
-        let draft = &draft;
-        let file = template.file.as_deref().ok_or_else(|| {
-            AgdError::new(
-                "unsupported_target",
-                "capture by ID requires an existing target and is not valid for a new file",
-            )
-        })?;
-        let path = self.roots.resolve_write(Path::new(file), true)?;
+        validate_capture_input(&draft, body, prompts)?;
+        let input = CaptureInput {
+            template: &template,
+            draft: &draft,
+            body,
+            prompts,
+            now: context.org_now(),
+        };
+        let path = self.capture_path(&template)?;
+        let preview = self.prepare_capture(&path, &input)?;
+        refuse_emacs_lock(&path)?;
+        if dry_run {
+            return Ok(mutation(
+                preview.item,
+                preview.file.diff,
+                DRY_RUN_JOURNAL_ID,
+            ));
+        }
+
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(AgdError::from)?;
         }
+        self.roots.resolve_write(&path, true)?;
+        let _locks = self.lock_paths(std::slice::from_ref(&path))?;
+        let prepared = self.prepare_capture(&path, &input)?;
+        let record = self.commit_image(
+            prepared.file.journal_image(Some(&prepared.item.item_ref)),
+            context,
+        )?;
+        Ok(mutation(prepared.item, prepared.file.diff, &record.id))
+    }
+
+    /// The canonical path a template captures into, confined to the roots,
+    /// whether or not the file or its directories exist yet. An `id` target
+    /// is the file of the one heading with that ID.
+    fn capture_path(&self, template: &CaptureTemplate) -> Result<PathBuf, AgdError> {
+        if let Some(id) = &template.id {
+            let index = WorkspaceIndex::load(self.settings.clone())?;
+            let (document, _) = index
+                .resolve(id)
+                .map_err(|error| capture_id_error(&template.key, id, error))?;
+            return self.roots.resolve_write(document.path(), false);
+        }
+        let file = template.file.as_deref().ok_or_else(|| {
+            AgdError::new(
+                "unsupported_target",
+                format!(
+                    "capture template '{}' names no file or id target",
+                    template.key
+                ),
+            )
+        })?;
+        // `~` expands as in roots, before the path is confined to them.
+        let file = shellexpand::tilde(file);
+        let path = self.roots.resolve_write(Path::new(file.as_ref()), true)?;
         // Canonical like every indexed path, so the journal, refs and the
         // index agree (on macOS /var is /private/var).
-        let path = match (path.parent().map(fs::canonicalize), path.file_name()) {
-            (Some(Ok(parent)), Some(name)) => parent.join(name),
-            _ => path,
-        };
-        self.roots.resolve_write(&path, true)?;
-        let _lock = self.lock_target(&path)?;
-        refuse_emacs_lock(&path)?;
-        let pre_image = match fs::read(&path) {
-            Ok(bytes) => String::from_utf8(bytes).map_err(|error| {
-                AgdError::with_source(
-                    "non_utf8",
-                    format!("org file is not UTF-8: {}", path.display()),
-                    error,
-                )
-            })?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(error) => return Err(AgdError::from(error)),
-        };
-        let now = context.org_now();
-        let rendered = render_capture_template(&template, draft, body, prompts, now)?;
-        let (offset, level) = capture_target(&path, &pre_image, &template, &self.settings)?;
-        let rendered = set_capture_level(&rendered, level);
+        let path = crate::paths::resolve_existing_prefix(&path)?;
+        self.roots.resolve_write(&path, true)
+    }
+
+    /// The capture's insertion into `path` as it is on disk now.
+    fn prepare_capture(
+        &self,
+        path: &Path,
+        input: &CaptureInput<'_>,
+    ) -> Result<PreparedCapture, AgdError> {
+        let pre_image = read_org_file(path)?;
+        validate_capture_for_file(input.draft, &parse_text(path, &pre_image, &self.settings)?)?;
+        let rendered = render_capture_template(
+            input.template,
+            input.draft,
+            input.body,
+            input.prompts,
+            input.now,
+        )?;
         let newline = line_ending(&pre_image);
-        let mut insertion = String::new();
-        if offset > 0 && !pre_image[..offset].ends_with('\n') {
-            insertion.push_str(newline);
-        }
-        insertion.push_str(&rendered);
-        if !insertion.ends_with('\n') {
-            insertion.push_str(newline);
-        }
-        let patches = vec![Patch {
-            span: ByteSpan {
-                start: offset,
-                end: offset,
-            },
-            replacement: insertion,
-        }];
-        let (post_image, stored) = apply_patches(&pre_image, patches)?;
-        let diff = unified_diff(&path, &pre_image, &post_image);
-        let line = pre_image[..offset]
+        let rendered =
+            append_body_without_escape(rendered, &input.template.template, input.body, newline);
+        let placement = place_capture(
+            path,
+            &pre_image,
+            input.template,
+            input.now.date(),
+            &self.settings,
+        )?;
+        let entry = capture_entry(&rendered, placement.level, newline)?;
+        let entry = align_first_line_tags(&entry, self.settings.tags_column);
+        let (post_image, entry_start) =
+            insert_capture_entry(&placement.text, placement.offset, &entry, newline);
+        let patch = changed_lines_patch(&pre_image, &post_image);
+        let (post_image, stored) = apply_patches(&pre_image, vec![patch])?;
+        let line = post_image[..entry_start]
             .bytes()
             .filter(|byte| *byte == b'\n')
             .count()
             + 1;
-        let updated = parse_updated_item(&path, &post_image, line, &self.settings)?;
-        if dry_run {
-            return Ok(Mutation {
-                schema: MUTATION_SCHEMA.to_string(),
-                ok: true,
-                item: updated,
-                diff,
-                journal_id: "dry-run".to_string(),
-            });
+        let item = parse_updated_item(path, &post_image, line, &self.settings)?;
+        if let Some(id) = &item.id {
+            refuse_used_id(id, &WorkspaceIndex::load(self.settings.clone())?)?;
         }
-        let record = self.commit_image(
-            JournalImage {
-                path: &path,
-                item_ref: Some(&updated.item_ref),
-                pre_image: &pre_image,
-                post_image: &post_image,
-                patches: &stored,
-                diff: &diff,
-            },
-            context,
-        )?;
-        Ok(Mutation {
-            schema: MUTATION_SCHEMA.to_string(),
-            ok: true,
-            item: updated,
-            diff,
-            journal_id: record.id,
+        Ok(PreparedCapture {
+            file: PreparedFile::new(path.to_path_buf(), pre_image, post_image, stored),
+            item,
         })
     }
 
+    /// Moves an item's subtree under another heading, in one file or
+    /// across two as one journal transaction (the target written first, so
+    /// an interruption never loses the item). A dry run touches nothing.
     pub fn refile(
         &self,
         item_ref: &str,
@@ -351,26 +543,56 @@ impl WriteEngine {
         context: &WriteContext,
     ) -> Result<RefileResult, AgdError> {
         let initial = WorkspaceIndex::load(self.settings.clone())?;
-        let (source_document, _) = initial.resolve(item_ref)?;
-        let (target_document, _) = initial.resolve(target_ref)?;
-        let source_path = source_document.path().to_path_buf();
-        let target_path = target_document.path().to_path_buf();
-        self.roots.resolve_write(&source_path, false)?;
-        self.roots.resolve_write(&target_path, false)?;
-
-        let mut paths = vec![source_path.clone(), target_path.clone()];
-        paths.sort();
-        paths.dedup();
-        let mut locks = Vec::with_capacity(paths.len());
+        let preview = self.prepare_refile(&initial, item_ref, target_ref)?;
+        let paths = preview.paths();
         for path in &paths {
-            locks.push(self.lock_target(path)?);
+            self.roots.resolve_write(path, false)?;
             refuse_emacs_lock(path)?;
         }
+        if dry_run {
+            return Ok(preview.result(vec![DRY_RUN_JOURNAL_ID.to_string()]));
+        }
 
+        let _locks = self.lock_paths(&paths)?;
         let fresh = WorkspaceIndex::load(self.settings.clone())?;
-        let (source_document, source_headline) = fresh.resolve(item_ref)?;
-        let (target_document, target_headline) = fresh.resolve(target_ref)?;
-        if source_document.path() == target_document.path()
+        let prepared = self.prepare_refile(&fresh, item_ref, target_ref)?;
+        if prepared.paths() != paths {
+            return Err(AgdError::new(
+                "stale_ref",
+                "refile resolved to different files while acquiring the write locks",
+            ));
+        }
+        let journal_ids = match prepared.files.as_slice() {
+            [same_file] => vec![
+                self.commit_image(same_file.journal_image(Some(item_ref)), context)?
+                    .id,
+            ],
+            [source, target] => {
+                let records = self.commit_transaction(
+                    &[
+                        target.journal_image(Some(target_ref)),
+                        source.journal_image(Some(item_ref)),
+                    ],
+                    context,
+                )?;
+                vec![records[1].id.clone(), records[0].id.clone()]
+            }
+            _ => unreachable!("a refile writes one or two files"),
+        };
+        Ok(prepared.result(journal_ids))
+    }
+
+    /// The refile's file images (source first) against `index`.
+    fn prepare_refile(
+        &self,
+        index: &WorkspaceIndex,
+        item_ref: &str,
+        target_ref: &str,
+    ) -> Result<PreparedRefile, AgdError> {
+        let (source_document, source_headline) = index.resolve(item_ref)?;
+        let (target_document, target_headline) = index.resolve(target_ref)?;
+        let same_file = source_document.path() == target_document.path();
+        if same_file
             && target_headline.line_span.start >= source_headline.subtree_span.start
             && target_headline.line_span.start < source_headline.subtree_span.end
         {
@@ -379,7 +601,6 @@ impl WriteEngine {
                 "an item cannot be refiled into itself or one of its descendants",
             ));
         }
-
         let moved = &source_document.source()
             [source_headline.subtree_span.start..source_headline.subtree_span.end];
         let moved = relevel_subtree(moved, target_headline.level + 1, source_headline.level)?;
@@ -388,238 +609,231 @@ impl WriteEngine {
             target_headline.subtree_span.end,
             moved,
         );
-
-        if source_document.path() == target_document.path() {
-            let path = source_document.path();
-            let (post_image, stored) = apply_patches(
-                source_document.source(),
-                vec![
-                    Patch {
-                        span: source_headline.subtree_span,
-                        replacement: String::new(),
-                    },
-                    Patch {
-                        span: ByteSpan {
-                            start: target_headline.subtree_span.end,
-                            end: target_headline.subtree_span.end,
-                        },
-                        replacement: moved,
-                    },
-                ],
-            )?;
-            let diff = unified_diff(path, source_document.source(), &post_image);
-            let item = find_refiled_item(
-                path,
-                &post_image,
-                &source_headline.item,
-                &target_headline.item,
-                &self.settings,
-            )?;
-            if dry_run {
-                return Ok(RefileResult {
-                    schema: "agd.refile/v1".to_string(),
-                    ok: true,
-                    item,
-                    diffs: vec![diff],
-                    journal_ids: vec!["dry-run".to_string()],
-                });
-            }
-            let record = self.commit_image(
-                JournalImage {
-                    path,
-                    item_ref: Some(item_ref),
-                    pre_image: source_document.source(),
-                    post_image: &post_image,
-                    patches: &stored,
-                    diff: &diff,
-                },
-                context,
-            )?;
-            return Ok(RefileResult {
-                schema: "agd.refile/v1".to_string(),
-                ok: true,
-                item,
-                diffs: vec![diff],
-                journal_ids: vec![record.id],
-            });
-        }
-
-        let (source_post, source_patches) = apply_patches(
-            source_document.source(),
-            vec![Patch {
-                span: source_headline.subtree_span,
-                replacement: String::new(),
-            }],
-        )?;
-        let (target_post, target_patches) = apply_patches(
-            target_document.source(),
-            vec![Patch {
-                span: ByteSpan {
-                    start: target_headline.subtree_span.end,
-                    end: target_headline.subtree_span.end,
-                },
-                replacement: moved,
-            }],
-        )?;
-        let source_diff = unified_diff(
-            source_document.path(),
-            source_document.source(),
-            &source_post,
-        );
-        let target_diff = unified_diff(
-            target_document.path(),
-            target_document.source(),
-            &target_post,
-        );
+        let removal = Patch {
+            span: source_headline.subtree_span,
+            replacement: String::new(),
+        };
+        let insertion = Patch {
+            span: ByteSpan {
+                start: target_headline.subtree_span.end,
+                end: target_headline.subtree_span.end,
+            },
+            replacement: moved,
+        };
+        let prepare = |document: &IndexedDocument, patches: Vec<Patch>| {
+            apply_patches(document.source(), patches).map(|(post_image, stored)| {
+                PreparedFile::new(
+                    document.path().to_path_buf(),
+                    document.source().to_string(),
+                    post_image,
+                    stored,
+                )
+            })
+        };
+        let files = if same_file {
+            vec![prepare(source_document, vec![removal, insertion])?]
+        } else {
+            vec![
+                prepare(source_document, vec![removal])?,
+                prepare(target_document, vec![insertion])?,
+            ]
+        };
+        let target_file = files.last().expect("a refile writes a file");
         let item = find_refiled_item(
-            target_document.path(),
-            &target_post,
+            &target_file.path,
+            &target_file.post_image,
             &source_headline.item,
             &target_headline.item,
             &self.settings,
         )?;
-        if dry_run {
-            return Ok(RefileResult {
-                schema: "agd.refile/v1".to_string(),
-                ok: true,
-                item,
-                diffs: vec![source_diff, target_diff],
-                journal_ids: vec!["dry-run".to_string()],
-            });
-        }
-
-        let transaction = journal_id();
-        let mut source_record = pending_record(
-            format!("{transaction}:source"),
-            Some(transaction.clone()),
-            &JournalImage {
-                path: source_document.path(),
-                item_ref: Some(item_ref),
-                pre_image: source_document.source(),
-                post_image: &source_post,
-                patches: &source_patches,
-                diff: &source_diff,
-            },
-            context,
-        );
-        let mut target_record = pending_record(
-            format!("{transaction}:target"),
-            Some(transaction),
-            &JournalImage {
-                path: target_document.path(),
-                item_ref: Some(target_ref),
-                pre_image: target_document.source(),
-                post_image: &target_post,
-                patches: &target_patches,
-                diff: &target_diff,
-            },
-            context,
-        );
-        self.append_record(&source_record)?;
-        self.append_record(&target_record)?;
-        atomic_replace(target_document.path(), target_post.as_bytes())?;
-        if let Err(error) = atomic_replace(source_document.path(), source_post.as_bytes()) {
-            let _ = atomic_replace(target_document.path(), target_document.source().as_bytes());
-            return Err(error);
-        }
-        source_record.status = JournalStatus::Committed;
-        source_record.timestamp = Local::now().to_rfc3339();
-        target_record.status = JournalStatus::Committed;
-        target_record.timestamp = source_record.timestamp.clone();
-        self.append_record(&source_record)?;
-        self.append_record(&target_record)?;
-        Ok(RefileResult {
-            schema: "agd.refile/v1".to_string(),
-            ok: true,
-            item,
-            diffs: vec![source_diff, target_diff],
-            journal_ids: vec![source_record.id, target_record.id],
-        })
+        Ok(PreparedRefile { files, item })
     }
-    pub fn undo(
+
+    /// Applies several edits as one transaction: every target is resolved
+    /// and its edit computed first, and if any is refused nothing is
+    /// written and the error names that target. Otherwise each file is
+    /// written once and journaled under one transaction, so one undo
+    /// reverts them all. A dry run touches nothing.
+    pub fn edit_batch(
         &self,
-        journal_id: Option<&str>,
+        edits: &[ItemEdit],
+        dry_run: bool,
         context: &WriteContext,
-    ) -> Result<UndoResult, AgdError> {
-        self.recover_pending()?;
-        let records = self.latest_records()?;
-        let selected = match journal_id {
-            Some(id) => records.get(id),
-            None => records
-                .values()
-                .filter(|record| {
-                    matches!(
-                        record.status,
-                        JournalStatus::Committed | JournalStatus::Reviewed
-                    )
-                })
-                .max_by_key(|record| record.timestamp.as_str()),
+    ) -> Result<BatchMutation, AgdError> {
+        if edits.is_empty() {
+            return Err(AgdError::new("invalid_edit", "nothing to edit"));
         }
-        .ok_or_else(|| AgdError::new("nothing_to_undo", "no committed journal entry found"))?;
-        let mut group: Vec<JournalRecord> = if let Some(transaction) = &selected.transaction {
-            records
-                .values()
-                .filter(|record| {
-                    record.transaction.as_ref() == Some(transaction)
-                        && matches!(
-                            record.status,
-                            JournalStatus::Committed | JournalStatus::Reviewed
-                        )
-                })
-                .cloned()
-                .collect()
-        } else {
-            vec![selected.clone()]
+        for edit in edits {
+            validate_intent(&edit.intent).map_err(|error| error.with_context(&edit.item_ref))?;
+        }
+        let now = context.org_now();
+        let initial = WorkspaceIndex::load(self.settings.clone())?;
+        let preview = self.prepare_batch(&initial, edits, now)?;
+        let paths: Vec<PathBuf> = preview.files.iter().map(|file| file.path.clone()).collect();
+        for path in &paths {
+            self.roots.resolve_write(path, false)?;
+            refuse_emacs_lock(path)?;
+        }
+        if dry_run {
+            return Ok(preview.result(DRY_RUN_JOURNAL_ID.to_string(), &[]));
+        }
+
+        let _locks = self.lock_paths(&paths)?;
+        let fresh = WorkspaceIndex::load(self.settings.clone())?;
+        let prepared = self.prepare_batch(&fresh, edits, now)?;
+        let fresh_paths: Vec<PathBuf> = prepared
+            .files
+            .iter()
+            .map(|file| file.path.clone())
+            .collect();
+        if fresh_paths != paths {
+            return Err(AgdError::new(
+                "stale_ref",
+                "targets resolved to different files while acquiring the write locks",
+            ));
+        }
+        let images: Vec<JournalImage<'_>> = prepared
+            .files
+            .iter()
+            .zip(&prepared.file_refs)
+            .map(|(file, item_ref)| file.journal_image(Some(item_ref)))
+            .collect();
+        let records = self.commit_transaction(&images, context)?;
+        let transaction = records
+            .first()
+            .and_then(|record| record.transaction.clone())
+            .unwrap_or_default();
+        Ok(prepared.result(transaction, &records))
+    }
+
+    /// Every edit's patches, grouped per file, against `index`.
+    fn prepare_batch(
+        &self,
+        index: &WorkspaceIndex,
+        edits: &[ItemEdit],
+        now: NaiveDateTime,
+    ) -> Result<PreparedBatch, AgdError> {
+        let mut batch = PreparedBatch {
+            files: Vec::new(),
+            file_refs: Vec::new(),
+            items: (0..edits.len()).map(|_| None).collect(),
+            file_of: vec![0; edits.len()],
         };
-        group.sort_by(|left, right| left.file.cmp(&right.file));
-
-        let mut locks = Vec::with_capacity(group.len());
-        for record in &group {
-            let path = PathBuf::from(&record.file);
-            self.roots.resolve_write(&path, false)?;
-            locks.push(self.lock_target(&path)?);
-            refuse_emacs_lock(&path)?;
+        for (path, targets) in resolve_batch_targets(index, edits)? {
+            let document = index.document(&path).expect("a resolved item's document");
+            let (file, items) = self.prepare_batch_file(document, &targets, edits, now)?;
+            for (position, item) in items {
+                batch.items[position] = Some(item);
+                batch.file_of[position] = batch.files.len();
+            }
+            batch.file_refs.push(edits[targets[0].0].item_ref.clone());
+            batch.files.push(file);
         }
+        Ok(batch)
+    }
 
-        let mut prepared: Vec<(PathBuf, String, String, String)> = Vec::with_capacity(group.len());
-        for record in &group {
-            let path = PathBuf::from(&record.file);
-            let current = fs::read_to_string(&path).map_err(|error| {
-                AgdError::with_source(
-                    "io",
-                    format!("cannot read {}: {error}", path.display()),
-                    error,
+    /// One file's edits applied together: each target's own patches, all
+    /// applied at once, and each edited item found again in the result.
+    fn prepare_batch_file(
+        &self,
+        document: &IndexedDocument,
+        targets: &[(usize, &HeadlineSpan)],
+        edits: &[ItemEdit],
+        now: NaiveDateTime,
+    ) -> Result<(PreparedFile, Vec<(usize, EditedItem)>), AgdError> {
+        let mut patches = Vec::new();
+        for (position, headline) in targets {
+            let label = |error: AgdError| error.with_context(&headline.item.title);
+            let intent = &edits[*position].intent;
+            let own = build_edit_patches(document, headline, intent, &self.settings, now)
+                .map_err(label)?;
+            let (alone, _) = apply_patches(document.source(), own.clone()).map_err(label)?;
+            if alone == document.source() {
+                return Err(label(AgdError::new(
+                    "no_change",
+                    "edit does not change the item",
+                )));
+            }
+            patches.extend(own);
+        }
+        let starts: Vec<(usize, usize)> = targets
+            .iter()
+            .map(|(position, headline)| {
+                (
+                    *position,
+                    post_image_offset(&patches, headline.line_span.start),
                 )
-            })?;
-            let unchanged = content_hash(&current) == record.post_hash;
-            let (pre_image, _) = apply_patches(&current, relocate_inverse(&current, record)?)?;
-            if unchanged && content_hash(&pre_image) != record.pre_hash {
-                return Err(AgdError::new(
-                    "journal_corrupt",
-                    format!(
-                        "inverse patch for {} does not reproduce its pre-image",
-                        record.id
-                    ),
-                ));
-            }
-            let diff = unified_diff(&path, &current, &pre_image);
-            prepared.push((path, current, pre_image, diff));
+            })
+            .collect();
+        let (post_image, stored) = apply_patches(document.source(), patches)?;
+        let updated = parse_text(document.path(), &post_image, &self.settings)?;
+        let mut items = Vec::with_capacity(starts.len());
+        for (position, start) in starts {
+            let line = post_image[..start]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count()
+                + 1;
+            let item = updated
+                .headline_at_line(line)
+                .map(|headline| headline.item.clone())
+                .ok_or_else(|| AgdError::new("parse_error", "edit produced no target headline"))?;
+            items.push((
+                position,
+                EditedItem::new(item, &edits[position].intent, document),
+            ));
         }
+        let file = PreparedFile::new(
+            document.path().to_path_buf(),
+            document.source().to_string(),
+            post_image,
+            stored,
+        );
+        Ok((file, items))
+    }
 
-        let mut written: Vec<usize> = Vec::new();
-        for (index, (path, _, pre_image, _)) in prepared.iter().enumerate() {
-            if let Err(error) = atomic_replace(path, pre_image.as_bytes()) {
-                for index in written.into_iter().rev() {
-                    let (written_path, original, _, _) = &prepared[index];
-                    let _ = atomic_replace(written_path, original.as_bytes());
-                }
-                return Err(error);
-            }
-            written.push(index);
+    /// Reverts one journal entry, or every file of its transaction, given
+    /// the entry's id or the transaction id. A change is reverted only where
+    /// the file still holds what it wrote; otherwise nothing is written and
+    /// the error says what changed and what to do.
+    pub fn undo(&self, journal_id: &str, context: &WriteContext) -> Result<UndoResult, AgdError> {
+        let paths: Vec<PathBuf> = self
+            .journal_group(journal_id)?
+            .iter()
+            .map(|record| PathBuf::from(&record.file))
+            .collect();
+        for path in &paths {
+            self.roots.resolve_write(path, false)?;
         }
+        let _locks = self.lock_paths(&paths)?;
+        let group = self.journal_group(journal_id)?;
+        if let Some(record) = group.iter().find(|record| {
+            !matches!(
+                record.status,
+                JournalStatus::Committed | JournalStatus::Reviewed
+            )
+        }) {
+            return Err(AgdError::new(
+                ErrorCode::NothingToUndo,
+                format!(
+                    "journal entry {} is {:?}, not a committed change; nothing to undo",
+                    record.id, record.status
+                ),
+            ));
+        }
+        let reverts: Vec<PreparedFile> = group
+            .iter()
+            .map(|record| self.prepare_revert(record))
+            .collect::<Result<_, _>>()?;
+        let images: Vec<JournalImage<'_>> = reverts
+            .iter()
+            .map(|file| file.journal_image(None))
+            .collect();
+        replace_all_or_restore(&images)?;
+        let timestamp = Local::now().to_rfc3339();
         for mut record in group.clone() {
             record.status = JournalStatus::Undone;
-            record.timestamp = Local::now().to_rfc3339();
+            record.timestamp = timestamp.clone();
             record.actor = context.actor.clone();
             record.project = context.project.clone();
             self.append_record(&record)?;
@@ -627,21 +841,98 @@ impl WriteEngine {
         Ok(UndoResult {
             schema: "agd.undo/v1".to_string(),
             ok: true,
-            journal_id: selected
+            journal_id: group[0]
                 .transaction
                 .clone()
-                .unwrap_or_else(|| selected.id.clone()),
+                .unwrap_or_else(|| group[0].id.clone()),
             file: group
                 .iter()
                 .map(|record| record.file.as_str())
                 .collect::<Vec<_>>()
                 .join(","),
-            diff: prepared
+            diff: reverts
                 .into_iter()
-                .map(|(_, _, _, diff)| diff)
+                .map(|file| file.diff)
                 .collect::<Vec<_>>()
                 .join("\n"),
         })
+    }
+
+    /// The latest records of one entry, or of every file in its
+    /// transaction, by entry or transaction id, sorted by file.
+    fn journal_group(&self, journal_id: &str) -> Result<Vec<JournalRecord>, AgdError> {
+        let records = self.latest_records()?;
+        let transaction = match records.get(journal_id) {
+            Some(record) => record.transaction.clone(),
+            None => Some(journal_id.to_string()),
+        };
+        let mut group: Vec<JournalRecord> = match &transaction {
+            Some(transaction) => records
+                .values()
+                .filter(|record| record.transaction.as_ref() == Some(transaction))
+                .cloned()
+                .collect(),
+            None => vec![records[journal_id].clone()],
+        };
+        if group.is_empty() {
+            return Err(AgdError::new(
+                ErrorCode::JournalNotFound,
+                format!("journal entry not found: {journal_id}"),
+            ));
+        }
+        group.sort_by(|left, right| left.file.cmp(&right.file));
+        Ok(group)
+    }
+
+    /// The file with the record's change reverted, from its bytes now.
+    fn prepare_revert(&self, record: &JournalRecord) -> Result<PreparedFile, AgdError> {
+        let path = PathBuf::from(&record.file);
+        let current = fs::read_to_string(&path).map_err(|error| {
+            AgdError::with_source(
+                "io",
+                format!("cannot read {}: {error}", path.display()),
+                error,
+            )
+        })?;
+        let inverse = relocate_inverse(&current, record)
+            .map_err(|_| self.undo_conflict_error(record, &current))?;
+        let (reverted, stored) = apply_patches(&current, inverse)?;
+        if content_hash(&current) == record.post_hash && content_hash(&reverted) != record.pre_hash
+        {
+            return Err(AgdError::new(
+                "journal_corrupt",
+                format!(
+                    "inverse patch for {} does not reproduce its pre-image",
+                    record.id
+                ),
+            ));
+        }
+        Ok(PreparedFile::new(path, current, reverted, stored))
+    }
+
+    /// `can't undo: Rotate certs changed after codex edited it
+    /// (work.org:42); edit it by hand`: the heading the change touched, as
+    /// the file reads now, and who made the change.
+    fn undo_conflict_error(&self, record: &JournalRecord, current: &str) -> AgdError {
+        let path = Path::new(&record.file);
+        let location = self
+            .roots
+            .roots()
+            .iter()
+            .find_map(|root| path.strip_prefix(root).ok())
+            .unwrap_or(path)
+            .display()
+            .to_string();
+        let author = record.actor.strip_prefix("mcp:").unwrap_or("you");
+        let message = match touched_heading(path, current, record, &self.settings) {
+            Some((title, line)) => format!(
+                "can't undo: {title} changed after {author} edited it ({location}:{line}); edit it by hand"
+            ),
+            None => {
+                format!("can't undo: {location} changed after {author} edited it; edit it by hand")
+            }
+        };
+        AgdError::new(ErrorCode::UndoConflict, message)
     }
 
     pub fn review(&self, journal_id: &str) -> Result<(), AgdError> {
@@ -669,6 +960,56 @@ impl WriteEngine {
         Ok(records)
     }
 
+    /// Writes several files as one journal transaction, in the order given:
+    /// every pending record first, then each file; when a file cannot be
+    /// written the ones before it are restored. Returns the committed
+    /// records in the same order.
+    fn commit_transaction(
+        &self,
+        images: &[JournalImage<'_>],
+        context: &WriteContext,
+    ) -> Result<Vec<JournalRecord>, AgdError> {
+        let transaction = journal_id();
+        let mut records: Vec<JournalRecord> = images
+            .iter()
+            .enumerate()
+            .map(|(position, image)| {
+                pending_record(
+                    format!("{transaction}:{position}"),
+                    Some(transaction.clone()),
+                    image,
+                    context,
+                )
+            })
+            .collect();
+        for record in &records {
+            self.append_record(record)?;
+        }
+        replace_all_or_restore(images)?;
+        let timestamp = Local::now().to_rfc3339();
+        for record in &mut records {
+            record.status = JournalStatus::Committed;
+            record.timestamp = timestamp.clone();
+            self.append_record(record)?;
+        }
+        Ok(records)
+    }
+
+    /// Locks `paths` in sorted order (so two writers never deadlock),
+    /// refuses Emacs-locked files, and settles interrupted writes to them.
+    fn lock_paths(&self, paths: &[PathBuf]) -> Result<Vec<File>, AgdError> {
+        let mut sorted = paths.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        let mut locks = Vec::with_capacity(sorted.len());
+        for path in &sorted {
+            locks.push(self.lock_target(path)?);
+            refuse_emacs_lock(path)?;
+        }
+        self.recover_files(&sorted)?;
+        Ok(locks)
+    }
+
     fn commit_image(
         &self,
         image: JournalImage<'_>,
@@ -683,8 +1024,16 @@ impl WriteEngine {
         Ok(record)
     }
 
+    /// Takes the advisory write lock for `path`. Lock files live in agd's
+    /// data directory (`locks/<sha256 of the path>.lock` beside the journal),
+    /// never in the org directories, so synced folders stay clean.
     fn lock_target(&self, path: &Path) -> Result<File, AgdError> {
-        let lock_path = sidecar_lock_path(path)?;
+        let directory = self.lock_directory();
+        create_private_directory(&directory)?;
+        let lock_path = directory.join(format!(
+            "{}.lock",
+            sha256_hex(path.as_os_str().as_encoded_bytes())
+        ));
         let lock = OpenOptions::new()
             .create(true)
             .read(true)
@@ -708,15 +1057,16 @@ impl WriteEngine {
         Ok(lock)
     }
 
+    fn lock_directory(&self) -> PathBuf {
+        self.journal_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("locks")
+    }
+
     fn append_record(&self, record: &JournalRecord) -> Result<(), AgdError> {
         if let Some(parent) = self.journal_path.parent() {
-            fs::create_dir_all(parent).map_err(AgdError::from)?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
-                    .map_err(AgdError::from)?;
-            }
+            create_private_directory(parent)?;
         }
         let serialized = serde_json::to_vec(record).map_err(|error| {
             AgdError::new(
@@ -758,48 +1108,109 @@ impl WriteEngine {
         Ok(records)
     }
 
-    fn recover_pending(&self) -> Result<(), AgdError> {
-        let mut conflicts = Vec::new();
-        for mut record in self.latest_records()?.into_values().filter(|record| {
-            matches!(
-                record.status,
-                JournalStatus::Pending | JournalStatus::Conflict
-            )
-        }) {
-            let path = PathBuf::from(&record.file);
-            let current = match fs::read_to_string(&path) {
-                Ok(source) => content_hash(&source),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => content_hash(""),
-                Err(error) => return Err(AgdError::from(error)),
-            };
-            let previous = record.status;
-            record.status = if current == record.post_hash {
-                JournalStatus::Committed
-            } else if current == record.pre_hash {
-                JournalStatus::Unapplied
-            } else {
-                JournalStatus::Conflict
-            };
-            if record.status != previous {
-                record.timestamp = Local::now().to_rfc3339();
-                self.append_record(&record)?;
+    /// Settles interrupted writes to `paths`, which the caller holds
+    /// locked: a pending entry whose file holds its post-image was
+    /// committed, one whose file still holds its pre-image never applied.
+    /// Any other pending entry is a conflict only the user can settle, so
+    /// the write is refused with the command that settles it.
+    fn recover_files(&self, paths: &[PathBuf]) -> Result<(), AgdError> {
+        for record in self.unsettled_records()? {
+            if !paths.iter().any(|path| Path::new(&record.file) == path) {
+                continue;
             }
+            let record = self.settle(record)?;
             if record.status == JournalStatus::Conflict {
-                conflicts.push(record.id);
+                return Err(journal_conflict_error(&record));
             }
         }
-        if conflicts.is_empty() {
-            Ok(())
-        } else {
-            Err(AgdError::new(
-                "journal_recovery_conflict",
-                format!(
-                    "journal entries require explicit file resolution: {}",
-                    conflicts.join(", ")
-                ),
-            ))
-        }
+        Ok(())
     }
+
+    /// Interrupted writes whose file now holds neither their pre- nor their
+    /// post-image. Reads the journal and the files only.
+    pub fn journal_conflicts(&self) -> Result<Vec<JournalRecord>, AgdError> {
+        let mut conflicts = Vec::new();
+        for record in self.unsettled_records()? {
+            if settled_status(&record)? == JournalStatus::Conflict {
+                conflicts.push(record);
+            }
+        }
+        Ok(conflicts)
+    }
+
+    /// Settles every interrupted write: recoverable ones as committed or
+    /// unapplied, and conflicts as resolved, keeping each file exactly as
+    /// it is on disk. Returns the entries marked resolved.
+    pub fn resolve_conflicts(
+        &self,
+        context: &WriteContext,
+    ) -> Result<Vec<JournalRecord>, AgdError> {
+        let mut resolved = Vec::new();
+        for record in self.unsettled_records()? {
+            let _lock = self.lock_target(Path::new(&record.file))?;
+            let mut record = self.settle(record)?;
+            if record.status != JournalStatus::Conflict {
+                continue;
+            }
+            record.status = JournalStatus::Resolved;
+            record.timestamp = Local::now().to_rfc3339();
+            record.actor = context.actor.clone();
+            record.project = context.project.clone();
+            self.append_record(&record)?;
+            resolved.push(record);
+        }
+        Ok(resolved)
+    }
+
+    /// Latest records still pending or in conflict, oldest first.
+    fn unsettled_records(&self) -> Result<Vec<JournalRecord>, AgdError> {
+        let mut records: Vec<JournalRecord> = self
+            .latest_records()?
+            .into_values()
+            .filter(|record| {
+                matches!(
+                    record.status,
+                    JournalStatus::Pending | JournalStatus::Conflict
+                )
+            })
+            .collect();
+        records.sort_by(|left, right| left.timestamp.cmp(&right.timestamp));
+        Ok(records)
+    }
+
+    /// Records the status the file's bytes give an unsettled record.
+    fn settle(&self, mut record: JournalRecord) -> Result<JournalRecord, AgdError> {
+        let status = settled_status(&record)?;
+        if status != record.status {
+            record.status = status;
+            record.timestamp = Local::now().to_rfc3339();
+            self.append_record(&record)?;
+        }
+        Ok(record)
+    }
+}
+
+/// What the file on disk says about an interrupted write: its post-image
+/// means committed, its pre-image unapplied, anything else a conflict.
+fn settled_status(record: &JournalRecord) -> Result<JournalStatus, AgdError> {
+    let current = content_hash(&read_org_file(Path::new(&record.file))?);
+    Ok(if current == record.post_hash {
+        JournalStatus::Committed
+    } else if current == record.pre_hash {
+        JournalStatus::Unapplied
+    } else {
+        JournalStatus::Conflict
+    })
+}
+
+fn journal_conflict_error(record: &JournalRecord) -> AgdError {
+    AgdError::new(
+        ErrorCode::JournalConflict,
+        format!(
+            "{} changed after an interrupted agd write (journal entry {}); check the file, then run `agd setup check --resolve` to keep it as it is",
+            record.file, record.id
+        ),
+    )
 }
 
 fn pending_record(
@@ -1373,53 +1784,213 @@ fn sequence_head(document: &IndexedDocument, state: Option<&str>) -> Option<Stri
         .map(|keyword| keyword.name.clone())
 }
 
+/// The edit's fields that need no file: a title, tags and properties
+/// that write back as exactly one heading with those fields.
 fn validate_intent(intent: &EditIntent) -> Result<(), AgdError> {
     if intent == &EditIntent::default() {
         return Err(AgdError::new("invalid_edit", "nothing to edit"));
     }
-    if let Change::Set(title) = &intent.title
-        && (title.trim().is_empty() || title.contains(['\n', '\r']))
-    {
+    if let Change::Set(title) = &intent.title {
+        validate_title_text(title)?;
+    }
+    for tag in intent.tags_add.iter().chain(&intent.tags_remove) {
+        validate_tag(tag)?;
+    }
+    for (key, value) in &intent.properties {
+        validate_property(key, value.as_deref())?;
+    }
+    Ok(())
+}
+
+/// An `ID` is identity: an existing one may not change or go, and a new
+/// one must not be in use anywhere agd indexes.
+fn validate_id_change(
+    intent: &EditIntent,
+    headline: &HeadlineSpan,
+    index: &WorkspaceIndex,
+) -> Result<(), AgdError> {
+    let Some((_, requested)) = intent
+        .properties
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case("ID"))
+    else {
+        return Ok(());
+    };
+    match (&headline.item.id, requested) {
+        (Some(current), Some(requested)) if current == requested => Ok(()),
+        (Some(current), _) => Err(AgdError::new(
+            ErrorCode::IdImmutable,
+            format!(
+                "IDs are identity: links and refs point at ID '{current}', so it cannot be changed or removed"
+            ),
+        )),
+        (None, Some(requested)) => refuse_used_id(requested, index),
+        (None, None) => Ok(()),
+    }
+}
+
+/// Refuses an ID some heading under the roots already has.
+fn refuse_used_id(id: &str, index: &WorkspaceIndex) -> Result<(), AgdError> {
+    if index.id_in_use(id) {
         return Err(AgdError::new(
-            "invalid_title",
+            ErrorCode::DuplicateId,
+            format!("ID '{id}' is already used under the roots; IDs must be unique"),
+        ));
+    }
+    Ok(())
+}
+
+/// The edit's fields checked against the item's file: a title must not
+/// start with one of its TODO keywords, a priority must be in its range.
+fn validate_intent_for_file(
+    intent: &EditIntent,
+    document: &IndexedDocument,
+) -> Result<(), AgdError> {
+    if let Change::Set(title) = &intent.title {
+        validate_title_keyword(title, document)?;
+    }
+    if let Change::Set(priority) = &intent.priority {
+        validate_priority(priority, document)?;
+    }
+    Ok(())
+}
+
+/// A capture's fields that need no file, checked before anything is read.
+fn validate_capture_input(
+    draft: &CaptureDraft,
+    body: &str,
+    prompts: &BTreeMap<String, String>,
+) -> Result<(), AgdError> {
+    validate_title_text(&draft.title)?;
+    for tag in &draft.tags {
+        validate_tag(tag)?;
+    }
+    for (key, value) in &draft.properties {
+        validate_property(key, Some(value))?;
+    }
+    for (name, answer) in prompts {
+        if answer.contains(['\n', '\r']) {
+            return Err(AgdError::new(
+                ErrorCode::InvalidPrompt,
+                format!("the answer to prompt '{name}' must be one line"),
+            ));
+        }
+    }
+    validate_body(body)
+}
+
+/// A capture's fields checked against the target file (or, for a new
+/// file, the configuration).
+fn validate_capture_for_file(
+    draft: &CaptureDraft,
+    document: &IndexedDocument,
+) -> Result<(), AgdError> {
+    validate_title_keyword(&draft.title, document)?;
+    if let Some(priority) = &draft.priority {
+        validate_priority(priority, document)?;
+    }
+    Ok(())
+}
+
+/// One non-empty line that the parser reads back as the whole title: no
+/// leading priority cookie and no trailing tag group.
+fn validate_title_text(title: &str) -> Result<(), AgdError> {
+    if title.trim().is_empty() || title.contains(['\n', '\r']) {
+        return Err(AgdError::new(
+            ErrorCode::InvalidTitle,
             "title must be one non-empty line",
         ));
     }
-    if let Change::Set(priority) = &intent.priority
-        && (priority.len() != 1 || !priority.bytes().all(|byte| byte.is_ascii_alphanumeric()))
-    {
+    if let Some(cookie) = crate::document::leading_priority_cookie(title.trim_start()) {
         return Err(AgdError::new(
-            "invalid_priority",
-            "priority must be one alphanumeric character",
+            ErrorCode::InvalidTitle,
+            format!("title starts with the priority cookie {cookie}; set the priority instead"),
         ));
     }
-    for tag in intent.tags_add.iter().chain(&intent.tags_remove) {
-        if tag.is_empty()
-            || !tag
-                .chars()
-                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
-        {
-            return Err(AgdError::new("invalid_tag", format!("invalid tag: {tag}")));
-        }
+    if let Some((_, tags)) = crate::document::split_trailing_tags(title) {
+        return Err(AgdError::new(
+            ErrorCode::InvalidTitle,
+            format!("title ends with the tag group {tags}; give tags separately"),
+        ));
     }
-    for (key, value) in &intent.properties {
-        if key.is_empty()
-            || !key
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-        {
+    Ok(())
+}
+
+/// A title starting with one of the file's TODO keywords would be read
+/// back as that state.
+fn validate_title_keyword(title: &str, document: &IndexedDocument) -> Result<(), AgdError> {
+    let first = title.split_whitespace().next().unwrap_or_default();
+    if document.todo_keyword(first).is_some() {
+        return Err(AgdError::new(
+            ErrorCode::InvalidTitle,
+            format!("title starts with the TODO keyword {first}; set the state instead"),
+        ));
+    }
+    Ok(())
+}
+
+/// Org's tag characters: letters, digits, `_`, `@`, `#` and `%`.
+fn validate_tag(tag: &str) -> Result<(), AgdError> {
+    if tag.is_empty()
+        || !tag
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
+    {
+        return Err(AgdError::new(
+            ErrorCode::InvalidTag,
+            format!("invalid tag '{tag}': use letters, digits, _, @, # or %"),
+        ));
+    }
+    Ok(())
+}
+
+/// One cookie character within the file's `#+PRIORITIES` range (else the
+/// configured one).
+fn validate_priority(priority: &str, document: &IndexedDocument) -> Result<(), AgdError> {
+    let range = document.priorities();
+    if !range.contains(priority) {
+        return Err(AgdError::new(
+            ErrorCode::InvalidPriority,
+            format!(
+                "priority '{priority}' is outside the range {} of {}",
+                range.describe(),
+                document.path().display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// A property key of `[A-Za-z0-9_-]` and a one-line value.
+fn validate_property(key: &str, value: Option<&str>) -> Result<(), AgdError> {
+    if key.is_empty()
+        || !key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return Err(AgdError::new(
+            ErrorCode::InvalidProperty,
+            format!("invalid property key '{key}': use letters, digits, _ or -"),
+        ));
+    }
+    if value.is_some_and(|value| value.contains(['\n', '\r'])) {
+        return Err(AgdError::new(
+            ErrorCode::InvalidProperty,
+            format!("property {key} must be one line"),
+        ));
+    }
+    Ok(())
+}
+
+/// A body line that would start a heading (`*` then a space) would split
+/// the entry in two.
+fn validate_body(body: &str) -> Result<(), AgdError> {
+    for (index, line) in body.lines().enumerate() {
+        let stars = line.bytes().take_while(|byte| *byte == b'*').count();
+        if stars > 0 && line[stars..].starts_with(char::is_whitespace) {
             return Err(AgdError::new(
-                "invalid_property",
-                format!("invalid property key: {key}"),
-            ));
-        }
-        if value
-            .as_ref()
-            .is_some_and(|value| value.contains(['\n', '\r']))
-        {
-            return Err(AgdError::new(
-                "invalid_property",
-                format!("property {key} must be one line"),
+                ErrorCode::InvalidBody,
+                format!("body line {} would start a heading: {line}", index + 1),
             ));
         }
     }
@@ -1595,56 +2166,511 @@ fn add_period(date: NaiveDate, amount: u64, unit: &str) -> Result<NaiveDate, Agd
     result.ok_or_else(|| AgdError::new("invalid_repeater", "repeater date is out of range"))
 }
 
-fn capture_target(
-    path: &Path,
-    source: &str,
-    template: &CaptureTemplate,
-    settings: &Settings,
-) -> Result<(usize, usize), AgdError> {
-    if source.is_empty() {
-        return Ok((0, 1));
-    }
-    let document =
-        IndexedDocument::parse(path.to_path_buf(), source.as_bytes().to_vec(), settings)?;
-    let target = if let Some(outline) = &template.outline_path {
-        document
-            .headlines()
-            .iter()
-            .find(|headline| &headline.item.olpath == outline)
-    } else if let Some(heading) = &template.heading {
-        document
-            .headlines()
-            .iter()
-            .find(|headline| headline.item.title == *heading)
-    } else if let Some(id) = &template.id {
-        document
-            .headlines()
-            .iter()
-            .find(|headline| headline.item.id.as_deref() == Some(id))
-    } else {
-        None
-    };
-    match target {
-        Some(headline) => Ok((headline.subtree_span.end, headline.level + 1)),
-        None if template.heading.is_none()
-            && template.outline_path.is_none()
-            && template.id.is_none() =>
-        {
-            Ok((source.len(), 1))
+/// Where a template files its entry, as org-capture's target types.
+enum CaptureTarget {
+    /// `file`: a top-level entry at the end of the file.
+    File,
+    /// `file+headline`: under the first heading with this title, created
+    /// at the end of the file when missing.
+    Heading(String),
+    /// `file+olp`: under the heading at this outline path, which must exist
+    /// and be unique at every level.
+    OutlinePath(Vec<String>),
+    /// `id`: under the heading with this `:ID:`.
+    Id(String),
+}
+
+impl CaptureTarget {
+    fn of(template: &CaptureTemplate) -> Self {
+        if let Some(id) = &template.id {
+            Self::Id(id.clone())
+        } else if let Some(outline) = &template.outline_path {
+            Self::OutlinePath(outline.clone())
+        } else if let Some(heading) = &template.heading {
+            Self::Heading(heading.clone())
+        } else {
+            Self::File
         }
-        None => Err(AgdError::new(
-            "capture_target_not_found",
-            "configured capture target heading was not found",
-        )),
     }
 }
 
-fn set_capture_level(rendered: &str, level: usize) -> String {
-    let stars = rendered.bytes().take_while(|byte| *byte == b'*').count();
-    if stars == 0 {
-        return rendered.to_string();
+/// The target file's text with any headings the capture creates, and where
+/// the entry goes in it.
+struct CapturePlacement {
+    text: String,
+    offset: usize,
+    level: usize,
+}
+
+/// org-capture's target location: the base heading (found, or created for
+/// `file+headline`), then with `datetree` the year, month and day headings
+/// for `today` under it; the entry goes at the end of the last one's
+/// subtree, one level down, or at the end of the file.
+fn place_capture(
+    path: &Path,
+    source: &str,
+    template: &CaptureTemplate,
+    today: NaiveDate,
+    settings: &Settings,
+) -> Result<CapturePlacement, AgdError> {
+    let newline = line_ending(source);
+    let mut text = source.to_string();
+    let document = parse_text(path, &text, settings)?;
+    let mut base = match CaptureTarget::of(template) {
+        CaptureTarget::File => None,
+        CaptureTarget::Heading(title) => Some(
+            match document
+                .headlines()
+                .iter()
+                .find(|headline| headline.item.title == title)
+            {
+                Some(headline) => headline.line_span.start,
+                None => append_top_heading(&mut text, &title, newline),
+            },
+        ),
+        CaptureTarget::OutlinePath(outline) => Some(find_outline_path(&document, &outline)?),
+        CaptureTarget::Id(id) => Some(
+            document
+                .headlines()
+                .iter()
+                .find(|headline| headline.item.id.as_deref() == Some(id.as_str()))
+                .map(|headline| headline.line_span.start)
+                .ok_or_else(|| {
+                    AgdError::new(
+                        "capture_target_not_found",
+                        format!("no heading in {} has ID '{id}'", path.display()),
+                    )
+                })?,
+        ),
+    };
+    if template.datetree {
+        base = Some(find_or_create_datetree(
+            &mut text, base, today, newline, path, settings,
+        )?);
     }
-    format!("{}{}", "*".repeat(level), &rendered[stars..])
+    let Some(base) = base else {
+        let offset = text.len();
+        return Ok(CapturePlacement {
+            text,
+            offset,
+            level: 1,
+        });
+    };
+    let document = parse_text(path, &text, settings)?;
+    let headline = headline_starting_at(&document, base)?;
+    Ok(CapturePlacement {
+        offset: headline.subtree_span.end,
+        level: headline.level + 1,
+        text,
+    })
+}
+
+/// Appends `* title` as org-capture does for a missing `file+headline`
+/// target, and returns where the heading starts.
+fn append_top_heading(text: &mut String, title: &str, newline: &str) -> usize {
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push_str(newline);
+    }
+    let start = text.len();
+    text.push_str(&format!("* {title}{newline}"));
+    start
+}
+
+/// org-find-olp: each title must name exactly one heading on its level,
+/// the first at the top level and each next one a direct child.
+fn find_outline_path(document: &IndexedDocument, outline: &[String]) -> Result<usize, AgdError> {
+    let mut region = ByteSpan {
+        start: 0,
+        end: document.source().len(),
+    };
+    let mut level = 1;
+    let mut found = None;
+    for title in outline {
+        let matches: Vec<&HeadlineSpan> = document
+            .headlines()
+            .iter()
+            .filter(|headline| {
+                headline.level == level
+                    && headline.item.title == *title
+                    && region.start <= headline.line_span.start
+                    && headline.line_span.start < region.end
+            })
+            .collect();
+        let headline = match matches.as_slice() {
+            [headline] => *headline,
+            [] => {
+                return Err(AgdError::new(
+                    "capture_target_not_found",
+                    format!("capture heading not found on level {level}: {title}"),
+                ));
+            }
+            _ => {
+                return Err(AgdError::new(
+                    "capture_target_not_found",
+                    format!("capture heading not unique on level {level}: {title}"),
+                ));
+            }
+        };
+        region = headline.subtree_span;
+        level = headline.level + 1;
+        found = Some(headline.line_span.start);
+    }
+    found.ok_or_else(|| AgdError::new("capture_target_not_found", "capture outline path is empty"))
+}
+
+/// Datetree headings compare by the date in their title (Emacs's
+/// org-datetree-comparefun-from-regex); titles without one are skipped.
+static DATETREE_YEAR_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"([12][0-9]{3})").expect("datetree year regex"));
+static DATETREE_MONTH_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"([12][0-9]{3}-[01][0-9]) \w+").expect("datetree month regex"));
+static DATETREE_DAY_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"([12][0-9]{3}-[01][0-9]-[0123][0-9]) \w+").expect("datetree day regex")
+});
+
+/// org-datetree-find-date-create: finds or creates `* 2026`, `** 2026-10
+/// October` and `*** 2026-10-16 Friday` under `base` (or at the top of the
+/// file), each in date order among its siblings, and returns where the day
+/// heading starts.
+fn find_or_create_datetree(
+    text: &mut String,
+    base: Option<usize>,
+    date: NaiveDate,
+    newline: &str,
+    path: &Path,
+    settings: &Settings,
+) -> Result<usize, AgdError> {
+    let levels: [(String, &Regex); 3] = [
+        (date.format("%Y").to_string(), &DATETREE_YEAR_RE),
+        (date.format("%Y-%m %B").to_string(), &DATETREE_MONTH_RE),
+        (date.format("%Y-%m-%d %A").to_string(), &DATETREE_DAY_RE),
+    ];
+    let mut parent = base;
+    for (title, key) in levels {
+        let heading = DatetreeHeading {
+            title: &title,
+            key,
+            newline,
+        };
+        parent = Some(find_or_create_datetree_heading(
+            text, parent, &heading, path, settings,
+        )?);
+    }
+    Ok(parent.expect("the day heading"))
+}
+
+struct DatetreeHeading<'a> {
+    title: &'a str,
+    key: &'a Regex,
+    newline: &'a str,
+}
+
+/// org-datetree--find-create-subheading within the parent's subtree as
+/// org-narrow-to-subtree narrows it (or the whole file): the first
+/// sibling whose date is not earlier is the heading itself or the one to
+/// insert before; otherwise the heading goes at the end of the region.
+/// Returns the heading's start.
+fn find_or_create_datetree_heading(
+    text: &mut String,
+    parent: Option<usize>,
+    heading: &DatetreeHeading<'_>,
+    path: &Path,
+    settings: &Settings,
+) -> Result<usize, AgdError> {
+    let document = parse_text(path, text, settings)?;
+    let (region, level) = match parent {
+        None => ((0, text.len()), 1),
+        Some(start) => {
+            let parent = headline_starting_at(&document, start)?;
+            (
+                narrowed_subtree(parent, text.len(), heading.newline),
+                parent.level + 1,
+            )
+        }
+    };
+    let key = datetree_key(heading.key, heading.title).unwrap_or_default();
+    let sibling = document
+        .headlines()
+        .iter()
+        .filter(|headline| {
+            headline.level == level
+                && region.0 <= headline.line_span.start
+                && headline.line_span.start < region.1
+        })
+        .find_map(|headline| {
+            datetree_key(heading.key, &headline.item.title)
+                .filter(|sibling| *sibling >= key)
+                .map(|sibling| (headline.line_span.start, sibling == key))
+        });
+    if let Some((start, true)) = sibling {
+        return Ok(start);
+    }
+    let point = sibling.map_or(region.1, |(start, _)| start);
+    let deletion_start = region.0.max(
+        text[..point]
+            .trim_end_matches([' ', '\t', '\n', '\r'])
+            .len(),
+    );
+    text.replace_range(deletion_start..point, "");
+    let region_end = region.1 - (point - deletion_start);
+    let blank = blank_before_heading(text, (region.0, region_end), deletion_start);
+    let line = format!("{} {}{}", "*".repeat(level), heading.title, heading.newline);
+    let insertion = format!(
+        "{}{}{line}",
+        if blank { heading.newline } else { "" },
+        heading.newline
+    );
+    text.insert_str(deletion_start, &insertion);
+    Ok(deletion_start + insertion.len() - line.len())
+}
+
+fn datetree_key(key: &Regex, title: &str) -> Option<String> {
+    key.captures(title)
+        .and_then(|captures| captures.get(1))
+        .map(|matched| matched.as_str().to_string())
+}
+
+/// The region org-narrow-to-subtree leaves: the subtree without its final
+/// newline unless it ends the file.
+fn narrowed_subtree(headline: &HeadlineSpan, text_len: usize, newline: &str) -> (usize, usize) {
+    let end = headline.subtree_span.end;
+    let end = if end == text_len {
+        end
+    } else {
+        end.saturating_sub(newline.len())
+            .max(headline.line_span.start)
+    };
+    (headline.subtree_span.start, end)
+}
+
+/// Inserts the entry as org-capture-place-entry does with no
+/// `:empty-lines`: blank lines before the insertion point are removed, one
+/// is added when Org wants a blank line before a new heading here
+/// (org--blank-before-heading-p) and the line before is not already blank,
+/// and blank lines right after the entry are removed. Returns the new text
+/// and where the entry starts.
+fn insert_capture_entry(text: &str, offset: usize, entry: &str, newline: &str) -> (String, usize) {
+    let mut before = text[..offset].to_string();
+    let after = &text[offset..];
+    if !before.is_empty() && !before.ends_with('\n') {
+        before.push_str(newline);
+    }
+    let whole = format!("{before}{after}");
+    let point = before.len();
+    let blank = blank_before_heading(&whole, (0, whole.len()), point)
+        && !previous_line_blank(&whole, 0, point);
+    before.truncate(back_over_empty_lines(&before, point));
+    if blank {
+        before.push_str(newline);
+    }
+    let entry_start = before.len();
+    let after = trim_leading_blank_lines(after);
+    (format!("{before}{entry}{after}"), entry_start)
+}
+
+/// org-back-over-empty-lines: the start of the blank lines that end
+/// `text[..pos]`.
+fn back_over_empty_lines(text: &str, pos: usize) -> usize {
+    let content_end = text[..pos].trim_end_matches([' ', '\t', '\n', '\r']).len();
+    let next_line = text[content_end..]
+        .find('\n')
+        .map_or(text.len(), |index| content_end + index + 1);
+    next_line.min(pos)
+}
+
+fn trim_leading_blank_lines(mut text: &str) -> &str {
+    loop {
+        let line_end = text.find('\n');
+        match line_end {
+            Some(index) if text[..index].trim_matches([' ', '\t', '\r']).is_empty() => {
+                text = &text[index + 1..];
+            }
+            _ => return text,
+        }
+    }
+}
+
+/// org--blank-before-heading-p with org-blank-before-new-entry's `auto`,
+/// within `region`: whether the heading at or before `point` (else the
+/// next one) is preceded by a blank line. The region's first heading
+/// defers to the heading after it.
+fn blank_before_heading(text: &str, region: (usize, usize), point: usize) -> bool {
+    let headings = heading_line_starts(text, region);
+    let heading = headings
+        .iter()
+        .rev()
+        .find(|start| **start <= point)
+        .or_else(|| headings.iter().find(|start| **start > point));
+    let Some(&heading) = heading else {
+        return false;
+    };
+    if heading != region.0 {
+        return previous_line_blank(text, region.0, heading);
+    }
+    headings
+        .iter()
+        .find(|start| **start > heading)
+        .is_some_and(|next| previous_line_blank(text, region.0, *next))
+}
+
+/// Starts of the heading lines (`*` followed by a space or tab) that begin
+/// inside `region`.
+fn heading_line_starts(text: &str, region: (usize, usize)) -> Vec<usize> {
+    let mut starts = Vec::new();
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let start = offset;
+        offset += line.len();
+        if start < region.0 || start >= region.1 {
+            continue;
+        }
+        let stars = line.bytes().take_while(|byte| *byte == b'*').count();
+        if stars > 0 && matches!(line.as_bytes().get(stars), Some(b' ' | b'\t')) {
+            starts.push(start);
+        }
+    }
+    starts
+}
+
+/// org-previous-line-empty-p for the line starting at `line_start`.
+fn previous_line_blank(text: &str, region_start: usize, line_start: usize) -> bool {
+    if line_start <= region_start {
+        return false;
+    }
+    let previous_end = line_start - 1;
+    let previous_start = text[..previous_end]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    text[previous_start.max(region_start)..previous_end]
+        .trim_matches([' ', '\t', '\r'])
+        .is_empty()
+}
+
+/// A body given without a `%i` in the template becomes the entry's body,
+/// after the template's text and any properties drawer, instead of being
+/// dropped.
+fn append_body_without_escape(
+    rendered: String,
+    template: &str,
+    body: &str,
+    newline: &str,
+) -> String {
+    let body = body.trim_end_matches(['\n', '\r']);
+    if body.is_empty() || template_inserts_body(template) {
+        return rendered;
+    }
+    let mut entry = rendered.trim_end_matches(['\n', '\r']).to_string();
+    entry.push_str(newline);
+    entry.push_str(body);
+    entry
+}
+
+/// Whether the template has a `%i` escape (`%%i` is a literal `%i`).
+fn template_inserts_body(template: &str) -> bool {
+    let mut characters = template.chars();
+    while let Some(character) = characters.next() {
+        if character == '%' && characters.next() == Some('i') {
+            return true;
+        }
+    }
+    false
+}
+
+/// The entry's headline with its tags aligned to `tags_column`, as an edit
+/// writes a headline.
+fn align_first_line_tags(entry: &str, column: i64) -> String {
+    let line_end = entry.find(['\r', '\n']).unwrap_or(entry.len());
+    let (headline, rest) = entry.split_at(line_end);
+    let Some((head, tags)) = crate::document::split_trailing_tags(headline) else {
+        return entry.to_string();
+    };
+    format!(
+        "{}{rest}",
+        align_tags(format!("{head} {tags}"), true, column)
+    )
+}
+
+/// The rendered template as an entry at `level`: every heading in it moved
+/// by the same number of levels (org-paste-subtree), a template without a
+/// leading heading made one (`* `), ending in a newline.
+fn capture_entry(rendered: &str, level: usize, newline: &str) -> Result<String, AgdError> {
+    let rendered = if heading_line_starts(rendered, (0, 1)).is_empty() {
+        format!("* {rendered}")
+    } else {
+        rendered.to_string()
+    };
+    let first_level = rendered.bytes().take_while(|byte| *byte == b'*').count();
+    let mut entry = relevel_subtree(&rendered, level, first_level)?;
+    if !entry.ends_with('\n') {
+        entry.push_str(newline);
+    }
+    Ok(entry)
+}
+
+fn parse_text(path: &Path, text: &str, settings: &Settings) -> Result<IndexedDocument, AgdError> {
+    IndexedDocument::parse(path.to_path_buf(), text.as_bytes().to_vec(), settings)
+}
+
+fn headline_starting_at(
+    document: &IndexedDocument,
+    start: usize,
+) -> Result<&HeadlineSpan, AgdError> {
+    document
+        .headlines()
+        .iter()
+        .find(|headline| headline.line_span.start == start)
+        .ok_or_else(|| AgdError::new("parse_error", "capture target heading moved while placing"))
+}
+
+/// One patch turning `before` into `after`: the differing middle, widened
+/// to whole lines so the journal reads like the diff.
+fn changed_lines_patch(before: &str, after: &str) -> Patch {
+    let mut prefix = before
+        .bytes()
+        .zip(after.bytes())
+        .take_while(|(left, right)| left == right)
+        .count();
+    prefix = line_start(before, prefix);
+    let mut suffix = before
+        .bytes()
+        .rev()
+        .zip(after.bytes().rev())
+        .take_while(|(left, right)| left == right)
+        .count()
+        .min(before.len() - prefix)
+        .min(after.len() - prefix);
+    let tail = line_end_at_or_after(before, before.len() - suffix);
+    suffix = before.len() - tail;
+    while !before.is_char_boundary(before.len() - suffix)
+        || !after.is_char_boundary(after.len() - suffix)
+    {
+        suffix -= 1;
+    }
+    Patch {
+        span: ByteSpan {
+            start: prefix,
+            end: before.len() - suffix,
+        },
+        replacement: after[prefix..after.len() - suffix].to_string(),
+    }
+}
+
+/// `offset` if a line starts there, else the start of the next line.
+fn line_end_at_or_after(text: &str, offset: usize) -> usize {
+    if offset == 0 || offset >= text.len() || text.as_bytes()[offset - 1] == b'\n' {
+        return offset;
+    }
+    line_end(text, offset)
+}
+
+fn capture_id_error(template_key: &str, id: &str, error: AgdError) -> AgdError {
+    if error.code() == "duplicate_id" {
+        return error;
+    }
+    AgdError::new(
+        "capture_target_not_found",
+        format!("capture template '{template_key}' targets ID '{id}', which no agenda heading has"),
+    )
 }
 
 // With agent_inbox set, an agent capture always lands in that template
@@ -1689,14 +2715,139 @@ fn parse_updated_item(
         .ok_or_else(|| AgdError::new("parse_error", "write produced no target headline"))
 }
 
-fn sidecar_lock_path(path: &Path) -> Result<PathBuf, AgdError> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| AgdError::new("invalid_path", "target has no parent"))?;
-    let name = path
-        .file_name()
-        .ok_or_else(|| AgdError::new("invalid_path", "target has no file name"))?;
-    Ok(parent.join(format!(".{}.agd.lock", name.to_string_lossy())))
+/// Writes every image's post-image in order; when one cannot be written,
+/// the ones before it get their pre-image back and the error is returned.
+fn replace_all_or_restore(images: &[JournalImage<'_>]) -> Result<(), AgdError> {
+    for (position, image) in images.iter().enumerate() {
+        if let Err(error) = atomic_replace(image.path, image.post_image.as_bytes()) {
+            for written in images[..position].iter().rev() {
+                let _ = atomic_replace(written.path, written.pre_image.as_bytes());
+            }
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+/// The title and line of the heading a journal entry changed, as `current`
+/// reads now: the heading with its ID, else the one around its first patch.
+fn touched_heading(
+    path: &Path,
+    current: &str,
+    record: &JournalRecord,
+    settings: &Settings,
+) -> Option<(String, usize)> {
+    let document = parse_text(path, current, settings).ok()?;
+    let by_id = record
+        .item_ref
+        .as_deref()
+        .filter(|item_ref| !item_ref.contains("#sha256:"))
+        .and_then(|id| {
+            document
+                .headlines()
+                .iter()
+                .find(|headline| headline.item.id.as_deref() == Some(id))
+        });
+    let at = record
+        .patches
+        .first()
+        .map_or(0, |patch| patch.start)
+        .min(current.len());
+    let headline = by_id.or_else(|| {
+        document
+            .headlines()
+            .iter()
+            .rev()
+            .find(|headline| headline.line_span.start <= at)
+    })?;
+    Some((headline.item.title.clone(), headline.item.line))
+}
+
+/// A batch's targets by file: (position of the edit, its heading).
+type BatchTargets<'a> = BTreeMap<PathBuf, Vec<(usize, &'a HeadlineSpan)>>;
+
+/// Resolves every edit's target and checks them against each other and
+/// their files, grouped by file: (edit position, heading) pairs. A refusal
+/// names the target.
+fn resolve_batch_targets<'a>(
+    index: &'a WorkspaceIndex,
+    edits: &[ItemEdit],
+) -> Result<BatchTargets<'a>, AgdError> {
+    let mut by_file = BatchTargets::new();
+    let mut new_ids: BTreeSet<&str> = BTreeSet::new();
+    for (position, edit) in edits.iter().enumerate() {
+        let (document, headline) = index
+            .resolve(&edit.item_ref)
+            .map_err(|error| error.with_context(&edit.item_ref))?;
+        let label = |error: AgdError| error.with_context(&headline.item.title);
+        validate_intent_for_file(&edit.intent, document).map_err(label)?;
+        validate_id_change(&edit.intent, headline, index).map_err(label)?;
+        let new_id = edit
+            .intent
+            .properties
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("ID"))
+            .and_then(|(_, value)| value.as_deref());
+        if let Some(id) = new_id
+            && headline.item.id.is_none()
+            && !new_ids.insert(id)
+        {
+            return Err(label(AgdError::new(
+                ErrorCode::DuplicateId,
+                format!("ID '{id}' is given to two of the targets"),
+            )));
+        }
+        let targets = by_file.entry(document.path().to_path_buf()).or_default();
+        if targets
+            .iter()
+            .any(|(_, other)| other.line_span.start == headline.line_span.start)
+        {
+            return Err(label(AgdError::new(
+                "invalid_edit",
+                "the same item is listed twice",
+            )));
+        }
+        targets.push((position, headline));
+    }
+    Ok(by_file)
+}
+
+/// Where `offset` in the pre-image lands after `patches`: shifted by every
+/// patch that ends at or before it.
+fn post_image_offset(patches: &[Patch], offset: usize) -> usize {
+    patches
+        .iter()
+        .filter(|patch| patch.span.end <= offset)
+        .fold(offset, |shifted, patch| {
+            shifted + patch.replacement.len() - (patch.span.end - patch.span.start)
+        })
+}
+
+/// A successful mutation result.
+fn mutation(item: Item, diff: String, journal_id: &str) -> Mutation {
+    Mutation {
+        schema: MUTATION_SCHEMA.to_string(),
+        ok: true,
+        item,
+        diff,
+        journal_id: journal_id.to_string(),
+        repeated: None,
+    }
+}
+
+/// An org file's text, or empty when it does not exist yet.
+fn read_org_file(path: &Path) -> Result<String, AgdError> {
+    match fs::read(path) {
+        Ok(bytes) => String::from_utf8(bytes).map_err(|error| {
+            AgdError::with_source(
+                "non_utf8",
+                format!("org file is not UTF-8: {}", path.display()),
+                error,
+            )
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(AgdError::from(error)),
+    }
 }
 
 fn refuse_emacs_lock(path: &Path) -> Result<(), AgdError> {
@@ -1723,6 +2874,9 @@ fn refuse_emacs_lock(path: &Path) -> Result<(), AgdError> {
     Ok(())
 }
 
+/// Replaces `path` through a same-directory temporary file and a rename.
+/// A replaced file keeps its mode; a new one gets the default mode (0666
+/// less the umask), as an editor would create it.
 fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), AgdError> {
     let parent = path
         .parent()
@@ -1730,22 +2884,33 @@ fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), AgdError> {
     let permissions = fs::metadata(path)
         .ok()
         .map(|metadata| metadata.permissions());
-    let mut temporary = tempfile::Builder::new()
-        .prefix(".agd-")
-        .tempfile_in(parent)
-        .map_err(AgdError::from)?;
-    temporary.write_all(bytes).map_err(AgdError::from)?;
-    if let Some(permissions) = permissions {
-        temporary
-            .as_file()
-            .set_permissions(permissions)
-            .map_err(AgdError::from)?;
+    let temporary = parent.join(format!(".agd-{}.tmp", uuid::Uuid::new_v4()));
+    let written = write_synced_new_file(&temporary, bytes, permissions)
+        .and_then(|()| fs::rename(&temporary, path).map_err(AgdError::from));
+    if let Err(error) = written {
+        let _ = fs::remove_file(&temporary);
+        return Err(error);
     }
-    temporary.as_file().sync_all().map_err(AgdError::from)?;
-    temporary
-        .persist(path)
-        .map_err(|error| AgdError::from(error.error))?;
     sync_parent_directory(parent)
+}
+
+/// Creates `path` (which must not exist) with the default mode, or with
+/// `permissions` when given, and syncs its bytes to disk.
+fn write_synced_new_file(
+    path: &Path,
+    bytes: &[u8],
+    permissions: Option<fs::Permissions>,
+) -> Result<(), AgdError> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(AgdError::from)?;
+    file.write_all(bytes).map_err(AgdError::from)?;
+    if let Some(permissions) = permissions {
+        file.set_permissions(permissions).map_err(AgdError::from)?;
+    }
+    file.sync_all().map_err(AgdError::from)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -1794,10 +2959,26 @@ fn leading_indent(source: &str, offset: usize) -> &str {
 }
 
 fn content_hash(source: &str) -> String {
-    Sha256::digest(source.as_bytes())
+    sha256_hex(source.as_bytes())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+/// Creates `directory` and its parents, readable only by the user.
+fn create_private_directory(directory: &Path) -> Result<(), AgdError> {
+    fs::create_dir_all(directory).map_err(AgdError::from)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+            .map_err(AgdError::from)?;
+    }
+    Ok(())
 }
 
 fn unified_diff(path: &Path, before: &str, after: &str) -> String {
@@ -1863,6 +3044,1008 @@ mod tests {
             Path::new(&record.file),
             fs::canonicalize(temp.path().join("inbox.org")).unwrap()
         );
+    }
+
+    /// Every path under `directory`, relative and sorted.
+    fn tree(directory: &Path) -> Vec<String> {
+        let mut paths: Vec<String> = ignore::WalkBuilder::new(directory)
+            .hidden(false)
+            .build()
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let relative = entry.path().strip_prefix(directory).ok()?;
+                (!relative.as_os_str().is_empty()).then(|| relative.display().to_string())
+            })
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    #[test]
+    fn dry_runs_create_no_directory_lock_journal_or_file() {
+        let org = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        fs::write(org.path().join("tasks.org"), "* TODO Task\n").unwrap();
+        let mut settings = settings(org.path());
+        settings.captures[0].file = Some("new/inbox.org".to_string());
+        let engine = WriteEngine::new(settings.clone(), data.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "Preview only".to_string(),
+            ..CaptureDraft::default()
+        };
+        let preview = engine
+            .capture("t", &draft, "", &BTreeMap::new(), true, &context())
+            .unwrap();
+        assert!(
+            preview.diff.contains("TODO Preview only"),
+            "{}",
+            preview.diff
+        );
+        let item_ref = WorkspaceIndex::load(settings)
+            .unwrap()
+            .items()
+            .next()
+            .unwrap()
+            .item_ref
+            .clone();
+        let done = EditIntent {
+            state: Change::Set("DONE".to_string()),
+            ..EditIntent::default()
+        };
+        engine.edit(&item_ref, &done, true, &context()).unwrap();
+        assert_eq!(tree(org.path()), ["tasks.org"]);
+        assert!(tree(data.path()).is_empty(), "{:?}", tree(data.path()));
+    }
+
+    #[test]
+    fn write_locks_live_in_the_data_directory_not_beside_org_files() {
+        let org = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let mut settings = settings(org.path());
+        settings.captures[0].file = Some("inbox.org".to_string());
+        let engine = WriteEngine::new(settings, data.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "Written".to_string(),
+            ..CaptureDraft::default()
+        };
+        engine
+            .capture("t", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap();
+        assert_eq!(tree(org.path()), ["inbox.org"]);
+        let data_paths = tree(data.path());
+        assert_eq!(data_paths.len(), 3, "{data_paths:?}");
+        assert_eq!(data_paths[0], "journal.jsonl");
+        assert_eq!(data_paths[1], "locks");
+        assert!(data_paths[2].starts_with("locks/") && data_paths[2].ends_with(".lock"));
+    }
+
+    #[test]
+    fn a_refused_capture_creates_no_directory() {
+        let org = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let mut settings = settings(org.path());
+        settings.captures[0].file = Some("new/inbox.org".to_string());
+        settings.captures[0].template = "* TODO %?\n%^{Missing}".to_string();
+        let engine = WriteEngine::new(settings, data.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "Refused".to_string(),
+            ..CaptureDraft::default()
+        };
+        let error = engine
+            .capture("t", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap_err();
+        assert_eq!(error.code(), "missing_prompt");
+        assert!(tree(org.path()).is_empty());
+        assert!(tree(data.path()).is_empty());
+    }
+
+    /// Appends a pending journal record for `file`, as a write interrupted
+    /// between journaling and committing leaves it.
+    fn append_interrupted_write(journal: &Path, file: &Path, pre: &str, post: &str) -> String {
+        let record = JournalRecord {
+            schema: "agd.journal/v1".to_string(),
+            id: "20261016T090000.000000000-1".to_string(),
+            status: JournalStatus::Pending,
+            timestamp: "2026-10-16T09:00:00+00:00".to_string(),
+            actor: "test".to_string(),
+            project: "fixture".to_string(),
+            file: fs::canonicalize(file)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            item_ref: None,
+            transaction: None,
+            pre_hash: content_hash(pre),
+            post_hash: content_hash(post),
+            patches: Vec::new(),
+            diff: String::new(),
+        };
+        let mut line = serde_json::to_string(&record).unwrap();
+        line.push('\n');
+        let mut existing = fs::read_to_string(journal).unwrap_or_default();
+        existing.push_str(&line);
+        fs::write(journal, existing).unwrap();
+        record.id
+    }
+
+    #[test]
+    fn an_unresolvable_interrupted_write_blocks_only_its_file_until_resolved() {
+        let temp = tempfile::tempdir().unwrap();
+        let journal = temp.path().join("journal.jsonl");
+        let conflicted = temp.path().join("conflicted.org");
+        let other = temp.path().join("other.org");
+        let conflicted_bytes = "* TODO Edited by hand since\n";
+        fs::write(&conflicted, conflicted_bytes).unwrap();
+        fs::write(&other, "* TODO Other\n").unwrap();
+        let id =
+            append_interrupted_write(&journal, &conflicted, "* TODO Before\n", "* DONE Before\n");
+
+        let settings = settings(temp.path());
+        let engine = WriteEngine::new(settings.clone(), journal.clone()).unwrap();
+        assert_eq!(engine.journal().unwrap().len(), 1);
+        let conflicts = engine.journal_conflicts().unwrap();
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].id, id);
+
+        let refs: BTreeMap<String, String> = WorkspaceIndex::load(settings)
+            .unwrap()
+            .items()
+            .map(|item| (item.title.clone(), item.item_ref.clone()))
+            .collect();
+        let done = EditIntent {
+            state: Change::Set("DONE".to_string()),
+            ..EditIntent::default()
+        };
+        engine
+            .edit(&refs["Other"], &done, false, &context())
+            .unwrap();
+        let error = engine
+            .edit(&refs["Edited by hand since"], &done, false, &context())
+            .unwrap_err();
+        assert_eq!(error.code(), "journal_conflict");
+        assert!(
+            error.to_string().contains("agd setup check --resolve"),
+            "{error}"
+        );
+        assert_eq!(fs::read_to_string(&conflicted).unwrap(), conflicted_bytes);
+
+        let resolved = engine.resolve_conflicts(&context()).unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].status, JournalStatus::Resolved);
+        assert_eq!(fs::read_to_string(&conflicted).unwrap(), conflicted_bytes);
+        assert!(engine.journal_conflicts().unwrap().is_empty());
+        engine
+            .edit(&refs["Edited by hand since"], &done, false, &context())
+            .unwrap();
+    }
+
+    #[test]
+    fn an_interrupted_write_that_reached_the_file_settles_as_committed() {
+        let temp = tempfile::tempdir().unwrap();
+        let journal = temp.path().join("journal.jsonl");
+        let path = temp.path().join("tasks.org");
+        fs::write(&path, "* DONE Landed\n").unwrap();
+        let id = append_interrupted_write(&journal, &path, "* TODO Landed\n", "* DONE Landed\n");
+        let settings = settings(temp.path());
+        let item_ref = WorkspaceIndex::load(settings.clone())
+            .unwrap()
+            .items()
+            .next()
+            .unwrap()
+            .item_ref
+            .clone();
+        let engine = WriteEngine::new(settings, journal).unwrap();
+        assert!(engine.journal_conflicts().unwrap().is_empty());
+        let status = |engine: &WriteEngine| {
+            engine
+                .journal()
+                .unwrap()
+                .into_iter()
+                .find(|record| record.id == id)
+                .unwrap()
+                .status
+        };
+        assert_eq!(status(&engine), JournalStatus::Pending);
+        let todo = EditIntent {
+            state: Change::Set("TODO".to_string()),
+            ..EditIntent::default()
+        };
+        engine.edit(&item_ref, &todo, false, &context()).unwrap();
+        assert_eq!(status(&engine), JournalStatus::Committed);
+    }
+
+    /// Captures `* TODO Entry` on 2026-10-16 into `input` (None: no file)
+    /// through a template with this target, returning the file or the error
+    /// code.
+    fn capture_into(
+        input: Option<&str>,
+        heading: Option<&str>,
+        outline: Option<&[&str]>,
+        datetree: bool,
+    ) -> Result<String, String> {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("input.org");
+        if let Some(input) = input {
+            fs::write(&path, input).unwrap();
+        }
+        let mut settings = settings(temp.path());
+        settings.captures = vec![CaptureTemplate {
+            key: "t".to_string(),
+            file: Some("input.org".to_string()),
+            heading: heading.map(str::to_string),
+            outline_path: outline.map(|path| path.iter().map(|title| title.to_string()).collect()),
+            datetree,
+            template: "* TODO Entry".to_string(),
+            ..CaptureTemplate::default()
+        }];
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let context = WriteContext {
+            now: Some(
+                NaiveDate::from_ymd_opt(2026, 10, 16)
+                    .unwrap()
+                    .and_hms_opt(14, 22, 0)
+                    .unwrap(),
+            ),
+            ..context()
+        };
+        let draft = CaptureDraft {
+            title: "Entry".to_string(),
+            ..CaptureDraft::default()
+        };
+        let preview = engine.capture("t", &draft, "", &BTreeMap::new(), true, &context);
+        let written = engine.capture("t", &draft, "", &BTreeMap::new(), false, &context);
+        match (preview, written) {
+            (Ok(preview), Ok(written)) => {
+                assert_eq!(preview.diff, written.diff);
+                assert_eq!(written.item.title, "Entry");
+                Ok(fs::read_to_string(&path).unwrap())
+            }
+            (Err(preview), Err(written)) => {
+                assert_eq!(preview.code(), written.code());
+                assert_eq!(fs::read_to_string(&path).ok().as_deref(), input);
+                Err(written.code().to_string())
+            }
+            (preview, written) => panic!("dry run and write disagree: {preview:?} {written:?}"),
+        }
+    }
+
+    // Expected bytes are Emacs 31.1 / Org 9.8.7 org-capture results for the
+    // same file, target and day (template "* TODO Entry", :immediate-finish).
+    #[test]
+    fn headline_and_outline_targets_place_entries_as_org_capture() {
+        let ok = |text: &str| Ok(text.to_string());
+        let inbox = Some("Inbox");
+        assert_eq!(
+            capture_into(None, inbox, None, false),
+            ok("* Inbox\n** TODO Entry\n")
+        );
+        assert_eq!(
+            capture_into(Some(""), inbox, None, false),
+            ok("* Inbox\n** TODO Entry\n")
+        );
+        assert_eq!(
+            capture_into(Some("* Other\nbody"), inbox, None, false),
+            ok("* Other\nbody\n* Inbox\n** TODO Entry\n")
+        );
+        assert_eq!(
+            capture_into(Some("* A\n\n"), inbox, None, false),
+            ok("* A\n\n* Inbox\n\n** TODO Entry\n")
+        );
+        assert_eq!(
+            capture_into(Some("* Inbox\n** a\n\n* Next\n"), inbox, None, false),
+            ok("* Inbox\n** a\n** TODO Entry\n* Next\n")
+        );
+        assert_eq!(
+            capture_into(Some("* A\n\n\n"), None, None, false),
+            ok("* A\n* TODO Entry\n")
+        );
+        let olp: &[&str] = &["Projects", "Inbox"];
+        assert_eq!(
+            capture_into(
+                Some("* Projects\n** Inbox\n*** a\n\n* Other\n"),
+                None,
+                Some(olp),
+                false
+            ),
+            ok("* Projects\n** Inbox\n*** a\n*** TODO Entry\n* Other\n")
+        );
+        assert_eq!(
+            capture_into(Some("* Projects\n"), None, Some(olp), false),
+            Err("capture_target_not_found".to_string())
+        );
+    }
+
+    #[test]
+    fn datetree_targets_create_year_month_and_day_as_org_capture() {
+        let ok = |text: &str| Ok(text.to_string());
+        let tree = "* 2026\n** 2026-10 October\n*** 2026-10-16 Friday\n**** TODO Entry\n";
+        assert_eq!(
+            capture_into(None, None, None, true),
+            ok(&format!("\n{tree}"))
+        );
+        assert_eq!(
+            capture_into(Some(""), None, None, true),
+            ok(&format!("\n{tree}"))
+        );
+        assert_eq!(
+            capture_into(Some("* Inbox\n** TODO a\n"), None, None, true),
+            ok(&format!("* Inbox\n** TODO a\n{tree}"))
+        );
+        assert_eq!(
+            capture_into(
+                Some("#+TITLE: J\n\n* Notes\n\nbody\n\n\n"),
+                None,
+                None,
+                true
+            ),
+            ok(&format!("#+TITLE: J\n\n* Notes\n\nbody\n\n{tree}"))
+        );
+        assert_eq!(
+            capture_into(
+                Some(
+                    "* 2026\n** 2026-10 October\n*** 2026-10-14 Wednesday\n**** a\n*** 2026-10-20 Tuesday\n**** b\n"
+                ),
+                None,
+                None,
+                true
+            ),
+            ok(
+                "* 2026\n** 2026-10 October\n*** 2026-10-14 Wednesday\n**** a\n*** 2026-10-16 Friday\n**** TODO Entry\n*** 2026-10-20 Tuesday\n**** b\n"
+            )
+        );
+        assert_eq!(
+            capture_into(
+                Some("* 2025\n** 2025-12 December\n* 2027\n"),
+                None,
+                None,
+                true
+            ),
+            ok(
+                "* 2025\n** 2025-12 December\n* 2026\n** 2026-10 October\n*** 2026-10-16 Friday\n**** TODO Entry\n* 2027\n"
+            )
+        );
+        assert_eq!(
+            capture_into(
+                Some(
+                    "* 2026\n\n** 2026-09 September\n\n*** 2026-09-01 Tuesday\n\n** 2026-11 November\n\n"
+                ),
+                None,
+                None,
+                true
+            ),
+            ok(
+                "* 2026\n\n** 2026-09 September\n\n*** 2026-09-01 Tuesday\n\n** 2026-10 October\n*** 2026-10-16 Friday\n**** TODO Entry\n** 2026-11 November\n\n"
+            )
+        );
+        assert_eq!(
+            capture_into(
+                Some(
+                    "* 2026\n** 2026-10 October\n*** 2026-10-16 Friday\n**** a\n\n*** 2026-10-17 Saturday\n"
+                ),
+                None,
+                None,
+                true
+            ),
+            ok(
+                "* 2026\n** 2026-10 October\n*** 2026-10-16 Friday\n**** a\n**** TODO Entry\n*** 2026-10-17 Saturday\n"
+            )
+        );
+        assert_eq!(
+            capture_into(
+                Some("* Inbox\n\n* 2025\n\n** 2025-01 January\n"),
+                None,
+                None,
+                true
+            ),
+            ok(&format!(
+                "* Inbox\n\n* 2025\n\n** 2025-01 January\n\n{tree}"
+            ))
+        );
+        let journal: &[&str] = &["Journal"];
+        assert_eq!(
+            capture_into(
+                Some("* Inbox\n* Journal\n** 2025\n* After\n"),
+                None,
+                Some(journal),
+                true
+            ),
+            ok(
+                "* Inbox\n* Journal\n** 2025\n** 2026\n*** 2026-10 October\n**** 2026-10-16 Friday\n***** TODO Entry\n* After\n"
+            )
+        );
+        assert_eq!(
+            capture_into(
+                Some("* Journal\n** 2026\n*** 2026-09 September\n* After\n"),
+                None,
+                Some(journal),
+                true
+            ),
+            ok(
+                "* Journal\n** 2026\n*** 2026-09 September\n*** 2026-10 October\n**** 2026-10-16 Friday\n***** TODO Entry\n* After\n"
+            )
+        );
+        assert_eq!(
+            capture_into(Some("* Inbox\n"), None, Some(journal), true),
+            Err("capture_target_not_found".to_string())
+        );
+    }
+
+    #[test]
+    fn an_id_target_captures_under_that_heading_in_any_agenda_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let projects = temp.path().join("projects.org");
+        fs::write(
+            &projects,
+            "* Launch\n:PROPERTIES:\n:ID: launch-id\n:END:\n** TODO Existing\n* Other\n",
+        )
+        .unwrap();
+        let mut settings = settings(temp.path());
+        settings.captures = vec![
+            CaptureTemplate {
+                key: "l".to_string(),
+                file: None,
+                heading: None,
+                id: Some("launch-id".to_string()),
+                ..CaptureTemplate::default()
+            },
+            CaptureTemplate {
+                key: "m".to_string(),
+                file: None,
+                heading: None,
+                id: Some("missing-id".to_string()),
+                ..CaptureTemplate::default()
+            },
+        ];
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "Under launch".to_string(),
+            ..CaptureDraft::default()
+        };
+        let mutation = engine
+            .capture("l", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap();
+        assert_eq!(mutation.item.olpath, ["Launch", "Under launch"]);
+        let written = fs::read_to_string(&projects).unwrap();
+        assert!(
+            written.starts_with("* Launch\n:PROPERTIES:\n:ID: launch-id\n:END:\n** TODO Existing\n** TODO Under launch\n"),
+            "{written}"
+        );
+        assert!(written.ends_with("* Other\n"));
+        let error = engine
+            .capture("m", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap_err();
+        assert_eq!(error.code(), "capture_target_not_found");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_files_get_the_default_mode_and_rewrites_keep_theirs() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let probe = temp.path().join("probe.txt");
+        fs::File::create(&probe).unwrap();
+        let default_mode = fs::metadata(&probe).unwrap().permissions().mode() & 0o777;
+        let mut settings = settings(temp.path());
+        settings.captures[0].file = Some("inbox.org".to_string());
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "First".to_string(),
+            ..CaptureDraft::default()
+        };
+        engine
+            .capture("t", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap();
+        let inbox = temp.path().join("inbox.org");
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&inbox), default_mode);
+        fs::set_permissions(&inbox, fs::Permissions::from_mode(0o640)).unwrap();
+        engine
+            .capture("t", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap();
+        assert_eq!(mode(&inbox), 0o640);
+        let leftovers: Vec<String> = tree(temp.path())
+            .into_iter()
+            .filter(|path| path.starts_with(".agd-"))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    #[test]
+    fn a_body_is_appended_when_the_template_has_no_escape_for_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut settings = settings(temp.path());
+        settings.captures = vec![
+            CaptureTemplate {
+                key: "t".to_string(),
+                file: Some("inbox.org".to_string()),
+                heading: None,
+                template: "* TODO %?\n:PROPERTIES:\n:SOURCE: agent\n:END:".to_string(),
+                ..CaptureTemplate::default()
+            },
+            CaptureTemplate {
+                key: "i".to_string(),
+                file: Some("inbox.org".to_string()),
+                heading: None,
+                template: "* TODO %?\nContext: %i\nLiteral 100%%i".to_string(),
+                ..CaptureTemplate::default()
+            },
+        ];
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "Follow up".to_string(),
+            ..CaptureDraft::default()
+        };
+        engine
+            .capture(
+                "t",
+                &draft,
+                "Line one\nLine two\n",
+                &BTreeMap::new(),
+                false,
+                &context(),
+            )
+            .unwrap();
+        engine
+            .capture("i", &draft, "inline", &BTreeMap::new(), false, &context())
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(temp.path().join("inbox.org")).unwrap(),
+            "* TODO Follow up\n:PROPERTIES:\n:SOURCE: agent\n:END:\nLine one\nLine two\n* TODO Follow up\nContext: inline\nLiteral 100%i\n"
+        );
+    }
+
+    #[test]
+    fn captured_tags_align_to_the_tags_column_like_edits() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut settings = settings(temp.path());
+        settings.tags_column = -30;
+        settings.captures[0].file = Some("inbox.org".to_string());
+        settings.captures[0].heading = None;
+        settings.captures[0].template = "* TODO %?".to_string();
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "Renew".to_string(),
+            tags: vec!["admin".to_string()],
+            ..CaptureDraft::default()
+        };
+        engine
+            .capture("t", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap();
+        let written = fs::read_to_string(temp.path().join("inbox.org")).unwrap();
+        assert_eq!(
+            written,
+            format!("* TODO Renew{}:admin:\n", " ".repeat(30 - 12 - 7))
+        );
+    }
+
+    #[test]
+    fn capture_refuses_fields_that_would_write_other_org_syntax() {
+        let temp = tempfile::tempdir().unwrap();
+        let inbox = temp.path().join("inbox.org");
+        let original = "#+PRIORITIES: A E C\n* Inbox\n";
+        fs::write(&inbox, original).unwrap();
+        let mut settings = settings(temp.path());
+        settings.captures[0].file = Some("inbox.org".to_string());
+        settings.captures[0].template = "* TODO %?\n%^{Where}".to_string();
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let answer = BTreeMap::from([("Where".to_string(), "desk".to_string())]);
+        let capture = |draft: CaptureDraft, body: &str, prompts: &BTreeMap<String, String>| {
+            engine
+                .capture("t", &draft, body, prompts, false, &context())
+                .map(|_| ())
+                .map_err(|error| (error.code().to_string(), error.to_string()))
+        };
+        let titled = |title: &str| CaptureDraft {
+            title: title.to_string(),
+            ..CaptureDraft::default()
+        };
+        let refusals = [
+            (
+                titled("Innocent\n* DONE Injected\n:PROPERTIES:\n:ID: abc-123\n:END:"),
+                "",
+                answer.clone(),
+                "invalid_title",
+            ),
+            (titled("DONE sneaky"), "", answer.clone(), "invalid_title"),
+            (
+                titled("[#A] Cookie first"),
+                "",
+                answer.clone(),
+                "invalid_title",
+            ),
+            (titled("Tagged :a:b:"), "", answer.clone(), "invalid_title"),
+            (
+                CaptureDraft {
+                    tags: vec!["bad tag".to_string()],
+                    ..titled("Task")
+                },
+                "",
+                answer.clone(),
+                "invalid_tag",
+            ),
+            (
+                CaptureDraft {
+                    priority: Some("F".to_string()),
+                    ..titled("Task")
+                },
+                "",
+                answer.clone(),
+                "invalid_priority",
+            ),
+            (
+                CaptureDraft {
+                    properties: BTreeMap::from([("X\n#+TODO".to_string(), "y".to_string())]),
+                    ..titled("Task")
+                },
+                "",
+                answer.clone(),
+                "invalid_property",
+            ),
+            (
+                CaptureDraft {
+                    properties: BTreeMap::from([("SOURCE".to_string(), "a\nb".to_string())]),
+                    ..titled("Task")
+                },
+                "",
+                answer.clone(),
+                "invalid_property",
+            ),
+            (
+                titled("Task"),
+                "fine\n* DONE Injected",
+                answer.clone(),
+                "invalid_body",
+            ),
+            (
+                titled("Task"),
+                "",
+                BTreeMap::from([("Where".to_string(), "desk\n* DONE x".to_string())]),
+                "invalid_prompt",
+            ),
+        ];
+        for (draft, body, prompts, code) in refusals {
+            let (actual, message) = capture(draft.clone(), body, &prompts).unwrap_err();
+            assert_eq!(actual, code, "{draft:?} {body:?}: {message}");
+        }
+        let (_, message) = capture(
+            CaptureDraft {
+                priority: Some("F".to_string()),
+                ..titled("Task")
+            },
+            "",
+            &answer,
+        )
+        .unwrap_err();
+        assert!(message.contains("A–E"), "{message}");
+        let (_, message) = capture(titled("Task"), "fine\n* DONE Injected", &answer).unwrap_err();
+        assert!(message.contains("line 2"), "{message}");
+        assert_eq!(fs::read_to_string(&inbox).unwrap(), original);
+        assert!(engine.journal().unwrap().is_empty());
+
+        // The file's own range admits E.
+        capture(
+            CaptureDraft {
+                priority: Some("E".to_string()),
+                ..titled("Low but fine")
+            },
+            "",
+            &answer,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn edit_refuses_titles_tags_priorities_and_properties_that_would_change_the_syntax() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("tasks.org");
+        let original = "* TODO Task\n";
+        fs::write(&path, original).unwrap();
+        let settings = settings(temp.path());
+        let item_ref = WorkspaceIndex::load(settings.clone())
+            .unwrap()
+            .items()
+            .next()
+            .unwrap()
+            .item_ref
+            .clone();
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let refusals = [
+            (
+                EditIntent {
+                    title: Change::Set("DONE sneaky :x:".to_string()),
+                    ..EditIntent::default()
+                },
+                "invalid_title",
+            ),
+            (
+                EditIntent {
+                    title: Change::Set("NEXT step".to_string()),
+                    ..EditIntent::default()
+                },
+                "invalid_title",
+            ),
+            (
+                EditIntent {
+                    priority: Change::Set("D".to_string()),
+                    ..EditIntent::default()
+                },
+                "invalid_priority",
+            ),
+            (
+                EditIntent {
+                    tags_add: BTreeSet::from(["a:b".to_string()]),
+                    ..EditIntent::default()
+                },
+                "invalid_tag",
+            ),
+            (
+                EditIntent {
+                    properties: BTreeMap::from([("A B".to_string(), Some("x".to_string()))]),
+                    ..EditIntent::default()
+                },
+                "invalid_property",
+            ),
+        ];
+        for (intent, code) in refusals {
+            for dry_run in [true, false] {
+                let error = engine
+                    .edit(&item_ref, &intent, dry_run, &context())
+                    .unwrap_err();
+                assert_eq!(error.code(), code, "{intent:?}");
+            }
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        assert!(engine.journal().unwrap().is_empty());
+    }
+
+    #[test]
+    fn ids_must_be_unique_and_never_change_once_set() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("tasks.org");
+        let original = "* TODO Known\n:PROPERTIES:\n:ID: known-id\n:END:\n* TODO Fresh\n";
+        fs::write(&path, original).unwrap();
+        std::fs::create_dir(temp.path().join("archive")).unwrap();
+        fs::write(
+            temp.path().join("archive/old.org"),
+            "* Old\n:PROPERTIES:\n:ID: archived-id\n:END:\n",
+        )
+        .unwrap();
+        let mut settings = settings(temp.path());
+        settings.agenda_files = vec!["tasks.org".to_string()];
+        settings.captures[0].file = Some("tasks.org".to_string());
+        settings.captures[0].heading = None;
+        let fresh = WorkspaceIndex::load(settings.clone())
+            .unwrap()
+            .items()
+            .find(|item| item.title == "Fresh")
+            .unwrap()
+            .item_ref
+            .clone();
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let set_id = |value: Option<&str>| EditIntent {
+            properties: BTreeMap::from([("ID".to_string(), value.map(str::to_string))]),
+            ..EditIntent::default()
+        };
+        let code = |result: Result<Mutation, AgdError>| result.unwrap_err().code().to_string();
+
+        assert_eq!(
+            code(engine.edit("known-id", &set_id(Some("other")), false, &context())),
+            "id_immutable"
+        );
+        assert_eq!(
+            code(engine.edit("known-id", &set_id(None), false, &context())),
+            "id_immutable"
+        );
+        let message = engine
+            .edit("known-id", &set_id(None), false, &context())
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("identity"), "{message}");
+        for used in ["known-id", "archived-id"] {
+            assert_eq!(
+                code(engine.edit(&fresh, &set_id(Some(used)), false, &context())),
+                "duplicate_id"
+            );
+            let draft = CaptureDraft {
+                title: "Copy".to_string(),
+                properties: BTreeMap::from([("ID".to_string(), used.to_string())]),
+                ..CaptureDraft::default()
+            };
+            assert_eq!(
+                code(engine.capture("t", &draft, "", &BTreeMap::new(), false, &context())),
+                "duplicate_id"
+            );
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+
+        let added = engine
+            .edit(&fresh, &set_id(Some("fresh-id")), false, &context())
+            .unwrap();
+        assert_eq!(added.item.id.as_deref(), Some("fresh-id"));
+        let draft = CaptureDraft {
+            title: "New with ID".to_string(),
+            properties: BTreeMap::from([("ID".to_string(), "new-id".to_string())]),
+            ..CaptureDraft::default()
+        };
+        let captured = engine
+            .capture("t", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap();
+        assert_eq!(captured.item.item_ref, "new-id");
+    }
+
+    fn refs_by_title(settings: &Settings) -> BTreeMap<String, String> {
+        WorkspaceIndex::load(settings.clone())
+            .unwrap()
+            .items()
+            .map(|item| (item.title.clone(), item.item_ref.clone()))
+            .collect()
+    }
+
+    fn scheduled(date: &str) -> EditIntent {
+        EditIntent {
+            scheduled: Change::Set(PlanningTimestamp {
+                date: date.to_string(),
+                time: None,
+                end_time: None,
+                repeater: None,
+                warning: None,
+                raw: None,
+            }),
+            ..EditIntent::default()
+        }
+    }
+
+    #[test]
+    fn a_batch_writes_every_file_or_none_and_one_undo_reverts_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let work = temp.path().join("work.org");
+        let home = temp.path().join("home.org");
+        let work_bytes = "* TODO Pay rent\n* TODO Call bank\nbody\n* TODO Untouched\n";
+        let home_bytes = "#+TODO: OPEN | CLOSED\n* OPEN Water plants\n";
+        fs::write(&work, work_bytes).unwrap();
+        fs::write(&home, home_bytes).unwrap();
+        let settings = settings(temp.path());
+        let refs = refs_by_title(&settings);
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let edit = |title: &str, intent: EditIntent| ItemEdit {
+            item_ref: refs[title].clone(),
+            intent,
+        };
+
+        // DONE is not a keyword of home.org: nothing is written anywhere.
+        let done = EditIntent {
+            state: Change::Set("DONE".to_string()),
+            ..EditIntent::default()
+        };
+        let error = engine
+            .edit_batch(
+                &[edit("Pay rent", done.clone()), edit("Water plants", done)],
+                false,
+                &context(),
+            )
+            .unwrap_err();
+        assert_eq!(error.code(), "invalid_todo");
+        assert!(error.to_string().starts_with("Water plants: "), "{error}");
+        assert_eq!(fs::read_to_string(&work).unwrap(), work_bytes);
+        assert_eq!(fs::read_to_string(&home).unwrap(), home_bytes);
+        assert!(engine.journal().unwrap().is_empty());
+
+        // An Emacs lock on one file refuses the whole batch too.
+        fs::write(temp.path().join(".#home.org"), "user@host.1").unwrap();
+        let batch = [
+            edit("Pay rent", scheduled("2026-10-19")),
+            edit("Call bank", scheduled("2026-10-20")),
+            edit("Water plants", scheduled("2026-10-21")),
+        ];
+        assert_eq!(
+            engine
+                .edit_batch(&batch, false, &context())
+                .unwrap_err()
+                .code(),
+            "editor_dirty"
+        );
+        assert_eq!(fs::read_to_string(&work).unwrap(), work_bytes);
+        fs::remove_file(temp.path().join(".#home.org")).unwrap();
+
+        let preview = engine.edit_batch(&batch, true, &context()).unwrap();
+        assert_eq!(preview.transaction, "dry-run");
+        assert_eq!(fs::read_to_string(&work).unwrap(), work_bytes);
+        let written = engine.edit_batch(&batch, false, &context()).unwrap();
+        assert_eq!(
+            fs::read_to_string(&work).unwrap(),
+            "* TODO Pay rent\nSCHEDULED: <2026-10-19 Mon>\n* TODO Call bank\nSCHEDULED: <2026-10-20 Tue>\nbody\n* TODO Untouched\n"
+        );
+        let lines: Vec<(String, usize)> = written
+            .mutations
+            .iter()
+            .map(|mutation| (mutation.item.title.clone(), mutation.item.line))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                ("Pay rent".to_string(), 1),
+                ("Call bank".to_string(), 3),
+                ("Water plants".to_string(), 2)
+            ]
+        );
+        assert_eq!(engine.journal().unwrap().len(), 2);
+
+        let undone = engine
+            .undo(&written.mutations[0].journal_id, &context())
+            .unwrap();
+        assert_eq!(undone.journal_id, written.transaction);
+        assert_eq!(fs::read_to_string(&work).unwrap(), work_bytes);
+        assert_eq!(fs::read_to_string(&home).unwrap(), home_bytes);
+    }
+
+    #[test]
+    fn undo_takes_an_entry_or_transaction_id_and_refuses_what_is_not_committed() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("a.org"), "* TODO One\n").unwrap();
+        fs::write(temp.path().join("b.org"), "* TODO Two\n").unwrap();
+        let settings = settings(temp.path());
+        let refs = refs_by_title(&settings);
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let batch = engine
+            .edit_batch(
+                &[
+                    ItemEdit {
+                        item_ref: refs["One"].clone(),
+                        intent: scheduled("2026-10-19"),
+                    },
+                    ItemEdit {
+                        item_ref: refs["Two"].clone(),
+                        intent: scheduled("2026-10-19"),
+                    },
+                ],
+                false,
+                &context(),
+            )
+            .unwrap();
+        let undone = engine.undo(&batch.transaction, &context()).unwrap();
+        assert_eq!(undone.file.split(',').count(), 2);
+        assert_eq!(
+            fs::read_to_string(temp.path().join("a.org")).unwrap(),
+            "* TODO One\n"
+        );
+        let again = engine.undo(&batch.transaction, &context()).unwrap_err();
+        assert_eq!(again.code(), "nothing_to_undo");
+        assert_eq!(
+            engine.undo("no-such-entry", &context()).unwrap_err().code(),
+            "journal_not_found"
+        );
+    }
+
+    #[test]
+    fn an_undo_conflict_names_the_heading_its_author_and_what_to_do() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("work.org");
+        fs::write(
+            &path,
+            "* TODO Rotate staging certs\n:PROPERTIES:\n:ID: certs\n:END:\n",
+        )
+        .unwrap();
+        let engine =
+            WriteEngine::new(settings(temp.path()), temp.path().join("journal.jsonl")).unwrap();
+        let agent = WriteContext {
+            actor: "mcp:codex".to_string(),
+            ..context()
+        };
+        let mutation = engine
+            .edit("certs", &scheduled("2026-10-19"), false, &agent)
+            .unwrap();
+        let edited = fs::read_to_string(&path)
+            .unwrap()
+            .replace("<2026-10-19 Mon>", "<2026-10-22 Thu>");
+        fs::write(&path, &edited).unwrap();
+        let error = engine.undo(&mutation.journal_id, &context()).unwrap_err();
+        assert_eq!(error.code(), "undo_conflict");
+        assert_eq!(
+            error.to_string(),
+            "can't undo: Rotate staging certs changed after codex edited it (work.org:1); edit it by hand"
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), edited);
     }
 
     #[test]
@@ -1969,7 +4152,7 @@ mod tests {
             format!("#+TITLE: Added by an editor\n{edited}* TODO Third\n"),
         )
         .unwrap();
-        engine.undo(Some(&second.journal_id), &context()).unwrap();
+        engine.undo(&second.journal_id, &context()).unwrap();
         assert_eq!(
             fs::read_to_string(&path).unwrap(),
             "#+TITLE: Added by an editor\n* TODO First\n* TODO Second\nbody\n* TODO Third\n"
@@ -1982,9 +4165,7 @@ mod tests {
             edited.replace("* DONE First", "* DONE First, renamed"),
         )
         .unwrap();
-        let error = engine
-            .undo(Some(&first.journal_id), &context())
-            .unwrap_err();
+        let error = engine.undo(&first.journal_id, &context()).unwrap_err();
         assert_eq!(error.code(), "undo_conflict");
         assert!(
             fs::read_to_string(&path)
@@ -2051,7 +4232,7 @@ mod tests {
         let written = fs::read_to_string(&path).unwrap();
         assert!(written.starts_with("#+TODO: TODO | DONE\r\n* TODO Exact  spacing :work:\r\n"));
         assert!(written.contains("SCHEDULED: <2026-10-15 Thu>\r\nbody\r\n"));
-        engine.undo(Some(&mutation.journal_id), &context()).unwrap();
+        engine.undo(&mutation.journal_id, &context()).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
 
         let mutation = engine
@@ -2077,7 +4258,7 @@ mod tests {
             format!("{}external\r\n", fs::read_to_string(&path).unwrap()),
         )
         .unwrap();
-        engine.undo(Some(&mutation.journal_id), &context()).unwrap();
+        engine.undo(&mutation.journal_id, &context()).unwrap();
         assert_eq!(
             fs::read_to_string(&path).unwrap(),
             format!("{original}external\r\n")
@@ -2158,7 +4339,7 @@ mod tests {
             .item_ref
             .clone();
         let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
-        engine
+        let repeated = engine
             .edit(
                 &item_ref,
                 &EditIntent {
@@ -2173,6 +4354,13 @@ mod tests {
         let tomorrow = (Local::now().date_naive() + Duration::days(1))
             .format("%Y-%m-%d")
             .to_string();
+        assert_eq!(
+            repeated.repeated,
+            Some(Repeat {
+                done_state: "DONE".to_string(),
+                next_date: tomorrow.clone(),
+            })
+        );
         assert!(written.contains("* TODO Water plants\n"));
         assert!(written.contains(&format!("SCHEDULED: <{tomorrow}")));
         assert!(written.contains(":LAST_REPEAT: ["));
@@ -2216,7 +4404,7 @@ mod tests {
         let written = fs::read_to_string(&path).unwrap();
         assert!(written.contains("   SCHEDULED: <2026-10-30 Fri> DEADLINE:"));
         assert!(written.contains("   Need to finish Q3 report for the board meeting."));
-        engine.undo(Some(&mutation.journal_id), &context()).unwrap();
+        engine.undo(&mutation.journal_id, &context()).unwrap();
         assert_eq!(fs::read_to_string(path).unwrap(), original);
     }
 
@@ -2244,9 +4432,7 @@ mod tests {
                 .unwrap()
                 .contains("** TODO Move me\n")
         );
-        engine
-            .undo(Some(&result.journal_ids[0]), &context())
-            .unwrap();
+        engine.undo(&result.journal_ids[0], &context()).unwrap();
         assert_eq!(fs::read_to_string(source_path).unwrap(), source);
         assert_eq!(fs::read_to_string(target_path).unwrap(), target);
     }

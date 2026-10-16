@@ -87,6 +87,21 @@ pub struct Mutation {
     pub item: Item,
     pub diff: String,
     pub journal_id: String,
+    /// Set when marking a repeating task done moved its dates on instead
+    /// of closing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeated: Option<Repeat>,
+}
+
+/// A repeating task marked done (org-auto-repeat-maybe): the done state
+/// that was recorded, and the next occurrence the item now has.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Repeat {
+    /// The done keyword requested, such as `DONE`.
+    pub done_state: String,
+    /// `YYYY-MM-DD` of the repeating SCHEDULED date, else of the repeating
+    /// DEADLINE.
+    pub next_date: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -96,6 +111,63 @@ pub struct ErrorResponse {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current: Option<Item>,
+}
+
+/// Error codes added with the write safety checks. Each is the
+/// agd.error/v1 `code` its `as_str` names; older codes are still string
+/// literals where they are raised.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ErrorCode {
+    /// A write met an interrupted earlier write whose file changed since.
+    JournalConflict,
+    /// A title that is not one line, or that the parser would read as a
+    /// TODO keyword, priority cookie or tags.
+    InvalidTitle,
+    /// A tag with characters outside Org's tag characters.
+    InvalidTag,
+    /// A priority outside the file's range.
+    InvalidPriority,
+    /// A property key outside `[A-Za-z0-9_-]`, or a value of several lines.
+    InvalidProperty,
+    /// A capture prompt answer of several lines.
+    InvalidPrompt,
+    /// A capture body line that would start a heading.
+    InvalidBody,
+    /// An `:ID:` value another heading under the roots already has.
+    DuplicateId,
+    /// A change to, or removal of, a heading's existing `:ID:`.
+    IdImmutable,
+    /// An undo whose change was edited since; nothing is written.
+    UndoConflict,
+    /// An undo of a journal entry that is not a committed change.
+    NothingToUndo,
+    /// A journal entry or transaction id that is not in the journal.
+    JournalNotFound,
+}
+
+impl ErrorCode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::JournalConflict => "journal_conflict",
+            Self::InvalidTitle => "invalid_title",
+            Self::InvalidTag => "invalid_tag",
+            Self::InvalidPriority => "invalid_priority",
+            Self::InvalidProperty => "invalid_property",
+            Self::InvalidPrompt => "invalid_prompt",
+            Self::InvalidBody => "invalid_body",
+            Self::DuplicateId => "duplicate_id",
+            Self::IdImmutable => "id_immutable",
+            Self::UndoConflict => "undo_conflict",
+            Self::NothingToUndo => "nothing_to_undo",
+            Self::JournalNotFound => "journal_not_found",
+        }
+    }
+}
+
+impl From<ErrorCode> for String {
+    fn from(code: ErrorCode) -> Self {
+        code.as_str().to_string()
+    }
 }
 
 #[derive(Debug)]
@@ -115,6 +187,13 @@ impl AgdError {
             }),
             source: None,
         }
+    }
+
+    /// The same error with `context: ` before its message, such as which
+    /// of several targets it is about.
+    pub fn with_context(mut self, context: &str) -> Self {
+        self.response.message = format!("{context}: {}", self.response.message);
+        self
     }
 
     pub fn with_current(mut self, current: Item) -> Self {

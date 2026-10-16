@@ -95,7 +95,7 @@ fn compare(directory: &Path, case: &Case) -> Vec<Comparison> {
             let text = fixture(directory, "emacs.txt");
             let rows: String = items.iter().map(|item| item_row(item) + "\n").collect();
             vec![
-                csv(items_csv(&items, kind, index.settings())),
+                csv(items_csv(&items, kind, &index)),
                 Comparison {
                     file: "emacs.txt",
                     actual: rows,
@@ -119,7 +119,7 @@ fn compare(directory: &Path, case: &Case) -> Vec<Comparison> {
                 })
                 .expect("run native agenda");
             vec![
-                csv(agenda_csv(&entries, today, index.settings())),
+                csv(agenda_csv(&entries, today, &index)),
                 Comparison {
                     file: "emacs.txt",
                     actual: agenda_text(&entries, from, to, None),
