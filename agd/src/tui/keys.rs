@@ -312,37 +312,99 @@ pub(super) const SCREENS: [(&str, &[KeyGroup]); 5] = [
     ("Pane", PANE_KEYS),
 ];
 
-/// Footer actions, most used first; `?` help is always shown at the right.
-pub(super) const LIST_FOOTER: &[Action] = &[
-    A::Done,
-    A::State,
-    A::Schedule,
-    A::Deadline,
-    A::Triage,
-    A::Capture,
-    A::Views,
-    A::Cancel,
-    A::Peek,
-];
-/// The footer while rows are marked: what acts on all of them.
-pub(super) const MARKED_FOOTER: &[Action] =
-    &[A::Bulk, A::Done, A::Schedule, A::Deadline, A::UnmarkAll];
-pub(super) const TRIAGE_FOOTER: &[Action] = &[A::Next, A::Previous, A::Back];
 /// Triage's two rows of decision chips under the card.
 pub(super) const TRIAGE_CHIPS: [&[Action]; 2] = [
     &[A::Today, A::Tomorrow, A::NextWeek, A::Schedule, A::Done],
     &[A::MakeNext, A::Someday, A::Cancel, A::Refile, A::Undo],
 ];
-pub(super) const AGENT_FOOTER: &[Action] = &[
-    A::Accept,
-    A::Undo,
-    A::Diff,
-    A::Peek,
-    A::Editor,
-    A::AcceptAll,
-    A::FilterAgent,
-    A::Back,
-];
+
+/// A footer hint: an action and the word for it in this context.
+type Hint = (Action, &'static str);
+
+/// The footer's hints for what is under the cursor, four at most, as
+/// (keys, word); `? keys` is drawn after them. `f/b` stands for both.
+pub(super) fn footer_hints(app: &App) -> Vec<(String, &'static str)> {
+    let (groups, hints): (&'static [KeyGroup], &[Hint]) = match app.screen {
+        Screen::Triage => (
+            TRIAGE_KEYS,
+            &[
+                (A::Next, "next card"),
+                (A::Previous, "previous card"),
+                (A::Back, "back"),
+            ],
+        ),
+        Screen::Review => (
+            AGENT_KEYS,
+            &[
+                (A::Accept, "accept"),
+                (A::Undo, "undo"),
+                (A::Diff, "diff"),
+                (A::Editor, "open"),
+            ],
+        ),
+        _ if !app.marks.is_empty() => (
+            LIST_KEYS,
+            &[
+                (A::Bulk, "bulk"),
+                (A::Done, "done"),
+                (A::Schedule, "schedule"),
+                (A::UnmarkAll, "unmark all"),
+            ],
+        ),
+        _ => (LIST_KEYS, row_hints(app)),
+    };
+    let key = |action: Action| {
+        groups
+            .iter()
+            .flat_map(|group| group.bindings.iter())
+            .find(|binding| binding.action == action)
+            .map(|binding| binding.label.split(' ').next().unwrap_or(binding.label))
+            .unwrap_or("")
+    };
+    hints
+        .iter()
+        .map(|(action, word)| match action {
+            A::Later => (format!("{}/{}", key(A::Later), key(A::Earlier)), *word),
+            _ => (key(*action).to_string(), *word),
+        })
+        .collect()
+}
+
+/// What the selected row most likely needs next.
+fn row_hints(app: &App) -> &'static [Hint] {
+    let Some(row) = app.selected_row() else {
+        return &[(A::Capture, "capture"), (A::Views, "views")];
+    };
+    let overdue = row.occurrence.as_ref().is_some_and(|occurrence| {
+        occurrence.kind == agd_core::OccurrenceType::PastScheduled
+            || occurrence.extra.ends_with("ago:")
+    });
+    if row.item.done {
+        &[(A::State, "reopen"), (A::Undo, "undo")]
+    } else if overdue {
+        &[
+            (A::Schedule, "reschedule"),
+            (A::Done, "done"),
+            (A::Triage, "triage"),
+        ]
+    } else if row.section == super::INBOX {
+        &[(A::Refile, "refile"), (A::Done, "done")]
+    } else if app.screen == Screen::Week {
+        &[
+            (A::Done, "done"),
+            (A::Schedule, "schedule"),
+            (A::Later, "week"),
+            (A::GoToday, "today"),
+        ]
+    } else {
+        &[
+            (A::Done, "done"),
+            (A::State, "state"),
+            (A::Schedule, "schedule"),
+            (A::Deadline, "deadline"),
+        ]
+    }
+}
 
 /// Index into SCREENS of what is on view.
 pub(super) fn current_screen(app: &App) -> usize {

@@ -179,7 +179,7 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     // beside any status message.
     let help = Line::from(vec![
         Span::styled("?", theme.strong(theme.accent)),
-        Span::styled(" help ", theme.muted()),
+        Span::styled(" keys ", theme.muted()),
     ]);
     let room = (area.width as usize).saturating_sub(help.width() + 1);
     let mut spans = theme.pill(mode, theme.accent);
@@ -213,20 +213,14 @@ fn footer_hints(app: &App, room: usize) -> Vec<Span<'static>> {
         spans.push(Span::styled(app.short_location(&row.item), theme.muted()));
         spans.push(Span::styled("  │  ", theme.fg(theme.border)));
     }
-    let (groups, actions) = match app.screen {
-        Screen::Triage => (keys::TRIAGE_KEYS, keys::TRIAGE_FOOTER),
-        Screen::Review => (keys::AGENT_KEYS, keys::AGENT_FOOTER),
-        _ if !app.marks.is_empty() => (keys::LIST_KEYS, keys::MARKED_FOOTER),
-        _ => (keys::LIST_KEYS, keys::LIST_FOOTER),
-    };
     if !app.marks.is_empty() {
         spans.push(Span::styled(
             format!("{} marked  ", app.marks.len()),
             theme.strong(theme.accent),
         ));
     }
-    for (key, action) in keys::hints(groups, actions) {
-        let hint = theme.key_hint(key, action);
+    for (key, action) in keys::footer_hints(app) {
+        let hint = theme.key_hint(&key, action);
         if span_width(&spans) + span_width(&hint) > room {
             break;
         }

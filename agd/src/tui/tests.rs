@@ -176,7 +176,7 @@ fn peek_on_the_agents_tab_shows_the_task_an_agent_wrote() {
         app.peek = true;
         let screen = render(&mut app, 120, 30).join("\n");
         assert!(screen.contains("Peek"), "{screen}");
-        assert!(screen.contains("SPC peek"), "{screen}");
+        assert!(screen.contains("a accept"), "{screen}");
         // The peek panel names the task and where it lives.
         assert!(screen.matches("Agent task").count() >= 2, "{screen}");
         assert!(screen.contains("inbox.org"), "{screen}");
@@ -851,7 +851,7 @@ fn the_footer_keeps_help_visible_at_80_columns_with_whole_hints() {
         app.reload_rows().unwrap();
         let screen = render(&mut app, 80, 24);
         let footer = screen.last().unwrap();
-        assert!(footer.ends_with("? help "), "{footer}");
+        assert!(footer.ends_with("? keys "), "{footer}");
         assert!(footer.contains("x done"), "{footer}");
         // A hint that does not fit is left out, not cut.
         for word in ["schedule", "deadline", "triage"] {
@@ -861,7 +861,7 @@ fn the_footer_keeps_help_visible_at_80_columns_with_whole_hints() {
         app.set_status("work.org:2  TODO → DONE · u undo");
         let footer = render(&mut app, 80, 24).last().unwrap().clone();
         assert!(footer.contains("TODO → DONE"), "{footer}");
-        assert!(footer.ends_with("? help "), "{footer}");
+        assert!(footer.ends_with("? keys "), "{footer}");
     });
 }
 
@@ -1570,6 +1570,39 @@ blocks = [
         let after = title.split("):").nth(1).unwrap_or_default();
         assert!(!after.chars().any(|c| c.is_ascii_digit()), "{title}");
         assert!(screen.contains("VENDORS  1"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn the_footer_offers_what_the_selected_row_needs() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let footer_for = |app: &mut App, title: &str| {
+            app.selected = app
+                .rows
+                .iter()
+                .position(|row| row.item.title == title)
+                .unwrap();
+            render(app, 120, 30).last().unwrap().clone()
+        };
+        let overdue = footer_for(&mut app, "Migrate cron jobs");
+        assert!(
+            overdue.contains("s reschedule   x done   T triage"),
+            "{overdue}"
+        );
+        let done = footer_for(&mut app, "Call with bank");
+        assert!(done.contains("t reopen   u undo"), "{done}");
+        let inbox = footer_for(&mut app, "Compare jiff and chrono");
+        assert!(inbox.contains("R refile   x done"), "{inbox}");
+        assert!(inbox.ends_with("? keys "), "{inbox}");
+
+        press(&mut app, KeyCode::Tab);
+        let week = footer_for(&mut app, "Review ingestion PR");
+        assert!(week.contains("f/b week   . today"), "{week}");
     });
 }
 
