@@ -216,6 +216,66 @@ async fn bad_arguments_are_error_schemas_naming_the_argument()
     Ok(())
 }
 
+/// An invented argument used to be ignored: `capture` with `due` wrote a
+/// task without its deadline, and `edit` with `state` said "nothing to edit".
+#[tokio::test]
+async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn std::error::Error>>
+{
+    let directory = fixture();
+    let service = service(&directory).await?;
+
+    let result = call(
+        &service,
+        "capture",
+        json!({"template": "t", "title": "Buy milk", "due": "fri"}),
+    )
+    .await?;
+    assert_eq!(result.is_error, Some(true));
+    let error = first_block(&result);
+    assert_eq!(error["code"], "invalid_arguments");
+    let message = error["message"].as_str().expect("message");
+    assert!(
+        message.starts_with("unknown argument `due`; accepted arguments: body, deadline,"),
+        "{message}"
+    );
+    assert!(message.contains("deadline,"), "{message}");
+    assert!(message.contains("template (required)"), "{message}");
+    assert_eq!(org_files(&directory), 1);
+
+    let result = call(
+        &service,
+        "edit",
+        json!({"ref": "today-task", "state": "DONE"}),
+    )
+    .await?;
+    assert_eq!(first_block(&result)["code"], "invalid_arguments");
+    let before = fs::read_to_string(directory.path().join("tasks.org"))?;
+    assert!(before.contains("* TODO Today"));
+
+    // The published schemas say so, and describe every argument.
+    for tool in service.list_tools(Default::default()).await?.tools {
+        let schema = &tool.input_schema;
+        assert_eq!(
+            schema.get("additionalProperties"),
+            Some(&json!(false)),
+            "{}",
+            tool.name
+        );
+        let properties = schema["properties"].as_object().expect("properties");
+        for (name, property) in properties {
+            assert!(
+                property["description"]
+                    .as_str()
+                    .is_some_and(|text| !text.is_empty()),
+                "{}.{name} has no description",
+                tool.name
+            );
+        }
+    }
+    service.cancel().await?;
+    Ok(())
+}
+
 /// Claude Code speaks the 2026-07-28 protocol: `server/discover` first, no
 /// `initialize`, and its name in every request's metadata. The journal must
 /// still name it.

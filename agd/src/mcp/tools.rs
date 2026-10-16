@@ -23,29 +23,51 @@ use serde_json::Value;
 
 use crate::mcp::OrgModeRouter;
 
+// Request structs refuse unknown arguments, so a misspelled or invented one
+// (`due` for `deadline`) is an error instead of being silently ignored; the
+// published schema says so with `additionalProperties: false`. Each field's
+// doc comment is its description in that schema.
+
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AgendaRequest {
-    /// day, week, or month; defaults to the imported agenda span.
+    /// day, week or month; defaults to the configured agenda_span.
     span: Option<String>,
-    /// Start date as YYYY-MM-DD; defaults to today.
+    /// First day: today, tomorrow, a weekday (fri), +2d (also +1w, +1m,
+    /// +1y) or 2026-10-30; defaults to today.
     from: Option<String>,
-    /// Optional Emacs tags/TODO match expression.
+    /// Emacs tags/TODO match, such as `work-someday/NEXT|TODO`. TODO
+    /// keywords come from each file's #+TODO line or the configured
+    /// todo_keywords; `describe` lists them.
     #[serde(rename = "match")]
     match_expression: Option<String>,
 }
 
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CaptureRequest {
-    /// Configured capture template key.
+    /// Capture template key from the configuration, such as `t`;
+    /// `describe` lists the templates.
     template: String,
+    /// Heading text, taken literally.
     title: String,
+    /// SCHEDULED date: today, tomorrow, a weekday (fri), +2d (also +1w,
+    /// +1m, +1y), 2026-10-30 or 2026-10-30T14:00.
     scheduled: Option<String>,
+    /// DEADLINE date: today, tomorrow, a weekday (fri), +2d (also +1w,
+    /// +1m, +1y), 2026-10-30 or 2026-10-30T14:00.
     deadline: Option<String>,
+    /// Tags without colons, such as ["work"].
     #[serde(default)]
     tags: Vec<String>,
+    /// Priority letter within the configured range, such as A.
     priority: Option<String>,
+    /// Literal text kept under the heading: at the template's %i, else
+    /// after the heading's own lines.
     #[serde(default)]
     body: String,
+    /// Answers to the template's %^{name} prompts, keyed by name;
+    /// `describe` lists each template's prompts.
     #[serde(default)]
     prompts: BTreeMap<String, String>,
     /// Extra :PROPERTIES: recording where the task came from, e.g. REPO,
@@ -55,40 +77,66 @@ struct CaptureRequest {
 }
 
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SetStateRequest {
+    /// The item's ref from agenda, query or the last write to it; a write
+    /// changes it.
     #[serde(rename = "ref")]
     item_ref: String,
+    /// A TODO keyword of the item's file (its #+TODO line, else the
+    /// configured todo_keywords), such as DONE; `describe` lists them.
     state: String,
+    /// Note logged with the state change.
     note: Option<String>,
 }
 
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PlanRequest {
+    /// The item's ref from agenda, query or the last write to it; a write
+    /// changes it.
     #[serde(rename = "ref")]
     item_ref: String,
+    /// New SCHEDULED date: today, tomorrow, a weekday (fri), +2d (also
+    /// +1w, +1m, +1y), 2026-10-30 or 2026-10-30T14:00.
     scheduled: Option<String>,
+    /// New DEADLINE date: today, tomorrow, a weekday (fri), +2d (also +1w,
+    /// +1m, +1y), 2026-10-30 or 2026-10-30T14:00.
     deadline: Option<String>,
+    /// Note logged with the change.
     note: Option<String>,
 }
 
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct EditRequest {
+    /// The item's ref from agenda, query or the last write to it; a write
+    /// changes it.
     #[serde(rename = "ref")]
     item_ref: String,
+    /// New heading title, taken literally.
     title: Option<String>,
+    /// Tags to add, without colons.
     #[serde(default)]
     tags_add: Vec<String>,
+    /// Tags to remove, without colons.
     #[serde(default)]
     tags_remove: Vec<String>,
+    /// New priority letter within the configured range, such as A.
     priority: Option<String>,
+    /// :PROPERTIES: to set, by name; a null value removes that property.
     #[serde(default)]
     properties: BTreeMap<String, Option<String>>,
+    /// Note logged under the heading.
     note: Option<String>,
 }
 
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct QueryRequest {
-    /// Supported org-ql subset expression.
+    /// org-ql expression, such as (and (todo "TODO") (deadline :to 7)).
+    /// Predicates: and, or, not, todo, done, tags, priority, category,
+    /// text, deadline :to N, scheduled :to N.
     expression: String,
 }
 
@@ -318,25 +366,32 @@ fn input_schema<T: JsonSchema + 'static>() -> std::sync::Arc<JsonObject> {
 fn parse_arguments<T: DeserializeOwned + JsonSchema + 'static>(
     arguments: JsonObject,
 ) -> Result<T, AgdError> {
-    let error = match serde_json::from_value::<T>(Value::Object(arguments.clone())) {
-        Ok(request) => return Ok(request),
-        Err(error) => error.to_string(),
-    };
-    // serde names the argument in these two; a type error names only the
-    // type it expected.
-    let problem = if error.starts_with("unknown field") || error.starts_with("missing field") {
-        error
+    let schema = schema_for_type::<T>();
+    let accepted = schema.get("properties").and_then(Value::as_object);
+    let unknown = arguments
+        .keys()
+        .find(|name| accepted.is_some_and(|accepted| !accepted.contains_key(name.as_str())));
+    let problem = if let Some(name) = unknown {
+        format!("unknown argument `{name}`")
     } else {
+        let error = match serde_json::from_value::<T>(Value::Object(arguments.clone())) {
+            Ok(request) => return Ok(request),
+            Err(error) => error.to_string(),
+        };
+        // serde names a missing argument; a type error names only the type
+        // it expected.
         match invalid_argument::<T>(&arguments) {
-            Some(name) => format!("invalid `{name}`: {error}"),
-            None => error,
+            Some(name) if !error.starts_with("missing field") => {
+                format!("invalid `{name}`: {error}")
+            }
+            _ => error,
         }
     };
     Err(AgdError::new(
         "invalid_arguments",
         format!(
             "{problem}; accepted arguments: {}",
-            accepted_arguments::<T>()
+            accepted_arguments(&schema)
         ),
     ))
 }
@@ -359,8 +414,7 @@ fn invalid_argument<T: DeserializeOwned>(arguments: &JsonObject) -> Option<Strin
 
 /// `template (required), title (required), scheduled, ...` from the
 /// request's schema.
-fn accepted_arguments<T: JsonSchema + 'static>() -> String {
-    let schema = schema_for_type::<T>();
+fn accepted_arguments(schema: &JsonObject) -> String {
     let required: Vec<&str> = schema
         .get("required")
         .and_then(Value::as_array)
