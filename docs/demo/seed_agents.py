@@ -40,8 +40,11 @@ def session(client, calls):
         process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": index, "method": "tools/call",
                                         "params": {"name": tool, "arguments": arguments}}) + "\n")
         process.stdin.flush()
-        while json.loads(process.stdout.readline()).get("id") != index:
+        while (message := json.loads(process.stdout.readline())).get("id") != index:
             pass
+        # A refused call answers agd.error/v1 with isError set; stop the demo on it.
+        if message["result"].get("isError"):
+            sys.exit(f"{tool} failed: {message['result']['content'][0]['text']}")
     process.stdin.close()
     process.wait(timeout=10)
 
@@ -49,4 +52,5 @@ def session(client, calls):
 session("claude-code", [("capture", {
     "template": "t", "title": "Benchmark the agenda on a 5k-heading file", "tags": ["perf"],
     "properties": {"REPO": "agd", "SOURCE": "[[file:org-core/src/agenda_engine.rs::812]]"}})])
-session("codex", [("set_state", {"ref": "Rotate staging certs", "state": "DONE"})])
+# Codex's own client name; agd journals it as mcp:codex.
+session("codex-mcp-client", [("set_state", {"ref": "Rotate staging certs", "state": "DONE"})])
