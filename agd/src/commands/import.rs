@@ -76,7 +76,16 @@ impl ImportCommand {
             self.verify,
         )?;
         self.print(&execution)?;
-        if !preview && !write && !execution.diff.is_empty() {
+        if execution.diff.is_empty() {
+            let message = format!("{} is already up to date", destination.display());
+            if self.stdout {
+                eprintln!("{message}");
+            } else {
+                println!("{message}");
+            }
+            return Ok(());
+        }
+        if !preview && !write {
             bail!(
                 "{} exists; review the diff above and rerun with --force to replace it",
                 destination.display()

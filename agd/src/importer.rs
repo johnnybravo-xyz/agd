@@ -200,15 +200,9 @@ fn finish_import(
         read.join("\n  ")
     );
     let toml = render_config(&result.settings, &header)?;
-    let previous = fs::read_to_string(destination).unwrap_or_default();
-    let diff = TextDiff::from_lines(&previous, &toml)
-        .unified_diff()
-        .header(
-            &format!("a/{}", destination.display()),
-            &format!("b/{}", destination.display()),
-        )
-        .to_string();
-    if write {
+    let diff = config_diff(destination, &toml)?;
+    // An unchanged config is left alone.
+    if write && !diff.is_empty() {
         write_config(destination, &toml)?;
     }
     Ok(ImportExecution {
@@ -218,6 +212,23 @@ fn finish_import(
         diff,
         verification,
     })
+}
+
+/// A unified diff from the config at `destination` (/dev/null when there is
+/// none yet) to `toml`, headed by the real path; empty when they match.
+fn config_diff(destination: &Path, toml: &str) -> Result<String> {
+    let path = destination.display().to_string();
+    let (previous, old_label) = match fs::read_to_string(destination) {
+        Ok(previous) => (previous, path.clone()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            (String::new(), "/dev/null".to_string())
+        }
+        Err(error) => return Err(error).with_context(|| format!("cannot read {path}")),
+    };
+    Ok(TextDiff::from_lines(previous.as_str(), toml)
+        .unified_diff()
+        .header(&old_label, &path)
+        .to_string())
 }
 
 /// Replaces the config file atomically with owner-only permissions.
@@ -497,10 +508,11 @@ fn reader_file(name: &str, contents: &str) -> Result<tempfile::NamedTempFile> {
     Ok(reader)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn a_reader_that_never_finishes_is_stopped_with_an_error() {
         let started = Instant::now();
@@ -514,11 +526,34 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(10));
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_reader_prompt_reads_end_of_file() {
         let mut command = Command::new("sh");
         command.args(["-c", "read answer; echo \"answer:$answer\""]);
         let output = run(&mut command, "test reader", Duration::from_secs(10)).unwrap();
         assert_eq!(String::from_utf8(output.stdout).unwrap(), "answer:\n");
+    }
+
+    #[test]
+    fn config_diff_names_the_real_path_and_is_empty_when_unchanged() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("config.toml");
+        let path = destination.display();
+        assert_eq!(
+            config_diff(&destination, "roots = [\"~/org\"]\n").unwrap(),
+            format!("--- /dev/null\n+++ {path}\n@@ -0,0 +1 @@\n+roots = [\"~/org\"]\n")
+        );
+        fs::write(&destination, "roots = [\"~/org\"]\n").unwrap();
+        assert_eq!(
+            config_diff(&destination, "roots = [\"~/notes\"]\n").unwrap(),
+            format!(
+                "--- {path}\n+++ {path}\n@@ -1 +1 @@\n-roots = [\"~/org\"]\n+roots = [\"~/notes\"]\n"
+            )
+        );
+        assert_eq!(
+            config_diff(&destination, "roots = [\"~/org\"]\n").unwrap(),
+            ""
+        );
     }
 }
