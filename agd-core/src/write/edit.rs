@@ -454,7 +454,7 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::write::test_support::{context, refs_by_title, scheduled, settings};
+    use crate::write::test_support::{context, refs_by_title, scheduled, settings, state_change};
 
     #[test]
     fn an_edit_is_journaled_as_the_one_kind_of_change_it_makes() {
@@ -504,10 +504,7 @@ mod tests {
         };
 
         // DONE is not a keyword of home.org: nothing is written anywhere.
-        let done = EditIntent {
-            state: Change::Set("DONE".to_string()),
-            ..EditIntent::default()
-        };
+        let done = state_change("DONE");
         let error = engine
             .edit_batch(
                 &[edit("Pay rent", done.clone()), edit("Water plants", done)],

@@ -384,8 +384,7 @@ fn journal_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::write::test_support::{context, settings};
-    use crate::{Change, EditIntent, WorkspaceIndex};
+    use crate::write::test_support::{context, first_ref, refs_by_title, settings, state_change};
 
     /// Appends a pending journal record for `file`, as a write interrupted
     /// between journaling and committing leaves it.
@@ -436,15 +435,8 @@ mod tests {
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].id, id);
 
-        let refs: BTreeMap<String, String> = WorkspaceIndex::load(settings)
-            .unwrap()
-            .items()
-            .map(|item| (item.title.clone(), item.item_ref.clone()))
-            .collect();
-        let done = EditIntent {
-            state: Change::Set("DONE".to_string()),
-            ..EditIntent::default()
-        };
+        let refs = refs_by_title(&settings);
+        let done = state_change("DONE");
         engine
             .edit(&refs["Other"], &done, false, &context())
             .unwrap();
@@ -476,13 +468,7 @@ mod tests {
         fs::write(&path, "* DONE Landed\n").unwrap();
         let id = append_interrupted_write(&journal, &path, "* TODO Landed\n", "* DONE Landed\n");
         let settings = settings(temp.path());
-        let item_ref = WorkspaceIndex::load(settings.clone())
-            .unwrap()
-            .items()
-            .next()
-            .unwrap()
-            .item_ref
-            .clone();
+        let item_ref = first_ref(&settings);
         let engine = WriteEngine::new(settings, journal).unwrap();
         assert!(engine.journal_conflicts().unwrap().is_empty());
         let status = |engine: &WriteEngine| {
@@ -495,10 +481,7 @@ mod tests {
                 .status
         };
         assert_eq!(status(&engine), JournalStatus::Pending);
-        let todo = EditIntent {
-            state: Change::Set("TODO".to_string()),
-            ..EditIntent::default()
-        };
+        let todo = state_change("TODO");
         engine.edit(&item_ref, &todo, false, &context()).unwrap();
         assert_eq!(status(&engine), JournalStatus::Committed);
     }

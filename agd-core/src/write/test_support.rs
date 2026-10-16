@@ -9,13 +9,7 @@ use crate::{PlanningTimestamp, Settings, WorkspaceIndex};
 use super::edit::{Change, EditIntent};
 use super::engine::WriteContext;
 
-pub(super) fn settings(root: &Path) -> Settings {
-    Settings {
-        roots: vec![root.to_string_lossy().into_owned()],
-        agenda_files: vec!["**/*.org".to_string()],
-        ..Settings::default()
-    }
-}
+pub(super) use crate::config::test_support::settings;
 
 pub(super) fn context() -> WriteContext {
     WriteContext {
@@ -40,12 +34,30 @@ pub(super) fn tree(directory: &Path) -> Vec<String> {
     paths
 }
 
+/// The first heading's ref under `settings`.
+pub(super) fn first_ref(settings: &Settings) -> String {
+    WorkspaceIndex::load(settings.clone())
+        .unwrap()
+        .items()
+        .next()
+        .unwrap()
+        .item_ref
+        .clone()
+}
+
 pub(super) fn refs_by_title(settings: &Settings) -> BTreeMap<String, String> {
     WorkspaceIndex::load(settings.clone())
         .unwrap()
         .items()
         .map(|item| (item.title.clone(), item.item_ref.clone()))
         .collect()
+}
+
+pub(super) fn state_change(keyword: &str) -> EditIntent {
+    EditIntent {
+        state: Change::Set(keyword.to_string()),
+        ..EditIntent::default()
+    }
 }
 
 pub(super) fn scheduled(date: &str) -> EditIntent {

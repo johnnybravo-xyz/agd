@@ -352,7 +352,7 @@ impl WorkspaceIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::test_support::settings;
+    use crate::config::test_support::settings;
 
     #[test]
     fn digest_ref_relocates_uniquely_and_reports_stale_current() {
@@ -512,13 +512,14 @@ mod tests {
         let refs: Vec<String> = index.items().map(|item| item.item_ref.clone()).collect();
         assert_eq!(refs.len(), 2);
         assert_ne!(refs[0], refs[1]);
-        for item_ref in &refs {
-            assert!(item_ref.contains("#sha256:"), "{item_ref}");
+        // Neither the location refs nor the ID itself selects one of them.
+        for item_ref in refs.iter().map(String::as_str).chain(["dup-id-1"]) {
             assert_eq!(
                 index.resolve(item_ref).unwrap_err().code().as_str(),
                 "id_conflict"
             );
         }
+        assert!(refs.iter().all(|item_ref| item_ref.contains("#sha256:")));
 
         // Once the ID is unique again, the item's ref is its ID.
         std::fs::write(
@@ -528,21 +529,5 @@ mod tests {
         .unwrap();
         index.refresh_path(&tasks).unwrap();
         assert_eq!(index.items().next().unwrap().item_ref, "dup-id-1");
-    }
-
-    #[test]
-    fn duplicate_ids_are_not_selectable() {
-        let temp = tempfile::tempdir().unwrap();
-        std::fs::write(
-            temp.path().join("tasks.org"),
-            "* TODO One\n:PROPERTIES:\n:ID: same\n:END:\n* TODO Two\n:PROPERTIES:\n:ID: same\n:END:\n",
-        )
-        .unwrap();
-        let index = WorkspaceIndex::load(settings(temp.path())).unwrap();
-        assert_eq!(index.duplicate_ids().count(), 1);
-        assert_eq!(
-            index.resolve("same").unwrap_err().code().as_str(),
-            "id_conflict"
-        );
     }
 }

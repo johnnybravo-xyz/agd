@@ -358,17 +358,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_org_relative_and_warning_dates() {
-        let today = NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
-        assert_eq!(parse_date_input("+2d", today).unwrap().date, "2026-10-15");
-        assert_eq!(parse_date_input("fri", today).unwrap().date, "2026-10-16");
-        let absolute = parse_date_input("2026-10-30 09:15 +1w -7d", today).unwrap();
-        assert_eq!(absolute.time.as_deref(), Some("09:15"));
-        assert_eq!(absolute.repeater.as_deref(), Some("+1w"));
-        assert_eq!(absolute.warning.as_deref(), Some("-7d"));
-    }
-
-    #[test]
     fn reads_org_prompt_shorthands_and_times() {
         let today = NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
         let date = |input: &str| {
@@ -405,8 +394,6 @@ mod tests {
         ] {
             assert!(error.to_string().contains(form), "{form} missing: {error}");
         }
-        assert!(parse_date_input("fri 25:00", today).is_err());
-        assert!(parse_date_input("13pm", today).is_err());
     }
 
     #[test]

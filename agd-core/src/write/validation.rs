@@ -228,7 +228,7 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::write::test_support::{context, settings};
+    use crate::write::test_support::{context, first_ref, settings};
     use crate::{Mutation, WriteEngine};
 
     #[test]
@@ -354,13 +354,7 @@ mod tests {
         let original = "* TODO Task\n";
         fs::write(&path, original).unwrap();
         let settings = settings(temp.path());
-        let item_ref = WorkspaceIndex::load(settings.clone())
-            .unwrap()
-            .items()
-            .next()
-            .unwrap()
-            .item_ref
-            .clone();
+        let item_ref = first_ref(&settings);
         let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
         let refusals = [
             (

@@ -153,7 +153,7 @@ impl OrgDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::test_support::settings;
+    use crate::config::test_support::settings;
 
     #[test]
     fn indexes_refs_inheritance_and_in_file_todo_without_drift() {

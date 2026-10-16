@@ -665,7 +665,7 @@ mod tests {
     use chrono::{Duration, Local};
 
     use super::*;
-    use crate::write::test_support::{context, settings};
+    use crate::write::test_support::{context, first_ref, scheduled, settings, state_change};
     use crate::{Repeat, WorkspaceIndex, WriteEngine};
 
     #[test]
@@ -685,10 +685,7 @@ mod tests {
             .map(|item| item.item_ref.clone())
             .collect();
         let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
-        let done = EditIntent {
-            state: Change::Set("DONE".to_string()),
-            ..EditIntent::default()
-        };
+        let done = state_change("DONE");
         let added = engine.edit(&refs[0], &done, false, &context()).unwrap();
         let id = added.item.id.clone().unwrap();
         assert_eq!(id.len(), 36);
@@ -712,13 +709,7 @@ mod tests {
         )
         .unwrap();
         let settings = settings(temp.path());
-        let item_ref = WorkspaceIndex::load(settings.clone())
-            .unwrap()
-            .items()
-            .next()
-            .unwrap()
-            .item_ref
-            .clone();
+        let item_ref = first_ref(&settings);
         let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
         engine
             .edit(
@@ -752,24 +743,10 @@ mod tests {
         )
         .unwrap();
         let settings = settings(temp.path());
-        let item_ref = WorkspaceIndex::load(settings.clone())
-            .unwrap()
-            .items()
-            .next()
-            .unwrap()
-            .item_ref
-            .clone();
+        let item_ref = first_ref(&settings);
         let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
         let repeated = engine
-            .edit(
-                &item_ref,
-                &EditIntent {
-                    state: Change::Set("DONE".to_string()),
-                    ..EditIntent::default()
-                },
-                false,
-                &context(),
-            )
+            .edit(&item_ref, &state_change("DONE"), false, &context())
             .unwrap();
         let written = fs::read_to_string(path).unwrap();
         let tomorrow = (Local::now().date_naive() + Duration::days(1))
@@ -805,22 +782,7 @@ mod tests {
         let settings = settings(temp.path());
         let engine = WriteEngine::new(settings, temp.path().join("journal-real.jsonl")).unwrap();
         let mutation = engine
-            .edit(
-                "work-task-001",
-                &EditIntent {
-                    scheduled: Change::Set(PlanningTimestamp {
-                        date: "2026-10-30".to_string(),
-                        time: None,
-                        end_time: None,
-                        repeater: None,
-                        warning: None,
-                        raw: None,
-                    }),
-                    ..EditIntent::default()
-                },
-                false,
-                &context(),
-            )
+            .edit("work-task-001", &scheduled("2026-10-30"), false, &context())
             .unwrap();
         let written = fs::read_to_string(&path).unwrap();
         assert!(written.contains("   SCHEDULED: <2026-10-30 Fri> DEADLINE:"));

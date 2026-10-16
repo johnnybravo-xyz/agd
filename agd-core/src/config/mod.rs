@@ -13,7 +13,7 @@
 mod file;
 mod model;
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 mod validation;
 
 pub use file::{default_config_path, load_settings, parse_config_file, render_config};

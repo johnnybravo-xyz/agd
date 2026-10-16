@@ -265,8 +265,10 @@ fn touched_heading(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::write::test_support::{context, refs_by_title, scheduled, settings};
-    use crate::{Change, EditIntent, ItemEdit, PlanningTimestamp, WorkspaceIndex};
+    use crate::write::test_support::{
+        context, first_ref, refs_by_title, scheduled, settings, state_change,
+    };
+    use crate::{ItemEdit, WorkspaceIndex};
 
     #[test]
     fn undo_takes_an_entry_or_transaction_id_and_refuses_what_is_not_committed() {
@@ -353,10 +355,7 @@ mod tests {
             .map(|item| item.item_ref.clone())
             .collect();
         let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
-        let done = EditIntent {
-            state: Change::Set("DONE".to_string()),
-            ..EditIntent::default()
-        };
+        let done = state_change("DONE");
 
         let second = engine.edit(&refs[1], &done, false, &context()).unwrap();
         let edited = fs::read_to_string(&path).unwrap();
@@ -416,31 +415,10 @@ mod tests {
         let original = "#+TODO: TODO | DONE\r\n* TODO Exact  spacing :work:\r\nbody\r\n";
         fs::write(&path, original).unwrap();
         let settings = settings(temp.path());
-        let item_ref = WorkspaceIndex::load(settings.clone())
-            .unwrap()
-            .items()
-            .next()
-            .unwrap()
-            .item_ref
-            .clone();
+        let item_ref = first_ref(&settings);
         let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
         let mutation = engine
-            .edit(
-                &item_ref,
-                &EditIntent {
-                    scheduled: Change::Set(PlanningTimestamp {
-                        date: "2026-10-15".to_string(),
-                        time: None,
-                        end_time: None,
-                        repeater: None,
-                        warning: None,
-                        raw: None,
-                    }),
-                    ..EditIntent::default()
-                },
-                false,
-                &context(),
-            )
+            .edit(&item_ref, &scheduled("2026-10-15"), false, &context())
             .unwrap();
         let written = fs::read_to_string(&path).unwrap();
         assert!(written.starts_with("#+TODO: TODO | DONE\r\n* TODO Exact  spacing :work:\r\n"));
@@ -449,22 +427,7 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
 
         let mutation = engine
-            .edit(
-                &item_ref,
-                &EditIntent {
-                    scheduled: Change::Set(PlanningTimestamp {
-                        date: "2026-10-16".to_string(),
-                        time: None,
-                        end_time: None,
-                        repeater: None,
-                        warning: None,
-                        raw: None,
-                    }),
-                    ..EditIntent::default()
-                },
-                false,
-                &context(),
-            )
+            .edit(&item_ref, &scheduled("2026-10-16"), false, &context())
             .unwrap();
         fs::write(
             &path,

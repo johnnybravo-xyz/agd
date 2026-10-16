@@ -177,8 +177,8 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::write::test_support::{context, settings, tree};
-    use crate::{CaptureDraft, Change, EditIntent, WorkspaceIndex};
+    use crate::CaptureDraft;
+    use crate::write::test_support::{context, first_ref, settings, state_change, tree};
 
     #[test]
     fn dry_runs_create_no_directory_lock_journal_or_file() {
@@ -200,17 +200,8 @@ mod tests {
             "{}",
             preview.diff
         );
-        let item_ref = WorkspaceIndex::load(settings)
-            .unwrap()
-            .items()
-            .next()
-            .unwrap()
-            .item_ref
-            .clone();
-        let done = EditIntent {
-            state: Change::Set("DONE".to_string()),
-            ..EditIntent::default()
-        };
+        let item_ref = first_ref(&settings);
+        let done = state_change("DONE");
         engine.edit(&item_ref, &done, true, &context()).unwrap();
         assert_eq!(tree(org.path()), ["tasks.org"]);
         assert!(tree(data.path()).is_empty(), "{:?}", tree(data.path()));

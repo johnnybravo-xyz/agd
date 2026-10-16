@@ -129,8 +129,9 @@ pub(super) fn compare_items(left: &Item, right: &Item, index: &WorkspaceIndex) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::AgendaEngine;
     use crate::agenda::test_support::fixture;
-    use crate::{AgendaEngine, Settings};
+    use crate::config::test_support::settings;
 
     #[test]
     fn todo_lists_sort_by_each_files_own_priority_range() {
@@ -138,12 +139,7 @@ mod tests {
         // keeps the configured default B.
         let (temp, _) = fixture("#+PRIORITIES: A E E\n* TODO Default lowest\n* TODO [#D] Fourth\n");
         std::fs::write(temp.path().join("later.org"), "* TODO Default middle\n").unwrap();
-        let index = WorkspaceIndex::load(Settings {
-            roots: vec![temp.path().to_string_lossy().into_owned()],
-            agenda_files: vec!["**/*.org".to_string()],
-            ..Settings::default()
-        })
-        .unwrap();
+        let index = WorkspaceIndex::load(settings(temp.path())).unwrap();
         let today = NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
         let titles: Vec<String> = AgendaEngine::new(&index)
             .todo(None, today)

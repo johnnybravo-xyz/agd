@@ -195,8 +195,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::write::test_support::{context, settings, tree};
-    use crate::{CaptureDraft, Change, EditIntent, WorkspaceIndex};
+    use crate::CaptureDraft;
+    use crate::write::test_support::{context, first_ref, settings, state_change, tree};
 
     #[test]
     fn write_locks_live_in_the_data_directory_not_beside_org_files() {
@@ -260,25 +260,11 @@ mod tests {
         let path = temp.path().join("tasks.org");
         fs::write(&path, "* TODO Task\n").unwrap();
         let settings = settings(temp.path());
-        let item_ref = WorkspaceIndex::load(settings.clone())
-            .unwrap()
-            .items()
-            .next()
-            .unwrap()
-            .item_ref
-            .clone();
+        let item_ref = first_ref(&settings);
         let engine = WriteEngine::new(settings.clone(), temp.path().join("journal.jsonl")).unwrap();
         fs::write(temp.path().join(".#tasks.org"), "user@host.123").unwrap();
         let error = engine
-            .edit(
-                &item_ref,
-                &EditIntent {
-                    state: Change::Set("DONE".to_string()),
-                    ..EditIntent::default()
-                },
-                false,
-                &context(),
-            )
+            .edit(&item_ref, &state_change("DONE"), false, &context())
             .unwrap_err();
         assert_eq!(error.code().as_str(), "editor_conflict");
     }

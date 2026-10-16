@@ -718,21 +718,11 @@ mod tests {
             theme: "dark".to_string(),
             ..Settings::default()
         };
-        let resolved: ResolvedEditorConfig = serde_json::from_value(serde_json::json!({
-            "editor": "emacs",
+        let resolved = resolved_with(serde_json::json!({
             "org_directory": "/elsewhere",
             "agenda_files": [temp.path().join("inbox.org"), "/elsewhere/private.org"],
-            "todo_sequences": [["TODO", "|", "DONE"]],
-            "tags_column": -77,
-            "tag_inheritance_exclusions": [],
-            "highest_priority": "A", "lowest_priority": "C", "default_priority": "B",
-            "deadline_warning_days": 14, "agenda_span": "week", "agenda_start_day": null,
-            "week_start": "monday", "skip_scheduled_if_done": false,
-            "skip_deadline_if_done": false, "skip_timestamp_if_done": false,
-            "sorting_strategy": ["time-up"], "log_done": "time", "log_repeat": "time",
-            "log_reschedule": "nil", "log_redeadline": "nil", "log_into_drawer": false
-        }))
-        .unwrap();
+            "sorting_strategy": ["time-up"], "log_done": "time",
+        }));
         let result = apply_import(&resolved, &base, false).unwrap();
         assert_eq!(result.settings.roots, base.roots);
         assert_eq!(result.settings.theme, "dark");

@@ -537,26 +537,26 @@ mod tests {
         let sections = AgendaEngine::new(&index)
             .view(&view, today, today, false)
             .unwrap();
-        let groups: Vec<(String, Vec<String>)> = sections[0]
+        assert_eq!(
+            group_titles(&sections[0]),
+            [
+                ("Quick", vec!["Ten as a clock", "Fifteen as minutes"]),
+                ("Long", vec!["Ninety as a clock"]),
+                ("Other items", vec!["No estimate"]),
+            ]
+        );
+    }
+
+    /// Each group's name and its items' titles, in order.
+    fn group_titles(section: &ViewSection) -> Vec<(&str, Vec<&str>)> {
+        section
             .groups
             .iter()
             .map(|group| {
-                let titles = group.items.iter().map(|item| item.title.clone()).collect();
-                (group.name.clone(), titles)
+                let titles = group.items.iter().map(|item| item.title.as_str()).collect();
+                (group.name.as_str(), titles)
             })
-            .collect();
-        let expected = [
-            ("Quick", vec!["Ten as a clock", "Fifteen as minutes"]),
-            ("Long", vec!["Ninety as a clock"]),
-            ("Other items", vec!["No estimate"]),
-        ]
-        .map(|(name, titles)| {
-            (
-                name.to_string(),
-                titles.into_iter().map(str::to_string).collect::<Vec<_>>(),
-            )
-        });
-        assert_eq!(groups, expected);
+            .collect()
     }
 
     #[test]
@@ -601,28 +601,16 @@ mod tests {
         let sections = AgendaEngine::new(&index)
             .view(&view, today, today, false)
             .unwrap();
-        let groups: Vec<(String, Vec<String>)> = sections[0]
-            .groups
-            .iter()
-            .map(|group| {
-                let titles = group.items.iter().map(|item| item.title.clone()).collect();
-                (group.name.clone(), titles)
-            })
-            .collect();
-        let expected = [
-            ("Next", vec!["Decided"]),
-            ("Urgent", vec!["Hot child"]),
-            ("Project", vec!["Child"]),
-            ("Waiting", vec!["Waiting"]),
-            ("Other items", vec!["Alone"]),
-        ]
-        .map(|(name, titles)| {
-            (
-                name.to_string(),
-                titles.into_iter().map(str::to_string).collect::<Vec<_>>(),
-            )
-        });
-        assert_eq!(groups, expected);
+        assert_eq!(
+            group_titles(&sections[0]),
+            [
+                ("Next", vec!["Decided"]),
+                ("Urgent", vec!["Hot child"]),
+                ("Project", vec!["Child"]),
+                ("Waiting", vec!["Waiting"]),
+                ("Other items", vec!["Alone"]),
+            ]
+        );
         assert!(sections[0].items.is_empty());
     }
 }

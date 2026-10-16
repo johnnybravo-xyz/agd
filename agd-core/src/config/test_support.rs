@@ -1,11 +1,22 @@
-//! Helpers shared by the config modules' tests: loading a config body from a
-//! temporary file.
+//! Helpers shared by the crate's tests: settings over a temporary root, and
+//! loading a config body from a temporary file.
 
 use std::fs;
+use std::path::Path;
 
 use crate::Settings;
 
 use super::file::load_settings;
+
+/// Settings whose one root is `root`, every `.org` file under it an agenda
+/// file.
+pub(crate) fn settings(root: &Path) -> Settings {
+    Settings {
+        roots: vec![root.to_string_lossy().into_owned()],
+        agenda_files: vec!["**/*.org".to_string()],
+        ..Settings::default()
+    }
+}
 
 /// Loads `body` below a `roots` line naming a fresh directory; an
 /// error's config path reads CONFIG.

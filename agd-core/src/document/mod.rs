@@ -14,8 +14,6 @@ mod headline;
 mod index;
 mod org_document;
 mod source;
-#[cfg(test)]
-mod test_support;
 mod timestamp;
 
 pub use directive::{LogKind, LogSettings, PriorityRange, TodoKeyword};
