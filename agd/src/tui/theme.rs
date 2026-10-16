@@ -374,6 +374,75 @@ impl Theme {
             % self.agents.len();
         self.agents[index]
     }
+
+    /// Every role by its name, as the Claude Code pane reads them. A role
+    /// drawn in the terminal's own colour is left out: in 16 colours text
+    /// is the terminal's foreground, and muted and border are it dimmed.
+    fn roles_json(&self) -> serde_json::Value {
+        let roles = [
+            ("accent", self.accent),
+            ("overdue", self.overdue),
+            ("due", self.due),
+            ("done", self.done),
+            ("text", self.text),
+            ("muted", self.muted),
+            ("border", self.border),
+            ("surface", self.surface),
+            ("selection", self.selection),
+            ("yellow", self.yellow),
+            ("dim_red", self.dim_red),
+            ("pink", self.pink),
+            ("teal", self.teal),
+            ("purple", self.purple),
+        ];
+        let mut json = serde_json::Map::new();
+        for (role, color) in roles {
+            let dimmed = self.basic && color == self.muted;
+            if let Some(value) = color_name(color).filter(|_| !dimmed) {
+                json.insert(role.to_string(), value.into());
+            }
+        }
+        let agents: Vec<String> = self.agents.iter().filter_map(|c| color_name(*c)).collect();
+        json.insert("agents".to_string(), agents.into());
+        json.into()
+    }
+}
+
+/// The TUI's palettes for other clients of agd: `dark` and `light` as
+/// `#rrggbb`, `ansi` (16 colours) as Ink's colour names.
+pub(super) fn palettes_json() -> serde_json::Value {
+    serde_json::json!({
+        "dark": Theme::dark().roles_json(),
+        "light": Theme::light().roles_json(),
+        "ansi": Theme::basic().roles_json(),
+    })
+}
+
+/// `#rrggbb` for a truecolor value, Ink's name for one of the 16 colours,
+/// None for the terminal's own.
+fn color_name(color: Color) -> Option<String> {
+    let name = match color {
+        Color::Rgb(red, green, blue) => return Some(format!("#{red:02x}{green:02x}{blue:02x}")),
+        Color::Reset => return None,
+        Color::Black => "black",
+        Color::Red => "red",
+        Color::Green => "green",
+        Color::Yellow => "yellow",
+        Color::Blue => "blue",
+        Color::Magenta => "magenta",
+        Color::Cyan => "cyan",
+        Color::Gray => "white",
+        Color::DarkGray => "gray",
+        Color::LightRed => "redBright",
+        Color::LightGreen => "greenBright",
+        Color::LightYellow => "yellowBright",
+        Color::LightBlue => "blueBright",
+        Color::LightMagenta => "magentaBright",
+        Color::LightCyan => "cyanBright",
+        Color::White => "whiteBright",
+        Color::Indexed(_) => return None,
+    };
+    Some(name.to_string())
 }
 
 /// `text` cut to `width` terminal columns, ending in "…" when cut. Widths

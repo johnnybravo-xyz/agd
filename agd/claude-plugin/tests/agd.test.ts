@@ -94,6 +94,56 @@ const DASHBOARD = JSON.stringify([
   },
 ])
 
+// The palettes as `agd agenda --views --json` prints them from theme.rs.
+const PALETTES = {
+  dark: {
+    accent: '#6ea8fe',
+    overdue: '#f07178',
+    due: '#e5b567',
+    done: '#7ec68f',
+    text: '#dee2e8',
+    muted: '#808896',
+    border: '#424a58',
+    surface: '#20252e',
+    selection: '#25344a',
+    yellow: '#dcd664',
+    dim_red: '#b07076',
+    pink: '#e879b0',
+    teal: '#5ec4a0',
+    purple: '#b094f5',
+    agents: ['#e879b0', '#b094f5', '#64bee6'],
+  },
+  light: {
+    accent: '#2563c4',
+    overdue: '#c53030',
+    due: '#b06f00',
+    done: '#248748',
+    text: '#1f2329',
+    muted: '#6c727e',
+    border: '#c4c9d0',
+    surface: '#eef0f3',
+    selection: '#d6e2f2',
+    yellow: '#787600',
+    dim_red: '#b87878',
+    pink: '#c83c82',
+    teal: '#148c64',
+    purple: '#6e50c8',
+    agents: ['#c83c82', '#6e50c8', '#1478aa'],
+  },
+  ansi: {
+    accent: 'blueBright',
+    overdue: 'red',
+    due: 'yellow',
+    done: 'green',
+    yellow: 'yellowBright',
+    dim_red: 'red',
+    pink: 'magenta',
+    teal: 'cyan',
+    purple: 'magentaBright',
+    agents: ['magenta', 'magentaBright', 'cyanBright'],
+  },
+}
+
 // `agd agenda --views --json`: the saved views and the TUI's display settings.
 function viewsJson(views: { key: string; desc: string; start: boolean }[], display: Record<string, unknown> = {}) {
   return JSON.stringify({
@@ -101,6 +151,7 @@ function viewsJson(views: { key: string; desc: string; start: boolean }[], displ
     theme: 'auto',
     nerd_font: false,
     keyword_colors: { CANCELLED: 'dim-red', DONE: 'green', NEXT: 'blue', TODO: 'orange' },
+    palettes: PALETTES,
     ...display,
   })
 }
@@ -186,6 +237,50 @@ test('agd\'s theme setting picks the palette over Claude Code\'s', async ($, on)
   expect((await ui.find(exactly('NEXT TASKS')))?.props.color).toBe('#2563c4')
   // Without nerd_font the chip is square: the label padded on the surface.
   expect((await ui.find(exactly(' A ')))?.props.backgroundColor).toBe('#eef0f3')
+  await ui.unmount()
+})
+
+test('an agd that prints no palettes is drawn in Claude Code\'s own theme colors', async ($, on) => {
+  panes(on, 'dark')
+  agd(on, {
+    'agenda --status': { stdout: '' },
+    'agenda --views --json': { stdout: viewsJson([{ key: 'd', desc: 'Dashboard', start: true }], { palettes: undefined }) },
+    'agenda --view d --json': { stdout: DASHBOARD },
+  })
+  await $.command.run(typed('agd'))
+  const ui = await $.ui.mount({ plugin: 'agd', surface: 'terminal', component: 'Pane', requestId: 'agd', props: PANE })
+  expect((await ui.find(exactly('NEXT TASKS')))?.props.color).toBe('suggestion')
+  expect((await ui.find(exactly('WAITING')))?.props.color).toBe('inactive')
+  await ui.unmount()
+})
+
+test('every role\'s color comes from the palette agd prints, by its theme.rs name', async ($, on) => {
+  panes(on, 'dark')
+  const palettes = { ...PALETTES, dark: { ...PALETTES.dark, dim_red: '#123456', accent: '#abcdef' } }
+  agd(on, {
+    'agenda --status': { stdout: '' },
+    'agenda --views --json': { stdout: viewsJson([{ key: 'd', desc: 'Dashboard', start: true }], { palettes }) },
+    'agenda --view d --json': { stdout: DASHBOARD },
+  })
+  await $.command.run(typed('agd'))
+  const ui = await $.ui.mount({ plugin: 'agd', surface: 'terminal', component: 'Pane', requestId: 'agd', props: PANE })
+  expect((await ui.find(exactly('CANCELLED ')))?.props.color).toBe('#123456')
+  expect((await ui.find(exactly('NEXT TASKS')))?.props.color).toBe('#abcdef')
+  await ui.unmount()
+})
+
+test('16 colours dim muted text instead of picking a grey', async ($, on) => {
+  panes(on, 'dark-ansi')
+  agd(on, {
+    'agenda --status': { stdout: '' },
+    'agenda --views --json': { stdout: viewsJson([{ key: 'd', desc: 'Dashboard', start: true }]) },
+    'agenda --view d --json': { stdout: DASHBOARD },
+  })
+  await $.command.run(typed('agd'))
+  const ui = await $.ui.mount({ plugin: 'agd', surface: 'terminal', component: 'Pane', requestId: 'agd', props: PANE })
+  const waiting = await ui.find(exactly('WAITING'))
+  expect(waiting?.props.dimColor).toBe(true)
+  expect(waiting?.props.color).toBeUndefined()
   await ui.unmount()
 })
 

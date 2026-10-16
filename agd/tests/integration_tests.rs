@@ -362,6 +362,16 @@ fn views_json_carries_what_a_client_draws_them_with() {
     assert_eq!(payload["theme"], "light");
     assert_eq!(payload["nerd_font"], true);
     assert_eq!(payload["schema"], "agd.views/v1");
+    // The TUI's palettes, by role, so the Claude Code pane keeps no copy.
+    let palettes = &payload["palettes"];
+    assert_eq!(palettes["dark"]["accent"], "#6ea8fe");
+    assert_eq!(palettes["dark"]["yellow"], "#dcd664");
+    assert_eq!(palettes["light"]["yellow"], "#787600");
+    assert_eq!(palettes["dark"]["agents"].as_array().unwrap().len(), 3);
+    assert_eq!(palettes["ansi"]["accent"], "blueBright");
+    // In 16 colours text keeps the terminal's colour and muted dims it.
+    assert!(palettes["ansi"].get("text").is_none(), "{palettes}");
+    assert!(palettes["ansi"].get("muted").is_none(), "{palettes}");
 
     // Every section names its schema and carries groups, empty or not.
     let output = fixture

@@ -390,6 +390,12 @@ pub fn run_capture(config: Option<String>, root: Option<String>) -> Result<()> {
     run_mode(config, root, false, true)
 }
 
+/// The TUI's colour roles for each palette, so other clients draw with the
+/// same colours (theme.rs is their one definition).
+pub fn palettes() -> serde_json::Value {
+    theme::palettes_json()
+}
+
 fn run_mode(
     config: Option<String>,
     root: Option<String>,

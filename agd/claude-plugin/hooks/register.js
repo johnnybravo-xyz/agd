@@ -7,52 +7,23 @@ const PANE = 'agd'
 
 const TODAY = 'today'
 
-// agd's TUI palette, as agd/src/tui/theme.rs defines it; keep the two in step.
-const PALETTES = {
-  dark: {
-    accent: '#6ea8fe',
-    overdue: '#f07178',
-    due: '#e5b567',
-    done: '#7ec68f',
-    text: '#dee2e8',
-    muted: '#808896',
-    surface: '#20252e',
-    yellow: '#ecd678',
-    dimRed: '#b07076',
-    pink: '#e879b0',
-    teal: '#5ec4a0',
-    purple: '#b094f5',
-  },
-  light: {
-    accent: '#2563c4',
-    overdue: '#c53030',
-    due: '#b06f00',
-    done: '#248748',
-    text: '#1f2329',
-    muted: '#6c727e',
-    surface: '#eef0f3',
-    yellow: '#967a00',
-    dimRed: '#b87878',
-    pink: '#c83c82',
-    teal: '#148c64',
-    purple: '#6e50c8',
-  },
-  // The TUI's 16-color palette, for Claude Code's ANSI themes; text keeps
-  // the terminal's own foreground.
-  ansi: {
-    accent: 'blueBright',
-    overdue: 'red',
-    due: 'yellow',
-    done: 'green',
-    text: undefined,
-    muted: 'gray',
-    surface: undefined,
-    yellow: 'yellowBright',
-    dimRed: 'red',
-    pink: 'magenta',
-    teal: 'cyan',
-    purple: 'magentaBright',
-  },
+// The pane draws with the TUI's own palettes, which `agd agenda --views
+// --json` prints by role (agd/src/tui/theme.rs is their one definition). An
+// agd too old to print them gets Claude Code's theme colors for the same
+// roles instead of a copy that could drift.
+const THEME_KEYS = {
+  accent: 'suggestion',
+  overdue: 'error',
+  due: 'warning',
+  done: 'success',
+  text: 'text',
+  muted: 'inactive',
+  yellow: 'warning',
+  dim_red: 'error',
+  pink: 'claude',
+  teal: 'success',
+  purple: 'permission',
+  agents: ['claude', 'permission', 'suggestion'],
 }
 
 // agd's tools that change Org files; a call to one refreshes the band and
@@ -61,7 +32,8 @@ const WRITE_TOOL = /^mcp__(plugin_agd_)?agd__(capture|edit|plan|set_state)$/
 
 // What the band and the pane draw; refresh() replaces them. `views` and
 // `display` come from `agd agenda --views --json`, which reads config.toml:
-// the saved views, and the TUI's theme, nerd_font and keyword colors.
+// the saved views, and the TUI's theme, nerd_font, keyword colors and
+// palettes.
 // `current` is the open tab, a view's key or TODAY, starting on start_view.
 // `showBand` is the plugin's show_band option; `refreshes` counts refresh()
 // calls, so only the latest one started may replace what is drawn.
@@ -70,8 +42,8 @@ let sections = []
 let problem = ''
 let paneOpen = false
 let views = []
-let display = { theme: 'auto', nerd_font: false, keyword_colors: {} }
-let palette = PALETTES.dark
+let display = { theme: 'auto', nerd_font: false, keyword_colors: {}, palettes: null }
+let palette = THEME_KEYS
 let current = null
 let showBand = true
 let refreshes = 0
@@ -123,6 +95,7 @@ async function readDisplay($) {
         theme: payload.theme || 'auto',
         nerd_font: payload.nerd_font === true,
         keyword_colors: payload.keyword_colors || {},
+        palettes: payload.palettes || null,
       },
     }
   } catch {
@@ -132,15 +105,20 @@ async function readDisplay($) {
 
 // agd's theme setting picks the palette; with `auto`, Claude Code's own theme
 // does, since a pane has no terminal background to read.
-async function readPalette($, theme) {
-  if (theme === 'dark' || theme === 'light') return PALETTES[theme]
+async function readPalette($, display) {
+  const name = display.theme === 'dark' || display.theme === 'light' ? display.theme : await claudePalette($)
+  return display.palettes?.[name] || THEME_KEYS
+}
+
+// The palette Claude Code's theme asks for: ansi, light or dark.
+async function claudePalette($) {
   try {
     const row = (await $.config.list()).find((config) => config.key === 'theme')
     const claudeTheme = String(row?.value ?? '')
-    if (claudeTheme.includes('ansi')) return PALETTES.ansi
-    return claudeTheme.includes('light') ? PALETTES.light : PALETTES.dark
+    if (claudeTheme.includes('ansi')) return 'ansi'
+    return claudeTheme.includes('light') ? 'light' : 'dark'
   } catch {
-    return PALETTES.dark
+    return 'dark'
   }
 }
 
@@ -182,7 +160,7 @@ async function readPane($) {
   return {
     views: shown.views,
     display: shown.display,
-    palette: await readPalette($, shown.display.theme),
+    palette: await readPalette($, shown.display),
     current: tab,
     problem: opened.error || '',
     sections: opened.sections || [],
@@ -213,7 +191,7 @@ function colorOf(name) {
     case 'red':
       return palette.overdue
     case 'dim-red':
-      return palette.dimRed
+      return palette.dim_red
     case 'pink':
       return palette.pink
     case 'teal':
@@ -230,6 +208,12 @@ function colorOf(name) {
 // Text props with a color, leaving `color` out when the palette has none.
 function colored(color, props = {}) {
   return color ? { ...props, color } : props
+}
+
+// Muted text: the palette's muted color, or the terminal's own foreground
+// dimmed where the palette keeps it (16 colours), as the TUI draws it.
+function muted(props = {}) {
+  return palette.muted ? { ...props, color: palette.muted } : { ...props, dimColor: true }
 }
 
 // A button's props with its hotkey, when it has one; a hotkey prop must be a
@@ -276,12 +260,13 @@ function priorityChip(Text, priority) {
   ]
 }
 
-// The lead's color, as the TUI's: overdue in red, deadlines amber, the rest muted.
+// The lead's color, as the TUI's: overdue in red, deadlines amber; null for
+// the rest, which are muted.
 function leadColor(occurrence) {
   if (occurrence.type === 'past-scheduled') return palette.overdue
   if (occurrence.type === 'deadline' && occurrence.extra.endsWith('ago:')) return palette.overdue
   if (occurrence.type === 'deadline' || occurrence.type === 'upcoming-deadline') return palette.due
-  return palette.muted
+  return null
 }
 
 // One task as the TUI's view rows draw it: for an agenda entry the category
@@ -291,9 +276,13 @@ function leadColor(occurrence) {
 function taskRow(Text, item, occurrence) {
   const parts = []
   if (occurrence) {
-    parts.push(Text(colored(palette.muted, { children: [(item.category + ':').padEnd(12)] })))
+    parts.push(Text(muted({ children: [(item.category + ':').padEnd(12)] })))
     if (occurrence.time) parts.push(Text({ children: [occurrence.time + '...... '] }))
-    if (occurrence.extra) parts.push(Text(colored(leadColor(occurrence), { children: [occurrence.extra.padEnd(11) + ' '] })))
+    if (occurrence.extra) {
+      const lead = { children: [occurrence.extra.padEnd(11) + ' '] }
+      const color = leadColor(occurrence)
+      parts.push(Text(color ? { ...lead, color } : muted(lead)))
+    }
   } else {
     parts.push(Text({ children: ['       '] }))
   }
@@ -303,7 +292,7 @@ function taskRow(Text, item, occurrence) {
     parts.push(Text(colored(colorOf(name), { bold, children: [item.todo + ' '] })))
   }
   // A done title is muted and struck through, as in the TUI.
-  const title = item.done ? colored(palette.muted, { strikethrough: true }) : colored(palette.text)
+  const title = item.done ? muted({ strikethrough: true }) : colored(palette.text)
   parts.push(Text({ ...title, children: [displayTitle(item.title)] }))
   if (item.priority) parts.push(Text({ children: [' '] }), ...priorityChip(Text, item.priority))
   if (item.tags.length > 0) parts.push(Text(colored(palette.accent, { children: ['  #' + item.tags.join(' #')] })))
@@ -348,11 +337,11 @@ function dayLabel(date) {
 // an empty section is muted.
 function header(Text, text, count, color) {
   const label = text.toUpperCase()
-  if (count === 0) return Text(colored(palette.muted, { bold: true, children: [label] }))
+  if (count === 0) return Text(muted({ bold: true, children: [label] }))
   return Text({
     children: [
       Text(colored(colorOf(color), { bold: true, children: [label] })),
-      Text(colored(palette.muted, { children: ['  ' + count] })),
+      Text(muted({ children: ['  ' + count] })),
     ],
   })
 }
@@ -393,7 +382,7 @@ function paneBody($, e) {
           views.some((view) => view.key === 'g') ? undefined : 'g',
         ),
       ),
-      Text(colored(palette.muted, { children: ['esc close · ctrl-x x close'] })),
+      Text(muted({ children: ['esc close · ctrl-x x close'] })),
     ],
   })
   return Box({

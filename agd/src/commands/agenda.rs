@@ -251,8 +251,9 @@ fn render_view(sections: &[ViewSection]) -> String {
 }
 
 /// The saved views in config order, then the built-in ones, with
-/// start_view moved first. The JSON carries the TUI's display settings, so a
-/// client such as the Claude Code pane draws them the same way.
+/// start_view moved first. The JSON carries the TUI's display settings and
+/// palettes, so a client such as the Claude Code pane draws them the same
+/// way.
 fn views_output(settings: &Settings, json: bool) -> Result<String> {
     let mut views = settings.all_views();
     views.sort_by_key(|view| view.key != settings.start_view);
@@ -275,6 +276,7 @@ fn views_output(settings: &Settings, json: bool) -> Result<String> {
             "theme": settings.theme,
             "nerd_font": settings.nerd_font,
             "keyword_colors": keyword_colors(&index),
+            "palettes": crate::tui::palettes(),
         });
         return Ok(format!("{}\n", serde_json::to_string_pretty(&payload)?));
     }
