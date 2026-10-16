@@ -464,6 +464,71 @@ async fn agenda_runs_views_and_profiles_from_agenda_start_day_as_the_cli_does()
     Ok(())
 }
 
+/// With agent captures gated to the inbox, a capture used to answer ok:true
+/// and the model reported a deadline the file never got.
+#[tokio::test]
+async fn inbox_captures_say_what_the_gate_changed() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    write_config(
+        &directory,
+        r#"
+agent_capture_to = "inbox"
+agent_inbox_template = "i"
+
+[[capture]]
+key = "w"
+desc = "Work"
+file = "work.org"
+template = "* TODO %?"
+
+[[capture]]
+key = "i"
+desc = "Inbox"
+file = "inbox.org"
+template = "* TODO %?"
+"#,
+    );
+    let service = service(&directory).await?;
+    let result = call(
+        &service,
+        "capture",
+        json!({"template": "w", "title": "Ship it", "deadline": "2026-10-30", "scheduled": "2026-10-28T09:00"}),
+    )
+    .await?;
+    assert_eq!(result.is_error, Some(false), "{:?}", result.content);
+    let mutation = first_block(&result);
+    assert_eq!(mutation["schema"], "agd.mutation/v1");
+    assert_eq!(mutation["ok"], true);
+    assert_eq!(mutation["item"]["planning"]["deadline"], Value::Null);
+    assert_eq!(
+        mutation["notes"],
+        json!([
+            "captured with the agent inbox template 'i', not 'w': agent captures go to the inbox",
+            "dropped scheduled 2026-10-28 09:00: agent captures land in the inbox undated, for the person to plan",
+            "dropped deadline 2026-10-30: agent captures land in the inbox undated, for the person to plan"
+        ])
+    );
+    assert_eq!(
+        fs::read_to_string(directory.path().join("inbox.org"))?,
+        "* TODO Ship it\n"
+    );
+    assert!(!directory.path().join("work.org").exists());
+
+    // Nothing changed, so nothing to say.
+    let result = call(
+        &service,
+        "capture",
+        json!({"template": "i", "title": "Plain"}),
+    )
+    .await?;
+    assert_eq!(first_block(&result).get("notes"), None);
+    let described = first_block(&call(&service, "describe", json!({})).await?);
+    assert_eq!(described["agent_inbox"], "i");
+    assert_eq!(described["default_template"], "i");
+    service.cancel().await?;
+    Ok(())
+}
+
 #[tokio::test]
 async fn describe_lists_what_writes_accept() -> Result<(), Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;

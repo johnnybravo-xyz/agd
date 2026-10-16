@@ -517,11 +517,13 @@ fn item_body(item: &JsonObject, index: &WorkspaceIndex) -> Option<String> {
         .map(str::to_string)
 }
 
+/// `capture`'s agd.mutation/v1 result, with a `notes` array when the agent
+/// inbox changed what was asked.
 fn capture(
     settings: &agd_core::Settings,
     request: CaptureRequest,
     context: &WriteContext,
-) -> Result<agd_core::Mutation, AgdError> {
+) -> Result<Value, AgdError> {
     let today = Local::now().date_naive();
     let draft = CaptureDraft {
         title: request.title,
@@ -531,14 +533,55 @@ fn capture(
         priority: request.priority,
         properties: request.properties,
     };
-    WriteEngine::with_default_journal(settings.clone())?.capture(
+    let mutation = WriteEngine::with_default_journal(settings.clone())?.capture(
         &request.template,
         &draft,
         &request.body,
         &request.prompts,
         false,
         context,
-    )
+    )?;
+    let mut json = serde_json::to_value(mutation).map_err(|error| {
+        AgdError::with_source("internal", "cannot encode the mutation as JSON", error)
+    })?;
+    let notes = inbox_notes(settings, &request.template, &draft);
+    if !notes.is_empty() {
+        json["notes"] = Value::from(notes);
+    }
+    Ok(json)
+}
+
+/// What the agent inbox changed about a capture, as `WriteEngine::capture`
+/// applies it: the inbox template replaces the chosen one when it exists,
+/// and the dates are dropped. Said, so the model does not report a template
+/// or a date the file never got.
+fn inbox_notes(settings: &agd_core::Settings, template: &str, draft: &CaptureDraft) -> Vec<String> {
+    let Some(inbox) = describe::agent_inbox(settings) else {
+        return Vec::new();
+    };
+    let mut notes = Vec::new();
+    if inbox != template && settings.capture_template(inbox).is_some() {
+        notes.push(format!(
+            "captured with the agent inbox template '{inbox}', not '{template}': agent captures go to the inbox"
+        ));
+    }
+    for (name, timestamp) in [
+        ("scheduled", &draft.scheduled),
+        ("deadline", &draft.deadline),
+    ] {
+        if let Some(timestamp) = timestamp {
+            let time = timestamp
+                .time
+                .as_deref()
+                .map(|time| format!(" {time}"))
+                .unwrap_or_default();
+            notes.push(format!(
+                "dropped {name} {}{time}: agent captures land in the inbox undated, for the person to plan",
+                timestamp.date
+            ));
+        }
+    }
+    notes
 }
 
 fn plan(
