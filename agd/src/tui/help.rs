@@ -1,6 +1,6 @@
 //! `?`: every screen's keys from the key tables, the screen on view first,
 //! as a palette. Typing filters the actions by name (`sched` finds `s
-//! schedule`), ↑↓ (or ctrl-n/p, ctrl-j/k) choose one, and ⏎ runs it as if
+//! schedule`), ↑↓ (or C-n/C-p, C-j/C-k) choose one, and ⏎ runs it as if
 //! its key were pressed; esc clears the filter, then closes. The
 //! org-agenda column shows only when it fits.
 

@@ -173,13 +173,21 @@ impl SelectionAnchor {
     }
 }
 
-/// Status line text; writes confirm for three seconds, errors stay a
-/// little longer.
+/// Status line text; it stays three seconds, an error a little longer.
 #[derive(Debug)]
 struct Status {
     text: String,
-    error: bool,
+    tone: Tone,
     at: Instant,
+}
+
+/// What a status line says, and so its colour: information in the text
+/// colour, a finished write in the done colour, an error in red.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Tone {
+    Info,
+    Done,
+    Error,
 }
 
 /// Cross-screen signals shown in tabs, the footer and the pane.
@@ -233,6 +241,8 @@ struct App {
     headers: Vec<Header>,
     journals: Vec<JournalRecord>,
     selected: usize,
+    /// Item refs of the marked rows; on the Agents tab, the journal ids of
+    /// the marked changes.
     marks: BTreeSet<String>,
     /// Today shows every OVERDUE row, not the first few; reset on leaving.
     overdue_expanded: bool,
@@ -260,13 +270,13 @@ struct App {
     /// Reschedules per stable_ref: LOGBOOK "Rescheduled from" notes, else
     /// agd's own journal.
     reschedules: BTreeMap<String, usize>,
-    /// stable_ref -> (actor, HH:MM) of the capture that created it.
+    /// stable_ref -> (actor, journal timestamp) of the capture that
+    /// created it.
     provenance: BTreeMap<String, (String, String)>,
     recent_targets: Vec<String>,
     /// Writes this TUI made, newest last, for `u`.
     undo_steps: Vec<actions::UndoStep>,
     triage: TriageState,
-    review_diff: bool,
     agent_filter: Option<String>,
     /// When `C-c` started a chord in the lists or Triage: `C-w` next
     /// refiles, as in Org; `C-c` again, or a second without a key, quits.
@@ -312,7 +322,6 @@ impl App {
             recent_targets: Vec::new(),
             undo_steps: Vec::new(),
             triage: TriageState::default(),
-            review_diff: false,
             agent_filter: None,
             chord: None,
             quit: false,
@@ -345,10 +354,20 @@ impl App {
             .is_some_and(|started| started.elapsed() > StdDuration::from_secs(1))
     }
 
+    /// Information: a hint, or why a key did nothing.
     fn set_status(&mut self, text: impl Into<String>) {
         self.status = Some(Status {
             text: text.into(),
-            error: false,
+            tone: Tone::Info,
+            at: Instant::now(),
+        });
+    }
+
+    /// A write that went through, as `words::change` says it.
+    fn set_done(&mut self, text: impl Into<String>) {
+        self.status = Some(Status {
+            text: text.into(),
+            tone: Tone::Done,
             at: Instant::now(),
         });
     }
@@ -358,16 +377,26 @@ impl App {
         let text = match error.downcast_ref::<AgdError>() {
             // Here `r` re-reads the files, which settles a stale heading.
             Some(error) if error.code() == ErrorCode::RefConflict => {
-                format!("✗ {}; r refreshes", crate::words::error_sentence(error))
+                format!("✗ {}; r refreshes", self.error_text(error))
             }
-            Some(error) => format!("✗ {}", crate::words::error_sentence(error)),
-            None => format!("✗ {error:#}"),
+            Some(error) => format!("✗ {}", self.error_text(error)),
+            None => format!("✗ {}", self.relative_paths(&format!("{error:#}"))),
         };
         self.status = Some(Status {
             text,
-            error: true,
+            tone: Tone::Error,
             at: Instant::now(),
         });
+    }
+
+    /// A core error as people read it: words::error_sentence, its paths
+    /// relative to the roots.
+    fn error_text(&self, error: &AgdError) -> String {
+        self.relative_paths(&crate::words::error_sentence(error))
+    }
+
+    fn relative_paths(&self, text: &str) -> String {
+        crate::words::relative_paths(text, self.index.roots().roots())
     }
 
     fn row_at(&self, column: u16, row: u16) -> Option<usize> {
@@ -462,12 +491,12 @@ fn event_loop(
                 Ok(event) => {
                     for path in event.paths {
                         if let Err(error) = app.index.refresh_path(&path) {
-                            app.set_status(format!("reload failed: {error}"));
+                            app.set_error(&anyhow::Error::from(error).context("reload failed"));
                         }
                     }
                     changed = true;
                 }
-                Err(error) => app.set_status(format!("watch failed: {error}")),
+                Err(error) => app.set_error(&anyhow::Error::from(error).context("watch failed")),
             }
         }
         let now = Local::now();
@@ -490,7 +519,8 @@ fn event_loop(
             app.set_error(&error);
         }
         let expired = app.status.as_ref().is_some_and(|status| {
-            status.at.elapsed() > StdDuration::from_secs(if status.error { 6 } else { 3 })
+            let seconds = if status.tone == Tone::Error { 6 } else { 3 };
+            status.at.elapsed() > StdDuration::from_secs(seconds)
         });
         if expired {
             app.status = None;
@@ -613,7 +643,7 @@ fn open_in_editor(
     terminal.clear()?;
     let status = status?;
     if !status.success() {
-        app.set_status(format!("editor exited with {status}"));
+        app.set_error(&anyhow::anyhow!("editor exited with {status}"));
     }
     if Path::new(file).exists() {
         app.index.refresh_path(Path::new(file))?;

@@ -5,16 +5,26 @@
 //! - A key means the same on every screen that has it: `n j ↓` next and
 //!   `p k ↑` previous (rows, cards, changes), `s` schedule on a typed
 //!   date, `d` deadline, `S` someday, `x` done, `X` cancel, `R` or
-//!   `C-c C-w` refile, `u` undo, `c` capture, `?` keys, `esc` back one
-//!   level.
+//!   `C-c C-w` refile, `u` undo, `c` capture, `?` keys.
+//! - Every full screen (the lists, Triage, Agents) shares the Switch and Go
+//!   groups: `tab S-tab 1–9` switch tabs, `T` Triage, `A` Agents, `esc`
+//!   back one level, `q` quits.
 //! - Keys follow org-agenda wherever it has one (`t`, `C-c C-s`, `f b .`,
-//!   `l`, `<`, `/`, `m U B` for marks); the help shows its key beside ours.
-//! - Triage and the bulk menu add one-key outcomes: `.` today, `m`
-//!   tomorrow, `w` next week, `N` make NEXT.
+//!   `l`, `<`, `/`, `m * U B` for marks); the help shows its key beside
+//!   ours. `<` narrows by context: the category in the lists, the agent on
+//!   the Agents tab.
+//! - Triage and the bulk menu add one-key outcomes: `.` today (in the
+//!   lists `.` goes to today), `>` tomorrow, `w` next week, `N` make NEXT.
+//!   `m` only ever marks.
 //! - Where letters are typed or name items (the Views popup, capture's
 //!   templates, the refile picker, `?`'s filter, the edit popup's fields),
 //!   only `↓ C-n C-j` and `↑ C-p C-k` move, as in fzf and Emacs.
+//! - `C-e` opens $EDITOR from the lists, Triage, Agents and the pane. In a
+//!   popup with a text field it is the end of the line, as in Emacs's
+//!   minibuffer, so $EDITOR there is `C-o` (POPUP_KEYS).
 //! - Footers show a key's first label; help shows every label.
+//! - One notation: Emacs's for chords (`C-e`, `C-c C-w`, `S-tab`, `M-DEL`),
+//!   words or glyphs for named keys (`⏎`, `esc`, `tab`, `SPC`, `PgDn`, `↓`).
 
 use std::io::Stdout;
 use std::time::Instant;
@@ -42,6 +52,8 @@ pub(super) enum Key {
     Code(KeyCode),
     /// ctrl and a letter.
     Ctrl(char),
+    /// alt (Emacs's meta) and a named key.
+    Meta(KeyCode),
     /// 1 to 9, for the tabs.
     Digit,
 }
@@ -54,6 +66,7 @@ impl Key {
             Key::Char(character) => !control && !alt && key.code == KeyCode::Char(character),
             Key::Code(code) => key.code == code,
             Key::Ctrl(character) => control && key.code == KeyCode::Char(character),
+            Key::Meta(code) => alt && key.code == code,
             Key::Digit => !control && matches!(key.code, KeyCode::Char('1'..='9')),
         }
     }
@@ -100,6 +113,7 @@ pub(super) enum Action {
     Undo,
     CopyLink,
     Mark,
+    MarkAll,
     UnmarkAll,
     Bulk,
     Triage,
@@ -111,10 +125,16 @@ pub(super) enum Action {
     NextWeek,
     MakeNext,
     Accept,
-    AcceptAll,
-    Diff,
     FilterAgent,
     FullView,
+    Save,
+    NextField,
+    PreviousField,
+    LineStart,
+    LineEnd,
+    DeleteChar,
+    DeleteWord,
+    ClearLine,
 }
 
 /// One binding: the keys, what they do, and how footers and help name it.
@@ -157,15 +177,15 @@ const fn bind(
 }
 
 use Action as A;
-use Key::{Char, Code, Ctrl, Digit};
+use Key::{Char, Code, Ctrl, Digit, Meta};
 
 // The tables are kept one binding per line, as a table reads.
 // Columns: label, keys, action, footer word, help text, org-agenda key.
 
-/// Moving and switching, shared by the lists and the Agents tab.
+/// Moving the cursor, in the lists and on the Agents tab.
 #[rustfmt::skip]
 const MOVE: KeyGroup = KeyGroup {
-    title: "Move and switch",
+    title: "Move",
     bindings: &[
         bind("n j ↓", &[Char('n'), Char('j'), Code(KeyCode::Down)], A::Next, "next", "next row", "n"),
         bind("p k ↑", &[Char('p'), Char('k'), Code(KeyCode::Up)], A::Previous, "previous", "previous row", "p"),
@@ -173,6 +193,14 @@ const MOVE: KeyGroup = KeyGroup {
         bind("PgUp", &[Code(KeyCode::PageUp)], A::PageUp, "page", "ten rows up", ""),
         bind("Home", &[Code(KeyCode::Home)], A::First, "first", "first row", ""),
         bind("End", &[Code(KeyCode::End)], A::Last, "last", "last row", ""),
+    ],
+};
+
+/// Tabs, capture, refresh and help: the same on every full screen.
+#[rustfmt::skip]
+const SWITCH: KeyGroup = KeyGroup {
+    title: "Switch",
+    bindings: &[
         bind("tab", &[Code(KeyCode::Tab)], A::NextTab, "tab", "next tab", ""),
         bind("S-tab", &[Code(KeyCode::BackTab)], A::PreviousTab, "tab", "previous tab", ""),
         bind("1–9", &[Digit], A::TabNumber, "tab", "tab by number, left to right", ""),
@@ -205,7 +233,7 @@ const CHANGE: KeyGroup = KeyGroup {
     title: "Change (marked rows, else the cursor row)",
     bindings: &[
         bind("⏎ e", &[Code(KeyCode::Enter), Char('e')], A::Edit, "edit", "edit title, state, dates in a popup", ""),
-        bind("ctrl-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", "RET"),
+        bind("C-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", "RET"),
         bind("t", &[Char('t')], A::State, "state", "next TODO state", "t"),
         bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
         bind("X", &[Char('X')], A::Cancel, "cancel", "cancel: the file's last done state", ""),
@@ -219,50 +247,61 @@ const CHANGE: KeyGroup = KeyGroup {
         // C-c C-w is a chord, which `chord_key` handles.
         bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", "C-c C-w"),
         bind("u", &[Char('u')], A::Undo, "undo", "undo the last write", "C-_"),
-        bind("y", &[Char('y')], A::CopyLink, "copy link", "copy the entry's link", ""),
+        bind("y", &[Char('y')], A::CopyLink, "copy link", "copy an Org link to the heading", "C-c l"),
         bind("m", &[Char('m')], A::Mark, "mark", "mark or unmark the row", "m"),
+        bind("*", &[Char('*')], A::MarkAll, "mark all", "mark every row shown", "*"),
         bind("U", &[Char('U')], A::UnmarkAll, "unmark all", "unmark every row", "U"),
         bind("B", &[Char('B')], A::Bulk, "bulk", "act on the marked rows, from a menu", "B"),
     ],
 };
 
-/// Leaving the lists.
+/// Going to Triage or the Agents tab, back one level, or out: the same on
+/// every full screen. The key for the screen on view stays there.
 #[rustfmt::skip]
 const GO: KeyGroup = KeyGroup {
     title: "Go",
     bindings: &[
         bind("T", &[Char('T')], A::Triage, "triage", "triage overdue, then inbox", ""),
         bind("A", &[Char('A')], A::Agents, "agents", "review agent changes", ""),
-        bind("esc", &[Code(KeyCode::Esc)], A::Back, "back", "close peek, clear marks or filter, leave a view", ""),
+        bind("esc", &[Code(KeyCode::Esc)], A::Back, "back", "close peek, clear marks or filter, go back", ""),
         bind("q", &[Char('q')], A::Quit, "quit", "quit", "q"),
     ],
 };
 
 /// Today, Week, Inbox and saved views.
-pub(super) const LIST_KEYS: &[KeyGroup] = &[MOVE, SHOW, CHANGE, GO];
+pub(super) const LIST_KEYS: &[KeyGroup] = &[MOVE, SWITCH, SHOW, CHANGE, GO];
 
-/// One key per decision on the current card.
+/// Triage: one key per decision on the current card, and moving between
+/// cards.
 #[rustfmt::skip]
-pub(super) const TRIAGE_KEYS: &[KeyGroup] = &[KeyGroup {
-    title: "Decide",
-    bindings: &[
-        bind(".", &[Char('.')], A::Today, "today", "schedule today", ""),
-        bind("m", &[Char('m')], A::Tomorrow, "tomorrow", "schedule tomorrow", ""),
-        bind("w", &[Char('w')], A::NextWeek, "next week", "schedule in a week", ""),
-        bind("s", &[Char('s')], A::Schedule, "pick date", "schedule on a date you type", "C-c C-s"),
-        bind("d", &[Char('d')], A::Deadline, "move deadline", "move a missed deadline", "C-c C-d"),
-        bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
-        bind("N", &[Char('N')], A::MakeNext, "make NEXT", "make it NEXT", ""),
-        bind("S", &[Char('S')], A::Someday, "someday", "someday: tag it, drop the date", ""),
-        bind("X", &[Char('X')], A::Cancel, "cancel", "cancel: the file's last done state", ""),
-        bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", "C-c C-w"),
-        bind("u", &[Char('u')], A::Undo, "undo", "undo a step; at the end, the whole pass", "C-_"),
-        bind("n j ↓ tab", &[Char('n'), Char('j'), Code(KeyCode::Down), Code(KeyCode::Tab)], A::Next, "next card", "skip to the next card", "n"),
-        bind("p k ↑ S-tab", &[Char('p'), Char('k'), Code(KeyCode::Up), Code(KeyCode::BackTab)], A::Previous, "previous card", "back to the previous card", "p"),
-        bind("esc q", &[Code(KeyCode::Esc), Char('q')], A::Back, "back", "leave triage", ""),
-        bind("?", &[Char('?')], A::Help, "help", "these keys", ""),
-    ],
-}];
+pub(super) const TRIAGE_KEYS: &[KeyGroup] = &[
+    KeyGroup {
+        title: "Decide",
+        bindings: &[
+            bind(".", &[Char('.')], A::Today, "today", "schedule today", ""),
+            bind(">", &[Char('>')], A::Tomorrow, "tomorrow", "schedule tomorrow", ""),
+            bind("w", &[Char('w')], A::NextWeek, "next week", "schedule in a week", ""),
+            bind("s", &[Char('s')], A::Schedule, "pick date", "schedule on a date you type", "C-c C-s"),
+            bind("d", &[Char('d')], A::Deadline, "move deadline", "move a missed deadline", "C-c C-d"),
+            bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
+            bind("N", &[Char('N')], A::MakeNext, "make NEXT", "make it NEXT", ""),
+            bind("S", &[Char('S')], A::Someday, "someday", "someday: tag it, drop the date", ""),
+            bind("X", &[Char('X')], A::Cancel, "cancel", "cancel: the file's last done state", ""),
+            bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", "C-c C-w"),
+            bind("u", &[Char('u')], A::Undo, "undo", "undo a step; at the end, the whole pass", "C-_"),
+        ],
+    },
+    KeyGroup {
+        title: "Cards",
+        bindings: &[
+            bind("n j ↓", &[Char('n'), Char('j'), Code(KeyCode::Down)], A::Next, "next card", "skip to the next card", "n"),
+            bind("p k ↑", &[Char('p'), Char('k'), Code(KeyCode::Up)], A::Previous, "previous card", "back to the previous card", "p"),
+            bind("C-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", "RET"),
+        ],
+    },
+    SWITCH,
+    GO,
+];
 
 /// The Agents tab: judge each agent write.
 #[rustfmt::skip]
@@ -270,17 +309,20 @@ pub(super) const AGENT_KEYS: &[KeyGroup] = &[
     KeyGroup {
         title: "Review",
         bindings: &[
-            bind("a", &[Char('a')], A::Accept, "accept", "accept: mark reviewed, write nothing", ""),
-            bind("A", &[Char('A')], A::AcceptAll, "accept all", "accept every unreviewed change", ""),
+            bind("a", &[Char('a')], A::Accept, "accept", "accept the marked changes, else this one", ""),
+            bind("m", &[Char('m')], A::Mark, "mark", "mark or unmark the change", "m"),
+            bind("*", &[Char('*')], A::MarkAll, "mark all", "mark every change shown", "*"),
+            bind("U", &[Char('U')], A::UnmarkAll, "unmark all", "unmark every change", "U"),
             bind("u", &[Char('u')], A::Undo, "undo", "undo the change if its bytes are unchanged", ""),
-            bind("d", &[Char('d')], A::Diff, "diff", "show the raw diff", ""),
-            bind("SPC", &[Char(' ')], A::Peek, "peek", "peek at the changed task", ""),
-            bind("⏎ ctrl-e", &[Code(KeyCode::Enter), Ctrl('e')], A::Editor, "open", "open the changed heading in $EDITOR", ""),
-            bind("f", &[Char('f')], A::FilterAgent, "filter by agent", "show one agent, cycling", ""),
-            bind("esc q", &[Code(KeyCode::Esc), Char('q')], A::Back, "back", "close the diff or peek, else go back", ""),
+            bind("SPC", &[Char(' ')], A::Peek, "peek", "peek: the change's diff, then its task", "SPC"),
+            bind("⏎ e", &[Code(KeyCode::Enter), Char('e')], A::Edit, "edit", "edit the changed task in a popup", ""),
+            bind("C-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the changed heading in $EDITOR", "RET"),
+            bind("<", &[Char('<')], A::FilterAgent, "agent", "show one agent's changes, cycling", ""),
         ],
     },
     MOVE,
+    SWITCH,
+    GO,
 ];
 
 /// `B` with rows marked: org-agenda's bulk menu, one key per action.
@@ -289,7 +331,7 @@ pub(super) const BULK_KEYS: &[KeyGroup] = &[KeyGroup {
     title: "On every marked row",
     bindings: &[
         bind(".", &[Char('.')], A::Today, "today", "schedule today", ""),
-        bind("m", &[Char('m')], A::Tomorrow, "tomorrow", "schedule tomorrow", ""),
+        bind(">", &[Char('>')], A::Tomorrow, "tomorrow", "schedule tomorrow", ""),
         bind("w", &[Char('w')], A::NextWeek, "next week", "schedule in a week", ""),
         bind("s", &[Char('s')], A::Schedule, "pick date", "schedule on a date you type", "s"),
         bind("d", &[Char('d')], A::Deadline, "deadline…", "deadline on a date you type", "d"),
@@ -311,7 +353,7 @@ pub(super) const PANE_KEYS: &[KeyGroup] = &[KeyGroup {
         bind("X", &[Char('X')], A::Cancel, "cancel", "cancel", ""),
         bind("u", &[Char('u')], A::Undo, "undo", "undo the last write", ""),
         bind("c", &[Char('c')], A::Capture, "capture", "capture a task", ""),
-        bind("ctrl-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", ""),
+        bind("C-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", ""),
         bind("⏎", &[Code(KeyCode::Enter)], A::FullView, "full view", "the full view, at 60+ columns", ""),
         bind("T", &[Char('T')], A::Triage, "triage", "triage, at 60+ columns", ""),
         bind("?", &[Char('?')], A::Help, "help", "these keys", ""),
@@ -325,7 +367,7 @@ pub(super) const PANE_KEYS: &[KeyGroup] = &[KeyGroup {
 /// and these ctrl keys move.
 #[rustfmt::skip]
 pub(super) const PICKER_KEYS: &[KeyGroup] = &[KeyGroup {
-    title: "Move",
+    title: "Move in a picker",
     bindings: &[
         bind("↓ C-n C-j", &[Code(KeyCode::Down), Ctrl('n'), Ctrl('j')], A::Next, "next", "next choice or field", ""),
         bind("↑ C-p C-k", &[Code(KeyCode::Up), Ctrl('p'), Ctrl('k')], A::Previous, "previous", "previous choice or field", ""),
@@ -333,7 +375,7 @@ pub(super) const PICKER_KEYS: &[KeyGroup] = &[KeyGroup {
 }];
 
 /// Help's sections, one per screen: (title, keys).
-pub(super) const SCREENS: [(&str, &[KeyGroup]); 6] = [
+pub(super) const SCREENS: [(&str, &[KeyGroup]); 7] = [
     ("Today · Week · Inbox · views", LIST_KEYS),
     ("Bulk menu · B with rows marked", BULK_KEYS),
     ("Triage", TRIAGE_KEYS),
@@ -343,11 +385,47 @@ pub(super) const SCREENS: [(&str, &[KeyGroup]); 6] = [
         "Pickers · views, templates, refile, edit fields",
         PICKER_KEYS,
     ),
+    ("Popups · capture, edit, prompts, refile", POPUP_KEYS),
 ];
 
+/// Popups with a text field: capture, the edit popup, the prompts and the
+/// refile picker. Fields take Emacs's minibuffer keys, so here C-e is the
+/// end of the line and $EDITOR is C-o.
+#[rustfmt::skip]
+pub(super) const POPUP_KEYS: &[KeyGroup] = &[KeyGroup {
+    title: "Type",
+    bindings: &[
+        bind("⏎", &[Code(KeyCode::Enter)], A::Save, "save", "save what the preview shows", ""),
+        bind("tab", &[Code(KeyCode::Tab)], A::NextField, "next field", "next field; in capture, the next template", ""),
+        bind("S-tab", &[Code(KeyCode::BackTab)], A::PreviousField, "previous field", "previous field", ""),
+        bind("esc C-g", &[Code(KeyCode::Esc), Ctrl('g')], A::Back, "cancel", "close without writing", ""),
+        bind("C-o", &[Ctrl('o')], A::Editor, "$EDITOR", "the heading, or capture's body, in $EDITOR", ""),
+        bind("C-a Home", &[Ctrl('a'), Code(KeyCode::Home)], A::LineStart, "start", "start of the line", ""),
+        bind("C-e End", &[Ctrl('e'), Code(KeyCode::End)], A::LineEnd, "end", "end of the line", ""),
+        bind("C-d Delete", &[Ctrl('d'), Code(KeyCode::Delete)], A::DeleteChar, "delete", "delete the character at the cursor", ""),
+        bind("C-w M-DEL", &[Ctrl('w'), Meta(KeyCode::Backspace)], A::DeleteWord, "delete word", "delete the word before the cursor", ""),
+        bind("C-u", &[Ctrl('u')], A::ClearLine, "clear", "clear the line", ""),
+    ],
+}];
+
+/// What `key` does in a popup with a text field (POPUP_KEYS), if anything.
+pub(super) fn popup_action(key: KeyEvent) -> Option<Action> {
+    action_for(POPUP_KEYS, key)
+}
+
+/// The first key of `action`'s binding in `groups`, as hints show it.
+pub(super) fn key_label(groups: &'static [KeyGroup], action: Action) -> &'static str {
+    groups
+        .iter()
+        .flat_map(|group| group.bindings.iter())
+        .find(|binding| binding.action == action)
+        .map_or("", |binding| {
+            binding.label.split(' ').next().unwrap_or(binding.label)
+        })
+}
+
 /// One line under help's keys: how moving works everywhere.
-pub(super) const MOVING: &str =
-    "j/k move like n/p everywhere; ctrl-n/ctrl-p or ctrl-j/ctrl-k move in pickers";
+pub(super) const MOVING: &str = "j/k move like n/p everywhere; C-n/C-p or C-j/C-k move in pickers";
 
 /// +1 or -1 when `key` moves in a picker (PICKER_KEYS), else None.
 pub(super) fn picker_step(key: KeyEvent) -> Option<isize> {
@@ -404,13 +482,17 @@ pub(super) fn footer_hints(app: &App) -> Vec<(String, &'static str)> {
                 (A::Back, "back"),
             ],
         ),
+        Screen::Review if !app.marks.is_empty() => (
+            AGENT_KEYS,
+            &[(A::Accept, "accept marked"), (A::UnmarkAll, "unmark all")],
+        ),
         Screen::Review => (
             AGENT_KEYS,
             &[
                 (A::Accept, "accept"),
+                (A::Mark, "mark"),
                 (A::Undo, "undo"),
-                (A::Diff, "diff"),
-                (A::Editor, "open"),
+                (A::Peek, "diff"),
             ],
         ),
         _ if !app.marks.is_empty() => (
@@ -424,14 +506,7 @@ pub(super) fn footer_hints(app: &App) -> Vec<(String, &'static str)> {
         ),
         _ => (LIST_KEYS, row_hints(app)),
     };
-    let key = |action: Action| {
-        groups
-            .iter()
-            .flat_map(|group| group.bindings.iter())
-            .find(|binding| binding.action == action)
-            .map(|binding| binding.label.split(' ').next().unwrap_or(binding.label))
-            .unwrap_or("")
-    };
+    let key = |action: Action| key_label(groups, action);
     hints
         .iter()
         .map(|(action, word)| match action {
@@ -543,10 +618,7 @@ pub(super) fn dispatch(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
         Overlay::None => {}
         Overlay::Help(_) => return help_key(app, key),
         Overlay::Capture(_) => return Ok(None),
-        Overlay::Edit(_) => {
-            let editor = super::edit::handle_key(app, key)?;
-            return Ok(if editor { selected_location(app) } else { None });
-        }
+        Overlay::Edit(_) => return super::edit::handle_key(app, key),
         _ => {
             handle_overlay(app, key)?;
             return Ok(None);
@@ -560,13 +632,10 @@ pub(super) fn dispatch(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
     }
     match app.screen {
         Screen::Triage => {
-            if app.rows.is_empty() {
-                return finished_triage_key(app, key).map(|()| None);
-            }
             let Some(action) = action_for(TRIAGE_KEYS, key) else {
                 return Ok(None);
             };
-            run_triage(app, action).map(|()| None)
+            run_triage(app, action, key)
         }
         Screen::Review => {
             let Some(action) = action_for(AGENT_KEYS, key) else {
@@ -583,6 +652,9 @@ pub(super) fn dispatch(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
     }
 }
 
+/// What `C-c` waits for, said the same before and after a wrong key.
+pub(super) const CHORD_HINT: &str = "C-c C-w refiles · C-c C-c quits";
+
 /// `C-c` in the lists and Triage starts Org's `C-c C-w` refile chord;
 /// anywhere else, or pressed twice, it quits. Returns true when the key
 /// belonged to the chord.
@@ -593,7 +665,7 @@ fn chord_key(app: &mut App, key: KeyEvent) -> bool {
         match key.code {
             KeyCode::Char('w') if control => app.open_refile(),
             KeyCode::Char('c') if control => app.quit = true,
-            _ => app.set_status("C-c C-w refiles, C-c C-c quits"),
+            _ => app.set_status(CHORD_HINT),
         }
         return true;
     }
@@ -604,16 +676,15 @@ fn chord_key(app: &mut App, key: KeyEvent) -> bool {
         !app.pane && matches!(app.overlay, Overlay::None) && app.screen != Screen::Review;
     if chord_screen {
         app.chord = Some(Instant::now());
-        app.set_status("C-c-  C-w refile · C-c quit");
+        app.set_status(CHORD_HINT);
     } else {
         app.quit = true;
     }
     true
 }
 
-/// Moving, tabs, capture, refresh and help, shared by the lists and the
-/// Agents tab; returns false for any other action.
-fn run_shared(app: &mut App, action: Action, key: KeyEvent) -> Result<bool> {
+/// MOVE, in the lists and on the Agents tab; false for any other action.
+fn run_move(app: &mut App, action: Action) -> bool {
     match action {
         A::Next => app.move_selection(1),
         A::Previous => app.move_selection(-1),
@@ -621,13 +692,21 @@ fn run_shared(app: &mut App, action: Action, key: KeyEvent) -> Result<bool> {
         A::PageUp => app.move_selection(-10),
         A::First => app.selected = 0,
         A::Last => app.selected = app.row_count().saturating_sub(1),
+        _ => return false,
+    }
+    true
+}
+
+/// SWITCH, on every full screen: tabs, capture, refresh and help; false
+/// for any other action.
+fn run_switch(app: &mut App, action: Action, key: KeyEvent) -> Result<bool> {
+    match action {
         A::NextTab => next_tab(app, 1)?,
         A::PreviousTab => next_tab(app, -1)?,
         A::TabNumber => {
             if let KeyCode::Char(digit) = key.code {
                 let index = digit as usize - '1' as usize;
-                if let Some(screen) = app.tabs().get(index).cloned() {
-                    app.review_diff = false;
+                if let Some(screen) = app.shown_tabs().get(index).cloned() {
                     app.switch_screen(screen)?;
                 }
             }
@@ -644,8 +723,24 @@ fn run_shared(app: &mut App, action: Action, key: KeyEvent) -> Result<bool> {
     Ok(true)
 }
 
+/// GO, on every full screen: Triage, the Agents tab and quitting. The key
+/// of the screen on view stays there, so a second `A` or `T` changes
+/// nothing. `esc` is each screen's own. False for any other action.
+fn run_go(app: &mut App, action: Action) -> Result<bool> {
+    match action {
+        A::Triage if app.screen != Screen::Triage => start_triage(app)?,
+        A::Agents if app.screen != Screen::Review => app.switch_screen(Screen::Review)?,
+        A::Triage | A::Agents => {}
+        A::Quit => app.quit = true,
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+/// tab and S-tab: the next or previous tab as the header shows them,
+/// wrapping.
 fn next_tab(app: &mut App, delta: isize) -> Result<()> {
-    let tabs = app.tabs();
+    let tabs = app.shown_tabs();
     let current = tabs.iter().position(|tab| *tab == app.screen).unwrap_or(0) as isize;
     let next = (current + delta).rem_euclid(tabs.len() as isize) as usize;
     app.switch_screen(tabs[next].clone())
@@ -653,7 +748,7 @@ fn next_tab(app: &mut App, delta: isize) -> Result<()> {
 
 /// Today, Week, Inbox and saved views.
 fn run_list(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget> {
-    if run_shared(app, action, key)? {
+    if run_move(app, action) || run_switch(app, action, key)? || run_go(app, action)? {
         return Ok(None);
     }
     match action {
@@ -678,8 +773,9 @@ fn run_list(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget
         A::Filter => app.overlay = Overlay::Prompt(Prompt::filter(&app.filter)),
         A::Edit => {
             if !app.expand_overdue()?
-                && let Some(form) = super::edit::EditForm::open(app)
+                && let Some(row) = app.selected_row()
             {
+                let form = super::edit::EditForm::open(app, &row.item);
                 app.overlay = Overlay::Edit(Box::new(form));
             }
         }
@@ -689,7 +785,7 @@ fn run_list(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget
     Ok(None)
 }
 
-/// The change keys of the lists, and the keys that leave them.
+/// The change keys of the lists, and esc.
 fn run_change(app: &mut App, action: Action) -> Result<()> {
     match action {
         A::State if has_task(app, "change") => app.cycle_state()?,
@@ -706,16 +802,11 @@ fn run_change(app: &mut App, action: Action) -> Result<()> {
         A::Undo => app.undo()?,
         A::CopyLink => app.copy_link()?,
         A::Mark => app.toggle_mark(),
+        A::MarkAll => app.mark_all(),
         A::UnmarkAll => app.marks.clear(),
         A::Bulk if app.marks.is_empty() => app.set_status("mark rows with m first; B acts on them"),
         A::Bulk => app.overlay = Overlay::Bulk,
-        A::Triage => start_triage(app)?,
-        A::Agents => {
-            app.review_diff = false;
-            app.switch_screen(Screen::Review)?;
-        }
         A::Back => list_back(app)?,
-        A::Quit => app.quit = true,
         _ => {}
     }
     Ok(())
@@ -807,25 +898,6 @@ fn selected_location(app: &App) -> EditorTarget {
         .map(|row| (row.item.file.clone(), row.item.line))
 }
 
-/// A finished pass: `u` undoes all of it, `k` goes back to the last card,
-/// and ⏎, esc or q return to Today, as its summary card says.
-fn finished_triage_key(app: &mut App, key: KeyEvent) -> Result<()> {
-    match key.code {
-        KeyCode::Char('u') => triage_undo(app),
-        KeyCode::Char('k' | 'p') | KeyCode::Up | KeyCode::BackTab
-            if !app.triage.queue.is_empty() =>
-        {
-            triage_move(app, -1)
-        }
-        KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => app.switch_screen(Screen::Today),
-        KeyCode::Char('?') => {
-            app.overlay = Overlay::Help(help::Palette::default());
-            Ok(())
-        }
-        _ => Ok(()),
-    }
-}
-
 /// Moves through the frozen queue; past the last card the pass is done.
 fn triage_move(app: &mut App, delta: isize) -> Result<()> {
     let position = app.triage.position as isize + delta;
@@ -852,8 +924,26 @@ fn triage_undo(app: &mut App) -> Result<()> {
     app.reload_rows()
 }
 
-fn run_triage(app: &mut App, action: Action) -> Result<()> {
+/// Triage. A finished pass shows its summary, where `u` undoes all of it
+/// and `p` goes back to the last card; the other decisions have no card.
+fn run_triage(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget> {
+    if run_switch(app, action, key)? || run_go(app, action)? {
+        return Ok(None);
+    }
+    if action == A::Back {
+        let back = app.back.clone();
+        return app.switch_screen(back).map(|()| None);
+    }
+    if app.rows.is_empty() {
+        match action {
+            A::Undo => triage_undo(app)?,
+            A::Previous if !app.triage.queue.is_empty() => triage_move(app, -1)?,
+            _ => {}
+        }
+        return Ok(None);
+    }
     match action {
+        A::Editor => return Ok(selected_location(app)),
         A::Today => app.schedule("today")?,
         A::Tomorrow => app.schedule("+1d")?,
         A::NextWeek => app.schedule("+1w")?,
@@ -867,32 +957,44 @@ fn run_triage(app: &mut App, action: Action) -> Result<()> {
         A::Undo => triage_undo(app)?,
         A::Next => triage_move(app, 1)?,
         A::Previous => triage_move(app, -1)?,
-        A::Help => app.overlay = Overlay::Help(help::Palette::default()),
-        A::Back => {
-            let back = app.back.clone();
-            app.switch_screen(back)?;
-        }
         _ => {}
     }
-    Ok(())
+    Ok(None)
 }
 
 fn run_agents(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget> {
-    if run_shared(app, action, key)? {
+    if run_move(app, action) || run_switch(app, action, key)? || run_go(app, action)? {
         return Ok(None);
     }
     match action {
-        A::Accept => app.accept_selected()?,
-        A::AcceptAll => app.accept_all()?,
+        A::Accept => app.accept_changes()?,
+        A::Mark => app.toggle_mark(),
+        A::MarkAll => app.mark_all(),
+        A::UnmarkAll => app.marks.clear(),
         A::Undo => app.undo_selected_change()?,
-        A::Diff => app.review_diff = !app.review_diff,
         A::Peek => app.peek = !app.peek,
         A::FilterAgent => app.cycle_agent_filter()?,
+        A::Edit => edit_changed_task(app),
         A::Editor => return Ok(changed_location(app)),
         A::Back => agents_back(app)?,
         _ => {}
     }
     Ok(None)
+}
+
+/// ⏎ on the Agents tab: the edit popup on the task the change touched, as
+/// ⏎ on a row; a change no heading holds any more says so.
+fn edit_changed_task(app: &mut App) {
+    let Some(record) = app.journals.get(app.selected) else {
+        return;
+    };
+    match super::review::subject(app, record) {
+        Some(item) => {
+            let form = super::edit::EditForm::open(app, &item);
+            app.overlay = Overlay::Edit(Box::new(form));
+        }
+        None => app.set_status("no heading holds this change now; C-e opens where it was"),
+    }
 }
 
 /// The heading the selected agent change touched, for $EDITOR.
@@ -901,12 +1003,16 @@ fn changed_location(app: &App) -> EditorTarget {
     Some(super::review::changed_place(app, record))
 }
 
-/// esc or q on the Agents tab: close the diff, then peek, then go back.
+/// esc on the Agents tab, as in the lists: close peek, then clear the
+/// marks, then the agent filter, then go back.
 fn agents_back(app: &mut App) -> Result<()> {
-    if app.review_diff {
-        app.review_diff = false;
-    } else if app.peek {
+    if app.peek {
         app.peek = false;
+    } else if !app.marks.is_empty() {
+        app.marks.clear();
+    } else if app.agent_filter.is_some() {
+        app.agent_filter = None;
+        app.reload_rows()?;
     } else {
         let back = app.back.clone();
         app.switch_screen(if back == Screen::Review {
@@ -991,20 +1097,21 @@ fn first_key(binding: &Binding) -> Option<KeyEvent> {
         Key::Char(character) => KeyEvent::from(KeyCode::Char(*character)),
         Key::Code(code) => KeyEvent::from(*code),
         Key::Ctrl(character) => KeyEvent::new(KeyCode::Char(*character), KeyModifiers::CONTROL),
+        Key::Meta(code) => KeyEvent::new(*code, KeyModifiers::ALT),
         Key::Digit => KeyEvent::from(KeyCode::Char('1')),
     })
 }
 
 /// A prompt's keys. The filter is live: rows narrow as you type, and esc
-/// or ctrl-g puts back the filter it started with.
+/// or C-g puts back the filter it started with.
 fn prompt_key(app: &mut App, key: KeyEvent) -> Result<()> {
     let Overlay::Prompt(prompt) = &mut app.overlay else {
         return Ok(());
     };
     let filter = prompt.kind == PromptKind::Filter;
-    let edit = match key.code {
-        KeyCode::Esc => Edit::Cancel,
-        KeyCode::Enter => return app.commit_prompt(),
+    // The field itself answers esc and C-g with Cancel.
+    let edit = match popup_action(key) {
+        Some(A::Save) => return app.commit_prompt(),
         _ => prompt.input.handle(key),
     };
     let typed = prompt.input.text().to_string();
@@ -1030,9 +1137,8 @@ fn prompt_key(app: &mut App, key: KeyEvent) -> Result<()> {
 fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
     match &mut app.overlay {
         Overlay::Prompt(_) => prompt_key(app, key)?,
-        Overlay::Refile(picker) => match key.code {
-            KeyCode::Esc => app.overlay = Overlay::None,
-            KeyCode::Enter => app.commit_refile()?,
+        Overlay::Refile(picker) => match popup_action(key) {
+            Some(A::Save) => app.commit_refile()?,
             _ if picker_step(key).is_some() => {
                 let count = picker.matches().len();
                 picker.selected = stepped(picker.selected, picker_step(key), count);

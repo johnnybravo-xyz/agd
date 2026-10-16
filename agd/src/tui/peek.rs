@@ -1,3 +1,9 @@
+//! Peek (SPC): the entry under the cursor, beside the list from 100
+//! columns and over it below: its dates as people say them, its state,
+//! priority, tags, body and links, and why the agenda lists it. Also the
+//! entry-text helpers other screens share (the body, links, the title as
+//! the agenda shows it).
+
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -132,19 +138,40 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     // row is the footer's.
     let inner = block.inner(area);
     let room = inner.height.saturating_sub(1) as usize;
-    // On the Agents tab the subject is the task the selected change touched.
-    let subject = if app.screen == Screen::Review {
-        app.journals
-            .get(app.selected)
-            .and_then(|record| super::review::subject(app, record))
-            .map(|item| (item, None))
+    // On the Agents tab peek shows the selected change's diff, then the
+    // task it touched.
+    let (diff, subject) = if app.screen == Screen::Review {
+        let record = app.journals.get(app.selected);
+        (
+            record
+                .map(|record| diff_lines(app, &record.diff))
+                .unwrap_or_default(),
+            record
+                .and_then(|record| super::review::subject(app, record))
+                .map(|item| (item, None)),
+        )
     } else {
-        app.selected_row()
-            .map(|row| (row.item.clone(), row.occurrence.clone()))
+        (
+            Vec::new(),
+            app.selected_row()
+                .map(|row| (row.item.clone(), row.occurrence.clone())),
+        )
     };
     let Some((item, occurrence)) = subject else {
+        let mut lines = diff;
+        let reason = if lines.is_empty() {
+            "Nothing to peek"
+        } else {
+            "No heading holds this change now."
+        };
+        if !lines.is_empty() {
+            lines.push(Line::default());
+        }
+        lines.push(Line::from(Span::styled(reason, theme.muted())));
         frame.render_widget(
-            Paragraph::new(Span::styled("Nothing to peek", theme.muted())).block(block),
+            Paragraph::new(lines)
+                .wrap(Wrap { trim: false })
+                .block(block),
             area,
         );
         return;
@@ -152,7 +179,11 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     let item = &item;
     let text = entry_text(&app.index, item);
     let label = |name: &str| Span::styled(format!("{name:<11}"), theme.muted());
-    let mut lines = vec![
+    let mut lines = diff;
+    if !lines.is_empty() {
+        lines.push(Line::default());
+    }
+    lines.extend([
         Line::from(Span::styled(display_title(item), theme.strong(theme.text))),
         Line::from(Span::styled(
             format!(
@@ -166,7 +197,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
             theme.muted(),
         )),
         Line::default(),
-    ];
+    ]);
     if let Some(todo) = &item.todo {
         lines.push(Line::from(vec![label("State"), Span::raw(todo.clone())]));
     }
@@ -215,18 +246,24 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
         ]));
     }
     if let Some(priority) = &item.priority {
-        lines.push(Line::from(vec![
-            label("Priority"),
-            Span::styled(priority.clone(), theme.strong(theme.due)),
-        ]));
+        let mut spans = vec![label("Priority")];
+        spans.extend(theme.pill(priority.clone(), theme.due));
+        lines.push(Line::from(spans));
     }
+    // The heading's own tags, then those it inherits, muted.
     if !item.tags.is_empty() || !item.inherited_tags.is_empty() {
         let mut spans = vec![label("Tags")];
-        for tag in &item.tags {
-            spans.push(Span::styled(format!("{tag} "), theme.muted()));
+        if !item.tags.is_empty() {
+            spans.push(Span::styled(
+                format!("{} ", crate::words::tags(&item.tags)),
+                theme.fg(theme.text),
+            ));
         }
-        for tag in &item.inherited_tags {
-            spans.push(Span::styled(format!("{tag}↑ "), theme.muted()));
+        if !item.inherited_tags.is_empty() {
+            spans.push(Span::styled(
+                crate::words::tags(&item.inherited_tags),
+                theme.muted(),
+            ));
         }
         lines.push(Line::from(spans));
     }
@@ -234,10 +271,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     if logged > 0 {
         lines.push(Line::from(vec![
             label("Logged"),
-            Span::raw(format!(
-                "{logged} change{}",
-                if logged == 1 { "" } else { "s" }
-            )),
+            Span::raw(crate::commands::counted(logged, "change", "changes")),
         ]));
     }
     if let Some(reason) = why_listed(
@@ -272,12 +306,11 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
             theme.fg(theme.accent),
         )));
     }
-    // The keys of the screen underneath; on the Agents tab ⏎ opens the
-    // changed heading rather than the edit popup.
+    // The keys of the screen underneath.
     let (groups, actions) = if app.screen == Screen::Review {
         (
             keys::AGENT_KEYS,
-            [Action::Editor, Action::Accept, Action::Undo],
+            [Action::Edit, Action::Editor, Action::Accept],
         )
     } else {
         (
@@ -304,6 +337,23 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     };
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body_area);
     frame.render_widget(Paragraph::new(footer), footer_area);
+}
+
+/// A change's added and removed lines, as the edit popup previews one:
+/// added in the done colour, removed in the overdue colour.
+fn diff_lines(app: &App, diff: &str) -> Vec<Line<'static>> {
+    let theme = &app.theme;
+    super::edit::changed_lines(diff)
+        .lines()
+        .map(|line| {
+            let color = if line.starts_with('+') {
+                theme.done
+            } else {
+                theme.overdue
+            };
+            Line::from(Span::styled(line.to_string(), theme.fg(color)))
+        })
+        .collect()
 }
 
 /// Under 100 columns peek is a centred overlay instead of a split, over a

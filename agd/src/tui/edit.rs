@@ -1,7 +1,11 @@
+//! The edit popup (⏎ on a task): its title, state, priority, tags and
+//! dates as fields, the exact diff of the one guarded write they make, and
+//! the hand-over to $EDITOR.
+
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use agd_core::{Change, EditIntent, PlanningTimestamp, WriteEngine, parse_date_input};
+use agd_core::{Change, EditIntent, Item, PlanningTimestamp, WriteEngine, parse_date_input};
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Frame;
@@ -10,9 +14,10 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Wrap};
 
-use super::input::{self, TextInput};
+use super::input::TextInput;
+use super::keys::{self, Action};
 use super::theme::centered;
-use super::{App, Overlay, keys, write_context};
+use super::{App, Overlay, Screen, write_context};
 
 const TITLE: usize = 0;
 const STATE: usize = 1;
@@ -37,6 +42,9 @@ const LABELS: [&str; 6] = [
 #[derive(Debug)]
 pub(super) struct EditForm {
     item_ref: String,
+    /// The heading's file and line, for C-o.
+    file: String,
+    line: usize,
     location: String,
     keywords: Vec<String>,
     priorities: Vec<String>,
@@ -51,8 +59,9 @@ pub(super) struct EditForm {
 }
 
 impl EditForm {
-    pub(super) fn open(app: &App) -> Option<Self> {
-        let item = &app.selected_row()?.item;
+    /// The popup for `item`: the cursor row's task in the lists, the
+    /// changed task on the Agents tab.
+    pub(super) fn open(app: &App, item: &Item) -> Self {
         let date = |timestamp: &Option<PlanningTimestamp>| {
             timestamp.as_ref().map(date_text).unwrap_or_default()
         };
@@ -66,7 +75,7 @@ impl EditForm {
         ];
         let mut keywords = vec![String::new()];
         keywords.extend(
-            app.selected_keywords()
+            app.keywords_of(item)
                 .into_iter()
                 .map(|(keyword, _)| keyword),
         );
@@ -74,6 +83,8 @@ impl EditForm {
         priorities.extend(app.priority_range(item).cookies());
         let mut form = Self {
             item_ref: item.item_ref.clone(),
+            file: item.file.clone(),
+            line: item.line,
             location: app.short_location(item),
             keywords,
             priorities,
@@ -84,7 +95,7 @@ impl EditForm {
             stale: false,
         };
         form.focus(TITLE);
-        Some(form)
+        form
     }
 
     /// Moves to `field` with its text selected.
@@ -157,7 +168,7 @@ impl EditForm {
             WriteEngine::with_default_journal(app.settings.clone())
                 .and_then(|engine| engine.edit(&self.item_ref, &intent, true, &write_context()))
                 .map(|mutation| changed_lines(&mutation.diff))
-                .map_err(|error| error.to_string())
+                .map_err(|error| app.error_text(&error))
         });
     }
 
@@ -179,12 +190,10 @@ impl EditForm {
     }
 
     /// State and Priority are choices: ←/→ step, a letter picks the first
-    /// choice starting with it, Backspace picks none. Returns false for
-    /// ctrl-g, which closes the popup.
-    fn choose(&mut self, key: KeyEvent) -> bool {
+    /// choice starting with it, Backspace picks none.
+    fn choose(&mut self, key: KeyEvent) {
         let control = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
-            KeyCode::Char('g') if control => return false,
             KeyCode::Left => self.cycle(-1),
             KeyCode::Right => self.cycle(1),
             KeyCode::Backspace => self.values[self.field].set(""),
@@ -205,7 +214,6 @@ impl EditForm {
             }
             _ => {}
         }
-        true
     }
 }
 
@@ -232,45 +240,35 @@ pub(super) fn changed_lines(diff: &str) -> String {
         .join("\n")
 }
 
-/// Returns true when the caller should open the entry in $EDITOR (ctrl-o;
-/// in a field ctrl-e is end of line), which closes the popup without
-/// writing.
-pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<bool> {
+/// Returns the heading to open in $EDITOR on C-o (in a field C-e is end of
+/// line), which closes the popup without writing.
+pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<keys::EditorTarget> {
     let Overlay::Edit(mut form) = std::mem::replace(&mut app.overlay, Overlay::None) else {
-        return Ok(false);
+        return Ok(None);
     };
-    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('o') {
-        return Ok(true);
-    }
-    match key.code {
-        KeyCode::Esc => return Ok(false),
-        KeyCode::Enter => {
+    let next = (form.field + 1) % LABELS.len();
+    let previous = (form.field + LABELS.len() - 1) % LABELS.len();
+    match keys::popup_action(key) {
+        Some(Action::Editor) => return Ok(Some((form.file, form.line))),
+        Some(Action::Back) => return Ok(None),
+        Some(Action::Save) => {
             if !form.unchanged() {
                 commit(app, form)?;
             }
-            return Ok(false);
+            return Ok(None);
         }
-        KeyCode::Tab => form.focus((form.field + 1) % LABELS.len()),
-        KeyCode::BackTab => form.focus((form.field + LABELS.len() - 1) % LABELS.len()),
-        _ if keys::picker_step(key) == Some(1) => form.focus((form.field + 1) % LABELS.len()),
-        _ if keys::picker_step(key) == Some(-1) => {
-            form.focus((form.field + LABELS.len() - 1) % LABELS.len())
-        }
-        _ if form.field == STATE || form.field == PRIORITY => {
-            if !form.choose(key) {
-                return Ok(false);
-            }
-        }
+        Some(Action::NextField) => form.focus(next),
+        Some(Action::PreviousField) => form.focus(previous),
+        _ if keys::picker_step(key) == Some(1) => form.focus(next),
+        _ if keys::picker_step(key) == Some(-1) => form.focus(previous),
+        _ if form.field == STATE || form.field == PRIORITY => form.choose(key),
         _ => {
-            let field = form.field;
-            if form.values[field].handle(key) == input::Edit::Cancel {
-                return Ok(false);
-            }
+            form.values[form.field].handle(key);
         }
     }
     form.stale = true;
     app.overlay = Overlay::Edit(form);
-    Ok(false)
+    Ok(None)
 }
 
 /// Rebuilds a stale preview with one dry run, as for capture.
@@ -290,7 +288,7 @@ fn commit(app: &mut App, form: Box<EditForm>) -> Result<()> {
     let intent = match form.intent(app) {
         Ok(intent) => intent,
         Err(error) => {
-            app.set_status(error);
+            app.set_error(&anyhow::Error::msg(error));
             app.overlay = Overlay::Edit(form);
             return Ok(());
         }
@@ -302,12 +300,15 @@ fn commit(app: &mut App, form: Box<EditForm>) -> Result<()> {
     app.remember_undo(
         &mutation.journal_id,
         &location,
-        format!("edit · {}", mutation.item.title),
+        format!("edited · {}", mutation.item.title),
     );
-    app.set_status(format!(
-        "{} · u undo",
-        crate::words::change(&location, "edited", &mutation.item.title)
-    ));
+    let line = crate::words::change(&location, "edited", &mutation.item.title);
+    // On the Agents tab `u` undoes the agent's change, not this one.
+    app.set_done(if app.screen == Screen::Review {
+        line
+    } else {
+        format!("{line} · u undo")
+    });
     app.reload_rows()
 }
 
@@ -386,6 +387,15 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         } else {
             spans.extend(value.spans(theme, focused));
         }
+        // A date field is typed as Org writes it; beside it, how agd says it.
+        if (field == SCHEDULED || field == DEADLINE)
+            && let Ok(date) = parse_date_input(value.text().trim(), app.today)
+        {
+            spans.push(Span::styled(
+                format!("  {}", super::actions::when(&date, app.today)),
+                theme.muted(),
+            ));
+        }
         if form.changed(field).is_some() {
             spans.push(Span::styled("  •", theme.fg(theme.due)));
         }
@@ -398,13 +408,14 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             .block(theme.inset()),
         parts[2],
     );
+    let key = |action| keys::key_label(keys::POPUP_KEYS, action);
     frame.render_widget(
         Paragraph::new(Line::from(
             [
-                theme.key_hint("⏎", "save"),
-                theme.key_hint("tab", "next field"),
-                theme.key_hint("esc", "cancel"),
-                theme.key_hint("ctrl-o", "open in $EDITOR"),
+                theme.key_hint(key(Action::Save), "save"),
+                theme.key_hint(key(Action::NextField), "next field"),
+                theme.key_hint(key(Action::Back), "cancel"),
+                theme.key_hint(key(Action::Editor), "open in $EDITOR"),
             ]
             .concat(),
         )),

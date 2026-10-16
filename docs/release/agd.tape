@@ -27,7 +27,7 @@ Space Sleep 500ms
 # Week: every day, classic org-agenda prefixes.
 Tab Sleep 2.5s
 
-# Agent review: what changed while you weren't looking.
+# The Agents tab: what changed while you weren't looking.
 Tab Tab Sleep 3s
 Type "a" Sleep 1.5s
 
@@ -35,7 +35,7 @@ Type "a" Sleep 1.5s
 Type "1" Sleep 500ms
 Type "T" Sleep 3s
 Type "S" Sleep 1.5s
-Type "m" Sleep 1.5s
+Type ">" Sleep 1.5s
 Escape Sleep 800ms
 
 # Capture: tokens become chips, the preview is the exact org text.

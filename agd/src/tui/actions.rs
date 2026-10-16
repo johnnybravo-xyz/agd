@@ -1,3 +1,10 @@
+//! Every write the TUI makes, and the prompts and pickers that lead to one:
+//! state changes, dates, priority, tags, someday, refile, undo, accepting
+//! agent changes and copying a link. A write acts on the marked rows, else
+//! the cursor row, as one guarded transaction; a prompt previews the exact
+//! change with a dry run first; each write is confirmed on the status line
+//! as `words::change` says it and can be undone with `u`.
+
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -195,23 +202,33 @@ impl App {
     /// org-agenda does, naming the targets:
     /// `work.org:142  TODO → DONE · Pay rent · u undo`.
     fn edit_targets(&mut self, intent: EditIntent, outcome: usize, change: &str) -> Result<()> {
+        let edits = self
+            .targets()
+            .into_iter()
+            .map(|item_ref| ItemEdit {
+                item_ref,
+                intent: intent.clone(),
+            })
+            .collect();
+        self.edit_each(edits, outcome, change)
+    }
+
+    /// edit_targets with an edit of each target's own.
+    fn edit_each(&mut self, targets: Vec<ItemEdit>, outcome: usize, change: &str) -> Result<()> {
         let engine = WriteEngine::with_default_journal(self.settings.clone())?;
-        let targets = self.targets();
         if targets.is_empty() {
             return Ok(());
         }
+        let several = targets.len() > 1;
         let mut edits = Vec::new();
-        for item_ref in targets.iter().cloned() {
-            let unchanged = targets.len() > 1
+        for edit in targets {
+            let unchanged = several
                 && matches!(
-                    engine.edit(&item_ref, &intent, true, &write_context()),
+                    engine.edit(&edit.item_ref, &edit.intent, true, &write_context()),
                     Err(error) if error.code() == ErrorCode::InvalidEdit
                 );
             if !unchanged {
-                edits.push(ItemEdit {
-                    item_ref,
-                    intent: intent.clone(),
-                });
+                edits.push(edit);
             }
         }
         if edits.is_empty() {
@@ -249,8 +266,9 @@ impl App {
             ),
             _ => change.to_string(),
         };
-        let summary = targets_summary(&items);
-        self.set_status(format!(
+        let titles: Vec<String> = items.iter().map(|item| item.title.clone()).collect();
+        let summary = titles_summary(&titles);
+        self.set_done(format!(
             "{} · u undo",
             words::change(&location, &change, &summary)
         ));
@@ -266,7 +284,7 @@ impl App {
     fn targets_location(&self, items: &[&Item]) -> String {
         match items {
             [item] => self.short_location(item),
-            _ => format!("{} items", items.len()),
+            _ => crate::commands::counted(items.len(), "item", "items"),
         }
     }
 
@@ -298,7 +316,7 @@ impl App {
                     .resolve(only)
                     .ok()
                     .and_then(|(_, headline)| headline.item.todo.clone())
-                    .unwrap_or_else(|| "·".to_string());
+                    .unwrap_or_else(|| "—".to_string());
                 format!("{from} → {state}")
             }
             _ => format!("→ {state}"),
@@ -408,14 +426,17 @@ impl App {
 
     /// (keyword, done) for the selected row's TODO sequence in its file.
     pub(super) fn selected_keywords(&self) -> Vec<(String, bool)> {
-        let Some(row) = self.selected_row() else {
+        self.selected_row()
+            .map(|row| self.keywords_of(&row.item))
+            .unwrap_or_default()
+    }
+
+    /// (keyword, done) for `item`'s TODO sequence in its file.
+    pub(super) fn keywords_of(&self, item: &Item) -> Vec<(String, bool)> {
+        let Some(document) = self.index.document(Path::new(&item.file)) else {
             return Vec::new();
         };
-        let Some(document) = self.index.document(Path::new(&row.item.file)) else {
-            return Vec::new();
-        };
-        let sequence = row
-            .item
+        let sequence = item
             .todo
             .as_deref()
             .and_then(|todo| document.todo_keyword(todo))
@@ -485,32 +506,38 @@ impl App {
 
     /// Someday: add the someday tag and, unless configured otherwise, drop
     /// the date that made it show up (SCHEDULED, or an overdue DEADLINE), so
-    /// the task leaves the agenda without being deleted. Marked rows share
-    /// one edit, so they keep their deadlines: only the cursor row is known
-    /// to be overdue.
+    /// the task leaves the agenda without being deleted. Each marked row
+    /// drops its own missed deadline, as the cursor row does.
     pub(super) fn someday(&mut self) -> Result<()> {
         let tag = self.settings.someday_tag.clone();
         let clears = self.settings.someday_clears_dates;
-        let overdue_deadline = self.marks.is_empty()
-            && self.selected_row().is_some_and(|row| {
-                row.occurrence
-                    .as_ref()
-                    .is_some_and(|occurrence| occurrence.extra.ends_with("ago:"))
-            });
-        self.edit_targets(
-            EditIntent {
-                scheduled: if clears { Change::Clear } else { Change::Keep },
-                deadline: if clears && overdue_deadline {
-                    Change::Clear
-                } else {
-                    Change::Keep
-                },
-                tags_add: BTreeSet::from([tag.clone()]),
-                ..EditIntent::default()
-            },
-            SOMEDAY,
-            &format!("→ :{tag}:"),
-        )
+        let edits = self
+            .targets()
+            .into_iter()
+            .map(|item_ref| {
+                let missed = self.rows.iter().any(|row| {
+                    row.item.item_ref == item_ref
+                        && row
+                            .occurrence
+                            .as_ref()
+                            .is_some_and(|occurrence| occurrence.extra.ends_with("ago:"))
+                });
+                ItemEdit {
+                    item_ref,
+                    intent: EditIntent {
+                        scheduled: if clears { Change::Clear } else { Change::Keep },
+                        deadline: if clears && missed {
+                            Change::Clear
+                        } else {
+                            Change::Keep
+                        },
+                        tags_add: BTreeSet::from([tag.clone()]),
+                        ..EditIntent::default()
+                    },
+                }
+            })
+            .collect();
+        self.edit_each(edits, SOMEDAY, &format!("→ {}", words::tag(&tag)))
     }
 
     /// `+`/`-`: raise or lower priority within the configured range, as
@@ -618,7 +645,7 @@ impl App {
     /// a count when rows are marked, or why nothing would be written.
     fn dry_run(&self, edit: &PromptEdit) -> Result<Vec<String>, String> {
         let engine = WriteEngine::with_default_journal(self.settings.clone())
-            .map_err(|error| words::error_sentence(&error))?;
+            .map_err(|error| self.error_text(&error))?;
         let targets = self.targets();
         let mut first = None;
         let mut changing = 0;
@@ -629,7 +656,7 @@ impl App {
                     first.get_or_insert_with(|| super::edit::changed_lines(&mutation.diff));
                 }
                 Err(error) if error.code() == ErrorCode::InvalidEdit => {}
-                Err(error) => return Err(words::error_sentence(&error)),
+                Err(error) => return Err(self.error_text(&error)),
             }
         }
         let Some(first) = first else {
@@ -728,7 +755,7 @@ impl App {
             .undo(&step.journal_id, &write_context())?;
         let step = self.undo_steps.pop().expect("the step just undone");
         self.refresh_files(&result.file)?;
-        self.set_status(format!("{}  undid {}", step.location, step.label));
+        self.set_done(format!("{}  undid {}", step.location, step.label));
         self.reload_rows()
     }
 
@@ -759,9 +786,9 @@ impl App {
         }
         match undone {
             Some(step) if !undo_all => {
-                self.set_status(format!("{}  undid {}", step.location, step.label))
+                self.set_done(format!("{}  undid {}", step.location, step.label))
             }
-            _ => self.set_status(format!(
+            _ => self.set_done(format!(
                 "{}  undid the whole triage pass",
                 crate::commands::counted(count, "item", "items")
             )),
@@ -776,40 +803,44 @@ impl App {
         Ok(())
     }
 
-    /// Accept writes nothing: it only marks the change reviewed.
-    pub(super) fn accept_selected(&mut self) -> Result<()> {
-        let Some(record) = self.journals.get(self.selected) else {
-            return Ok(());
-        };
-        if record.status != JournalStatus::Committed {
-            return Ok(());
-        }
-        let location = super::review::subject_location(self, record);
-        let title = super::review::subject_title(self, record);
-        WriteEngine::with_default_journal(self.settings.clone())?.review(&record.id)?;
-        self.set_status(format!(
-            "{} · nothing written",
-            words::change(&location, "accepted", &title)
-        ));
-        self.reload_rows()
-    }
-
-    pub(super) fn accept_all(&mut self) -> Result<()> {
-        let engine = WriteEngine::with_default_journal(self.settings.clone())?;
-        let mut accepted = 0;
-        for record in &self.journals {
-            if record.status == JournalStatus::Committed {
-                engine.review(&record.id)?;
-                accepted += 1;
+    /// `a` on the Agents tab: accepts the marked changes shown, else the
+    /// one under the cursor. Accepting writes nothing to the org files: it
+    /// only marks each change reviewed in the journal.
+    pub(super) fn accept_changes(&mut self) -> Result<()> {
+        let chosen: Vec<&agd_core::JournalRecord> = self
+            .journals
+            .iter()
+            .enumerate()
+            .filter(|(index, record)| match self.marks.is_empty() {
+                true => *index == self.selected,
+                false => self.marks.contains(&record.id),
+            })
+            .map(|(_, record)| record)
+            .filter(|record| record.status == JournalStatus::Committed)
+            .collect();
+        let location = match chosen.as_slice() {
+            [] => {
+                self.marks.clear();
+                self.set_status("already accepted");
+                return Ok(());
             }
+            [record] => super::review::subject_location(self, record),
+            several => crate::commands::counted(several.len(), "change", "changes"),
+        };
+        let titles: Vec<String> = chosen
+            .iter()
+            .map(|record| super::review::subject_title(self, record))
+            .collect();
+        let ids: Vec<String> = chosen.iter().map(|record| record.id.clone()).collect();
+        let engine = WriteEngine::with_default_journal(self.settings.clone())?;
+        for id in &ids {
+            engine.review(id)?;
         }
-        self.set_status(match accepted {
-            0 => "no unreviewed agent changes".to_string(),
-            count => format!(
-                "{}  accepted · nothing written",
-                crate::commands::counted(count, "change", "changes")
-            ),
-        });
+        self.marks.clear();
+        self.set_done(format!(
+            "{} · nothing written",
+            words::change(&location, "accepted", &titles_summary(&titles))
+        ));
         self.reload_rows()
     }
 
@@ -829,14 +860,14 @@ impl App {
                 if error.code() == ErrorCode::UndoConflict {
                     AgdError::new(
                         ErrorCode::UndoConflict,
-                        format!("{error} or press ⏎ to open it"),
+                        format!("{error}: ⏎ here, C-e in $EDITOR"),
                     )
                 } else {
                     error
                 }
             })?;
         self.refresh_files(&result.file)?;
-        self.set_status(words::change(&location, &change, &title));
+        self.set_done(words::change(&location, &change, &title));
         self.reload_rows()
     }
 
@@ -940,42 +971,47 @@ impl App {
                 format!("{change} · {}", result.item.title),
             );
         }
-        self.set_status(format!(
+        self.set_done(format!(
             "{} · u undo",
             words::change(&location, &change, &result.item.title)
         ));
         self.reload_rows()
     }
 
-    /// `y`: copies the first link in the entry, else an org link to it.
+    /// `y`: copies a link to the heading as org-store-link makes one: by
+    /// its ID when it has one, else by file and heading text.
     pub(super) fn copy_link(&mut self) -> Result<()> {
         let Some(row) = self.selected_row() else {
             return Ok(());
         };
-        let body = super::peek::entry_text(&self.index, &row.item);
-        let link = super::peek::links(&body)
-            .into_iter()
-            .next()
-            .map(|(target, _)| target)
-            .unwrap_or_else(|| match &row.item.id {
-                Some(id) => format!("[[id:{id}][{}]]", row.item.title),
-                None => format!(
-                    "[[file:{}::{}][{}]]",
-                    row.item.file, row.item.line, row.item.title
-                ),
-            });
+        let link = org_link(&row.item);
         super::copy_to_clipboard(&link)?;
         self.set_status(format!("copied {link}"));
         Ok(())
     }
 }
 
+/// org-store-link's link to a heading, described by the heading as the
+/// agenda shows it: `[[id:…][Pay rent]]`, else
+/// `[[file:~/org/home.org::*Pay rent][Pay rent]]`.
+pub(super) fn org_link(item: &Item) -> String {
+    let description = super::peek::display_title(item);
+    match &item.id {
+        Some(id) => format!("[[id:{id}][{description}]]"),
+        None => format!(
+            "[[file:{}::*{}][{description}]]",
+            words::home_path(&item.file),
+            item.title
+        ),
+    }
+}
+
 /// The first target's title, and how many more: `Pay rent + 2 more`.
-pub(super) fn targets_summary(items: &[&Item]) -> String {
-    match items {
+fn titles_summary(titles: &[String]) -> String {
+    match titles {
         [] => String::new(),
-        [item] => item.title.clone(),
-        [first, rest @ ..] => format!("{} + {} more", first.title, rest.len()),
+        [title] => title.clone(),
+        [first, rest @ ..] => format!("{first} + {} more", rest.len()),
     }
 }
 

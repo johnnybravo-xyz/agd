@@ -1,3 +1,9 @@
+//! What each screen lists: Today's sections, Week's days, the inbox, saved
+//! views, Triage's frozen queue and the Agents tab's journal records, read
+//! from the agenda engine and the journal. Also the cursor (kept on the
+//! same heading across reloads), marks, screen switching and the `<` and
+//! `/` filters.
+
 use std::collections::BTreeSet;
 use std::time::Instant;
 
@@ -65,6 +71,18 @@ impl App {
         }
         tabs.extend([Screen::Today, Screen::Week, Screen::Inbox, Screen::Review]);
         tabs
+    }
+
+    /// The tabs as the header shows them, left to right, for tab, S-tab
+    /// and 1–9: the tabs, then a saved view open that is not one, then
+    /// Triage while it runs.
+    pub(super) fn shown_tabs(&self) -> Vec<Screen> {
+        let mut shown = self.tabs();
+        if matches!(self.screen, Screen::View(_) | Screen::Triage) && !shown.contains(&self.screen)
+        {
+            shown.push(self.screen.clone());
+        }
+        shown
     }
 
     /// Changes screen with the cursor on the first row; esc comes back from
@@ -139,14 +157,41 @@ impl App {
         };
     }
 
+    /// `m`: marks or unmarks the row (on the Agents tab, the change) under
+    /// the cursor and moves on.
     pub(super) fn toggle_mark(&mut self) {
-        let Some(item_ref) = self.selected_row().map(|row| row.item.item_ref.clone()) else {
+        let mark = if self.screen == Screen::Review {
+            self.journals
+                .get(self.selected)
+                .map(|record| record.id.clone())
+        } else {
+            self.selected_row().map(|row| row.item.item_ref.clone())
+        };
+        let Some(mark) = mark else {
             return;
         };
-        if !self.marks.remove(&item_ref) {
-            self.marks.insert(item_ref);
+        if !self.marks.remove(&mark) {
+            self.marks.insert(mark);
         }
         self.move_selection(1);
+    }
+
+    /// `*`: marks every row (on the Agents tab, every change) shown, as
+    /// org-agenda-bulk-mark-all; overdue rows folded under "+N more" stay
+    /// unmarked, being out of view.
+    pub(super) fn mark_all(&mut self) {
+        self.marks = if self.screen == Screen::Review {
+            self.journals
+                .iter()
+                .map(|record| record.id.clone())
+                .collect()
+        } else {
+            self.rows
+                .iter()
+                .filter(|row| row.more == 0)
+                .map(|row| row.item.item_ref.clone())
+                .collect()
+        };
     }
 
     /// Marked rows when any are marked (bulk mode), else the selected row.
@@ -183,9 +228,10 @@ impl App {
                     .strip_prefix("mcp:")
                     .unwrap_or("you")
                     .to_string();
-                let time = record.timestamp.get(11..16).unwrap_or_default().to_string();
-                self.provenance
-                    .insert(super::stable_ref(item_ref), (actor, time));
+                self.provenance.insert(
+                    super::stable_ref(item_ref),
+                    (actor, record.timestamp.clone()),
+                );
             }
         }
         self.counts.agents = journals

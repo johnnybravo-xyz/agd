@@ -1,3 +1,7 @@
+//! The narrow pane (`agd --pane`, or any terminal under 60 columns): today
+//! at a glance beside an agent or an editor, drawn with Today's marker and
+//! lead cells so the two read alike.
+
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
@@ -120,11 +124,7 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let line = match &app.status {
         Some(status) => Line::from(Span::styled(
             status.text.clone(),
-            theme.strong(if status.error {
-                theme.overdue
-            } else {
-                theme.done
-            }),
+            today::status_style(app, status),
         )),
         None => {
             let mut spans = vec![Span::styled(
@@ -158,8 +158,8 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     );
 }
 
-/// Today's marker and lead cells, the title, and a right-hand mark:
-/// priority, ↻ for a repeating task, ✓ for done (the pane shows no
+/// Today's marker and lead cells, the title, and a right-hand mark: the
+/// priority pill, ↻ for a repeating task, ✓ for done (the pane shows no
 /// keyword, so ✓ says it).
 fn pane_line(app: &App, row: &DisplayRow, clock: Clock, width: usize) -> Line<'static> {
     let theme = &app.theme;
@@ -168,15 +168,17 @@ fn pane_line(app: &App, row: &DisplayRow, clock: Clock, width: usize) -> Line<'s
         .into_iter()
         .flatten()
         .any(|timestamp| timestamp.repeater.is_some());
+    // Priority is the pill, as on every row.
     let right = if item.done {
-        Span::styled("✓", theme.strong(theme.done))
+        vec![Span::styled("✓", theme.strong(theme.done))]
     } else if let Some(priority) = &item.priority {
-        Span::styled(priority.clone(), theme.strong(theme.due))
+        theme.pill(priority.clone(), theme.due)
     } else if repeats {
-        Span::styled("↻", theme.muted())
+        vec![Span::styled("↻", theme.muted())]
     } else {
-        Span::raw("")
+        Vec::new()
     };
+    let right_width: usize = right.iter().map(Span::width).sum();
     let title_style = if item.done {
         theme.done_row()
     } else if clock == Clock::Next {
@@ -190,16 +192,16 @@ fn pane_line(app: &App, row: &DisplayRow, clock: Clock, width: usize) -> Line<'s
     let used: usize = spans.iter().map(Span::width).sum();
     // Display width, not characters: a CJK or emoji title takes two
     // columns a character. A right-hand mark keeps a space before it.
-    let gap = usize::from(right.width() > 0);
+    let gap = usize::from(right_width > 0);
     let title = truncate(
         &super::peek::display_title(item),
-        width.saturating_sub(used + right.width() + gap),
+        width.saturating_sub(used + right_width + gap),
     );
     let title_width = Span::raw(title.as_str()).width();
     spans.push(Span::styled(title, title_style));
     spans.push(Span::raw(
-        " ".repeat(width.saturating_sub(used + title_width + right.width())),
+        " ".repeat(width.saturating_sub(used + title_width + right_width)),
     ));
-    spans.push(right);
+    spans.extend(right);
     Line::from(spans)
 }

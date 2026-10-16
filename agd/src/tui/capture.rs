@@ -1,3 +1,8 @@
+//! The capture popup (`c`, and `agd capture -i`): pick a template as in
+//! org-capture's menu, type one line with tokens (`due:fri +tag #A`) that
+//! show as chips, answer the template's prompts, and see the exact Org text
+//! a dry run would write before ⏎ writes it.
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Stdout, Write};
@@ -20,9 +25,10 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
 
-use super::input::{self, TextInput};
-use super::theme::{Theme, centered};
-use super::{App, Overlay, keys, stop_terminal, write_context};
+use super::input::TextInput;
+use super::keys::{self, Action};
+use super::theme::{Theme, centered, truncate};
+use super::{App, Overlay, stop_terminal, write_context};
 
 /// The capture popup's state. Field 0 is the one-line title with tokens;
 /// later fields answer the template's `%^{prompt}`s.
@@ -133,7 +139,7 @@ impl Draft {
                     )
                 })
                 .map(|mutation| added_lines(&mutation.diff))
-                .map_err(|error| error.to_string())
+                .map_err(|error| app.error_text(&error))
         });
     }
 }
@@ -193,11 +199,12 @@ pub(super) fn handle_key(
         return Ok(());
     };
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
-    // In the text fields ctrl-e is end of line, so the body editor is ctrl-o.
+    // In the text fields C-e is end of line, so the body editor is C-o.
+    let action = keys::popup_action(key);
     match key.code {
-        KeyCode::Esc => return close(app),
-        KeyCode::Char('o') if control => edit_body(terminal, app, &mut draft)?,
-        KeyCode::Tab => {
+        _ if action == Some(Action::Back) => return close(app),
+        _ if action == Some(Action::Editor) => edit_body(terminal, app, &mut draft)?,
+        _ if action == Some(Action::NextField) => {
             let keys: Vec<String> = app
                 .settings
                 .captures
@@ -225,7 +232,7 @@ pub(super) fn handle_key(
             }
         }
         _ if keys::picker_step(key) == Some(-1) => draft.field = draft.previous_field(app),
-        KeyCode::Enter if draft.template.is_none() => {
+        _ if action == Some(Action::Save) && draft.template.is_none() => {
             if let Some(template) = app.settings.captures.get(draft.selected) {
                 let key = template.key.clone();
                 draft.choose(app, &key);
@@ -236,8 +243,8 @@ pub(super) fn handle_key(
             draft.template = None;
             draft.prompts.clear();
         }
-        KeyCode::Enter => {
-            if draft.template.is_some() && !draft.input.text().trim().is_empty() {
+        _ if action == Some(Action::Save) => {
+            if !draft.input.text().trim().is_empty() {
                 match draft.next_field(app) {
                     Some(field) => draft.field = field,
                     None => return commit(app, draft),
@@ -252,12 +259,9 @@ pub(super) fn handle_key(
                 app.set_status(format!("no capture template '{character}'"));
             }
         }
-        KeyCode::Char('g') if draft.template.is_none() && control => return close(app),
         _ if draft.template.is_none() => {}
         _ => {
-            if draft.current().handle(key) == input::Edit::Cancel {
-                return close(app);
-            }
+            draft.current().handle(key);
         }
     }
     draft.stale = true;
@@ -290,9 +294,9 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
     app.remember_undo(
         &mutation.journal_id,
         &location,
-        format!("capture · {}", mutation.item.title),
+        format!("captured · {}", mutation.item.title),
     );
-    app.set_status(format!(
+    app.set_done(format!(
         "{} · u undo",
         crate::words::captured(&mutation.item, &location, app.today)
     ));
@@ -303,7 +307,7 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
     app.reload_rows()
 }
 
-/// ctrl-o: the body goes through $EDITOR as a temporary file.
+/// C-o: the body goes through $EDITOR as a temporary file.
 fn edit_body(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
@@ -350,14 +354,27 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         return draw_chooser(frame, app, draft, area);
     };
     let template = Some(template);
-    let preview = preview_lines(theme, &keyword_colors(&app.index), &draft.preview);
+    // As wide as the edit popup, so a heading with tags aligned at
+    // org-tags-column fits when the terminal allows.
+    let width = area
+        .width
+        .saturating_sub(4)
+        .clamp(60, 104)
+        .min(area.width.saturating_sub(2));
+    // The popup's and the inset's borders and padding take twelve columns.
+    let preview = preview_lines(
+        theme,
+        &keyword_colors(&app.index),
+        &draft.preview,
+        usize::from(width).saturating_sub(12),
+    );
     let open = draft.open_fields(app);
     let prompts = open.len() as u16;
     let prompt_rows = if prompts > 0 { prompts + 1 } else { 0 };
     // border + top padding, input, gap, prompts, chips, gap, destination,
     // preview inset, gap, footer, border
     let height = 2 + 3 + 1 + prompt_rows + 1 + 1 + 1 + preview.len() as u16 + 2 + 1 + 1 + 1;
-    let popup = centered(area, area.width.saturating_sub(4).clamp(60, 84), height);
+    let popup = centered(area, width, height);
     frame.render_widget(Clear, popup);
     let title = template.map_or("Capture".to_string(), |template| {
         format!("Capture · {}", template.desc)
@@ -445,8 +462,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Paragraph::new(Span::styled(destination, theme.fg(theme.text))),
         parts[next + 2],
     );
+    let key = |action| keys::key_label(keys::POPUP_KEYS, action);
     frame.render_widget(
-        Paragraph::new(Line::from(theme.key_hint("tab", "change")))
+        Paragraph::new(Line::from(theme.key_hint(key(Action::NextField), "change")))
             .alignment(ratatui::layout::Alignment::Right),
         parts[next + 2],
     );
@@ -459,9 +477,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(
         Paragraph::new(Line::from(
             [
-                theme.key_hint("⏎", "save"),
-                theme.key_hint("ctrl-o", "body in $EDITOR"),
-                theme.key_hint("esc", "cancel"),
+                theme.key_hint(key(Action::Save), "save"),
+                theme.key_hint(key(Action::Editor), "body in $EDITOR"),
+                theme.key_hint(key(Action::Back), "cancel"),
             ]
             .concat(),
         )),
@@ -557,7 +575,7 @@ fn draw_chooser(frame: &mut Frame<'_>, app: &App, draft: &Draft, area: Rect) {
             [
                 theme.key_hint("key", "choose"),
                 theme.key_hint("↑↓ ⏎", "pick"),
-                theme.key_hint("esc", "cancel"),
+                theme.key_hint(keys::key_label(keys::POPUP_KEYS, Action::Back), "cancel"),
             ]
             .concat(),
         )),
@@ -585,10 +603,13 @@ fn destination(template: &agd_core::CaptureTemplate) -> String {
     }
 }
 
+/// The preview's Org lines, each cut to `width` with "…" rather than
+/// wrapped, so a heading's aligned tags never land on a line of their own.
 fn preview_lines(
     theme: &Theme,
     colors: &BTreeMap<String, String>,
     preview: &Result<String, String>,
+    width: usize,
 ) -> Vec<Line<'static>> {
     match preview {
         Ok(text) if text.is_empty() => vec![Line::from(Span::styled(
@@ -597,7 +618,7 @@ fn preview_lines(
         ))],
         Ok(text) => text
             .lines()
-            .map(|line| org_line(theme, colors, line))
+            .map(|line| org_line(theme, colors, &truncate(line, width)))
             .collect(),
         Err(error) => vec![Line::from(Span::styled(
             error.clone(),
@@ -622,12 +643,14 @@ fn chips(theme: &Theme, draft: Option<CaptureDraft>, today: NaiveDate) -> Vec<Sp
         spans.extend(theme.pill(format!("scheduled {}", date(&scheduled.date)), theme.accent));
         spans.push(Span::raw("  "));
     }
+    // `+work` is typed; the chip shows the tag as every list does.
     for tag in &draft.tags {
-        spans.extend(theme.pill(format!("+{tag}"), theme.muted));
+        spans.extend(theme.pill(crate::words::tag(tag), theme.muted));
         spans.push(Span::raw("  "));
     }
+    // `#A` is typed; the chip is the priority pill every row shows.
     if let Some(priority) = &draft.priority {
-        spans.extend(theme.pill(format!("#{priority}"), theme.due));
+        spans.extend(theme.pill(priority.clone(), theme.due));
     }
     spans
 }

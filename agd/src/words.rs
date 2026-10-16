@@ -2,10 +2,12 @@
 //! terminal sentences, so the same fact always reads the same:
 //!
 //! - a date is `Fri 16 Oct`, with the year when it is not this year's, and
-//!   a time after it (`Fri 16 Oct 14:00`);
+//!   a time after it (`Fri 16 Oct 14:00`); when something happened is its
+//!   time today (`17:22`), else the same date and time;
 //! - a countdown is `in 3d`, an age `12d`, a missed deadline `-2d`;
 //! - a change is `<file:line or N items>  <change> · <title>`, which the
 //!   TUI ends with ` · u undo` while it can be undone;
+//! - a tag is `#work` (`tag`), wherever one is drawn;
 //! - an error is a sentence without its code (codes are for JSON).
 //!
 //! Org's own text (the org-agenda layout, `--csv`, JSON) is never reworded.
@@ -36,6 +38,19 @@ pub fn when(date: &str, time: Option<&str>, today: NaiveDate) -> String {
     }
 }
 
+/// When something happened, from a local RFC 3339 time as the journal
+/// writes it: `17:22` today, else `when`'s `Thu 15 Oct 17:22`.
+pub fn moment(timestamp: &str, today: NaiveDate) -> String {
+    let (Some(date), Some(time)) = (timestamp.get(..10), timestamp.get(11..16)) else {
+        return timestamp.to_string();
+    };
+    if date.parse::<NaiveDate>() == Ok(today) {
+        time.to_string()
+    } else {
+        when(date, Some(time), today)
+    }
+}
+
 /// `file:line` relative to the first root that holds the file.
 pub fn location(file: &str, line: usize, roots: &[PathBuf]) -> String {
     let path = Path::new(file);
@@ -44,6 +59,53 @@ pub fn location(file: &str, line: usize, roots: &[PathBuf]) -> String {
         .find_map(|root| path.strip_prefix(root).ok())
         .unwrap_or(path);
     format!("{}:{line}", relative.display())
+}
+
+/// A sentence with every path under a root written relative to it, as
+/// `location` writes one (`projects/alpha.org`), for errors that name a
+/// file. Absolute paths are for JSON.
+pub fn relative_paths(text: &str, roots: &[PathBuf]) -> String {
+    roots.iter().fold(text.to_string(), |text, root| {
+        let root = root.display().to_string();
+        text.replace(&format!("{}/", root.trim_end_matches('/')), "")
+    })
+}
+
+/// A path with the home directory written as `~`, as people read it:
+/// `~/src/app`. Only a whole path component is replaced, so a sibling such
+/// as `/Users/bob2` of home `/Users/bob` stays as it is.
+pub fn home_path(path: &str) -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    abbreviated(path, &home)
+}
+
+/// `path` with `home` written as `~`, at a component boundary only.
+fn abbreviated(path: &str, home: &str) -> String {
+    let home = home.trim_end_matches('/');
+    if home.is_empty() {
+        return path.to_string();
+    }
+    match path.strip_prefix(home) {
+        Some("") => "~".to_string(),
+        Some(rest) if rest.starts_with('/') => format!("~{rest}"),
+        _ => path.to_string(),
+    }
+}
+
+/// A tag as agd shows it: `#work`. Every tag drawn goes through here, so
+/// its notation lives in one place; `+work` is only what capture and the
+/// tags prompt take as input.
+pub fn tag(name: &str) -> String {
+    format!("#{name}")
+}
+
+/// Tags as agd shows them, one space apart: `#work #ops`.
+pub fn tags(names: &[String]) -> String {
+    names
+        .iter()
+        .map(|name| tag(name))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// `<location>  <change> · <title>`, the one shape of every change line.
@@ -115,6 +177,46 @@ mod tests {
         assert_eq!(day(date("2027-01-04"), today), "Mon 4 Jan 2027");
         assert_eq!(when("2026-10-16", Some("14:00"), today), "Fri 16 Oct 14:00");
         assert_eq!(when("someday", None, today), "someday");
+        assert_eq!(moment("2026-10-16T17:22:05+02:00", today), "17:22");
+        assert_eq!(
+            moment("2026-10-15T17:22:05+02:00", today),
+            "Thu 15 Oct 17:22"
+        );
+        assert_eq!(
+            moment("2025-12-31T09:05:00+00:00", today),
+            "Wed 31 Dec 2025 09:05"
+        );
+    }
+
+    #[test]
+    fn errors_name_files_relative_to_their_root() {
+        let roots = [PathBuf::from("/notes/org")];
+        assert_eq!(
+            relative_paths("refused: /notes/org/work/a.org is a symlink", &roots),
+            "refused: work/a.org is a symlink"
+        );
+        assert_eq!(
+            relative_paths("/notes/org2/a.org", &roots),
+            "/notes/org2/a.org"
+        );
+    }
+
+    #[test]
+    fn home_is_abbreviated_only_at_a_whole_component() {
+        assert_eq!(abbreviated("/Users/bob/src/app", "/Users/bob"), "~/src/app");
+        assert_eq!(abbreviated("/Users/bob", "/Users/bob/"), "~");
+        assert_eq!(
+            abbreviated("/Users/bob2/src", "/Users/bob"),
+            "/Users/bob2/src"
+        );
+        assert_eq!(abbreviated("/srv/org", ""), "/srv/org");
+    }
+
+    #[test]
+    fn tags_read_one_way() {
+        assert_eq!(tag("work"), "#work");
+        assert_eq!(tags(&["work".to_string(), "ops".to_string()]), "#work #ops");
+        assert_eq!(tags(&[]), "");
     }
 
     #[test]

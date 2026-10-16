@@ -1,24 +1,25 @@
 //! The Agents tab: one card per agent write, every card the same shape:
 //!
 //! ```text
-//! ▌● codex          ~/src/app · 15:01                         state
-//! ▌  TODO → DONE  Rotate staging certs                  work.org:42
+//! ▌  ● codex          ~/src/app · 15:01               changed state
+//! ▌    TODO → DONE  Rotate staging certs                work.org:42
 //! ```
 //!
-//! who, where from and when, and what kind of change; then the change in
-//! the fewest words, the task, and where it is. `d` shows the raw diff.
+//! the marker cell (`*` when marked, as on a list row), who, where from and
+//! when, and what kind of change; then the change in the fewest words, the
+//! task, and where it is. SPC peeks at the change's diff and its task.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
 use agd_core::{Item, JournalRecord, JournalStatus};
 
 use super::App;
-use super::theme::{Theme, centered, truncate};
+use super::theme::{Theme, truncate};
 
 /// Cells for an agent's name: 13 characters and "…".
 const NAME: usize = 14;
@@ -52,8 +53,8 @@ impl Change {
     fn kind(&self) -> &'static str {
         match self {
             Change::Captured { .. } => "captured",
-            Change::State { .. } => "state",
-            Change::Dates { .. } => "date",
+            Change::State { .. } => "changed state",
+            Change::Dates { .. } => "changed date",
             Change::Refiled { .. } => "refiled",
             Change::Edited => "edited",
         }
@@ -361,44 +362,12 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
         .enumerate()
         .filter_map(|(line, card)| card.map(|card| (inner.y + line as u16, card)))
         .collect();
-    if app.review_diff
-        && let Some(record) = app.journals.get(app.selected)
-    {
-        draw_diff(frame, &app.theme, record, area);
-    }
-}
-
-fn draw_diff(frame: &mut Frame<'_>, theme: &Theme, record: &JournalRecord, area: Rect) {
-    let popup = centered(
-        area,
-        area.width.saturating_sub(6),
-        area.height.saturating_sub(4),
-    );
-    frame.render_widget(Clear, popup);
-    let lines: Vec<Line<'_>> = record
-        .diff
-        .lines()
-        .map(|line| {
-            let style = if line.starts_with('+') {
-                theme.fg(theme.done)
-            } else if line.starts_with('-') {
-                theme.fg(theme.overdue)
-            } else {
-                theme.muted()
-            };
-            Line::from(Span::styled(line.to_string(), style))
-        })
-        .collect();
-    frame.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .block(theme.popup("Raw diff · d closes")),
-        popup,
-    );
 }
 
 /// One change, ready to draw.
 struct Card {
+    /// Marked with `m` or `*`, for `a` to accept.
+    marked: bool,
     reviewed: bool,
     agent: String,
     project: String,
@@ -435,10 +404,11 @@ impl Card {
             other => vec![(other.kind().to_string(), ChangeRole::Now)],
         };
         Self {
+            marked: app.marks.contains(&record.id),
             reviewed: record.status != JournalStatus::Committed,
             agent: agent_name(record).to_string(),
             project: shorten_project(&record.project),
-            time: record.timestamp.get(11..16).unwrap_or_default().to_string(),
+            time: crate::words::moment(&record.timestamp, app.today),
             kind: change.kind(),
             change: change_parts.iter().map(|(text, _)| text.as_str()).collect(),
             change_parts,
@@ -457,11 +427,11 @@ impl Card {
             }
             match (role, self.kind) {
                 (ChangeRole::Plain, _) => muted,
-                (ChangeRole::Was, "state") => theme.fg(theme.due),
-                (ChangeRole::Now, "state") => theme.strong(theme.done),
+                (ChangeRole::Was, "changed state") => theme.fg(theme.due),
+                (ChangeRole::Now, "changed state") => theme.strong(theme.done),
                 (ChangeRole::Was, _) => muted,
                 (ChangeRole::Now, "captured") => theme.fg(theme.done),
-                (ChangeRole::Now, "date") => theme.fg(theme.accent),
+                (ChangeRole::Now, "changed date") => theme.fg(theme.accent),
                 (ChangeRole::Now, _) => theme.fg(theme.text),
             }
         };
@@ -480,7 +450,14 @@ impl Card {
         } else {
             Span::styled(format!("{} ", self.kind), role_style(ChangeRole::Now))
         };
+        // The marker cell, as on a list row: `*` when marked.
+        let marker = if self.marked {
+            Span::styled("* ", theme.strong(theme.accent))
+        } else {
+            Span::raw("  ")
+        };
         let mut head = vec![
+            marker,
             Span::styled("● ", dot),
             Span::styled(format!("{:<NAME$} ", truncate(&self.agent, NAME)), name),
         ];
@@ -495,7 +472,8 @@ impl Card {
         ))));
         head.push(kind);
 
-        let mut body = vec![Span::raw("  ")];
+        // Under the agent's name: past the marker cell and the dot.
+        let mut body = vec![Span::raw("    ")];
         for (text, role) in &self.change_parts {
             body.push(Span::styled(text.clone(), role_style(*role)));
         }
@@ -523,17 +501,15 @@ impl Card {
 /// The agent's project as `~/src/app`, or its last two path parts, cut
 /// from the left to 22 cells.
 fn shorten_project(path: &str) -> String {
-    let short = match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && path.starts_with(&home) => {
-            format!("~{}", &path[home.len()..])
-        }
-        _ => {
-            let parts: Vec<&str> = path.trim_end_matches('/').rsplit('/').take(2).collect();
-            format!(
-                "…/{}",
-                parts.into_iter().rev().collect::<Vec<_>>().join("/")
-            )
-        }
+    let home = crate::words::home_path(path);
+    let short = if home.starts_with('~') {
+        home
+    } else {
+        let parts: Vec<&str> = path.trim_end_matches('/').rsplit('/').take(2).collect();
+        format!(
+            "…/{}",
+            parts.into_iter().rev().collect::<Vec<_>>().join("/")
+        )
     };
     if short.chars().count() <= 22 {
         return short;

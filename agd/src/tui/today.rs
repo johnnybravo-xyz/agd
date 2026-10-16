@@ -1,3 +1,9 @@
+//! The full layout every screen shares (the header with its tabs and
+//! filters, the body, the footer with the status line and key hints) and
+//! the lists drawn in it: Today, Week, Inbox and saved views, row by row.
+//! Also the prompts, the refile picker, the bulk menu and the Views popup
+//! drawn over them.
+
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -9,6 +15,7 @@ use chrono::{NaiveTime, Timelike};
 use unicode_width::UnicodeWidthStr;
 
 use super::input::TextInput;
+use super::keys::Action;
 use super::rows::days_since;
 use super::theme::{Theme, centered, scrollbar_track, truncate};
 use super::{
@@ -99,30 +106,29 @@ fn header_tabs(app: &App, width: usize) -> Vec<Span<'static>> {
             .view(key)
             .map_or_else(|| key.to_string(), |view| view.desc.clone())
     };
-    let screens = app.tabs();
-    let mut tabs: Vec<(Vec<Span<'static>>, bool)> = screens
+    let tab_screens = app.tabs();
+    // The order tab and 1–9 follow (App::shown_tabs).
+    let mut tabs: Vec<(Vec<Span<'static>>, bool)> = app
+        .shown_tabs()
         .iter()
         .map(|screen| {
             let label = match screen {
+                // A view open that is not a tab names its key too.
+                Screen::View(key) if !tab_screens.contains(screen) => {
+                    format!("{key} {}", view_desc(key))
+                }
                 Screen::View(key) => view_desc(key),
                 Screen::Week => "Week".to_string(),
                 Screen::Inbox => format!("Inbox {}", app.counts.inbox),
                 Screen::Review => "Agents".to_string(),
-                _ => "Today".to_string(),
+                Screen::Triage => "Triage".to_string(),
+                Screen::Today => "Today".to_string(),
             };
             let alert = (*screen == Screen::Review && app.counts.agents > 0)
                 .then(|| format!("● {}", app.counts.agents));
             tab(label, alert, app.screen == *screen)
         })
         .collect();
-    if let Screen::View(key) = &app.screen
-        && !screens.contains(&app.screen)
-    {
-        tabs.push(tab(format!("{key} {}", view_desc(key)), None, true));
-    }
-    if app.screen == Screen::Triage {
-        tabs.push(tab("Triage".to_string(), None, true));
-    }
     let mut left = theme.pill("Agenda", theme.accent);
     left.push(Span::raw(" "));
     let total = |tabs: &[(Vec<Span<'static>>, bool)]| {
@@ -152,8 +158,18 @@ fn header_pills(app: &App, room: usize) -> Vec<Span<'static>> {
     if app.log_mode {
         pills.push(theme.pill("log", theme.accent));
     }
-    if let Some(context) = &app.context {
-        pills.push(theme.pill(format!("ctx {context}"), theme.accent));
+    // `<` narrows the lists by category and the Agents tab by agent.
+    let context = if app.screen == Screen::Review {
+        app.agent_filter
+            .as_ref()
+            .map(|agent| format!("agent {agent}"))
+    } else {
+        app.context
+            .as_ref()
+            .map(|category| format!("ctx {category}"))
+    };
+    if let Some(context) = context {
+        pills.push(theme.pill(context, theme.accent));
     }
     pills.push(vec![Span::styled(
         format!(" {} ", crate::words::day(app.day, app.today)),
@@ -190,17 +206,23 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let mut spans = theme.pill(mode, theme.accent);
     spans.push(Span::raw("  "));
     if let Some(status) = &app.status {
-        let color = if status.error {
-            theme.overdue
-        } else {
-            theme.done
-        };
-        spans.push(Span::styled(status.text.clone(), theme.strong(color)));
+        spans.push(Span::styled(status.text.clone(), status_style(app, status)));
     } else {
         spans.extend(footer_hints(app, room.saturating_sub(span_width(&spans))));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
     frame.render_widget(Paragraph::new(help).alignment(Alignment::Right), area);
+}
+
+/// A status line in its tone's colour: the text colour for information,
+/// green for a finished write, red for an error. The pane uses it too.
+pub(super) fn status_style(app: &App, status: &super::Status) -> Style {
+    let theme = &app.theme;
+    match status.tone {
+        super::Tone::Info => theme.fg(theme.text),
+        super::Tone::Done => theme.strong(theme.done),
+        super::Tone::Error => theme.strong(theme.overdue),
+    }
 }
 
 fn span_width(spans: &[Span<'_>]) -> usize {
@@ -402,7 +424,7 @@ pub(super) fn empty_message(app: &App) -> Vec<Line<'static>> {
             .settings
             .roots
             .first()
-            .map_or(String::new(), |root| home_relative(root));
+            .map_or(String::new(), |root| crate::words::home_path(root));
         // Two lines, so a long root does not push the advice out of view.
         return vec![
             Line::from(format!("No .org files under {root} yet —")),
@@ -441,16 +463,6 @@ pub(super) fn empty_message(app: &App) -> Vec<Line<'static>> {
         ))],
         Screen::Inbox => vec![muted("Inbox is empty.".to_string())],
         _ => vec![muted("Nothing here.".to_string())],
-    }
-}
-
-/// A path with the home directory written as `~`.
-fn home_relative(path: &str) -> String {
-    match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && path.starts_with(&home) => {
-            format!("~{}", &path[home.len()..])
-        }
-        _ => path.to_string(),
     }
 }
 
@@ -601,8 +613,12 @@ fn row_line(app: &App, index: usize, columns: &RowColumns) -> Line<'static> {
         priority.push(Span::raw(" "));
         priority.extend(theme.pill(letter.clone(), theme.due));
     }
-    let tags = (columns.wide && !item.tags.is_empty())
-        .then(|| Span::styled(format!("  #{}", item.tags.join(" #")), theme.muted()));
+    let tags = (columns.wide && !item.tags.is_empty()).then(|| {
+        Span::styled(
+            format!("  {}", crate::words::tags(&item.tags)),
+            theme.muted(),
+        )
+    });
     let used = span_width(&spans);
     spans.extend(fit_row(
         columns.width,
@@ -899,7 +915,7 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
             .map(|row| app.short_location(&row.item))
             .unwrap_or_default()
     } else {
-        format!("{} marked rows", app.marks.len())
+        marked_rows(app)
     };
     let title = if prompt.kind == PromptKind::Filter || target.is_empty() {
         title.to_string()
@@ -947,8 +963,8 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
     frame.render_widget(
         Paragraph::new(Line::from(
             [
-                theme.key_hint("⏎", "apply"),
-                theme.key_hint("esc", "cancel"),
+                theme.key_hint(popup_key(Action::Save), "apply"),
+                theme.key_hint(popup_key(Action::Back), "cancel"),
             ]
             .concat(),
         )),
@@ -968,13 +984,26 @@ fn draw_filter_line(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, 
     let mut spans = vec![Span::styled("/", theme.strong(theme.accent))];
     spans.extend(prompt.input.spans(theme, true));
     spans.push(Span::styled(
-        format!("  {} rows  ", app.rows.len()),
+        format!(
+            "  {}  ",
+            crate::commands::counted(app.rows.len(), "row", "rows")
+        ),
         theme.muted(),
     ));
-    spans.extend(theme.key_hint("⏎", "keep"));
-    spans.extend(theme.key_hint("esc", "restore"));
+    spans.extend(theme.key_hint(popup_key(Action::Save), "keep"));
+    spans.extend(theme.key_hint(popup_key(Action::Back), "restore"));
     frame.render_widget(Clear, row);
     frame.render_widget(Paragraph::new(Line::from(spans)), row);
+}
+
+/// `1 marked row`, `3 marked rows`.
+fn marked_rows(app: &App) -> String {
+    crate::commands::counted(app.marks.len(), "marked row", "marked rows")
+}
+
+/// A popup's key for `action`, from keys::POPUP_KEYS.
+fn popup_key(action: Action) -> &'static str {
+    keys::key_label(keys::POPUP_KEYS, action)
 }
 
 /// A focused one-line input after its `›` marker.
@@ -1000,7 +1029,7 @@ fn draw_bulk(frame: &mut Frame<'_>, app: &App, area: Rect) {
     // border + top padding, rows, border
     let popup = centered(area, 52, 2 + rows.len() as u16 + 1);
     frame.render_widget(Clear, popup);
-    let block = theme.popup(format!("Bulk · {} marked rows", app.marks.len()));
+    let block = theme.popup(format!("Bulk · {}", marked_rows(app)));
     frame.render_widget(Paragraph::new(rows).block(block), popup);
 }
 
@@ -1063,9 +1092,9 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
             );
             frame.render_widget(
                 Paragraph::new(footer(&[
-                    ("⏎", "refile"),
+                    (popup_key(Action::Save), "refile"),
                     ("↑↓", "choose"),
-                    ("esc", "cancel"),
+                    (popup_key(Action::Back), "cancel"),
                 ])),
                 parts[4],
             );

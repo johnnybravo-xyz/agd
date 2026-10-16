@@ -66,17 +66,28 @@ async function agd($, args) {
   }
 }
 
-// agd's stderr as a sentence: agd.error/v1's message under --json, else
-// the text after `error:`.
+// The codes whose message words::error_sentence says plainly instead, as
+// agd's terminal and TUI do.
+const PLAIN_ERRORS = {
+  stale_ref: 'this heading changed on disk since agd read it',
+  no_change: 'nothing would change',
+}
+
+// agd's stderr as the sentence its TUI shows: the agd.error/v1 line under
+// --json (after any `warning:` lines), else the line after `error:`.
 function errorSentence(stderr) {
-  if (stderr.startsWith('{')) {
-    try {
-      return String(JSON.parse(stderr).message || '')
-    } catch {
-      return stderr
-    }
+  const lines = stderr.split('\n')
+  const json = lines.find((line) => line.startsWith('{'))
+  if (!json) {
+    const error = lines.find((line) => /^error:/i.test(line))
+    return (error || stderr).replace(/^error:\s*/i, '')
   }
-  return stderr.replace(/^error:\s*/i, '')
+  try {
+    const error = JSON.parse(json)
+    return PLAIN_ERRORS[error.code] || String(error.message || '')
+  } catch {
+    return stderr
+  }
 }
 
 // A saved view's sections, or today's agenda as one section.
@@ -362,8 +373,14 @@ function taskRow(Text, item, occurrence) {
   }
   parts.push(Text({ ...titleStyle(item, false), children: [displayTitle(item.title)] }))
   if (item.priority) parts.push(Text({ children: [' '] }), ...pill(Text, item.priority, palette.due))
-  if (item.tags.length > 0) parts.push(Text(muted({ children: ['  #' + item.tags.join(' #')] })))
+  if (item.tags.length > 0) parts.push(Text(muted({ children: ['  ' + tagsText(item.tags)] })))
   return Text({ wrap: 'truncate-end', children: parts })
+}
+
+// Tags as agd shows them (words::tags): `#work #ops`; every tag the pane
+// draws goes through here.
+function tagsText(tags) {
+  return tags.map((tag) => '#' + tag).join(' ')
 }
 
 // A title's style: muted and struck through when done, as in the TUI, bold
@@ -548,13 +565,14 @@ function paneBody($, e) {
   })
 }
 
-// "/capture t buy milk due:fri" runs `agd capture t "buy milk due:fri"`.
+// "/capture t buy milk due:fri" runs `agd capture --json -- t "buy milk
+// due:fri"`; after `--` a text such as `-1 point` is text, not an option.
 // It says what it wrote as agd's TUI and terminal do:
 // `inbox.org:7  captured · buy milk · deadline Fri 23 Oct`.
 async function capture($, args) {
   const match = args.trim().match(/^(\S+)\s+(.+)$/)
   if (!match) return { text: 'usage: /capture KEY text, such as /capture t buy milk due:fri' }
-  const result = await agd($, ['capture', match[1], match[2], '--json'])
+  const result = await agd($, ['capture', '--json', '--', match[1], match[2]])
   // Claude Code prefixes the plugin's name, so the text starts with agd's own.
   if (result.error) return { text: result.error }
   const today = await readNow($)
