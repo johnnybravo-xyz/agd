@@ -1383,6 +1383,34 @@ fn empty_lists_say_why_they_are_empty() {
 
 #[test]
 #[serial]
+fn who_captured_an_inbox_item_survives_lines_added_above_it() {
+    with_home(|root| {
+        let inbox = root.join("inbox.org");
+        fs::write(&inbox, "* Notes\n* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        agent_capture(&app, root, "Agent task");
+        app.index = WorkspaceIndex::load(app.settings.clone()).unwrap();
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 120, 20).join("\n");
+        assert!(screen.contains("test-agent"), "{screen}");
+
+        // An earlier heading grows, as `x` adding CLOSED and LOGBOOK would.
+        let grown = fs::read_to_string(&inbox).unwrap().replacen(
+            "* Notes\n",
+            "* Notes\nCLOSED: [2026-10-13 Tue 09:00]\nmore\n",
+            1,
+        );
+        fs::write(&inbox, grown).unwrap();
+        app.index = WorkspaceIndex::load(app.settings.clone()).unwrap();
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 120, 20).join("\n");
+        assert!(screen.contains("Agent task"), "{screen}");
+        assert!(screen.contains("test-agent"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {

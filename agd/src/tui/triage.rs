@@ -96,7 +96,7 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
     let item = &row.item;
     let inbox = row.section == INBOX;
     let title = if inbox {
-        match app.provenance.get(&item.item_ref) {
+        match app.provenance.get(&super::stable_ref(&item.item_ref)) {
             Some((actor, time)) => format!("Inbox · from {actor} {time}"),
             None => "Inbox".to_string(),
         }
@@ -153,7 +153,11 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
         Line::default(),
     ];
 
-    let reschedules = app.reschedules.get(&item.item_ref).copied().unwrap_or(0);
+    let reschedules = app
+        .reschedules
+        .get(&super::stable_ref(&item.item_ref))
+        .copied()
+        .unwrap_or(0);
     let nudge = reschedules >= app.settings.reschedule_nudge;
     let mut chips = theme.pill(
         item.planning

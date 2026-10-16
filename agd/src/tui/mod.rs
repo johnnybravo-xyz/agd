@@ -225,10 +225,10 @@ struct App {
     /// (screen row, row index) of the drawn list, for mouse clicks.
     click_rows: Vec<(u16, usize)>,
     counts: Counts,
-    /// Reschedules per item ref: LOGBOOK "Rescheduled from" notes, else
+    /// Reschedules per stable_ref: LOGBOOK "Rescheduled from" notes, else
     /// agd's own journal.
     reschedules: BTreeMap<String, usize>,
-    /// item ref -> (actor, HH:MM) of the capture that created it.
+    /// stable_ref -> (actor, HH:MM) of the capture that created it.
     provenance: BTreeMap<String, (String, String)>,
     recent_targets: Vec<String>,
     triage: TriageState,
@@ -606,6 +606,19 @@ fn stop_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()
     )?;
     terminal.show_cursor()?;
     Ok(())
+}
+
+/// An item ref without its line hint (`file#sha256:digest`), or the ID
+/// itself: what stays the same while lines above the heading come and go,
+/// so labels keyed by it survive edits elsewhere in the file.
+fn stable_ref(item_ref: &str) -> String {
+    match item_ref.rsplit_once("#sha256:") {
+        Some((location, digest)) => {
+            let file = location.rsplit_once(':').map_or(location, |(file, _)| file);
+            format!("{file}#sha256:{digest}")
+        }
+        None => item_ref.to_string(),
+    }
 }
 
 /// What a core error means for the person at the keyboard. Most messages

@@ -160,7 +160,8 @@ impl App {
                     .unwrap_or("you")
                     .to_string();
                 let time = record.timestamp.get(11..16).unwrap_or_default().to_string();
-                self.provenance.insert(item_ref.clone(), (actor, time));
+                self.provenance
+                    .insert(super::stable_ref(item_ref), (actor, time));
             }
         }
         self.counts.agents = journals
@@ -493,7 +494,7 @@ fn reschedule_counts(
                 .lines()
                 .any(|line| line.starts_with('+') && line.contains("SCHEDULED:"));
         if moved && let Some(item_ref) = &record.item_ref {
-            *counts.entry(item_ref.clone()).or_default() += 1;
+            *counts.entry(super::stable_ref(item_ref)).or_default() += 1;
         }
     }
     for document in index.documents() {
@@ -502,7 +503,7 @@ fn reschedule_counts(
                 &document.source()[headline.section_span.start..headline.section_span.end];
             let logged = section.matches("- Rescheduled from").count();
             if logged > 0 {
-                counts.insert(headline.item.item_ref.clone(), logged);
+                counts.insert(super::stable_ref(&headline.item.item_ref), logged);
             }
         }
     }

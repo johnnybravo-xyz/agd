@@ -707,7 +707,7 @@ fn right_cell(app: &App, row: &DisplayRow) -> Span<'static> {
         return Span::styled("✓ ", theme.strong(theme.done));
     }
     if row.section == INBOX {
-        return match app.provenance.get(&item.item_ref) {
+        return match app.provenance.get(&super::stable_ref(&item.item_ref)) {
             Some((actor, time)) if actor != "you" => {
                 Span::styled(format!("{actor} {time} "), theme.fg(theme.agent(actor)))
             }
