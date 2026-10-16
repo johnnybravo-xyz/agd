@@ -51,16 +51,31 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     };
     draw_card(frame, app, row, parts[2]);
     let rows = keys::triage_chips(row);
-    // Both rows share one column width: the card's longest label.
-    let label_width = rows
+    // Each column is as wide as its longest label in either row, so the
+    // rows line up and fit the card's width.
+    let labels: Vec<Vec<&str>> = rows
         .iter()
-        .flat_map(|actions| keys::hints(keys::TRIAGE_KEYS, actions))
-        .map(|(_, action)| action.chars().count())
-        .max()
-        .unwrap_or(0)
-        + 3;
+        .map(|actions| {
+            keys::hints(keys::TRIAGE_KEYS, actions)
+                .into_iter()
+                .map(|(_, label)| label)
+                .collect()
+        })
+        .collect();
+    let columns = labels.iter().map(Vec::len).max().unwrap_or(0);
+    let widths: Vec<usize> = (0..columns)
+        .map(|column| {
+            labels
+                .iter()
+                .filter_map(|row| row.get(column))
+                .map(|label| label.chars().count())
+                .max()
+                .unwrap_or(0)
+                + 2
+        })
+        .collect();
     for (actions, area) in rows.iter().zip([parts[4], parts[5]]) {
-        frame.render_widget(Paragraph::new(key_row(app, actions, label_width)), area);
+        frame.render_widget(Paragraph::new(key_row(app, actions, &widths)), area);
     }
 }
 
@@ -110,18 +125,21 @@ fn centered_column(area: Rect) -> Rect {
 }
 
 /// One row of decision keys: each key in bold accent, then what it does,
-/// in columns `label_width` wide.
-fn key_row(app: &App, actions: &[Action], label_width: usize) -> Line<'static> {
+/// the labels in columns `widths` wide.
+fn key_row(app: &App, actions: &[Action], widths: &[usize]) -> Line<'static> {
     let theme = &app.theme;
     // Under the card's text: past its border and padding.
     let mut spans = vec![Span::raw("   ")];
-    for (key, action) in keys::hints(keys::TRIAGE_KEYS, actions) {
+    for ((key, action), width) in keys::hints(keys::TRIAGE_KEYS, actions)
+        .into_iter()
+        .zip(widths)
+    {
         spans.push(Span::styled(
             format!("{key:<2}"),
             theme.strong(theme.accent),
         ));
         spans.push(Span::styled(
-            format!(" {action:<label_width$}"),
+            format!(" {action:<width$}"),
             theme.fg(theme.text),
         ));
     }

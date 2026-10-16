@@ -5,6 +5,43 @@ use super::*;
 
 #[test]
 #[serial]
+fn every_chip_fits_under_the_card_at_120_columns() {
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* TODO Book conference travel\nDEADLINE: <2026-10-10 Sat>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, crossterm::event::KeyCode::Char('T'));
+        let screen = render(&mut app, 120, 30).join("\n");
+        // A missed deadline's chips: the longest card, five chips a row.
+        for chip in [
+            "d  move deadline",
+            "x  done",
+            "s  pick date",
+            "N  make NEXT",
+            "R  refile",
+        ] {
+            assert!(screen.contains(chip), "{chip}:\n{screen}");
+        }
+        // The two rows' columns line up.
+        let lines: Vec<&str> = screen.lines().collect();
+        let first = lines
+            .iter()
+            .position(|line| line.contains("move deadline"))
+            .unwrap();
+        assert_eq!(
+            lines[first].find("today"),
+            lines[first + 1].find("make NEXT"),
+            "{screen}"
+        );
+    });
+}
+
+#[test]
+#[serial]
 fn an_inbox_card_says_who_captured_it_and_when_as_words_say_it() {
     with_home(|root| {
         fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
