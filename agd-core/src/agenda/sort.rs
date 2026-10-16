@@ -10,8 +10,8 @@ use chrono::NaiveDate;
 
 use crate::{AgendaEntry, Item, OccurrenceType, PriorityRange, WorkspaceIndex};
 
-use super::engine::parse_date;
 use super::export::agenda_title;
+use crate::date::parse_org_date;
 
 /// One comparison per org-agenda-sorting-strategy key, first difference
 /// wins; the sort is stable, so category-keep and habit-* keep collection
@@ -56,16 +56,12 @@ pub(super) fn compare_by_strategy(
     Ordering::Equal
 }
 
-pub(super) fn keyword_name(keyword: &str) -> &str {
-    keyword.split(['(', '!', '@']).next().unwrap_or(keyword)
-}
-
 /// org-agenda urgency: priority value (A=2000, B=1000, C=0 by default),
 /// raised by days overdue for today's deadline reminders, lowered by days
 /// left for upcoming ones, and raised by 99 plus days late for scheduled.
 pub(super) fn urgency(entry: &AgendaEntry, today: NaiveDate, index: &WorkspaceIndex) -> i64 {
     let priority = priority_value(&entry.item, index);
-    let date = parse_date(&entry.occurrence.date).ok();
+    let date = parse_org_date(&entry.occurrence.date).ok();
     match entry.occurrence.kind {
         OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline => {
             let base = entry
@@ -73,7 +69,7 @@ pub(super) fn urgency(entry: &AgendaEntry, today: NaiveDate, index: &WorkspaceIn
                 .planning
                 .deadline
                 .as_ref()
-                .and_then(|deadline| parse_date(&deadline.date).ok());
+                .and_then(|deadline| parse_org_date(&deadline.date).ok());
             match (date, base) {
                 (Some(date), Some(base)) if date == today => priority + (today - base).num_days(),
                 _ => priority,
@@ -85,7 +81,7 @@ pub(super) fn urgency(entry: &AgendaEntry, today: NaiveDate, index: &WorkspaceIn
                 .planning
                 .scheduled
                 .as_ref()
-                .and_then(|scheduled| parse_date(&scheduled.date).ok());
+                .and_then(|scheduled| parse_org_date(&scheduled.date).ok());
             match (date, base) {
                 (Some(date), Some(base)) => priority + 99 + (date - base).num_days(),
                 _ => priority + 99,

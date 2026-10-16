@@ -78,13 +78,12 @@ pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgdError> {
     let roots = RootSet::new(&settings.roots, &settings.agenda_files)?;
     let org_files = roots.all_org_files()?;
     let paths = org_files.files;
-    let configured_keywords: std::collections::HashSet<&str> = settings
-        .todo_keywords
-        .iter()
-        .flat_map(|line| line.split_whitespace())
-        .filter(|keyword| *keyword != "|")
-        .filter_map(|keyword| keyword.split('(').next())
-        .collect();
+    // The configured keywords, read as a file without #+TODO lines reads them.
+    let configured_keywords: std::collections::HashSet<String> =
+        crate::document::todo_keywords("", settings)
+            .into_iter()
+            .map(|keyword| keyword.name)
+            .collect();
     let mut files = Vec::with_capacity(paths.len());
     let mut problems: Vec<CheckProblem> = org_files
         .skipped

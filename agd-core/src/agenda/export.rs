@@ -14,18 +14,21 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{AgendaEntry, Item, Occurrence, OccurrenceType, WeekStart, WorkspaceIndex};
 
-use super::engine::{date_range, parse_date};
+use super::engine::date_range;
 use super::sort::priority_value;
 use super::span::AgendaSpan;
+use crate::date::parse_org_date;
 
-static ACTIVE_TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[ \t]*<\d{4}-\d{2}-\d{2}[^>\n]*>").expect("active timestamp regex")
+/// An active timestamp in a headline, with the blanks before it in group
+/// 1: a title leaves both out, a timestamp row only the timestamp.
+static HEADLINE_TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"([ \t]*)<\d{4}-\d{2}-\d{2}[^>\n]*>").expect("headline timestamp regex")
 });
 
 /// Headline text as org-agenda prints it: active timestamps in the title,
 /// such as `Birthday <1993-10-16 Sat +1y>`, are left out.
 pub fn agenda_title(item: &Item) -> String {
-    ACTIVE_TIMESTAMP_RE
+    HEADLINE_TIMESTAMP_RE
         .replace_all(&item.title, "")
         .trim()
         .to_string()
@@ -46,10 +49,6 @@ fn occurrence_name(kind: OccurrenceType) -> &'static str {
 
 // Emacs's export layouts, checked against pinned Emacs in conformance/agenda:
 // the rows of `org-batch-agenda-csv` and the text `org-batch-agenda` prints.
-
-/// An active timestamp in a headline, which a timestamp row leaves out.
-static HEADLINE_TIMESTAMP_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"<\d{4}-\d{2}-\d{2}[^>\n]*>").expect("headline timestamp regex"));
 
 /// Agenda rows in Emacs's `org-batch-agenda-csv` layout: all eleven columns
 /// (category, head, type, todo, tags, date, time, extra, priority-l,
@@ -125,7 +124,7 @@ fn csv_type_and_date(entry: &AgendaEntry, today: NaiveDate) -> (&'static str, St
     match entry.occurrence.kind {
         OccurrenceType::Scheduled | OccurrenceType::PastScheduled => {
             match planning.scheduled.as_ref().map(|scheduled| &scheduled.date) {
-                Some(base) if parse_date(base).is_ok_and(|base| base < today) => {
+                Some(base) if parse_org_date(base).is_ok_and(|base| base < today) => {
                     ("past-scheduled", base.clone())
                 }
                 _ => ("scheduled", day),
@@ -148,7 +147,7 @@ fn csv_type_and_date(entry: &AgendaEntry, today: NaiveDate) -> (&'static str, St
 fn row_head(entry: &AgendaEntry) -> String {
     match entry.occurrence.kind {
         OccurrenceType::Timestamp => HEADLINE_TIMESTAMP_RE
-            .replace_all(&entry.item.title, "")
+            .replace_all(&entry.item.title, "${1}")
             .into_owned(),
         _ => entry.item.title.clone(),
     }

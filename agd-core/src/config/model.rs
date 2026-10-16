@@ -561,10 +561,7 @@ where
 /// an offset from `today` such as -1d or +2w, or what `parse_date_input`
 /// reads, such as "fri".
 pub fn parse_agenda_day(value: &str, today: NaiveDate) -> Result<NaiveDate, AgdError> {
-    crate::parse_date_input(value, today)?
-        .date
-        .parse::<NaiveDate>()
-        .map_err(|_| AgdError::new(ErrorCode::InvalidDate, format!("invalid date: {value}")))
+    crate::date::parse_org_date(&crate::parse_date_input(value, today)?.date)
 }
 
 #[cfg(test)]

@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 
 use chrono::Local;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
+use crate::document::sha256_hex;
 use crate::{AgdError, ErrorCode, JOURNAL_SCHEMA};
 
 use super::engine::{JournalImage, WriteContext, WriteEngine};
@@ -371,13 +371,6 @@ fn pending_record(
 
 pub(super) fn content_hash(source: &str) -> String {
     sha256_hex(source.as_bytes())
-}
-
-pub(super) fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }
 
 fn journal_id() -> String {

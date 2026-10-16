@@ -12,6 +12,7 @@ use std::path::Path;
 
 use chrono::{Duration, NaiveDate};
 
+use crate::date::parse_org_date;
 use crate::write::{CaptureTarget, find_olpath, heading_titled};
 use crate::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, CaptureTemplate, ErrorCode, HeadlineSpan,
@@ -20,7 +21,7 @@ use crate::{
 
 use super::matcher::{TagTodoMatcher, matcher_now};
 use super::repeat::{planning_dates, repeated_dates};
-use super::sort::{compare_by_strategy, compare_items, keyword_name, urgency};
+use super::sort::{compare_by_strategy, compare_items, urgency};
 
 #[derive(Clone, Debug)]
 pub struct AgendaQuery {
@@ -85,14 +86,10 @@ impl<'a> AgendaEngine<'a> {
             .into_iter()
             .map(|entry| (urgency(&entry, query.today, self.index), entry))
             .collect();
-        let todo_order: Vec<String> = self
-            .index
-            .settings()
-            .todo_keywords
-            .iter()
-            .flat_map(|line| line.split_whitespace())
-            .filter(|keyword| *keyword != "|")
-            .map(|keyword| keyword_name(keyword).to_string())
+        // The configured keywords in order, as a file without #+TODO reads them.
+        let todo_order: Vec<String> = crate::document::todo_keywords("", self.index.settings())
+            .into_iter()
+            .map(|keyword| keyword.name)
             .collect();
         keyed.sort_by(|left, right| {
             left.1
@@ -227,7 +224,7 @@ impl<'a> AgendaEngine<'a> {
         if !(item.done && settings.skip_scheduled_if_done)
             && let Some(scheduled) = &item.planning.scheduled
         {
-            let base = parse_date(&scheduled.date)?;
+            let base = parse_org_date(&scheduled.date)?;
             for date in planning_dates(scheduled, from, to, today, item.done)? {
                 entries.push(entry(
                     item,
@@ -252,7 +249,7 @@ impl<'a> AgendaEngine<'a> {
         if !(item.done && settings.skip_deadline_if_done)
             && let Some(deadline) = &item.planning.deadline
         {
-            let base = parse_date(&deadline.date)?;
+            let base = parse_org_date(&deadline.date)?;
             for date in planning_dates(deadline, from, to, today, item.done)? {
                 entries.push(entry(
                     item,
@@ -293,7 +290,7 @@ impl<'a> AgendaEngine<'a> {
         if query.log_mode
             && let Some(closed) = &item.planning.closed
         {
-            let date = parse_date(&closed.date)?;
+            let date = parse_org_date(&closed.date)?;
             if date >= from && date <= to {
                 entries.push(entry(
                     item,
@@ -322,8 +319,8 @@ impl<'a> AgendaEngine<'a> {
                         .document(std::path::Path::new(&item.file))
                         .expect("headline document");
                     if document.source()[timestamp.span.end..end.span.start].trim() == "--" {
-                        let start_date = parse_date(&timestamp.timestamp.date)?;
-                        let end_date = parse_date(&end.timestamp.date)?;
+                        let start_date = parse_org_date(&timestamp.timestamp.date)?;
+                        let end_date = parse_org_date(&end.timestamp.date)?;
                         let total = (end_date - start_date).num_days() + 1;
                         for day in date_range(start_date.max(from), end_date.min(to)) {
                             let ordinal = (day - start_date).num_days() + 1;
@@ -420,11 +417,6 @@ fn warning_days(warning: &str) -> Option<i64> {
     };
     let count: u32 = value[..value.len() - 1].parse().ok()?;
     Some((f64::from(count) * factor).floor() as i64)
-}
-
-pub(super) fn parse_date(input: &str) -> Result<NaiveDate, AgdError> {
-    NaiveDate::parse_from_str(input, "%Y-%m-%d")
-        .map_err(|_| AgdError::new(ErrorCode::InvalidDate, format!("invalid Org date: {input}")))
 }
 
 pub(super) fn date_range(start: NaiveDate, end: NaiveDate) -> impl Iterator<Item = NaiveDate> {

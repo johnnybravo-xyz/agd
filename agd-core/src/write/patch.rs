@@ -146,7 +146,8 @@ fn line_end_at_or_after(text: &str, offset: usize) -> usize {
     line_end(text, offset)
 }
 
-pub(super) fn line_ending(source: &str) -> &'static str {
+/// The line ending a text uses: CRLF when it has one, else LF.
+pub(crate) fn line_ending(source: &str) -> &'static str {
     if source.contains("\r\n") {
         "\r\n"
     } else {

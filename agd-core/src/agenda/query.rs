@@ -10,8 +10,9 @@ use chrono::{Duration, NaiveDate};
 
 use crate::{AgdError, ErrorCode, Item};
 
-use super::engine::{AgendaEngine, parse_date};
+use super::engine::AgendaEngine;
 use super::sort::compare_items;
+use crate::date::parse_org_date;
 
 impl<'a> AgendaEngine<'a> {
     pub fn query(&self, expression: &str, today: NaiveDate) -> Result<Vec<Item>, AgdError> {
@@ -91,13 +92,13 @@ impl QlExpr {
                 .planning
                 .deadline
                 .as_ref()
-                .and_then(|timestamp| parse_date(&timestamp.date).ok())
+                .and_then(|timestamp| parse_org_date(&timestamp.date).ok())
                 .is_some_and(|date| date <= today + Duration::days(*days)),
             Self::Scheduled(days) => item
                 .planning
                 .scheduled
                 .as_ref()
-                .and_then(|timestamp| parse_date(&timestamp.date).ok())
+                .and_then(|timestamp| parse_org_date(&timestamp.date).ok())
                 .is_some_and(|date| date <= today + Duration::days(*days)),
             Self::Done => item.done,
         }

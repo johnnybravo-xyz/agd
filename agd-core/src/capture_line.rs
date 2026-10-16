@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use chrono::NaiveDate;
 
 use crate::date::unsupported_date;
+use crate::document::is_org_tag;
 use crate::{AgdError, ErrorCode, PlanningTimestamp, read_date};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -88,12 +89,7 @@ pub fn parse_capture_line(input: &str, today: NaiveDate) -> Result<CaptureDraft,
 /// and characters outside Org's tag characters stay title text.
 fn tag_token(token: &str) -> Option<&str> {
     let tag = token.strip_prefix('+')?;
-    let valid = !tag.is_empty()
-        && tag
-            .chars()
-            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
-        && !tag.bytes().all(|byte| byte.is_ascii_digit());
-    valid.then_some(tag)
+    (is_org_tag(tag) && !tag.bytes().all(|byte| byte.is_ascii_digit())).then_some(tag)
 }
 
 /// The priority a capture token names: one uppercase letter, as in `#A`.

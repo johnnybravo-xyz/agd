@@ -18,10 +18,10 @@ mod source;
 mod test_support;
 mod timestamp;
 
-pub(crate) use directive::ignored_priorities_line;
 pub use directive::{LogKind, LogSettings, PriorityRange, TodoKeyword};
+pub(crate) use directive::{ignored_priorities_line, todo_keywords};
 pub use headline::{HeadlineSpan, PropertySpan};
-pub(crate) use headline::{leading_priority_cookie, split_trailing_tags};
+pub(crate) use headline::{is_org_tag, leading_priority_cookie, sha256_hex, split_trailing_tags};
 pub use index::WorkspaceIndex;
 pub use org_document::OrgDocument;
 pub use source::{ByteSpan, SourceLine};

@@ -93,7 +93,7 @@ pub struct LogSettings {
 /// TODO keywords from every `#+TODO:`/`#+SEQ_TODO:`/`#+TYP_TODO:` line, or
 /// the configured `todo_keywords` lines, which hold the same text. A
 /// sequence without `|` makes its last keyword the done state, as in Org.
-pub(super) fn todo_keywords(source: &str, settings: &Settings) -> Vec<TodoKeyword> {
+pub(crate) fn todo_keywords(source: &str, settings: &Settings) -> Vec<TodoKeyword> {
     let in_file: Vec<&str> = directives(source, &["TODO", "SEQ_TODO", "TYP_TODO"]).collect();
     let lines = if in_file.is_empty() {
         settings.todo_keywords.iter().map(String::as_str).collect()

@@ -89,8 +89,7 @@ pub fn read_date(
         return Ok(None);
     };
     let (date, mut time, mut taken) = if let Some(captures) = ISO_RE.captures(first) {
-        let date = NaiveDate::parse_from_str(&captures[1], "%Y-%m-%d")
-            .map_err(|_| date_error(format!("invalid date '{}'", &captures[1])))?;
+        let date = parse_org_date(&captures[1]).map_err(|error| date_error(error.to_string()))?;
         let time = captures
             .get(2)
             .map(|time| clock_time(time.as_str()))
@@ -285,13 +284,14 @@ fn clock_time(word: &str) -> Result<Option<NaiveTime>, AgdError> {
         .ok_or_else(invalid)
 }
 
+/// A `YYYY-MM-DD` date as Org writes one, the one reader of that form.
+pub(crate) fn parse_org_date(input: &str) -> Result<NaiveDate, AgdError> {
+    NaiveDate::parse_from_str(input, "%Y-%m-%d")
+        .map_err(|_| AgdError::new(ErrorCode::InvalidDate, format!("invalid date '{input}'")))
+}
+
 pub fn format_active_timestamp(timestamp: &PlanningTimestamp) -> Result<String, AgdError> {
-    let date = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d").map_err(|_| {
-        AgdError::new(
-            ErrorCode::InvalidDate,
-            format!("invalid date: {}", timestamp.date),
-        )
-    })?;
+    let date = parse_org_date(&timestamp.date)?;
     let mut value = format!("<{} {}", timestamp.date, date.format("%a"));
     if let Some(time) = &timestamp.time {
         value.push(' ');
@@ -311,6 +311,12 @@ pub fn format_active_timestamp(timestamp: &PlanningTimestamp) -> Result<String, 
     }
     value.push('>');
     Ok(value)
+}
+
+/// The timestamp inactive, as Org quotes one: `[2026-10-30 Fri]`.
+pub(crate) fn format_inactive_timestamp(timestamp: &PlanningTimestamp) -> Result<String, AgdError> {
+    let active = format_active_timestamp(timestamp)?;
+    Ok(format!("[{}]", &active[1..active.len() - 1]))
 }
 
 pub(crate) fn simple_date(date: NaiveDate) -> PlanningTimestamp {

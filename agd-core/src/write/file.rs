@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use crate::{AgdError, ErrorCode};
 
 use super::engine::{JournalImage, WriteEngine};
-use super::journal::sha256_hex;
+use crate::document::sha256_hex;
 
 impl WriteEngine {
     /// Locks `paths` in sorted order (so two writers never deadlock),

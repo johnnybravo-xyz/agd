@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::document::is_org_tag;
 use crate::{AgdError, CaptureDraft, ErrorCode, HeadlineSpan, IndexedDocument, WorkspaceIndex};
 
 use super::edit::{Change, EditIntent};
@@ -159,11 +160,7 @@ fn validate_title_keyword(title: &str, document: &IndexedDocument) -> Result<(),
 
 /// Org's tag characters: letters, digits, `_`, `@`, `#` and `%`.
 fn validate_tag(tag: &str) -> Result<(), AgdError> {
-    if tag.is_empty()
-        || !tag
-            .chars()
-            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
-    {
+    if !is_org_tag(tag) {
         return Err(AgdError::new(
             ErrorCode::InvalidTag,
             format!("invalid tag '{tag}': use letters, digits, _, @, # or %"),

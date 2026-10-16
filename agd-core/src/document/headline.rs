@@ -263,6 +263,15 @@ pub(crate) fn leading_priority_cookie(text: &str) -> Option<&str> {
     Some(cookie.trim_end())
 }
 
+/// Whether `tag` is one Org tag: letters, digits, `_`, `@`, `#` and `%`,
+/// the characters TAGS_RE reads in a headline's tag group.
+pub(crate) fn is_org_tag(tag: &str) -> bool {
+    !tag.is_empty()
+        && tag
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
+}
+
 /// Splits a headline's trailing tag group (`:a:b:`) off as the parser reads
 /// it: the text before it, trailing blanks removed, and the group.
 pub(crate) fn split_trailing_tags(line: &str) -> Option<(&str, &str)> {
@@ -427,9 +436,14 @@ pub(super) fn location_ref(path: &Path, line: usize, digest: &str) -> String {
     format!("{}:{line}#sha256:{digest}", path.display())
 }
 
+/// The first 16 bytes of the headline line's SHA-256, as a ref's digest.
 fn headline_digest(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest[..16]
+    sha256_hex(bytes)[..32].to_string()
+}
+
+/// SHA-256 as lowercase hex, for refs, journal hashes and lock names.
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()

@@ -19,6 +19,7 @@ use crate::{
 use super::edit::{Change, EditIntent};
 use super::patch::{Patch, line_ending};
 use crate::agenda::{add_period, parse_repeater};
+use crate::date::{format_inactive_timestamp, parse_org_date};
 
 pub(super) fn build_edit_patches(
     document: &IndexedDocument,
@@ -83,8 +84,11 @@ pub(super) fn build_edit_patches(
             Some(new) if format_active_timestamp(new)? == format_active_timestamp(old)? => {
                 continue;
             }
-            Some(_) => format!("{moved} \"{}\" on {stamp}", inactive_timestamp(old)?),
-            None => format!("{removed} \"{}\" on {stamp}", inactive_timestamp(old)?),
+            Some(_) => format!("{moved} \"{}\" on {stamp}", format_inactive_timestamp(old)?),
+            None => format!(
+                "{removed} \"{}\" on {stamp}",
+                format_inactive_timestamp(old)?
+            ),
         };
         log.push(LogEntry::new(heading, kind, &mut note));
     }
@@ -364,12 +368,6 @@ fn logbook_line_end(section: &str) -> Option<usize> {
     None
 }
 
-/// Org quotes the old timestamp of a reschedule as an inactive one.
-fn inactive_timestamp(timestamp: &PlanningTimestamp) -> Result<String, AgdError> {
-    let active = format_active_timestamp(timestamp)?;
-    Ok(format!("[{}]", &active[1..active.len() - 1]))
-}
-
 /// Setting a new SCHEDULED or DEADLINE date keeps the old repeater and
 /// warning cookie unless the new value has its own, as org-schedule does.
 fn planning_change(
@@ -549,10 +547,10 @@ fn planning_line(
 
 fn render_timestamp(timestamp: &PlanningTimestamp, active: bool) -> Result<String, AgdError> {
     if active {
-        return format_active_timestamp(timestamp);
+        format_active_timestamp(timestamp)
+    } else {
+        format_inactive_timestamp(timestamp)
     }
-    let active = format_active_timestamp(timestamp)?;
-    Ok(format!("[{}]", &active[1..active.len() - 1]))
 }
 
 /// The properties drawer after `changes`, as Org edits it: every line agd
@@ -633,12 +631,7 @@ fn advance_repeater(timestamp: &mut PlanningTimestamp, today: NaiveDate) -> Resu
         .ok_or_else(|| AgdError::new(ErrorCode::InvalidRepeater, "timestamp has no repeater"))?;
     // A habit's maximum interval (`.+2d/3d`) stays in the repeater text.
     let (kind, amount, unit) = parse_repeater(repeater)?;
-    let original = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d").map_err(|_| {
-        AgdError::new(
-            ErrorCode::InvalidDate,
-            format!("invalid date: {}", timestamp.date),
-        )
-    })?;
+    let original = parse_org_date(&timestamp.date)?;
     let mut next = if kind == ".+" {
         add_period(today, amount, unit)?
     } else {
