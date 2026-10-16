@@ -12,7 +12,7 @@ use super::rows::days_since;
 use super::theme::{Theme, centered};
 use super::{
     App, DOING, DUE, DisplayRow, Header, INBOX, OVERDUE, Overlay, PromptKind, SCHEDULE, Screen,
-    peek, review, triage,
+    keys, peek, review, triage,
 };
 
 /// Width at which peek sits beside the list and tags get their column.
@@ -149,50 +149,21 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         spans.push(Span::styled("  │  ", theme.fg(theme.border)));
     }
     // Only the most-used keys; ? lists the rest.
-    let keys: &[(&str, &str)] = match app.screen {
-        Screen::Triage => &[
-            ("j/k", "next/previous card"),
-            ("u", "undo"),
-            ("esc", "back"),
-            ("?", "help"),
-        ],
-        Screen::Review => &[
-            ("a", "accept"),
-            ("u", "undo"),
-            ("d", "diff"),
-            ("p", "peek"),
-            ("A", "accept all"),
-            ("f", "filter by agent"),
-            ("esc", "back"),
-        ],
-        _ if !app.marks.is_empty() => &[
-            ("s", "schedule"),
-            ("d", "deadline"),
-            ("S", "someday"),
-            ("x", "done"),
-            ("X", "cancel"),
-            ("m", "unmark"),
-            ("esc", "clear marks"),
-        ],
-        _ => &[
-            ("x", "done"),
-            ("t", "state"),
-            ("s", "sched"),
-            ("d", "due"),
-            ("T", "triage"),
-            ("c", "capture"),
-            ("a", "views"),
-            ("X", "cancel"),
-            ("?", "help"),
-        ],
+    let (groups, actions) = match app.screen {
+        Screen::Triage => (keys::TRIAGE_KEYS, keys::TRIAGE_FOOTER),
+        Screen::Review => (keys::AGENT_KEYS, keys::AGENT_FOOTER),
+        _ if !app.marks.is_empty() => (keys::LIST_KEYS, keys::MARKED_FOOTER),
+        _ => (keys::LIST_KEYS, keys::LIST_FOOTER),
     };
+    let mut hints = keys::hints(groups, actions);
+    hints.push(("?", "help"));
     if !app.marks.is_empty() {
         spans.push(Span::styled(
             format!("{} marked  ", app.marks.len()),
             theme.strong(theme.accent),
         ));
     }
-    for (key, action) in keys {
+    for (key, action) in hints {
         spans.extend(theme.key_hint(key, action));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);

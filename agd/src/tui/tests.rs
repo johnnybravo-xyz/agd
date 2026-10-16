@@ -685,7 +685,7 @@ fn triage_k_moves_back_a_card_and_shift_x_cancels() {
         press(&mut app, KeyCode::Char('T'));
         assert_eq!(app.screen, Screen::Triage);
         let screen = render(&mut app, 100, 30).join("\n");
-        assert!(screen.contains("j/k next/previous card"), "{screen}");
+        assert!(screen.contains("k previous card"), "{screen}");
         assert!(screen.contains("X  cancel"), "{screen}");
         assert!(screen.contains("R  refile"), "{screen}");
 
@@ -735,6 +735,95 @@ fn ctrl_c_ctrl_w_refiles_and_ctrl_c_twice_quits() {
         pane.pane = true;
         press_control(&mut pane, 'c');
         assert!(pane.quit);
+    });
+}
+
+/// Every line help shows at this size, scrolling to the end with j.
+fn scrolled_help(app: &mut App, width: u16, height: u16) -> Vec<String> {
+    use crossterm::event::KeyCode;
+    press(app, KeyCode::Char('?'));
+    let mut seen = Vec::new();
+    for _ in 0..80 {
+        for line in render(app, width, height) {
+            if !seen.contains(&line) {
+                seen.push(line);
+            }
+        }
+        press(app, KeyCode::Char('j'));
+    }
+    seen
+}
+
+#[test]
+#[serial]
+fn help_scrolls_through_every_screens_keys_at_60_by_24() {
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let lines = scrolled_help(&mut app, 60, 24);
+        let text = lines.join("\n");
+        for title in ["TODAY · WEEK · INBOX · VIEWS", "TRIAGE", "AGENTS", "PANE"] {
+            assert!(text.contains(title), "{title} missing:\n{text}");
+        }
+        for (_, groups) in super::keys::SCREENS {
+            for group in groups {
+                for binding in group.bindings {
+                    assert!(
+                        text.contains(&format!(" {} ", binding.label)),
+                        "{} missing:\n{text}",
+                        binding.label
+                    );
+                }
+            }
+        }
+        // Too narrow for the org-agenda column: long help wraps instead of
+        // being cut.
+        assert!(!text.contains("C-c C-s"), "{text}");
+        assert!(text.contains("filter, leave "), "{text}");
+        assert!(text.contains("            a view "), "{text}");
+        press(&mut app, crossterm::event::KeyCode::Esc);
+        assert!(matches!(app.overlay, Overlay::None));
+    });
+}
+
+#[test]
+#[serial]
+fn help_shows_the_org_agenda_column_only_where_it_fits() {
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let text = scrolled_help(&mut app, 160, 40).join("\n");
+        assert!(text.contains("org-agenda"), "{text}");
+        let schedule = text
+            .lines()
+            .find(|line| line.contains(" s ") && line.contains("C-c C-s"))
+            .unwrap_or_else(|| panic!("{text}"));
+        // The org-agenda key sits apart from the help text.
+        assert!(schedule.contains("schedule   "), "{schedule}");
+    });
+}
+
+#[test]
+#[serial]
+fn help_starts_with_the_screen_on_view() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(root.join("work.org"), TWO_OVERDUE).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('T'));
+        press(&mut app, KeyCode::Char('?'));
+        let screen = render(&mut app, 100, 30).join("\n");
+        let triage = screen.find("TRIAGE\n").or_else(|| screen.find("TRIAGE "));
+        let lists = screen.find("TODAY · WEEK");
+        assert!(triage.is_some(), "{screen}");
+        assert!(
+            lists.is_none_or(|lists| triage.unwrap() < lists),
+            "{screen}"
+        );
+        assert!(screen.contains("previous card"), "{screen}");
     });
 }
 

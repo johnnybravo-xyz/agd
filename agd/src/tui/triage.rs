@@ -7,7 +7,7 @@ use agd_core::OccurrenceType;
 
 use super::actions::{DONE, NEXT_WEEK, REFILED, SOMEDAY, TODAY, TOMORROW, short_date};
 use super::rows::days_since;
-use super::{App, DisplayRow, INBOX, peek};
+use super::{App, DisplayRow, INBOX, keys, peek};
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
@@ -65,34 +65,17 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     };
     draw_card(frame, app, row, card_area);
     let indent = card_area.x.saturating_sub(area.x) as usize;
-    let chips = |pairs: &[(&str, &str)]| {
+    let chips = |actions: &[keys::Action]| {
         let mut spans = vec![Span::raw(" ".repeat(indent))];
-        for (key, action) in pairs {
+        for (key, action) in keys::hints(keys::TRIAGE_KEYS, actions) {
             spans.extend(theme.pill(key.to_string(), theme.accent));
             spans.push(Span::styled(format!(" {action:<12}"), theme.fg(theme.text)));
         }
         Line::from(spans)
     };
-    frame.render_widget(
-        Paragraph::new(chips(&[
-            (".", "today"),
-            ("m", "tomorrow"),
-            ("w", "next week"),
-            ("p", "pick date"),
-            ("x", "done"),
-        ])),
-        parts[3],
-    );
-    frame.render_widget(
-        Paragraph::new(chips(&[
-            ("n", "make NEXT"),
-            ("s", "someday"),
-            ("X", "cancel"),
-            ("R", "refile"),
-            ("u", "undo"),
-        ])),
-        parts[4],
-    );
+    for (actions, area) in keys::TRIAGE_CHIPS.iter().zip([parts[3], parts[4]]) {
+        frame.render_widget(Paragraph::new(chips(actions)), area);
+    }
 }
 
 /// Card rows: heading, path, chips, body line and the nudge, with spacing.

@@ -67,7 +67,10 @@ enum PromptKind {
 #[derive(Debug)]
 enum Overlay {
     None,
-    Help,
+    /// Every screen's keys; `scroll` is the first line shown.
+    Help {
+        scroll: u16,
+    },
     Capture(capture::Draft),
     Edit(Box<edit::EditForm>),
     Prompt {
@@ -471,7 +474,7 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
     }
     match &app.overlay {
         Overlay::None => {}
-        Overlay::Help => help::draw(frame, app, area),
+        Overlay::Help { .. } => help::draw(frame, app, area),
         Overlay::Capture(_) => capture::draw(frame, app, area),
         Overlay::Edit(_) => edit::draw(frame, app, area),
         Overlay::Prompt { .. } | Overlay::Refile(_) | Overlay::Views { .. } => {

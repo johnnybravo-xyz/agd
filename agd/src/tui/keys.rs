@@ -1,3 +1,6 @@
+//! Every key binding, defined once. The tables below drive dispatch, the
+//! footers, Triage's chips and the `?` help, so they cannot drift apart.
+
 use std::io::Stdout;
 use std::time::Instant;
 
@@ -12,6 +15,357 @@ type Term = Terminal<CrosstermBackend<Stdout>>;
 
 /// A file and line a key asks to open in $EDITOR.
 pub(super) type EditorTarget = Option<(String, usize)>;
+
+/// A key as a binding names it.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Key {
+    /// A character typed without ctrl or alt; shift is in the character.
+    Char(char),
+    /// A named key: arrows, tab, enter, esc, the page keys.
+    Code(KeyCode),
+    /// ctrl and a letter.
+    Ctrl(char),
+    /// 1 to 9, for the tabs.
+    Digit,
+}
+
+impl Key {
+    fn matches(self, key: KeyEvent) -> bool {
+        let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        match self {
+            Key::Char(character) => !control && !alt && key.code == KeyCode::Char(character),
+            Key::Code(code) => key.code == code,
+            Key::Ctrl(character) => control && key.code == KeyCode::Char(character),
+            Key::Digit => !control && matches!(key.code, KeyCode::Char('1'..='9')),
+        }
+    }
+}
+
+/// Everything a key can do. Each screen's table maps its keys to these, and
+/// that screen's `run_*` function carries them out.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Action {
+    Next,
+    Previous,
+    PageDown,
+    PageUp,
+    First,
+    Last,
+    NextTab,
+    PreviousTab,
+    TabNumber,
+    Capture,
+    Refresh,
+    Help,
+    Later,
+    Earlier,
+    GoToday,
+    Peek,
+    Views,
+    Classic,
+    LogMode,
+    Context,
+    Filter,
+    Edit,
+    Editor,
+    State,
+    Done,
+    Cancel,
+    Schedule,
+    Deadline,
+    Priority,
+    PriorityUp,
+    PriorityDown,
+    Tags,
+    Someday,
+    Refile,
+    Undo,
+    CopyLink,
+    Mark,
+    Triage,
+    Agents,
+    Back,
+    Quit,
+    Today,
+    Tomorrow,
+    NextWeek,
+    MakeNext,
+    Accept,
+    AcceptAll,
+    Diff,
+    FilterAgent,
+    FullView,
+}
+
+/// One binding: the keys, what they do, and how footers and help name it.
+pub(super) struct Binding {
+    /// The keys as help prints them; footers print only the first.
+    pub label: &'static str,
+    keys: &'static [Key],
+    pub action: Action,
+    /// One or two words for footers and Triage's chips.
+    pub short: &'static str,
+    /// What it does, for help.
+    pub help: &'static str,
+    /// org-agenda's key for the same thing, if it has one.
+    pub org: &'static str,
+}
+
+/// Bindings under one help heading.
+pub(super) struct KeyGroup {
+    pub title: &'static str,
+    pub bindings: &'static [Binding],
+}
+
+/// A binding; the argument order matches the table columns below.
+const fn bind(
+    label: &'static str,
+    keys: &'static [Key],
+    action: Action,
+    short: &'static str,
+    help: &'static str,
+    org: &'static str,
+) -> Binding {
+    Binding {
+        label,
+        keys,
+        action,
+        short,
+        help,
+        org,
+    }
+}
+
+use Action as A;
+use Key::{Char, Code, Ctrl, Digit};
+
+// The tables are kept one binding per line, as a table reads.
+// Columns: label, keys, action, footer word, help text, org-agenda key.
+
+/// Moving and switching, shared by the lists and the Agents tab.
+#[rustfmt::skip]
+const MOVE: KeyGroup = KeyGroup {
+    title: "Move and switch",
+    bindings: &[
+        bind("n j ↓", &[Char('n'), Char('j'), Code(KeyCode::Down)], A::Next, "next", "next row", "n"),
+        bind("k ↑", &[Char('k'), Code(KeyCode::Up)], A::Previous, "previous", "previous row", "p"),
+        bind("PgDn", &[Code(KeyCode::PageDown)], A::PageDown, "page", "ten rows down", ""),
+        bind("PgUp", &[Code(KeyCode::PageUp)], A::PageUp, "page", "ten rows up", ""),
+        bind("Home", &[Code(KeyCode::Home)], A::First, "first", "first row", ""),
+        bind("End", &[Code(KeyCode::End)], A::Last, "last", "last row", ""),
+        bind("tab", &[Code(KeyCode::Tab)], A::NextTab, "tab", "next tab", ""),
+        bind("S-tab", &[Code(KeyCode::BackTab)], A::PreviousTab, "tab", "previous tab", ""),
+        bind("1–9", &[Digit], A::TabNumber, "tab", "tab by number, left to right", ""),
+        bind("c", &[Char('c')], A::Capture, "capture", "capture a task", "k"),
+        bind("r g", &[Char('r'), Char('g')], A::Refresh, "refresh", "re-read every file", "r / g"),
+        bind("?", &[Char('?')], A::Help, "help", "these keys", ""),
+    ],
+};
+
+/// What the lists show.
+#[rustfmt::skip]
+const SHOW: KeyGroup = KeyGroup {
+    title: "Show",
+    bindings: &[
+        bind("f", &[Char('f')], A::Later, "later", "next day (week in Week)", "f"),
+        bind("b", &[Char('b')], A::Earlier, "earlier", "previous day (week in Week)", "b"),
+        bind(".", &[Char('.')], A::GoToday, "today", "back to today", "."),
+        bind("p", &[Char('p')], A::Peek, "peek", "peek at the entry", "SPC"),
+        bind("a", &[Char('a')], A::Views, "views", "saved views", "C-c a"),
+        bind("v", &[Char('v')], A::Classic, "classic", "classic org-agenda layout", ""),
+        bind("l", &[Char('l')], A::LogMode, "log", "log mode: closed items", "l"),
+        bind("<", &[Char('<')], A::Context, "context", "filter by category, cycling", "<"),
+        bind("/", &[Char('/')], A::Filter, "filter", "filter by text or tag", "/"),
+    ],
+};
+
+/// Writes; with rows marked, they act on every marked row.
+#[rustfmt::skip]
+const CHANGE: KeyGroup = KeyGroup {
+    title: "Change (marked rows, else the cursor row)",
+    bindings: &[
+        bind("⏎ e", &[Code(KeyCode::Enter), Char('e')], A::Edit, "edit", "edit title, state, dates in a popup", ""),
+        bind("ctrl-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", "RET"),
+        bind("t", &[Char('t')], A::State, "state", "next TODO state", "t"),
+        bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
+        bind("X", &[Char('X')], A::Cancel, "cancel", "cancel: the file's last done state", ""),
+        bind("s", &[Char('s')], A::Schedule, "schedule", "schedule", "C-c C-s"),
+        bind("d", &[Char('d')], A::Deadline, "deadline", "deadline", "C-c C-d"),
+        bind(",", &[Char(',')], A::Priority, "priority", "set priority", ","),
+        bind("+", &[Char('+')], A::PriorityUp, "priority", "raise priority", "+"),
+        bind("-", &[Char('-')], A::PriorityDown, "priority", "lower priority", "-"),
+        bind(":", &[Char(':')], A::Tags, "tags", "add or remove tags", ":"),
+        bind("S", &[Char('S')], A::Someday, "someday", "someday: tag it, drop the date", ""),
+        // C-c C-w is a chord, which `chord_key` handles.
+        bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", "C-c C-w"),
+        bind("u", &[Char('u')], A::Undo, "undo", "undo the last write", "C-_"),
+        bind("y", &[Char('y')], A::CopyLink, "copy link", "copy the entry's link", ""),
+        bind("m space", &[Char('m'), Char(' ')], A::Mark, "mark", "mark or unmark the row", "m"),
+    ],
+};
+
+/// Leaving the lists.
+#[rustfmt::skip]
+const GO: KeyGroup = KeyGroup {
+    title: "Go",
+    bindings: &[
+        bind("T", &[Char('T')], A::Triage, "triage", "triage overdue, then inbox", ""),
+        bind("A", &[Char('A')], A::Agents, "agents", "review agent changes", ""),
+        bind("esc", &[Code(KeyCode::Esc)], A::Back, "back", "close peek, clear marks or filter, leave a view", ""),
+        bind("q", &[Char('q')], A::Quit, "quit", "quit", "q"),
+    ],
+};
+
+/// Today, Week, Inbox and saved views.
+pub(super) const LIST_KEYS: &[KeyGroup] = &[MOVE, SHOW, CHANGE, GO];
+
+/// One key per decision on the current card.
+#[rustfmt::skip]
+pub(super) const TRIAGE_KEYS: &[KeyGroup] = &[KeyGroup {
+    title: "Decide",
+    bindings: &[
+        bind(".", &[Char('.')], A::Today, "today", "schedule today", ""),
+        bind("m", &[Char('m')], A::Tomorrow, "tomorrow", "schedule tomorrow", ""),
+        bind("w", &[Char('w')], A::NextWeek, "next week", "schedule in a week", ""),
+        bind("p", &[Char('p')], A::Schedule, "pick date", "schedule on a date you type", ""),
+        bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
+        bind("n", &[Char('n')], A::MakeNext, "make NEXT", "make it NEXT", ""),
+        bind("s", &[Char('s')], A::Someday, "someday", "someday: tag it, drop the date", ""),
+        bind("X", &[Char('X')], A::Cancel, "cancel", "cancel: the file's last done state", ""),
+        bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", ""),
+        bind("u", &[Char('u')], A::Undo, "undo", "undo a step; at the end, the whole pass", ""),
+        bind("j ↓ tab", &[Char('j'), Code(KeyCode::Down), Code(KeyCode::Tab)], A::Next, "next card", "skip to the next card", ""),
+        bind("k ↑ S-tab", &[Char('k'), Code(KeyCode::Up), Code(KeyCode::BackTab)], A::Previous, "previous card", "back to the previous card", ""),
+        bind("esc q", &[Code(KeyCode::Esc), Char('q')], A::Back, "back", "leave triage", ""),
+        bind("?", &[Char('?')], A::Help, "help", "these keys", ""),
+    ],
+}];
+
+/// The Agents tab: judge each agent write.
+#[rustfmt::skip]
+pub(super) const AGENT_KEYS: &[KeyGroup] = &[
+    KeyGroup {
+        title: "Review",
+        bindings: &[
+            bind("a", &[Char('a')], A::Accept, "accept", "accept: mark reviewed, write nothing", ""),
+            bind("A", &[Char('A')], A::AcceptAll, "accept all", "accept every unreviewed change", ""),
+            bind("u", &[Char('u')], A::Undo, "undo", "undo the change if its bytes are unchanged", ""),
+            bind("d", &[Char('d')], A::Diff, "diff", "show the raw diff", ""),
+            bind("p", &[Char('p')], A::Peek, "peek", "peek at the changed task", ""),
+            bind("⏎ ctrl-e", &[Code(KeyCode::Enter), Ctrl('e')], A::Editor, "open", "open the changed heading in $EDITOR", ""),
+            bind("f", &[Char('f')], A::FilterAgent, "filter by agent", "show one agent, cycling", ""),
+            bind("esc q", &[Code(KeyCode::Esc), Char('q')], A::Back, "back", "close the diff or peek, else go back", ""),
+        ],
+    },
+    MOVE,
+];
+
+/// The narrow pane beside an agent or editor.
+#[rustfmt::skip]
+pub(super) const PANE_KEYS: &[KeyGroup] = &[KeyGroup {
+    title: "Glance",
+    bindings: &[
+        bind("j ↓", &[Char('j'), Code(KeyCode::Down)], A::Next, "next", "next row", ""),
+        bind("k ↑", &[Char('k'), Code(KeyCode::Up)], A::Previous, "previous", "previous row", ""),
+        bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
+        bind("X", &[Char('X')], A::Cancel, "cancel", "cancel", ""),
+        bind("u", &[Char('u')], A::Undo, "undo", "undo the last write", ""),
+        bind("c", &[Char('c')], A::Capture, "capture", "capture a task", ""),
+        bind("ctrl-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", ""),
+        bind("⏎", &[Code(KeyCode::Enter)], A::FullView, "full view", "the full view, at 60+ columns", ""),
+        bind("T", &[Char('T')], A::Triage, "triage", "triage, at 60+ columns", ""),
+        bind("?", &[Char('?')], A::Help, "help", "these keys", ""),
+        bind("q", &[Char('q')], A::Quit, "quit", "quit", ""),
+    ],
+}];
+
+/// Help's sections, one per screen: (title, keys).
+pub(super) const SCREENS: [(&str, &[KeyGroup]); 4] = [
+    ("Today · Week · Inbox · views", LIST_KEYS),
+    ("Triage", TRIAGE_KEYS),
+    ("Agents", AGENT_KEYS),
+    ("Pane", PANE_KEYS),
+];
+
+/// Footer actions, most used first; `?` help is always shown at the right.
+pub(super) const LIST_FOOTER: &[Action] = &[
+    A::Done,
+    A::State,
+    A::Schedule,
+    A::Deadline,
+    A::Triage,
+    A::Capture,
+    A::Views,
+    A::Cancel,
+    A::Peek,
+];
+/// The footer while rows are marked: what acts on all of them.
+pub(super) const MARKED_FOOTER: &[Action] = &[
+    A::Schedule,
+    A::Deadline,
+    A::Someday,
+    A::Done,
+    A::Cancel,
+    A::Mark,
+    A::Back,
+];
+pub(super) const TRIAGE_FOOTER: &[Action] = &[A::Next, A::Previous, A::Back];
+/// Triage's two rows of decision chips under the card.
+pub(super) const TRIAGE_CHIPS: [&[Action]; 2] = [
+    &[A::Today, A::Tomorrow, A::NextWeek, A::Schedule, A::Done],
+    &[A::MakeNext, A::Someday, A::Cancel, A::Refile, A::Undo],
+];
+pub(super) const AGENT_FOOTER: &[Action] = &[
+    A::Accept,
+    A::Undo,
+    A::Diff,
+    A::Peek,
+    A::Editor,
+    A::AcceptAll,
+    A::FilterAgent,
+    A::Back,
+];
+
+/// Index into SCREENS of what is on view.
+pub(super) fn current_screen(app: &App) -> usize {
+    if app.pane {
+        return 3;
+    }
+    match app.screen {
+        Screen::Triage => 1,
+        Screen::Review => 2,
+        _ => 0,
+    }
+}
+
+/// (first key, footer word) for each action, as footers and chips show them.
+pub(super) fn hints(
+    groups: &'static [KeyGroup],
+    actions: &[Action],
+) -> Vec<(&'static str, &'static str)> {
+    actions
+        .iter()
+        .filter_map(|action| {
+            groups
+                .iter()
+                .flat_map(|group| group.bindings.iter())
+                .find(|binding| binding.action == *action)
+        })
+        .map(|binding| {
+            let key = binding.label.split(' ').next().unwrap_or(binding.label);
+            (key, binding.short)
+        })
+        .collect()
+}
+
+fn action_for(groups: &[KeyGroup], key: KeyEvent) -> Option<Action> {
+    groups
+        .iter()
+        .flat_map(|group| group.bindings.iter())
+        .find(|binding| binding.keys.iter().any(|candidate| candidate.matches(key)))
+        .map(|binding| binding.action)
+}
 
 /// Handles one key, running $EDITOR when it asks for it.
 pub(super) fn handle_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> Result<()> {
@@ -48,12 +402,33 @@ pub(super) fn dispatch(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
         }
     }
     if app.pane {
-        return pane_key(app, key);
+        let Some(action) = action_for(PANE_KEYS, key) else {
+            return Ok(None);
+        };
+        return run_pane(app, action);
     }
     match app.screen {
-        Screen::Triage => triage_key(app, key).map(|()| None),
-        Screen::Review => review_key(app, key),
-        _ => list_key(app, key),
+        Screen::Triage => {
+            if app.rows.is_empty() {
+                return finished_triage_key(app, key).map(|()| None);
+            }
+            let Some(action) = action_for(TRIAGE_KEYS, key) else {
+                return Ok(None);
+            };
+            run_triage(app, action).map(|()| None)
+        }
+        Screen::Review => {
+            let Some(action) = action_for(AGENT_KEYS, key) else {
+                return Ok(None);
+            };
+            run_agents(app, action, key)
+        }
+        _ => {
+            let Some(action) = action_for(LIST_KEYS, key) else {
+                return Ok(None);
+            };
+            run_list(app, action, key)
+        }
     }
 }
 
@@ -85,34 +460,34 @@ fn chord_key(app: &mut App, key: KeyEvent) -> bool {
     true
 }
 
-/// Keys shared by every screen; returns true when handled.
-fn common_key(app: &mut App, key: KeyEvent) -> Result<bool> {
-    match key.code {
-        KeyCode::Char('n' | 'j') | KeyCode::Down => app.move_selection(1),
-        KeyCode::Char('k') | KeyCode::Up => app.move_selection(-1),
-        KeyCode::PageDown => app.move_selection(10),
-        KeyCode::PageUp => app.move_selection(-10),
-        KeyCode::Home => app.selected = 0,
-        KeyCode::End => app.selected = app.row_count().saturating_sub(1),
-        KeyCode::Char('?') => app.overlay = Overlay::Help,
-        KeyCode::Char('c') => app.overlay = Overlay::Capture(capture::Draft::default()),
-        // org-agenda's r and g both redo the agenda.
-        KeyCode::Char('r' | 'g') => {
+/// Moving, tabs, capture, refresh and help, shared by the lists and the
+/// Agents tab; returns false for any other action.
+fn run_shared(app: &mut App, action: Action, key: KeyEvent) -> Result<bool> {
+    match action {
+        A::Next => app.move_selection(1),
+        A::Previous => app.move_selection(-1),
+        A::PageDown => app.move_selection(10),
+        A::PageUp => app.move_selection(-10),
+        A::First => app.selected = 0,
+        A::Last => app.selected = app.row_count().saturating_sub(1),
+        A::NextTab => next_tab(app, 1)?,
+        A::PreviousTab => next_tab(app, -1)?,
+        A::TabNumber => {
+            if let KeyCode::Char(digit) = key.code {
+                let index = digit as usize - '1' as usize;
+                if let Some(screen) = app.tabs().get(index).cloned() {
+                    app.review_diff = false;
+                    app.switch_screen(screen)?;
+                }
+            }
+        }
+        A::Capture => app.overlay = Overlay::Capture(capture::Draft::default()),
+        A::Refresh => {
             app.index = agd_core::WorkspaceIndex::load(app.settings.clone())?;
             app.reload_rows()?;
             app.set_status("refreshed");
         }
-        KeyCode::Tab => next_tab(app, 1)?,
-        KeyCode::BackTab => next_tab(app, -1)?,
-        KeyCode::Char(digit @ '1'..='9') => {
-            let index = digit as usize - '1' as usize;
-            if let Some(screen) = app.tabs().get(index).cloned() {
-                if screen == Screen::Review {
-                    app.review_diff = false;
-                }
-                app.switch_screen(screen)?;
-            }
-        }
+        A::Help => app.overlay = Overlay::Help { scroll: 0 },
         _ => return Ok(false),
     }
     Ok(true)
@@ -125,118 +500,118 @@ fn next_tab(app: &mut App, delta: isize) -> Result<()> {
     app.switch_screen(tabs[next].clone())
 }
 
-/// ctrl-e: open in $EDITOR, everywhere (lists, pane, Agent review, the edit
-/// and capture popups), as org-agenda's RET opens the entry's file.
-fn is_editor_key(key: KeyEvent) -> bool {
-    key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('e')
-}
-
 /// Today, Week, Inbox and saved views.
-fn list_key(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
-    if is_editor_key(key) {
-        return Ok(selected_location(app));
-    }
-    if common_key(app, key)? {
+fn run_list(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget> {
+    if run_shared(app, action, key)? {
         return Ok(None);
     }
-    let bulk = !app.marks.is_empty();
-    match key.code {
-        KeyCode::Char('q') => app.quit = true,
-        KeyCode::Esc => {
-            if app.peek {
-                app.peek = false;
-            } else if bulk {
-                app.marks.clear();
-            } else if !app.filter.is_empty() {
-                app.filter.clear();
-                app.reload_rows()?;
-            } else if app.screen != Screen::Today {
-                let back = app.back.clone();
-                app.switch_screen(if back == app.screen {
-                    Screen::Today
-                } else {
-                    back
-                })?;
-            }
+    match action {
+        A::Later => move_day(app, 1)?,
+        A::Earlier => move_day(app, -1)?,
+        A::GoToday => {
+            app.day = app.today;
+            app.reload_rows()?;
         }
-        KeyCode::Enter | KeyCode::Char('e') => {
-            if let Some(form) = super::edit::EditForm::open(app) {
-                app.overlay = Overlay::Edit(Box::new(form));
-            }
+        A::Peek => app.peek = !app.peek,
+        A::Views => app.overlay = Overlay::Views { selected: 0 },
+        A::Classic => {
+            app.classic = !app.classic;
+            app.reload_rows()?;
         }
-        // Marked rows are what every change key acts on, as after org-agenda's
-        // m; `.` and the other moves never write.
-        KeyCode::Char(' ' | 'm') => app.toggle_mark(),
-        KeyCode::Char('x') => app.mark_done()?,
-        KeyCode::Char('X') => app.cancel()?,
-        KeyCode::Char('t') => app.cycle_state()?,
-        KeyCode::Char('s') => prompt(app, PromptKind::Schedule),
-        KeyCode::Char('d') => prompt(app, PromptKind::Deadline),
-        KeyCode::Char(',') => prompt(app, PromptKind::Priority),
-        KeyCode::Char('+') => app.shift_priority(true)?,
-        KeyCode::Char('-') => app.shift_priority(false)?,
-        KeyCode::Char(':') => prompt(app, PromptKind::Tags),
-        KeyCode::Char('S') => app.someday()?,
-        KeyCode::Char('R') => app.open_refile(),
-        KeyCode::Char('u') => app.undo()?,
-        KeyCode::Char('y') => app.copy_link()?,
-        KeyCode::Char('p') => app.peek = !app.peek,
-        KeyCode::Char('T') => start_triage(app)?,
-        // On the Agents tab `A` accepts every change; here it opens the tab.
-        KeyCode::Char('A') => {
-            app.review_diff = false;
-            app.switch_screen(Screen::Review)?;
+        A::LogMode => {
+            app.log_mode = !app.log_mode;
+            app.reload_rows()?;
         }
-        KeyCode::Char('a') => app.overlay = Overlay::Views { selected: 0 },
-        KeyCode::Char('/') => {
+        A::Context => cycle_context(app)?,
+        A::Filter => {
             app.overlay = Overlay::Prompt {
                 kind: PromptKind::Filter,
                 input: app.filter.clone(),
             }
         }
-        KeyCode::Char('<') => {
-            let categories = app.categories();
-            let index = app
-                .context
-                .as_ref()
-                .and_then(|context| categories.iter().position(|category| category == context));
-            app.context = match index {
-                None => categories.first().cloned(),
-                Some(index) => categories.get(index + 1).cloned(),
-            };
-            app.reload_rows()?;
+        A::Edit => {
+            if let Some(form) = super::edit::EditForm::open(app) {
+                app.overlay = Overlay::Edit(Box::new(form));
+            }
         }
-        KeyCode::Char('v') => {
-            app.classic = !app.classic;
-            app.reload_rows()?;
-        }
-        KeyCode::Char('l') => {
-            app.log_mode = !app.log_mode;
-            app.reload_rows()?;
-        }
-        KeyCode::Char('f') => {
-            app.day += period(app);
-            app.reload_rows()?;
-        }
-        KeyCode::Char('b') => {
-            app.day -= period(app);
-            app.reload_rows()?;
-        }
-        KeyCode::Char('.') => {
-            app.day = app.today;
-            app.reload_rows()?;
-        }
-        _ => {}
+        A::Editor => return Ok(selected_location(app)),
+        _ => run_change(app, action)?,
     }
     Ok(None)
 }
 
-fn period(app: &App) -> chrono::Duration {
-    if app.screen == Screen::Week {
+/// The change keys of the lists, and the keys that leave them.
+fn run_change(app: &mut App, action: Action) -> Result<()> {
+    match action {
+        A::State => app.cycle_state()?,
+        A::Done => app.mark_done()?,
+        A::Cancel => app.cancel()?,
+        A::Schedule => prompt(app, PromptKind::Schedule),
+        A::Deadline => prompt(app, PromptKind::Deadline),
+        A::Priority => prompt(app, PromptKind::Priority),
+        A::PriorityUp => app.shift_priority(true)?,
+        A::PriorityDown => app.shift_priority(false)?,
+        A::Tags => prompt(app, PromptKind::Tags),
+        A::Someday => app.someday()?,
+        A::Refile => app.open_refile(),
+        A::Undo => app.undo()?,
+        A::CopyLink => app.copy_link()?,
+        A::Mark => app.toggle_mark(),
+        A::Triage => start_triage(app)?,
+        A::Agents => {
+            app.review_diff = false;
+            app.switch_screen(Screen::Review)?;
+        }
+        A::Back => list_back(app)?,
+        A::Quit => app.quit = true,
+        _ => {}
+    }
+    Ok(())
+}
+
+/// esc: close peek, then clear marks, then the filter, then leave the view.
+fn list_back(app: &mut App) -> Result<()> {
+    if app.peek {
+        app.peek = false;
+    } else if !app.marks.is_empty() {
+        app.marks.clear();
+    } else if !app.filter.is_empty() {
+        app.filter.clear();
+        app.reload_rows()?;
+    } else if app.screen != Screen::Today {
+        let back = app.back.clone();
+        app.switch_screen(if back == app.screen {
+            Screen::Today
+        } else {
+            back
+        })?;
+    }
+    Ok(())
+}
+
+/// f and b: one day, or one week in Week.
+fn move_day(app: &mut App, direction: i32) -> Result<()> {
+    let period = if app.screen == Screen::Week {
         chrono::Duration::weeks(1)
     } else {
         chrono::Duration::days(1)
-    }
+    };
+    app.day += period * direction;
+    app.reload_rows()
+}
+
+/// `<`: the next category, then all.
+fn cycle_context(app: &mut App) -> Result<()> {
+    let categories = app.categories();
+    let index = app
+        .context
+        .as_ref()
+        .and_then(|context| categories.iter().position(|category| category == context));
+    app.context = match index {
+        None => categories.first().cloned(),
+        Some(index) => categories.get(index + 1).cloned(),
+    };
+    app.reload_rows()
 }
 
 fn prompt(app: &mut App, kind: PromptKind) {
@@ -262,107 +637,111 @@ fn selected_location(app: &App) -> EditorTarget {
         .map(|row| (row.item.file.clone(), row.item.line))
 }
 
-/// One key per decision on the current card.
-fn triage_key(app: &mut App, key: KeyEvent) -> Result<()> {
-    if app.rows.is_empty() {
-        return match key.code {
-            KeyCode::Char('u') => app.undo(),
-            KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => app.switch_screen(Screen::Today),
-            _ => Ok(()),
-        };
-    }
+/// A finished pass: `u` undoes all of it, and ⏎, esc or q return to Today,
+/// as its summary card says.
+fn finished_triage_key(app: &mut App, key: KeyEvent) -> Result<()> {
     match key.code {
-        KeyCode::Esc | KeyCode::Char('q') => {
+        KeyCode::Char('u') => app.undo(),
+        KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => app.switch_screen(Screen::Today),
+        KeyCode::Char('?') => {
+            app.overlay = Overlay::Help { scroll: 0 };
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn run_triage(app: &mut App, action: Action) -> Result<()> {
+    match action {
+        A::Today => app.schedule("today")?,
+        A::Tomorrow => app.schedule("+1d")?,
+        A::NextWeek => app.schedule("+1w")?,
+        A::Schedule => prompt(app, PromptKind::Schedule),
+        A::Done => app.mark_done()?,
+        A::MakeNext => app.set_state("NEXT")?,
+        A::Someday => app.someday()?,
+        A::Cancel => app.cancel()?,
+        A::Refile => app.open_refile(),
+        A::Undo => app.undo()?,
+        A::Next => app.move_selection(1),
+        A::Previous => app.move_selection(-1),
+        A::Help => app.overlay = Overlay::Help { scroll: 0 },
+        A::Back => {
             let back = app.back.clone();
             app.switch_screen(back)?;
         }
-        KeyCode::Char('.') => app.schedule("today")?,
-        KeyCode::Char('m') => app.schedule("+1d")?,
-        KeyCode::Char('w') => app.schedule("+1w")?,
-        KeyCode::Char('p') => prompt(app, PromptKind::Schedule),
-        KeyCode::Char('x') => app.mark_done()?,
-        KeyCode::Char('n') => app.set_state("NEXT")?,
-        KeyCode::Char('s') => app.someday()?,
-        // Cancel and refile use the lists' keys, so j/k can move.
-        KeyCode::Char('X') => app.cancel()?,
-        KeyCode::Char('R') => app.open_refile(),
-        KeyCode::Char('u') => app.undo()?,
-        KeyCode::Char('j') | KeyCode::Down | KeyCode::Tab => app.move_selection(1),
-        KeyCode::Char('k') | KeyCode::Up | KeyCode::BackTab => app.move_selection(-1),
-        KeyCode::Char('?') => app.overlay = Overlay::Help,
         _ => {}
     }
     Ok(())
 }
 
-fn review_key(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
-    let key = if is_editor_key(key) {
-        KeyEvent::from(KeyCode::Enter)
-    } else {
-        key
-    };
-    if common_key(app, key)? {
+fn run_agents(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget> {
+    if run_shared(app, action, key)? {
         return Ok(None);
     }
-    match key.code {
-        KeyCode::Esc | KeyCode::Char('q') => {
-            if app.review_diff {
-                app.review_diff = false;
-            } else if app.peek {
-                app.peek = false;
-            } else {
-                let back = app.back.clone();
-                app.switch_screen(if back == Screen::Review {
-                    Screen::Today
-                } else {
-                    back
-                })?;
-            }
-        }
-        KeyCode::Char('a') => app.accept_selected()?,
-        KeyCode::Char('A') => app.accept_all()?,
-        KeyCode::Char('u') => app.undo_selected_change()?,
-        KeyCode::Char('d') => app.review_diff = !app.review_diff,
-        KeyCode::Char('p') => app.peek = !app.peek,
-        KeyCode::Char('f') => app.cycle_agent_filter()?,
-        KeyCode::Enter => {
-            if let Some(record) = app.journals.get(app.selected) {
-                let file = record
-                    .file
-                    .split(',')
-                    .next()
-                    .unwrap_or_default()
-                    .to_string();
-                let line = super::review::changed_line(record);
-                return Ok(Some((file, line)));
-            }
-        }
+    match action {
+        A::Accept => app.accept_selected()?,
+        A::AcceptAll => app.accept_all()?,
+        A::Undo => app.undo_selected_change()?,
+        A::Diff => app.review_diff = !app.review_diff,
+        A::Peek => app.peek = !app.peek,
+        A::FilterAgent => app.cycle_agent_filter()?,
+        A::Editor => return Ok(changed_location(app)),
+        A::Back => agents_back(app)?,
         _ => {}
     }
     Ok(None)
 }
 
-/// The pane: glance, mark done, triage, capture, or open the full TUI.
-fn pane_key(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
-    if is_editor_key(key) {
-        return Ok(selected_location(app));
+/// The selected agent change's place in its file, for $EDITOR.
+fn changed_location(app: &App) -> EditorTarget {
+    let record = app.journals.get(app.selected)?;
+    let file = record
+        .file
+        .split(',')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    Some((file, super::review::changed_line(record)))
+}
+
+/// esc or q on the Agents tab: close the diff, then peek, then go back.
+fn agents_back(app: &mut App) -> Result<()> {
+    if app.review_diff {
+        app.review_diff = false;
+    } else if app.peek {
+        app.peek = false;
+    } else {
+        let back = app.back.clone();
+        app.switch_screen(if back == Screen::Review {
+            Screen::Today
+        } else {
+            back
+        })?;
     }
-    match key.code {
-        KeyCode::Char('j') | KeyCode::Down => app.move_selection(1),
-        KeyCode::Char('k') | KeyCode::Up => app.move_selection(-1),
-        KeyCode::Char('x') => app.mark_done()?,
-        KeyCode::Char('X') => app.cancel()?,
-        KeyCode::Char('u') => app.undo()?,
-        KeyCode::Char('c') => app.overlay = Overlay::Capture(capture::Draft::default()),
-        KeyCode::Char('T') => {
+    Ok(())
+}
+
+/// The pane: glance, mark done, capture, or open the full TUI.
+fn run_pane(app: &mut App, action: Action) -> Result<EditorTarget> {
+    match action {
+        A::Next => app.move_selection(1),
+        A::Previous => app.move_selection(-1),
+        A::Done => app.mark_done()?,
+        A::Cancel => app.cancel()?,
+        A::Undo => app.undo()?,
+        A::Capture => app.overlay = Overlay::Capture(capture::Draft::default()),
+        A::Editor => return Ok(selected_location(app)),
+        A::Triage => {
             app.pane = false;
             start_triage(app)?;
         }
-        KeyCode::Enter => {
+        A::FullView => {
             app.pane = false;
             app.reload_rows()?;
         }
-        KeyCode::Char('q') => app.quit = true,
+        A::Help => app.overlay = Overlay::Help { scroll: 0 },
+        A::Quit => app.quit = true,
         _ => {}
     }
     Ok(None)
@@ -370,7 +749,13 @@ fn pane_key(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
 
 fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
     match &mut app.overlay {
-        Overlay::Help => app.overlay = Overlay::None,
+        Overlay::Help { scroll } => match key.code {
+            KeyCode::Char('j') | KeyCode::Down => *scroll = scroll.saturating_add(1),
+            KeyCode::Char('k') | KeyCode::Up => *scroll = scroll.saturating_sub(1),
+            KeyCode::PageDown | KeyCode::Char(' ') => *scroll = scroll.saturating_add(10),
+            KeyCode::PageUp => *scroll = scroll.saturating_sub(10),
+            _ => app.overlay = Overlay::None,
+        },
         Overlay::Prompt { input, .. } => match key.code {
             KeyCode::Esc => app.overlay = Overlay::None,
             KeyCode::Backspace => {
