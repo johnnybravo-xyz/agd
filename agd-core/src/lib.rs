@@ -1,4 +1,6 @@
 pub mod agenda;
+pub mod capture_line;
+pub mod capture_template;
 pub mod check;
 pub mod date;
 pub mod document;
@@ -12,14 +14,13 @@ pub use agenda::{
     AgendaEngine, AgendaQuery, AgendaSpan, ViewSection, ViewSectionGroup, agenda_csv, agenda_row,
     agenda_text, agenda_title, item_row, items_csv, keyword_color, keyword_colors,
 };
+pub use capture_line::{CaptureDraft, parse_capture_line};
+pub use capture_template::{CapturePrompt, capture_prompts, render_capture_template};
 pub use check::{
     CHECK_SCHEMA, CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError,
     IndexedHeadline, OrgDocument, SourceSpan, check_paths, check_settings, journal_problems,
 };
-pub use date::{
-    CaptureDraft, CapturePrompt, capture_prompts, date_preview, format_active_timestamp,
-    now_local_naive, parse_capture_line, parse_date_input, render_capture_template,
-};
+pub use date::{date_preview, format_active_timestamp, now_local_naive, parse_date_input};
 pub use document::{
     ByteSpan, HeadlineSpan, LogKind, LogSettings, OrgDocument as IndexedDocument, PriorityRange,
     PropertySpan, SourceLine, TimestampSpan, TodoKeyword, WorkspaceIndex, parse_timestamp,
