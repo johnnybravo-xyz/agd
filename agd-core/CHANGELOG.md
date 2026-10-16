@@ -6,6 +6,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-16
+
 ### Added
 
 - `checklist` reads an entry's checklist, `Item::checklist` carries its
@@ -97,6 +99,7 @@ First public release: the parsing, agenda and write engine behind `agd`.
 - First release of `agd-core`, forked from
   [org-mcp-server](https://github.com/szaffarano/org-mcp-server).
 
-[Unreleased]: https://github.com/johnnybravo-xyz/agd/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/johnnybravo-xyz/agd/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/johnnybravo-xyz/agd/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/johnnybravo-xyz/agd/compare/agd-v0.0.1...v0.1.0
 [0.0.1]: https://github.com/johnnybravo-xyz/agd/releases/tag/agd-v0.0.1

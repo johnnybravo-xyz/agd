@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agd-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "dirs",
@@ -12,7 +12,6 @@ dependencies = [
  "ignore",
  "orgize",
  "regex",
- "rowan",
  "serde",
  "serde_json",
  "sha2",
@@ -496,7 +495,6 @@ checksum = "b747231437c1d8e68355427250c167d3e4d94874727923511e4572b7f5fecd51"
 dependencies = [
  "bytecount",
  "cfg-if",
- "chrono",
  "jetscii",
  "memchr",
  "nom",

@@ -34,6 +34,7 @@ version: ## Set VERSION=x.y.z in every manifest and date both changelogs
 	perl -pi -e 's/(agd-core = \{ version = )"\Q$(CURRENT)\E"/$$1"$(VERSION)"/' agd/Cargo.toml
 	perl -pi -e 's/"version": "\Q$(CURRENT)\E"/"version": "$(VERSION)"/' agd/claude-plugin/.claude-plugin/plugin.json
 	perl -pi -e 's/^## \[Unreleased\]$$/## [Unreleased]\n\n## [$(VERSION)] - $(TODAY)/' agd/CHANGELOG.md agd-core/CHANGELOG.md
+	perl -pi -e 's{^\[Unreleased\]: (.*)/compare/v\Q$(CURRENT)\E\.\.\.HEAD$$}{[Unreleased]: $$1/compare/v$(VERSION)...HEAD\n[$(VERSION)]: $$1/compare/v$(CURRENT)...v$(VERSION)}' agd/CHANGELOG.md agd-core/CHANGELOG.md
 	$(CARGO) update --workspace
 	$(CARGO) update --manifest-path fuzz/Cargo.toml -p agd-core
 	@echo "$(CURRENT) -> $(VERSION); review the diff and commit it"

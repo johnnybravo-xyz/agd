@@ -6,7 +6,7 @@ clap_complete.workspace = true
 crossterm.workspace = true
 csv.workspace = true
 notify.workspace = true
-agd-core = { version = "0.1.0", path = "../agd-core" }
+agd-core = { version = "0.2.0", path = "../agd-core" }
 rmcp.workspace = true
 ratatui.workspace = true
 serde = { workspace = true, features = ["derive"] }
@@ -38,7 +38,7 @@ edition = "2024"
 rust-version = "1.89"
 authors.workspace = true
 license.workspace = true
-version = "0.1.0"
+version = "0.2.0"
 readme.workspace = true
 homepage.workspace = true
 documentation.workspace = true
