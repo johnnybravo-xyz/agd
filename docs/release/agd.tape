@@ -34,7 +34,7 @@ Type "a" Sleep 1.5s
 # Triage: one card, one key per decision.
 Type "1" Sleep 500ms
 Type "T" Sleep 3s
-Type "s" Sleep 1.5s
+Type "S" Sleep 1.5s
 Type "m" Sleep 1.5s
 Escape Sleep 800ms
 

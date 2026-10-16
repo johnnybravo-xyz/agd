@@ -12,7 +12,7 @@ use ratatui::widgets::{Clear, Paragraph, Wrap};
 
 use super::input::{self, TextInput};
 use super::theme::centered;
-use super::{App, Overlay, write_context};
+use super::{App, Overlay, keys, write_context};
 
 const TITLE: usize = 0;
 const STATE: usize = 1;
@@ -250,8 +250,10 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<bool> {
             }
             return Ok(false);
         }
-        KeyCode::Tab | KeyCode::Down => form.focus((form.field + 1) % LABELS.len()),
-        KeyCode::BackTab | KeyCode::Up => {
+        KeyCode::Tab => form.focus((form.field + 1) % LABELS.len()),
+        KeyCode::BackTab => form.focus((form.field + LABELS.len() - 1) % LABELS.len()),
+        _ if keys::picker_step(key) == Some(1) => form.focus((form.field + 1) % LABELS.len()),
+        _ if keys::picker_step(key) == Some(-1) => {
             form.focus((form.field + LABELS.len() - 1) % LABELS.len())
         }
         _ if form.field == STATE || form.field == PRIORITY => {

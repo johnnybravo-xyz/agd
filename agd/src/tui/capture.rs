@@ -20,7 +20,7 @@ use ratatui::widgets::{Clear, Paragraph, Wrap};
 
 use super::input::{self, TextInput};
 use super::theme::{Theme, centered};
-use super::{App, Overlay, stop_terminal, write_context};
+use super::{App, Overlay, keys, stop_terminal, write_context};
 
 /// The capture popup's state. Field 0 is the one-line title with tokens;
 /// later fields answer the template's `%^{prompt}`s.
@@ -211,26 +211,24 @@ pub(super) fn handle_key(
                 draft.choose(app, key);
             }
         }
-        // Before a template is chosen, ↑/↓ and ⏎ pick one from the list.
-        KeyCode::Down if draft.template.is_none() => {
-            draft.selected =
-                (draft.selected + 1).min(app.settings.captures.len().saturating_sub(1));
+        // Before a template is chosen, the picker keys and ⏎ pick one from
+        // the list; after, the picker keys move between fields.
+        _ if keys::picker_step(key).is_some() && draft.template.is_none() => {
+            let count = app.settings.captures.len();
+            draft.selected = keys::stepped(draft.selected, keys::picker_step(key), count);
         }
-        KeyCode::Up if draft.template.is_none() => {
-            draft.selected = draft.selected.saturating_sub(1);
+        _ if keys::picker_step(key) == Some(1) => {
+            if let Some(field) = draft.next_field(app) {
+                draft.field = field;
+            }
         }
+        _ if keys::picker_step(key) == Some(-1) => draft.field = draft.previous_field(app),
         KeyCode::Enter if draft.template.is_none() => {
             if let Some(template) = app.settings.captures.get(draft.selected) {
                 let key = template.key.clone();
                 draft.choose(app, &key);
             }
         }
-        KeyCode::Down => {
-            if let Some(field) = draft.next_field(app) {
-                draft.field = field;
-            }
-        }
-        KeyCode::Up => draft.field = draft.previous_field(app),
         // Backspace on an empty line goes back to the template list.
         KeyCode::Backspace if draft.field == 0 && draft.input.text().is_empty() => {
             draft.template = None;

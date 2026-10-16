@@ -699,7 +699,7 @@ fn triage_k_moves_back_a_card_and_shift_x_cancels() {
         press(&mut app, KeyCode::Char('T'));
         assert_eq!(app.screen, Screen::Triage);
         let screen = render(&mut app, 100, 30).join("\n");
-        assert!(screen.contains("k previous card"), "{screen}");
+        assert!(screen.contains("p previous card"), "{screen}");
         assert!(screen.contains("X  cancel"), "{screen}");
         assert!(screen.contains("R  refile"), "{screen}");
 
@@ -757,7 +757,7 @@ fn scrolled_help(app: &mut App, width: u16, height: u16) -> Vec<String> {
     use crossterm::event::KeyCode;
     press(app, KeyCode::Char('?'));
     let mut seen = Vec::new();
-    for _ in 0..80 {
+    for _ in 0..160 {
         for line in render(app, width, height) {
             if !seen.contains(&line) {
                 seen.push(line);
@@ -794,8 +794,12 @@ fn help_scrolls_through_every_screens_keys_at_60_by_24() {
         // Too narrow for the org-agenda column: long help wraps instead of
         // being cut.
         assert!(!text.contains("C-c C-s"), "{text}");
-        assert!(text.contains("filter, leave "), "{text}");
-        assert!(text.contains("            a view "), "{text}");
+        assert!(text.contains("clear marks or filter,"), "{text}");
+        let wrapped = text
+            .lines()
+            .find(|line| line.contains("leave a view"))
+            .unwrap_or_else(|| panic!("{text}"));
+        assert!(!wrapped.contains("esc"), "{wrapped}");
         press(&mut app, crossterm::event::KeyCode::Esc);
         assert!(matches!(app.overlay, Overlay::None));
     });
@@ -1932,6 +1936,106 @@ fn priority_keys_step_through_the_files_own_range() {
         app.shift_priority(false).unwrap();
         let written = fs::read_to_string(&path).unwrap();
         assert!(written.contains("* TODO [#E] Low"), "{written}");
+    });
+}
+
+const THREE_OVERDUE: &str = "#+TODO: TODO NEXT | DONE\n\
+* TODO Old one\nSCHEDULED: <2026-10-01 Thu>\n\
+* TODO Old two\nSCHEDULED: <2026-10-05 Mon>\n\
+* TODO Old three\nSCHEDULED: <2026-10-09 Fri>\n";
+
+#[test]
+#[serial]
+fn triage_keys_mean_what_they_mean_in_the_lists() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, THREE_OVERDUE).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('T'));
+        assert_eq!(app.screen, Screen::Triage);
+        // n and j go to the next card, p and k back, and none writes.
+        for (key, position) in [('n', 1), ('j', 2), ('p', 1), ('k', 0)] {
+            press(&mut app, KeyCode::Char(key));
+            assert_eq!(app.triage.position, position, "after {key}");
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_OVERDUE);
+
+        // s asks for a date, as in the lists.
+        press(&mut app, KeyCode::Char('s'));
+        assert!(
+            matches!(&app.overlay, Overlay::Prompt(prompt) if prompt.kind == super::PromptKind::Schedule)
+        );
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_OVERDUE);
+
+        // S is someday and N makes it NEXT; each moves on to the next card.
+        let first = app.selected_row().unwrap().item.title.clone();
+        press(&mut app, KeyCode::Char('S'));
+        let written = fs::read_to_string(&path).unwrap();
+        let line = written.lines().find(|line| line.contains(&first)).unwrap();
+        assert!(line.ends_with(":someday:"), "{written}");
+        let second = app.selected_row().unwrap().item.title.clone();
+        press(&mut app, KeyCode::Char('N'));
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains(&format!("* NEXT {second}")), "{written}");
+
+        // Help and the chips name the same keys.
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("N  make NEXT"), "{screen}");
+        assert!(screen.contains("S  someday"), "{screen}");
+        assert!(screen.contains("s  pick date"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn ctrl_n_and_ctrl_j_move_in_pickers_where_letters_are_typed() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(root.join("work.org"), THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.settings.views = toml::from_str::<ViewsOnly>(
+            r#"[[view]]
+key = "k"
+desc = "Keep going"
+blocks = [{ kind = "alltodo" }]
+
+[[view]]
+key = "j"
+desc = "Journal"
+blocks = [{ kind = "alltodo" }]"#,
+        )
+        .unwrap()
+        .view;
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('a'));
+        press_control(&mut app, 'n');
+        assert!(matches!(app.overlay, Overlay::Views { selected: 1 }));
+        press_control(&mut app, 'k');
+        assert!(matches!(app.overlay, Overlay::Views { selected: 0 }));
+        press_control(&mut app, 'j');
+        assert!(matches!(app.overlay, Overlay::Views { selected: 1 }));
+        press_control(&mut app, 'p');
+        assert!(matches!(app.overlay, Overlay::Views { selected: 0 }));
+        assert_eq!(app.screen, Screen::Today, "moving opens no view");
+        press(&mut app, KeyCode::Esc);
+
+        press(&mut app, KeyCode::Char('R'));
+        press_control(&mut app, 'n');
+        press_control(&mut app, 'k');
+        press_control(&mut app, 'j');
+        let Overlay::Refile(picker) = &app.overlay else {
+            panic!("the picker closed");
+        };
+        assert_eq!(picker.selected, 1);
+        assert_eq!(picker.input.text(), "", "ctrl keys type nothing");
+        press_control(&mut app, 'p');
+        let Overlay::Refile(picker) = &app.overlay else {
+            panic!("the picker closed");
+        };
+        assert_eq!(picker.selected, 0);
     });
 }
 

@@ -99,7 +99,10 @@ fn help_lines(theme: &Theme, current: usize, width: usize) -> Vec<Line<'static>>
     let columns = Columns::fit(width);
     let mut order = vec![current];
     order.extend((0..keys::SCREENS.len()).filter(|index| *index != current));
-    let mut lines = Vec::new();
+    let mut lines: Vec<Line<'static>> = wrap(keys::MOVING, width)
+        .into_iter()
+        .map(|line| Line::from(Span::styled(line, theme.muted())))
+        .collect();
     if columns.org.is_some() {
         let pad = 1 + columns.key + GAP + columns.help + GAP;
         lines.push(Line::from(Span::styled(
