@@ -166,6 +166,10 @@ fn is_zero(value: &i64) -> bool {
 pub struct CaptureTemplate {
     pub key: String,
     pub desc: String,
+    /// The target, as org-capture's: `id` alone, or `file` alone
+    /// (file), with `heading` (file+headline) or with `outline_path`
+    /// (file+olp). `datetree` goes with `file` alone (file+datetree) or with
+    /// `outline_path` (file+olp+datetree).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -176,7 +180,13 @@ pub struct CaptureTemplate {
     pub id: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub datetree: bool,
+    /// The entry's text with org-capture escapes (`%?`, `%U`, `%^{prompt}`).
+    /// A template has exactly one of `template` and `template_file`; empty
+    /// is none. `load_settings` reads a `template_file` into `template`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub template: String,
+    /// A file holding the template text; a relative path is under the first
+    /// root, as Org's are under org-directory.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template_file: Option<String>,
 }
@@ -407,6 +417,7 @@ pub fn load_settings(
         settings.roots = vec![root.to_string_lossy().into_owned()];
     }
     validate_settings(&settings)?;
+    read_template_files(&mut settings.captures, &settings.roots)?;
     Ok(LoadedSettings {
         settings,
         config_path,
@@ -539,6 +550,62 @@ pub fn parse_agenda_day(value: &str, today: NaiveDate) -> Result<NaiveDate, AgdE
         return Ok(today - (ahead - today));
     }
     date(crate::parse_date_input(value, today)?)
+}
+
+/// A template has one text source and one of org-capture's target shapes:
+/// id; file; file+headline; file+olp; file+datetree; file+olp+datetree.
+fn validate_capture_shape(template: &CaptureTemplate) -> Result<(), &'static str> {
+    match (
+        template.template.is_empty(),
+        template.template_file.is_some(),
+    ) {
+        (true, false) => return Err("needs template or template_file"),
+        (false, true) => return Err("takes template or template_file, not both"),
+        _ => {}
+    }
+    let heading = template.heading.is_some();
+    let outline = template.outline_path.is_some();
+    match (template.file.is_some(), template.id.is_some()) {
+        (false, false) => Err("needs a target: file or id"),
+        (true, true) => Err("targets a file or an id, not both"),
+        (false, true) if heading || outline || template.datetree => {
+            Err("targets an id, which takes no heading, outline_path or datetree")
+        }
+        (true, false) if heading && outline => Err("takes heading or outline_path, not both"),
+        (true, false) if heading && template.datetree => Err(
+            "puts a datetree under the file or an outline_path, not a heading, as Org's file+datetree and file+olp+datetree do",
+        ),
+        _ => Ok(()),
+    }
+}
+
+/// Reads each `template_file` into its template's `template`, so a capture
+/// reads no file but its target. Relative paths are under `roots[0]`.
+fn read_template_files(captures: &mut [CaptureTemplate], roots: &[String]) -> Result<(), AgdError> {
+    for template in captures {
+        let Some(file) = &template.template_file else {
+            continue;
+        };
+        let path = PathBuf::from(shellexpand::tilde(file).into_owned());
+        let path = match roots.first() {
+            Some(root) if path.is_relative() => {
+                PathBuf::from(shellexpand::tilde(root).into_owned()).join(path)
+            }
+            _ => path,
+        };
+        template.template = fs::read_to_string(&path).map_err(|error| {
+            AgdError::with_source(
+                "config",
+                format!(
+                    "capture template '{}': cannot read template_file {}: {error}",
+                    template.key,
+                    path.display()
+                ),
+                error,
+            )
+        })?;
+    }
+    Ok(())
 }
 
 /// Each `todo_keywords` line needs a keyword and at most one `|`.
@@ -904,11 +971,8 @@ pub(crate) fn validate_values(settings: &Settings) -> Result<(), AgdError> {
                 "duplicate capture template key '{key}'"
             )));
         }
-        if template.file.is_none() && template.id.is_none() {
-            return Err(config_error(format!(
-                "capture template '{key}' needs a file or ID target"
-            )));
-        }
+        validate_capture_shape(template)
+            .map_err(|detail| config_error(format!("capture template '{key}' {detail}")))?;
     }
     let mut profile_names = BTreeSet::new();
     for profile in &settings.agent_profiles {
@@ -1110,6 +1174,87 @@ mod tests {
             let error = load_error(&format!("{key} = {value}\n"));
             assert!(error.contains(&format!("unknown field `{key}`")), "{error}");
         }
+    }
+
+    fn capture_error(fields: &str) -> String {
+        load_error(&format!(
+            "[[capture]]\nkey = \"j\"\ndesc = \"Journal\"\n{fields}"
+        ))
+    }
+
+    #[test]
+    fn capture_templates_take_org_capture_target_shapes() {
+        for fields in [
+            "id = \"abc\"\ntemplate = \"* %?\"\n",
+            "file = \"j.org\"\ntemplate = \"* %?\"\n",
+            "file = \"j.org\"\nheading = \"Log\"\ntemplate = \"* %?\"\n",
+            "file = \"j.org\"\noutline_path = [\"A\", \"B\"]\ntemplate = \"* %?\"\n",
+            "file = \"j.org\"\ndatetree = true\ntemplate = \"* %?\"\n",
+            "file = \"j.org\"\noutline_path = [\"A\"]\ndatetree = true\ntemplate = \"* %?\"\n",
+        ] {
+            let body = format!("[[capture]]\nkey = \"j\"\ndesc = \"Journal\"\n{fields}");
+            assert!(load_body(&body).is_ok(), "{fields}");
+        }
+        let cases = [
+            ("file = \"j.org\"\n", "needs template or template_file"),
+            (
+                "file = \"j.org\"\ntemplate = \"* %?\"\ntemplate_file = \"t.txt\"\n",
+                "takes template or template_file, not both",
+            ),
+            ("template = \"* %?\"\n", "needs a target: file or id"),
+            (
+                "file = \"j.org\"\nid = \"abc\"\ntemplate = \"* %?\"\n",
+                "targets a file or an id, not both",
+            ),
+            (
+                "id = \"abc\"\nheading = \"Log\"\ntemplate = \"* %?\"\n",
+                "targets an id, which takes no heading, outline_path or datetree",
+            ),
+            (
+                "file = \"j.org\"\nheading = \"Log\"\noutline_path = [\"Log\"]\ntemplate = \"* %?\"\n",
+                "takes heading or outline_path, not both",
+            ),
+            (
+                "file = \"j.org\"\nheading = \"Log\"\ndatetree = true\ntemplate = \"* %?\"\n",
+                "puts a datetree under the file or an outline_path, not a heading, as Org's file+datetree and file+olp+datetree do",
+            ),
+        ];
+        for (fields, detail) in cases {
+            assert_eq!(
+                capture_error(fields),
+                format!("capture template 'j' {detail}")
+            );
+        }
+    }
+
+    #[test]
+    fn template_file_is_read_at_load_relative_to_the_first_root() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("journal.txt"), "* %U %?\n").unwrap();
+        let config = temp.path().join("config.toml");
+        let root = toml::Value::String(temp.path().to_string_lossy().into_owned());
+        fs::write(
+            &config,
+            format!(
+                "roots = [{root}]\n[[capture]]\nkey = \"j\"\ndesc = \"Journal\"\nfile = \"j.org\"\ntemplate_file = \"journal.txt\"\n"
+            ),
+        )
+        .unwrap();
+        let loaded = load_settings(Some(&config), None).unwrap();
+        assert_eq!(
+            loaded.settings.capture_template("j").unwrap().template,
+            "* %U %?\n"
+        );
+
+        fs::remove_file(temp.path().join("journal.txt")).unwrap();
+        let error = load_settings(Some(&config), None).unwrap_err().to_string();
+        assert!(
+            error.starts_with(&format!(
+                "capture template 'j': cannot read template_file {}: ",
+                temp.path().join("journal.txt").display()
+            )),
+            "{error}"
+        );
     }
 
     #[test]

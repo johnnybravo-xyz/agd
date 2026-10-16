@@ -45,6 +45,20 @@ fn emacs_cases_import_agenda_files_relative_to_derived_roots() {
 }
 
 #[test]
+fn emacs_doom_imports_olp_datetree_and_template_file_captures() {
+    let (temp, result) = import_fixture("emacs/doom");
+    let journal = result.settings.capture_template("j").unwrap();
+    assert!(journal.datetree);
+    assert_eq!(journal.outline_path, Some(vec!["Journal".to_string()]));
+    let meeting = result.settings.capture_template("m").unwrap();
+    assert_eq!(meeting.template, "");
+    assert_eq!(
+        meeting.template_file.as_deref(),
+        Some(temp.path().join("meeting.txt").to_string_lossy().as_ref())
+    );
+}
+
+#[test]
 fn emacs_vanilla_keeps_what_agd_runs_and_reports_the_rest() {
     let (_temp, result) = import_fixture("emacs/vanilla");
     assert_eq!(

@@ -4,7 +4,30 @@
   ],
   "agenda_span": "day",
   "agenda_start_day": null,
-  "capture": [],
+  "capture": [
+    {
+      "datetree": true,
+      "desc": "Journal",
+      "diagnostics": [],
+      "enabled": true,
+      "file": "/fixture/tasks.org",
+      "key": "j",
+      "outline_path": [
+        "Journal"
+      ],
+      "template": "* %?"
+    },
+    {
+      "datetree": false,
+      "desc": "Meeting",
+      "diagnostics": [],
+      "enabled": true,
+      "file": "/fixture/tasks.org",
+      "key": "m",
+      "template": "",
+      "template_file": "/fixture/meeting.txt"
+    }
+  ],
   "commands": [
     {
       "blocks": [
@@ -51,8 +74,8 @@
     },
     {
       "key": "org-capture-templates",
-      "message": "not set in these files; Org's default applies",
-      "status": "difference"
+      "message": "init.el:10",
+      "status": "exact"
     },
     {
       "key": "org-agenda-custom-commands",

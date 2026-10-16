@@ -292,8 +292,13 @@ against org-directory as org-capture does."
       ('file+olp
        (puthash "file" file value)
        (puthash "outline_path" (vconcat (cddr target)) value))
-      ((or 'file+datetree 'file+olp+datetree)
+      ('file+datetree
        (puthash "file" file value)
+       (puthash "datetree" t value))
+      ('file+olp+datetree
+       (puthash "file" file value)
+       (when (cddr target)
+         (puthash "outline_path" (vconcat (cddr target)) value))
        (puthash "datetree" t value))
       (_ (setq enabled nil diagnostics
                (cons (format "capture target %s is unsupported" (car target)) diagnostics))))
