@@ -7,6 +7,8 @@ use agd_core::{
     parse_date_input,
 };
 use anyhow::{Context, Result};
+
+use super::write_stdout;
 use chrono::{Local, NaiveDate};
 use clap::{Args, ValueEnum};
 
@@ -89,7 +91,7 @@ impl AgendaCommand {
         )?
         .settings;
         if self.views {
-            return print_views(&settings, self.json);
+            return Ok(write_stdout(&views_output(&settings, self.json)?)?);
         }
         let match_expression = match self.profile.as_deref() {
             Some(name) => apply_profile(&mut settings, name, self.match_expression)?,
@@ -98,8 +100,8 @@ impl AgendaCommand {
         let index = load_index(settings.clone())?;
         let today = Local::now().date_naive();
         if self.status {
-            println!("{}", status_line(&index, &settings, today)?);
-            return Ok(());
+            let line = status_line(&index, &settings, today)?;
+            return Ok(write_stdout(&format!("{line}\n"))?);
         }
         let start = match self.from {
             Some(value) => parse_day(&value, today)?,
@@ -108,7 +110,8 @@ impl AgendaCommand {
         if let Some(key) = self.view.as_deref() {
             let view = find_view(&settings, key)?;
             let sections = AgendaEngine::new(&index).view(view, start, today, self.log)?;
-            return print_view(&sections, self.json, self.csv, today, &settings);
+            let output = view_output(&sections, self.json, self.csv, today, &settings)?;
+            return Ok(write_stdout(&output)?);
         }
         let span = match self.span {
             Some(SpanArg::Day) => AgendaSpan::Day,
@@ -124,18 +127,19 @@ impl AgendaCommand {
             match_expression,
             log_mode: self.log,
         })?;
-        if self.json {
-            println!("{}", serde_json::to_string_pretty(&entries)?);
+        let output = if self.json {
+            format!("{}\n", serde_json::to_string_pretty(&entries)?)
         } else if self.csv {
-            print!("{}", agenda_csv(&entries, today, &settings));
+            agenda_csv(&entries, today, &settings)
         } else if self.brief {
-            for entry in &entries {
-                println!("{} {}", entry.occurrence.date, agenda_title(&entry.item));
-            }
+            entries
+                .iter()
+                .map(|entry| format!("{} {}\n", entry.occurrence.date, agenda_title(&entry.item)))
+                .collect()
         } else {
-            print!("{}", agenda_text(&entries, from, to, None));
-        }
-        Ok(())
+            agenda_text(&entries, from, to, None)
+        };
+        Ok(write_stdout(&output)?)
     }
 }
 
@@ -195,34 +199,30 @@ fn find_view<'a>(settings: &'a Settings, key: &str) -> Result<&'a ViewSettings, 
     })
 }
 
-fn print_view(
+/// A view's output: its sections as JSON, their CSV rows, or the text.
+fn view_output(
     sections: &[ViewSection],
     json: bool,
     csv: bool,
     today: NaiveDate,
     settings: &Settings,
-) -> Result<()> {
+) -> Result<String> {
     if json {
-        println!("{}", serde_json::to_string_pretty(sections)?);
-    } else if csv {
-        for section in sections {
-            print!(
-                "{}{}",
-                agenda_csv(&section.entries, today, settings),
-                items_csv(&section.items, &section.kind, settings)
-            );
-            for group in &section.groups {
-                print!(
-                    "{}{}",
-                    agenda_csv(&group.entries, today, settings),
-                    items_csv(&group.items, &section.kind, settings)
-                );
-            }
-        }
-    } else {
-        print!("{}", render_view(sections));
+        return Ok(format!("{}\n", serde_json::to_string_pretty(sections)?));
     }
-    Ok(())
+    if !csv {
+        return Ok(render_view(sections));
+    }
+    let mut rows = String::new();
+    for section in sections {
+        rows.push_str(&agenda_csv(&section.entries, today, settings));
+        rows.push_str(&items_csv(&section.items, &section.kind, settings));
+        for group in &section.groups {
+            rows.push_str(&agenda_csv(&group.entries, today, settings));
+            rows.push_str(&items_csv(&group.items, &section.kind, settings));
+        }
+    }
+    Ok(rows)
 }
 
 /// Blocks separated by a rule of `=`, as in an Emacs block agenda. An agenda
@@ -267,7 +267,7 @@ fn render_view(sections: &[ViewSection]) -> String {
 /// The saved views in config order, with start_view moved first. The JSON
 /// carries the TUI's display settings, so a client such as the Claude Code
 /// pane draws them the same way.
-fn print_views(settings: &Settings, json: bool) -> Result<()> {
+fn views_output(settings: &Settings, json: bool) -> Result<String> {
     let mut views: Vec<_> = settings
         .views
         .iter()
@@ -293,13 +293,14 @@ fn print_views(settings: &Settings, json: bool) -> Result<()> {
             "nerd_font": settings.nerd_font,
             "keyword_colors": keyword_colors(&index),
         });
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-    } else {
-        for (key, desc, start) in views {
-            println!("{key:<4}{desc}{}", if start { "  (start)" } else { "" });
-        }
+        return Ok(format!("{}\n", serde_json::to_string_pretty(&payload)?));
     }
-    Ok(())
+    Ok(views
+        .iter()
+        .map(|(key, desc, start)| {
+            format!("{key:<4}{desc}{}\n", if *start { "  (start)" } else { "" })
+        })
+        .collect())
 }
 
 /// `3 overdue · 7 today · 4 inbox · 2 agents`, zero counts left out. Today

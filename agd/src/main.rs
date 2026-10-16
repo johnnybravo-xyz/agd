@@ -66,6 +66,9 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(true) => ExitCode::FAILURE,
         Ok(false) => ExitCode::SUCCESS,
+        // stdout's reader went away (`agd agenda | head`): stop quietly,
+        // as Unix tools do.
+        Err(error) if broken_pipe(&error) => ExitCode::SUCCESS,
         Err(error) if json => {
             print_json_error(&error_response(&error));
             ExitCode::FAILURE
@@ -120,6 +123,14 @@ fn error_response(error: &anyhow::Error) -> ErrorResponse {
         response.message = format!("{}: {}", context.join(": "), response.message);
     }
     response
+}
+
+fn broken_pipe(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|error| error.kind() == std::io::ErrorKind::BrokenPipe)
+    })
 }
 
 fn print_json_error(response: &ErrorResponse) {

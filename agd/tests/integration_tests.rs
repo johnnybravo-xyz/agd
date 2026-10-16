@@ -392,6 +392,33 @@ fn capture_takes_a_key_and_unquoted_words_or_the_text_alone() {
         .stderr(predicate::str::contains("needs text"));
 }
 
+#[cfg(unix)]
+#[test]
+fn a_closed_stdout_ends_the_command_quietly() {
+    let fixture = Fixture::new();
+    for arguments in [
+        &["agenda", "--span", "month"][..],
+        &["agenda", "--csv"],
+        &["capture", "t", "Quiet", "--dry-run"],
+        &["setup", "check"],
+    ] {
+        let mut command = std::process::Command::new(assert_cmd::cargo::cargo_bin!("agd"));
+        command
+            .arg("--config")
+            .arg(&fixture.config)
+            .env("XDG_DATA_HOME", fixture.directory.path().join("data"))
+            .args(arguments)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut child = command.spawn().expect("agd");
+        // Close the reading end before agd writes, like `| head` exiting.
+        drop(child.stdout.take());
+        let output = child.wait_with_output().expect("agd exit");
+        assert!(output.status.success(), "{arguments:?}: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "", "{arguments:?}");
+    }
+}
+
 #[test]
 fn help_lists_only_the_five_surfaces() {
     let assertion = cargo::cargo_bin_cmd!("agd")

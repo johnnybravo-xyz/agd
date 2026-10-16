@@ -10,6 +10,8 @@ use anyhow::Result;
 use chrono::{Local, NaiveDate};
 use clap::Args;
 
+use super::write_stdout;
+
 const USAGE: &str =
     "usage: agd capture [KEY] TEXT (KEY defaults to the first template), or agd capture -i";
 
@@ -82,19 +84,19 @@ impl CaptureCommand {
                 now: None,
             },
         )?;
-        if self.json {
-            println!("{}", serde_json::to_string_pretty(&mutation)?);
+        let output = if self.json {
+            format!("{}\n", serde_json::to_string_pretty(&mutation)?)
         } else if self.dry_run {
-            print!("{}", mutation.diff);
+            mutation.diff
         } else if std::io::stdout().is_terminal() {
             let roots = RootSet::new(&settings.roots, &settings.agenda_files)
                 .map(|roots| roots.roots().to_vec())
                 .unwrap_or_default();
-            println!("{}", captured_sentence(&mutation.item, &roots));
+            format!("{}\n", captured_sentence(&mutation.item, &roots))
         } else {
-            println!("{}", mutation.item.item_ref);
-        }
-        Ok(())
+            format!("{}\n", mutation.item.item_ref)
+        };
+        Ok(write_stdout(&output)?)
     }
 }
 

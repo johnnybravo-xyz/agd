@@ -72,7 +72,10 @@ fn install_codex(directory: &Path) -> Result<()> {
         format!("{}\n", toml::to_string_pretty(&config)?).as_bytes(),
     )?;
     write_skill(skill_path)?;
-    println!("installed Codex integration in {}", directory.display());
+    super::write_stdout(&format!(
+        "installed Codex integration in {}\n",
+        directory.display()
+    ))?;
     Ok(())
 }
 
@@ -87,7 +90,10 @@ fn install_opencode(directory: &Path) -> Result<()> {
     );
     write_json(&config_path, &config)?;
     write_skill(skill_path)?;
-    println!("installed OpenCode integration in {}", directory.display());
+    super::write_stdout(&format!(
+        "installed OpenCode integration in {}\n",
+        directory.display()
+    ))?;
     Ok(())
 }
 
