@@ -158,6 +158,13 @@ impl AgdError {
         }
     }
 
+    /// The same error with `context: ` before its message, such as which
+    /// of several targets it is about.
+    pub fn with_context(mut self, context: &str) -> Self {
+        self.response.message = format!("{context}: {}", self.response.message);
+        self
+    }
+
     pub fn with_current(mut self, current: Item) -> Self {
         self.response.current = Some(current);
         self

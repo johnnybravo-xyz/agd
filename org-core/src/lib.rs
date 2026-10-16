@@ -40,6 +40,6 @@ pub use settings::{
     load_settings, parse_config_file, render_config,
 };
 pub use write::{
-    Change, EditIntent, JournalRecord, JournalStatus, Patch, RefileResult, StoredPatch, UndoResult,
-    WriteContext, WriteEngine, apply_patches,
+    BatchMutation, Change, EditIntent, ItemEdit, JournalRecord, JournalStatus, Patch, RefileResult,
+    StoredPatch, UndoResult, WriteContext, WriteEngine, apply_patches,
 };

@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use agd_core::{
-    Change, EditIntent, Item, JournalStatus, PlanningTimestamp, PriorityRange, WriteEngine,
-    parse_date_input,
+    Change, EditIntent, Item, ItemEdit, JournalStatus, PlanningTimestamp, PriorityRange,
+    WriteEngine, parse_date_input,
 };
 use anyhow::{Result, bail};
 use chrono::{Duration, NaiveDate};
@@ -18,6 +18,15 @@ pub(super) const SOMEDAY: usize = 3;
 pub(super) const DONE: usize = 4;
 pub(super) const REFILED: usize = 5;
 pub(super) const OTHER: usize = 6;
+
+/// One triage write, undone as a unit: a journal entry or transaction and
+/// the outcome it counted for its items.
+#[derive(Debug)]
+pub(super) struct TriageStep {
+    journal_id: String,
+    outcome: usize,
+    items: usize,
+}
 
 /// Fuzzy refile target picker over every heading, recent targets first.
 #[derive(Debug)]
@@ -39,39 +48,65 @@ impl RefilePicker {
 
 impl App {
     /// Applies one edit to every target (marked rows, else the selected
-    /// row) through the guarded write path and confirms it on the status
-    /// line the way org-agenda does: `work.org:142  TODO → DONE · u undo`.
+    /// row) as one transaction: if any target is refused, nothing is
+    /// written. Confirms it on the status line the way org-agenda does,
+    /// naming the targets: `work.org:142  TODO → DONE · Pay rent · u undo`.
     fn edit_targets(&mut self, intent: EditIntent, outcome: usize, change: &str) -> Result<()> {
-        let targets = self.targets();
-        if targets.is_empty() {
+        let edits: Vec<ItemEdit> = self
+            .targets()
+            .into_iter()
+            .map(|item_ref| ItemEdit {
+                item_ref,
+                intent: intent.clone(),
+            })
+            .collect();
+        if edits.is_empty() {
             return Ok(());
         }
-        let location = self
-            .selected_row()
-            .map(|row| self.short_location(&row.item))
-            .unwrap_or_default();
-        let engine = WriteEngine::with_default_journal(self.settings.clone())?;
-        let mut journals = Vec::new();
-        for item_ref in &targets {
-            let mutation = engine.edit(item_ref, &intent, false, &write_context())?;
-            self.index.refresh_path(Path::new(&mutation.item.file))?;
-            journals.push(mutation.journal_id);
+        let batch = WriteEngine::with_default_journal(self.settings.clone())?.edit_batch(
+            &edits,
+            false,
+            &write_context(),
+        )?;
+        let files: BTreeSet<String> = batch
+            .mutations
+            .iter()
+            .map(|mutation| mutation.item.file.clone())
+            .collect();
+        for file in files {
+            self.index.refresh_path(Path::new(&file))?;
         }
-        self.record_triage(journals, outcome);
+        self.record_triage(&batch.transaction, batch.mutations.len(), outcome);
         self.marks.clear();
-        self.set_status(if targets.len() == 1 {
-            format!("{location}  {change} · u undo")
-        } else {
-            format!("{} items  {change} · u undo", targets.len())
-        });
+        let items: Vec<&Item> = batch
+            .mutations
+            .iter()
+            .map(|mutation| &mutation.item)
+            .collect();
+        self.set_status(format!(
+            "{}  {change} · {} · u undo",
+            self.targets_location(&items),
+            targets_summary(&items)
+        ));
         self.reload_rows()
     }
 
+    /// `work.org:142` for one target, `3 items` for several.
+    fn targets_location(&self, items: &[&Item]) -> String {
+        match items {
+            [item] => self.short_location(item),
+            _ => format!("{} items", items.len()),
+        }
+    }
+
     pub(super) fn set_state(&mut self, state: &str) -> Result<()> {
-        let from = self
-            .selected_row()
-            .and_then(|row| row.item.todo.clone())
-            .unwrap_or_else(|| "·".to_string());
+        // With marked rows the cursor row's state says nothing about them.
+        let from = match self.selected_row() {
+            Some(row) if self.marks.is_empty() => {
+                row.item.todo.clone().unwrap_or_else(|| "·".to_string())
+            }
+            _ => String::new(),
+        };
         let outcome = if self.is_done_keyword(state) {
             DONE
         } else {
@@ -83,7 +118,7 @@ impl App {
                 ..EditIntent::default()
             },
             outcome,
-            &format!("{from} → {state}"),
+            format!("{from} → {state}").trim_start(),
         )
     }
 
@@ -300,10 +335,14 @@ impl App {
         }
     }
 
-    fn record_triage(&mut self, journals: Vec<String>, outcome: usize) {
-        if self.screen == Screen::Triage && !journals.is_empty() {
-            self.triage.outcomes[outcome] += journals.len();
-            self.triage.undo.push((journals, outcome));
+    fn record_triage(&mut self, journal_id: &str, items: usize, outcome: usize) {
+        if self.screen == Screen::Triage && items > 0 {
+            self.triage.outcomes[outcome] += items;
+            self.triage.undo.push(TriageStep {
+                journal_id: journal_id.to_string(),
+                outcome,
+                items,
+            });
         }
     }
 
@@ -318,13 +357,11 @@ impl App {
             } else {
                 self.triage.undo.pop().into_iter().collect()
             };
-            for (journals, outcome) in groups.into_iter().rev() {
-                for journal in journals.iter().rev() {
-                    let result = engine.undo(Some(journal), &write_context())?;
-                    self.refresh_files(&result.file)?;
-                }
-                self.triage.outcomes[outcome] =
-                    self.triage.outcomes[outcome].saturating_sub(journals.len());
+            for step in groups.into_iter().rev() {
+                let result = engine.undo(Some(&step.journal_id), &write_context())?;
+                self.refresh_files(&result.file)?;
+                self.triage.outcomes[step.outcome] =
+                    self.triage.outcomes[step.outcome].saturating_sub(step.items);
             }
             self.set_status(if undo_all {
                 "undid the whole triage pass"
@@ -479,7 +516,9 @@ impl App {
         self.recent_targets.retain(|recent| recent != &target);
         self.recent_targets.insert(0, target);
         self.recent_targets.truncate(10);
-        self.record_triage(result.journal_ids, REFILED);
+        if let Some(journal_id) = result.journal_ids.first() {
+            self.record_triage(journal_id, 1, REFILED);
+        }
         self.set_status(format!("refiled to {label} · u undo"));
         self.reload_rows()
     }
@@ -504,6 +543,15 @@ impl App {
         super::copy_to_clipboard(&link)?;
         self.set_status(format!("copied {link}"));
         Ok(())
+    }
+}
+
+/// The first target's title, and how many more: `Pay rent + 2 more`.
+pub(super) fn targets_summary(items: &[&Item]) -> String {
+    match items {
+        [] => String::new(),
+        [item] => item.title.clone(),
+        [first, rest @ ..] => format!("{} + {} more", first.title, rest.len()),
     }
 }
 

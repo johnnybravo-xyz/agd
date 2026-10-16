@@ -491,6 +491,56 @@ fn shift_x_cancels_with_the_files_own_keyword() {
 
 #[test]
 #[serial]
+fn marked_rows_are_written_together_or_not_at_all() {
+    with_home(|root| {
+        let rent = "* TODO Pay rent\nSCHEDULED: <2026-10-13 Tue>\n";
+        let plants = "#+TODO: OPEN | CLOSED\n* OPEN Water plants\nSCHEDULED: <2026-10-13 Tue>\n";
+        fs::write(root.join("a.org"), rent).unwrap();
+        fs::write(root.join("b.org"), plants).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.marks = app
+            .rows
+            .iter()
+            .map(|row| row.item.item_ref.clone())
+            .collect();
+        assert_eq!(app.marks.len(), 2);
+
+        // DONE is no keyword of b.org: neither file is written.
+        let error = app.set_state("DONE").unwrap_err();
+        app.set_error(&error);
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert!(status.contains("Water plants"), "{status}");
+        assert_eq!(fs::read_to_string(root.join("a.org")).unwrap(), rent);
+        assert_eq!(fs::read_to_string(root.join("b.org")).unwrap(), plants);
+        assert_eq!(app.marks.len(), 2);
+
+        app.schedule("2026-10-20").unwrap();
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert!(
+            status.starts_with("2 items  scheduled Tue 20 Oct"),
+            "{status}"
+        );
+        assert!(status.contains("Pay rent + 1 more"), "{status}");
+        assert!(
+            fs::read_to_string(root.join("a.org"))
+                .unwrap()
+                .contains("<2026-10-20 Tue>")
+        );
+        assert!(
+            fs::read_to_string(root.join("b.org"))
+                .unwrap()
+                .contains("<2026-10-20 Tue>")
+        );
+
+        app.undo().unwrap();
+        assert_eq!(fs::read_to_string(root.join("a.org")).unwrap(), rent);
+        assert_eq!(fs::read_to_string(root.join("b.org")).unwrap(), plants);
+    });
+}
+
+#[test]
+#[serial]
 fn priority_keys_step_through_the_files_own_range() {
     with_home(|root| {
         let path = root.join("work.org");

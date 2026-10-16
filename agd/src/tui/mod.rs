@@ -174,7 +174,7 @@ struct Counts {
 struct TriageState {
     started: Option<Instant>,
     outcomes: [usize; 7],
-    undo: Vec<(Vec<String>, usize)>,
+    undo: Vec<actions::TriageStep>,
 }
 
 struct App {

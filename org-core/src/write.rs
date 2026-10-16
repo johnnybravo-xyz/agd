@@ -60,6 +60,23 @@ pub struct EditIntent {
     pub note: Option<String>,
 }
 
+/// One item and the edit to apply to it, for [`WriteEngine::edit_batch`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ItemEdit {
+    pub item_ref: String,
+    pub intent: EditIntent,
+}
+
+/// What [`WriteEngine::edit_batch`] wrote: one mutation per edit, in the
+/// order given, all under one journal transaction; undoing any of its
+/// journal ids, or the transaction id, reverts them all. A dry run's
+/// transaction and journal ids are `dry-run`.
+#[derive(Clone, Debug)]
+pub struct BatchMutation {
+    pub transaction: String,
+    pub mutations: Vec<Mutation>,
+}
+
 #[derive(Clone, Debug)]
 pub struct WriteContext {
     pub actor: String,
@@ -193,6 +210,66 @@ struct CaptureInput<'a> {
 struct PreparedCapture {
     file: PreparedFile,
     item: Item,
+}
+
+/// A refile's file images: one, or the source and then the target.
+struct PreparedRefile {
+    files: Vec<PreparedFile>,
+    item: Item,
+}
+
+impl PreparedRefile {
+    fn paths(&self) -> Vec<PathBuf> {
+        let mut paths: Vec<PathBuf> = self.files.iter().map(|file| file.path.clone()).collect();
+        paths.sort();
+        paths
+    }
+
+    fn result(self, journal_ids: Vec<String>) -> RefileResult {
+        RefileResult {
+            schema: "agd.refile/v1".to_string(),
+            ok: true,
+            item: self.item,
+            diffs: self.files.into_iter().map(|file| file.diff).collect(),
+            journal_ids,
+        }
+    }
+}
+
+/// A batch's file images, sorted by path, and each edit's updated item and
+/// file, in the order the edits were given.
+struct PreparedBatch {
+    files: Vec<PreparedFile>,
+    /// The first edited item's ref in each file, for its journal record.
+    file_refs: Vec<String>,
+    items: Vec<Option<Item>>,
+    file_of: Vec<usize>,
+}
+
+impl PreparedBatch {
+    /// The batch's result; `records` are the committed files' records, in
+    /// file order, or empty for a dry run.
+    fn result(self, transaction: String, records: &[JournalRecord]) -> BatchMutation {
+        let mutations = self
+            .items
+            .into_iter()
+            .zip(self.file_of)
+            .map(|(item, file)| {
+                let journal_id = records
+                    .get(file)
+                    .map_or(transaction.as_str(), |record| record.id.as_str());
+                mutation(
+                    item.expect("every edit has an item"),
+                    self.files[file].diff.clone(),
+                    journal_id,
+                )
+            })
+            .collect();
+        BatchMutation {
+            transaction,
+            mutations,
+        }
+    }
 }
 
 struct JournalImage<'a> {
@@ -412,6 +489,9 @@ impl WriteEngine {
         })
     }
 
+    /// Moves an item's subtree under another heading, in one file or
+    /// across two as one journal transaction (the target written first, so
+    /// an interruption never loses the item). A dry run touches nothing.
     pub fn refile(
         &self,
         item_ref: &str,
@@ -420,27 +500,56 @@ impl WriteEngine {
         context: &WriteContext,
     ) -> Result<RefileResult, AgdError> {
         let initial = WorkspaceIndex::load(self.settings.clone())?;
-        let (source_document, _) = initial.resolve(item_ref)?;
-        let (target_document, _) = initial.resolve(target_ref)?;
-        let source_path = source_document.path().to_path_buf();
-        let target_path = target_document.path().to_path_buf();
-        self.roots.resolve_write(&source_path, false)?;
-        self.roots.resolve_write(&target_path, false)?;
-
-        let mut paths = vec![source_path.clone(), target_path.clone()];
-        paths.sort();
-        paths.dedup();
-        let mut locks = Vec::with_capacity(paths.len());
+        let preview = self.prepare_refile(&initial, item_ref, target_ref)?;
+        let paths = preview.paths();
         for path in &paths {
-            locks.push(self.lock_target(path)?);
+            self.roots.resolve_write(path, false)?;
             refuse_emacs_lock(path)?;
         }
-        self.recover_files(&paths)?;
+        if dry_run {
+            return Ok(preview.result(vec![DRY_RUN_JOURNAL_ID.to_string()]));
+        }
 
+        let _locks = self.lock_paths(&paths)?;
         let fresh = WorkspaceIndex::load(self.settings.clone())?;
-        let (source_document, source_headline) = fresh.resolve(item_ref)?;
-        let (target_document, target_headline) = fresh.resolve(target_ref)?;
-        if source_document.path() == target_document.path()
+        let prepared = self.prepare_refile(&fresh, item_ref, target_ref)?;
+        if prepared.paths() != paths {
+            return Err(AgdError::new(
+                "stale_ref",
+                "refile resolved to different files while acquiring the write locks",
+            ));
+        }
+        let journal_ids = match prepared.files.as_slice() {
+            [same_file] => vec![
+                self.commit_image(same_file.journal_image(Some(item_ref)), context)?
+                    .id,
+            ],
+            [source, target] => {
+                let records = self.commit_transaction(
+                    &[
+                        target.journal_image(Some(target_ref)),
+                        source.journal_image(Some(item_ref)),
+                    ],
+                    context,
+                )?;
+                vec![records[1].id.clone(), records[0].id.clone()]
+            }
+            _ => unreachable!("a refile writes one or two files"),
+        };
+        Ok(prepared.result(journal_ids))
+    }
+
+    /// The refile's file images (source first) against `index`.
+    fn prepare_refile(
+        &self,
+        index: &WorkspaceIndex,
+        item_ref: &str,
+        target_ref: &str,
+    ) -> Result<PreparedRefile, AgdError> {
+        let (source_document, source_headline) = index.resolve(item_ref)?;
+        let (target_document, target_headline) = index.resolve(target_ref)?;
+        let same_file = source_document.path() == target_document.path();
+        if same_file
             && target_headline.line_span.start >= source_headline.subtree_span.start
             && target_headline.line_span.start < source_headline.subtree_span.end
         {
@@ -449,7 +558,6 @@ impl WriteEngine {
                 "an item cannot be refiled into itself or one of its descendants",
             ));
         }
-
         let moved = &source_document.source()
             [source_headline.subtree_span.start..source_headline.subtree_span.end];
         let moved = relevel_subtree(moved, target_headline.level + 1, source_headline.level)?;
@@ -458,154 +566,207 @@ impl WriteEngine {
             target_headline.subtree_span.end,
             moved,
         );
-
-        if source_document.path() == target_document.path() {
-            let path = source_document.path();
-            let (post_image, stored) = apply_patches(
-                source_document.source(),
-                vec![
-                    Patch {
-                        span: source_headline.subtree_span,
-                        replacement: String::new(),
-                    },
-                    Patch {
-                        span: ByteSpan {
-                            start: target_headline.subtree_span.end,
-                            end: target_headline.subtree_span.end,
-                        },
-                        replacement: moved,
-                    },
-                ],
-            )?;
-            let diff = unified_diff(path, source_document.source(), &post_image);
-            let item = find_refiled_item(
-                path,
-                &post_image,
-                &source_headline.item,
-                &target_headline.item,
-                &self.settings,
-            )?;
-            if dry_run {
-                return Ok(RefileResult {
-                    schema: "agd.refile/v1".to_string(),
-                    ok: true,
-                    item,
-                    diffs: vec![diff],
-                    journal_ids: vec!["dry-run".to_string()],
-                });
-            }
-            let record = self.commit_image(
-                JournalImage {
-                    path,
-                    item_ref: Some(item_ref),
-                    pre_image: source_document.source(),
-                    post_image: &post_image,
-                    patches: &stored,
-                    diff: &diff,
-                },
-                context,
-            )?;
-            return Ok(RefileResult {
-                schema: "agd.refile/v1".to_string(),
-                ok: true,
-                item,
-                diffs: vec![diff],
-                journal_ids: vec![record.id],
-            });
-        }
-
-        let (source_post, source_patches) = apply_patches(
-            source_document.source(),
-            vec![Patch {
-                span: source_headline.subtree_span,
-                replacement: String::new(),
-            }],
-        )?;
-        let (target_post, target_patches) = apply_patches(
-            target_document.source(),
-            vec![Patch {
-                span: ByteSpan {
-                    start: target_headline.subtree_span.end,
-                    end: target_headline.subtree_span.end,
-                },
-                replacement: moved,
-            }],
-        )?;
-        let source_diff = unified_diff(
-            source_document.path(),
-            source_document.source(),
-            &source_post,
-        );
-        let target_diff = unified_diff(
-            target_document.path(),
-            target_document.source(),
-            &target_post,
-        );
+        let removal = Patch {
+            span: source_headline.subtree_span,
+            replacement: String::new(),
+        };
+        let insertion = Patch {
+            span: ByteSpan {
+                start: target_headline.subtree_span.end,
+                end: target_headline.subtree_span.end,
+            },
+            replacement: moved,
+        };
+        let prepare = |document: &IndexedDocument, patches: Vec<Patch>| {
+            apply_patches(document.source(), patches).map(|(post_image, stored)| {
+                PreparedFile::new(
+                    document.path().to_path_buf(),
+                    document.source().to_string(),
+                    post_image,
+                    stored,
+                )
+            })
+        };
+        let files = if same_file {
+            vec![prepare(source_document, vec![removal, insertion])?]
+        } else {
+            vec![
+                prepare(source_document, vec![removal])?,
+                prepare(target_document, vec![insertion])?,
+            ]
+        };
+        let target_file = files.last().expect("a refile writes a file");
         let item = find_refiled_item(
-            target_document.path(),
-            &target_post,
+            &target_file.path,
+            &target_file.post_image,
             &source_headline.item,
             &target_headline.item,
             &self.settings,
         )?;
+        Ok(PreparedRefile { files, item })
+    }
+
+    /// Applies several edits as one transaction: every target is resolved
+    /// and its edit computed first, and if any is refused nothing is
+    /// written and the error names that target. Otherwise each file is
+    /// written once and journaled under one transaction, so one undo
+    /// reverts them all. A dry run touches nothing.
+    pub fn edit_batch(
+        &self,
+        edits: &[ItemEdit],
+        dry_run: bool,
+        context: &WriteContext,
+    ) -> Result<BatchMutation, AgdError> {
+        if edits.is_empty() {
+            return Err(AgdError::new("invalid_edit", "nothing to edit"));
+        }
+        for edit in edits {
+            validate_intent(&edit.intent).map_err(|error| error.with_context(&edit.item_ref))?;
+        }
+        let now = context.org_now();
+        let initial = WorkspaceIndex::load(self.settings.clone())?;
+        let preview = self.prepare_batch(&initial, edits, now)?;
+        let paths: Vec<PathBuf> = preview.files.iter().map(|file| file.path.clone()).collect();
+        for path in &paths {
+            self.roots.resolve_write(path, false)?;
+            refuse_emacs_lock(path)?;
+        }
         if dry_run {
-            return Ok(RefileResult {
-                schema: "agd.refile/v1".to_string(),
-                ok: true,
-                item,
-                diffs: vec![source_diff, target_diff],
-                journal_ids: vec!["dry-run".to_string()],
-            });
+            return Ok(preview.result(DRY_RUN_JOURNAL_ID.to_string(), &[]));
         }
 
-        let transaction = journal_id();
-        let mut source_record = pending_record(
-            format!("{transaction}:source"),
-            Some(transaction.clone()),
-            &JournalImage {
-                path: source_document.path(),
-                item_ref: Some(item_ref),
-                pre_image: source_document.source(),
-                post_image: &source_post,
-                patches: &source_patches,
-                diff: &source_diff,
-            },
-            context,
-        );
-        let mut target_record = pending_record(
-            format!("{transaction}:target"),
-            Some(transaction),
-            &JournalImage {
-                path: target_document.path(),
-                item_ref: Some(target_ref),
-                pre_image: target_document.source(),
-                post_image: &target_post,
-                patches: &target_patches,
-                diff: &target_diff,
-            },
-            context,
-        );
-        self.append_record(&source_record)?;
-        self.append_record(&target_record)?;
-        atomic_replace(target_document.path(), target_post.as_bytes())?;
-        if let Err(error) = atomic_replace(source_document.path(), source_post.as_bytes()) {
-            let _ = atomic_replace(target_document.path(), target_document.source().as_bytes());
-            return Err(error);
+        let _locks = self.lock_paths(&paths)?;
+        let fresh = WorkspaceIndex::load(self.settings.clone())?;
+        let prepared = self.prepare_batch(&fresh, edits, now)?;
+        let fresh_paths: Vec<PathBuf> = prepared
+            .files
+            .iter()
+            .map(|file| file.path.clone())
+            .collect();
+        if fresh_paths != paths {
+            return Err(AgdError::new(
+                "stale_ref",
+                "targets resolved to different files while acquiring the write locks",
+            ));
         }
-        source_record.status = JournalStatus::Committed;
-        source_record.timestamp = Local::now().to_rfc3339();
-        target_record.status = JournalStatus::Committed;
-        target_record.timestamp = source_record.timestamp.clone();
-        self.append_record(&source_record)?;
-        self.append_record(&target_record)?;
-        Ok(RefileResult {
-            schema: "agd.refile/v1".to_string(),
-            ok: true,
-            item,
-            diffs: vec![source_diff, target_diff],
-            journal_ids: vec![source_record.id, target_record.id],
-        })
+        let images: Vec<JournalImage<'_>> = prepared
+            .files
+            .iter()
+            .zip(&prepared.file_refs)
+            .map(|(file, item_ref)| file.journal_image(Some(item_ref)))
+            .collect();
+        let records = self.commit_transaction(&images, context)?;
+        let transaction = records
+            .first()
+            .and_then(|record| record.transaction.clone())
+            .unwrap_or_default();
+        Ok(prepared.result(transaction, &records))
     }
+
+    /// Every edit's patches, grouped per file, against `index`.
+    fn prepare_batch(
+        &self,
+        index: &WorkspaceIndex,
+        edits: &[ItemEdit],
+        now: NaiveDateTime,
+    ) -> Result<PreparedBatch, AgdError> {
+        let mut by_file: BTreeMap<PathBuf, Vec<(usize, &HeadlineSpan)>> = BTreeMap::new();
+        let mut new_ids: BTreeSet<&str> = BTreeSet::new();
+        for (position, edit) in edits.iter().enumerate() {
+            let (document, headline) = index
+                .resolve(&edit.item_ref)
+                .map_err(|error| error.with_context(&edit.item_ref))?;
+            let label = |error: AgdError| error.with_context(&headline.item.title);
+            validate_intent_for_file(&edit.intent, document).map_err(label)?;
+            validate_id_change(&edit.intent, headline, index).map_err(label)?;
+            let new_id = edit
+                .intent
+                .properties
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case("ID"))
+                .and_then(|(_, value)| value.as_deref());
+            if let Some(id) = new_id
+                && headline.item.id.is_none()
+                && !new_ids.insert(id)
+            {
+                return Err(label(AgdError::new(
+                    ErrorCode::DuplicateId,
+                    format!("ID '{id}' is given to two of the targets"),
+                )));
+            }
+            let targets = by_file.entry(document.path().to_path_buf()).or_default();
+            if targets
+                .iter()
+                .any(|(_, other)| other.line_span.start == headline.line_span.start)
+            {
+                return Err(label(AgdError::new(
+                    "invalid_edit",
+                    "the same item is listed twice",
+                )));
+            }
+            targets.push((position, headline));
+        }
+
+        let mut batch = PreparedBatch {
+            files: Vec::new(),
+            file_refs: Vec::new(),
+            items: vec![None; edits.len()],
+            file_of: vec![0; edits.len()],
+        };
+        for (path, targets) in by_file {
+            let document = index.document(&path).expect("a resolved item's document");
+            let mut patches = Vec::new();
+            let mut starts = Vec::new();
+            for (position, headline) in &targets {
+                let edit = &edits[*position];
+                let label = |error: AgdError| error.with_context(&headline.item.title);
+                let own = build_edit_patches(document, headline, &edit.intent, &self.settings, now)
+                    .map_err(label)?;
+                if apply_patches(document.source(), own.clone())
+                    .map_err(label)?
+                    .0
+                    == document.source()
+                {
+                    return Err(label(AgdError::new(
+                        "no_change",
+                        "edit does not change the item",
+                    )));
+                }
+                starts.push((*position, headline.line_span.start));
+                patches.extend(own);
+            }
+            let shifted: Vec<(usize, usize)> = starts
+                .iter()
+                .map(|(position, start)| (*position, post_image_offset(&patches, *start)))
+                .collect();
+            let (post_image, stored) = apply_patches(document.source(), patches)?;
+            let updated = parse_text(&path, &post_image, &self.settings)?;
+            for (position, offset) in shifted {
+                let line = post_image[..offset]
+                    .bytes()
+                    .filter(|byte| *byte == b'\n')
+                    .count()
+                    + 1;
+                let item = updated
+                    .headline_at_line(line)
+                    .map(|headline| headline.item.clone())
+                    .ok_or_else(|| {
+                        AgdError::new("parse_error", "edit produced no target headline")
+                    })?;
+                batch.items[position] = Some(item);
+                batch.file_of[position] = batch.files.len();
+            }
+            batch.file_refs.push(edits[targets[0].0].item_ref.clone());
+            batch.files.push(PreparedFile::new(
+                path,
+                document.source().to_string(),
+                post_image,
+                stored,
+            ));
+        }
+        Ok(batch)
+    }
+
     pub fn undo(
         &self,
         journal_id: Option<&str>,
@@ -741,6 +902,63 @@ impl WriteEngine {
         let mut records: Vec<JournalRecord> = self.latest_records()?.into_values().collect();
         records.sort_by(|left, right| right.timestamp.cmp(&left.timestamp));
         Ok(records)
+    }
+
+    /// Writes several files as one journal transaction, in the order given:
+    /// every pending record first, then each file; when a file cannot be
+    /// written the ones before it are restored. Returns the committed
+    /// records in the same order.
+    fn commit_transaction(
+        &self,
+        images: &[JournalImage<'_>],
+        context: &WriteContext,
+    ) -> Result<Vec<JournalRecord>, AgdError> {
+        let transaction = journal_id();
+        let mut records: Vec<JournalRecord> = images
+            .iter()
+            .enumerate()
+            .map(|(position, image)| {
+                pending_record(
+                    format!("{transaction}:{position}"),
+                    Some(transaction.clone()),
+                    image,
+                    context,
+                )
+            })
+            .collect();
+        for record in &records {
+            self.append_record(record)?;
+        }
+        for (position, image) in images.iter().enumerate() {
+            if let Err(error) = atomic_replace(image.path, image.post_image.as_bytes()) {
+                for written in images[..position].iter().rev() {
+                    let _ = atomic_replace(written.path, written.pre_image.as_bytes());
+                }
+                return Err(error);
+            }
+        }
+        let timestamp = Local::now().to_rfc3339();
+        for record in &mut records {
+            record.status = JournalStatus::Committed;
+            record.timestamp = timestamp.clone();
+            self.append_record(record)?;
+        }
+        Ok(records)
+    }
+
+    /// Locks `paths` in sorted order (so two writers never deadlock),
+    /// refuses Emacs-locked files, and settles interrupted writes to them.
+    fn lock_paths(&self, paths: &[PathBuf]) -> Result<Vec<File>, AgdError> {
+        let mut sorted = paths.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        let mut locks = Vec::with_capacity(sorted.len());
+        for path in &sorted {
+            locks.push(self.lock_target(path)?);
+            refuse_emacs_lock(path)?;
+        }
+        self.recover_files(&sorted)?;
+        Ok(locks)
     }
 
     fn commit_image(
@@ -2467,6 +2685,17 @@ fn parse_updated_item(
         .ok_or_else(|| AgdError::new("parse_error", "write produced no target headline"))
 }
 
+/// Where `offset` in the pre-image lands after `patches`: shifted by every
+/// patch that ends at or before it.
+fn post_image_offset(patches: &[Patch], offset: usize) -> usize {
+    patches
+        .iter()
+        .filter(|patch| patch.span.end <= offset)
+        .fold(offset, |shifted, patch| {
+            shifted + patch.replacement.len() - (patch.span.end - patch.span.start)
+        })
+}
+
 /// A successful mutation result.
 fn mutation(item: Item, diff: String, journal_id: &str) -> Mutation {
     Mutation {
@@ -3568,6 +3797,111 @@ mod tests {
             .capture("t", &draft, "", &BTreeMap::new(), false, &context())
             .unwrap();
         assert_eq!(captured.item.item_ref, "new-id");
+    }
+
+    fn refs_by_title(settings: &Settings) -> BTreeMap<String, String> {
+        WorkspaceIndex::load(settings.clone())
+            .unwrap()
+            .items()
+            .map(|item| (item.title.clone(), item.item_ref.clone()))
+            .collect()
+    }
+
+    fn scheduled(date: &str) -> EditIntent {
+        EditIntent {
+            scheduled: Change::Set(PlanningTimestamp {
+                date: date.to_string(),
+                time: None,
+                end_time: None,
+                repeater: None,
+                warning: None,
+                raw: None,
+            }),
+            ..EditIntent::default()
+        }
+    }
+
+    #[test]
+    fn a_batch_writes_every_file_or_none_and_one_undo_reverts_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let work = temp.path().join("work.org");
+        let home = temp.path().join("home.org");
+        let work_bytes = "* TODO Pay rent\n* TODO Call bank\nbody\n* TODO Untouched\n";
+        let home_bytes = "#+TODO: OPEN | CLOSED\n* OPEN Water plants\n";
+        fs::write(&work, work_bytes).unwrap();
+        fs::write(&home, home_bytes).unwrap();
+        let settings = settings(temp.path());
+        let refs = refs_by_title(&settings);
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let edit = |title: &str, intent: EditIntent| ItemEdit {
+            item_ref: refs[title].clone(),
+            intent,
+        };
+
+        // DONE is not a keyword of home.org: nothing is written anywhere.
+        let done = EditIntent {
+            state: Change::Set("DONE".to_string()),
+            ..EditIntent::default()
+        };
+        let error = engine
+            .edit_batch(
+                &[edit("Pay rent", done.clone()), edit("Water plants", done)],
+                false,
+                &context(),
+            )
+            .unwrap_err();
+        assert_eq!(error.code(), "invalid_todo");
+        assert!(error.to_string().starts_with("Water plants: "), "{error}");
+        assert_eq!(fs::read_to_string(&work).unwrap(), work_bytes);
+        assert_eq!(fs::read_to_string(&home).unwrap(), home_bytes);
+        assert!(engine.journal().unwrap().is_empty());
+
+        // An Emacs lock on one file refuses the whole batch too.
+        fs::write(temp.path().join(".#home.org"), "user@host.1").unwrap();
+        let batch = [
+            edit("Pay rent", scheduled("2026-10-19")),
+            edit("Call bank", scheduled("2026-10-20")),
+            edit("Water plants", scheduled("2026-10-21")),
+        ];
+        assert_eq!(
+            engine
+                .edit_batch(&batch, false, &context())
+                .unwrap_err()
+                .code(),
+            "editor_dirty"
+        );
+        assert_eq!(fs::read_to_string(&work).unwrap(), work_bytes);
+        fs::remove_file(temp.path().join(".#home.org")).unwrap();
+
+        let preview = engine.edit_batch(&batch, true, &context()).unwrap();
+        assert_eq!(preview.transaction, "dry-run");
+        assert_eq!(fs::read_to_string(&work).unwrap(), work_bytes);
+        let written = engine.edit_batch(&batch, false, &context()).unwrap();
+        assert_eq!(
+            fs::read_to_string(&work).unwrap(),
+            "* TODO Pay rent\nSCHEDULED: <2026-10-19 Mon>\n* TODO Call bank\nSCHEDULED: <2026-10-20 Tue>\nbody\n* TODO Untouched\n"
+        );
+        let lines: Vec<(String, usize)> = written
+            .mutations
+            .iter()
+            .map(|mutation| (mutation.item.title.clone(), mutation.item.line))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                ("Pay rent".to_string(), 1),
+                ("Call bank".to_string(), 3),
+                ("Water plants".to_string(), 2)
+            ]
+        );
+        assert_eq!(engine.journal().unwrap().len(), 2);
+
+        let undone = engine
+            .undo(Some(&written.mutations[0].journal_id), &context())
+            .unwrap();
+        assert_eq!(undone.journal_id, written.transaction);
+        assert_eq!(fs::read_to_string(&work).unwrap(), work_bytes);
+        assert_eq!(fs::read_to_string(&home).unwrap(), home_bytes);
     }
 
     #[test]
