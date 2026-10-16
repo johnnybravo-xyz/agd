@@ -541,6 +541,56 @@ fn marked_rows_are_written_together_or_not_at_all() {
 
 #[test]
 #[serial]
+fn u_undoes_only_this_sessions_changes_and_names_them() {
+    with_home(|root| {
+        let tasks = root.join("tasks.org");
+        fs::write(&tasks, "* TODO Pay rent\nSCHEDULED: <2026-10-13 Tue>\n").unwrap();
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.schedule("2026-10-20").unwrap();
+
+        // An agent captures after the TUI's own change.
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        let agent = agd_core::WriteContext {
+            actor: "mcp:codex".to_string(),
+            project: root.to_string_lossy().into_owned(),
+            now: None,
+        };
+        agd_core::WriteEngine::with_default_journal(app.settings.clone())
+            .unwrap()
+            .capture(
+                "t",
+                &agd_core::parse_capture_line("From codex", today()).unwrap(),
+                "",
+                &Default::default(),
+                false,
+                &agent,
+            )
+            .unwrap();
+        let inbox = fs::read_to_string(root.join("inbox.org")).unwrap();
+
+        app.undo().unwrap();
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "undid scheduled Tue 20 Oct · Pay rent"
+        );
+        assert!(
+            fs::read_to_string(&tasks)
+                .unwrap()
+                .contains("<2026-10-13 Tue>")
+        );
+        app.undo().unwrap();
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "nothing to undo from this session"
+        );
+        assert_eq!(fs::read_to_string(root.join("inbox.org")).unwrap(), inbox);
+    });
+}
+
+#[test]
+#[serial]
 fn priority_keys_step_through_the_files_own_range() {
     with_home(|root| {
         let path = root.join("work.org");

@@ -115,6 +115,12 @@ pub enum ErrorCode {
     DuplicateId,
     /// A change to, or removal of, a heading's existing `:ID:`.
     IdImmutable,
+    /// An undo whose change was edited since; nothing is written.
+    UndoConflict,
+    /// An undo of a journal entry that is not a committed change.
+    NothingToUndo,
+    /// A journal entry or transaction id that is not in the journal.
+    JournalNotFound,
 }
 
 impl ErrorCode {
@@ -129,6 +135,9 @@ impl ErrorCode {
             Self::InvalidBody => "invalid_body",
             Self::DuplicateId => "duplicate_id",
             Self::IdImmutable => "id_immutable",
+            Self::UndoConflict => "undo_conflict",
+            Self::NothingToUndo => "nothing_to_undo",
+            Self::JournalNotFound => "journal_not_found",
         }
     }
 }

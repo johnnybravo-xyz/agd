@@ -280,6 +280,10 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
         &write_context(),
     )?;
     app.index.refresh_path(Path::new(&mutation.item.file))?;
+    app.remember_undo(
+        &mutation.journal_id,
+        format!("capture · {}", mutation.item.title),
+    );
     app.set_status(format!(
         "captured to {} · u undo",
         app.short_location(&mutation.item)

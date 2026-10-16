@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use agd_core::{
-    Change, EditIntent, Item, ItemEdit, JournalStatus, PlanningTimestamp, PriorityRange,
-    WriteEngine, parse_date_input,
+    AgdError, Change, EditIntent, ErrorCode, Item, ItemEdit, JournalStatus, PlanningTimestamp,
+    PriorityRange, WriteEngine, parse_date_input,
 };
 use anyhow::{Result, bail};
 use chrono::{Duration, NaiveDate};
@@ -18,6 +18,14 @@ pub(super) const SOMEDAY: usize = 3;
 pub(super) const DONE: usize = 4;
 pub(super) const REFILED: usize = 5;
 pub(super) const OTHER: usize = 6;
+
+/// A write this TUI made, undone as a unit by `u`: a journal entry or
+/// transaction, and what to call it on the status line.
+#[derive(Debug)]
+pub(super) struct UndoStep {
+    journal_id: String,
+    label: String,
+}
 
 /// One triage write, undone as a unit: a journal entry or transaction and
 /// the outcome it counted for its items.
@@ -83,11 +91,12 @@ impl App {
             .iter()
             .map(|mutation| &mutation.item)
             .collect();
+        let summary = targets_summary(&items);
         self.set_status(format!(
-            "{}  {change} · {} · u undo",
+            "{}  {change} · {summary} · u undo",
             self.targets_location(&items),
-            targets_summary(&items)
         ));
+        self.remember_undo(&batch.transaction, format!("{change} · {summary}"));
         self.reload_rows()
     }
 
@@ -346,33 +355,67 @@ impl App {
         }
     }
 
-    /// `u` undoes the last write; in a finished triage pass it undoes the
-    /// whole pass, replaying the journal backwards.
+    /// Keeps a write this TUI made, so `u` can undo it later; `label`
+    /// names it on the status line, such as `scheduled Mon 19 Oct · Pay rent`.
+    pub(super) fn remember_undo(&mut self, journal_id: &str, label: String) {
+        self.undo_steps.push(UndoStep {
+            journal_id: journal_id.to_string(),
+            label,
+        });
+    }
+
+    /// `u` in the lists and triage undoes the latest change this TUI made,
+    /// never another actor's (agent changes are undone per card on the
+    /// Agents tab); in a finished triage pass it undoes the whole pass.
     pub(super) fn undo(&mut self) -> Result<()> {
-        let engine = WriteEngine::with_default_journal(self.settings.clone())?;
         if self.screen == Screen::Triage && !self.triage.undo.is_empty() {
-            let undo_all = self.rows.is_empty();
-            let groups = if undo_all {
-                std::mem::take(&mut self.triage.undo)
-            } else {
-                self.triage.undo.pop().into_iter().collect()
-            };
-            for step in groups.into_iter().rev() {
-                let result = engine.undo(Some(&step.journal_id), &write_context())?;
-                self.refresh_files(&result.file)?;
-                self.triage.outcomes[step.outcome] =
-                    self.triage.outcomes[step.outcome].saturating_sub(step.items);
-            }
-            self.set_status(if undo_all {
-                "undid the whole triage pass"
-            } else {
-                "undid the last triage step"
-            });
-            return self.reload_rows();
+            return self.undo_triage();
         }
-        let result = engine.undo(None, &write_context())?;
+        let Some(step) = self.undo_steps.last() else {
+            self.set_status("nothing to undo from this session");
+            return Ok(());
+        };
+        let result = WriteEngine::with_default_journal(self.settings.clone())?
+            .undo(&step.journal_id, &write_context())?;
+        let step = self.undo_steps.pop().expect("the step just undone");
         self.refresh_files(&result.file)?;
-        self.set_status(format!("undid {}", result.journal_id));
+        if let Some(position) = self
+            .triage
+            .undo
+            .iter()
+            .position(|triage| triage.journal_id == step.journal_id)
+        {
+            let triage = self.triage.undo.remove(position);
+            self.triage.outcomes[triage.outcome] =
+                self.triage.outcomes[triage.outcome].saturating_sub(triage.items);
+        }
+        self.set_status(format!("undid {}", step.label));
+        self.reload_rows()
+    }
+
+    /// Undoes the last triage step, or the whole pass once it is finished,
+    /// newest first.
+    fn undo_triage(&mut self) -> Result<()> {
+        let engine = WriteEngine::with_default_journal(self.settings.clone())?;
+        let undo_all = self.rows.is_empty();
+        let steps = if undo_all {
+            std::mem::take(&mut self.triage.undo)
+        } else {
+            self.triage.undo.pop().into_iter().collect()
+        };
+        for step in steps.into_iter().rev() {
+            let result = engine.undo(&step.journal_id, &write_context())?;
+            self.refresh_files(&result.file)?;
+            self.triage.outcomes[step.outcome] =
+                self.triage.outcomes[step.outcome].saturating_sub(step.items);
+            self.undo_steps
+                .retain(|undo| undo.journal_id != step.journal_id);
+        }
+        self.set_status(if undo_all {
+            "undid the whole triage pass"
+        } else {
+            "undid the last triage step"
+        });
         self.reload_rows()
     }
 
@@ -420,7 +463,17 @@ impl App {
             return Ok(());
         };
         let result = WriteEngine::with_default_journal(self.settings.clone())?
-            .undo(Some(&id), &write_context())?;
+            .undo(&id, &write_context())
+            .map_err(|error| {
+                if error.code() == ErrorCode::UndoConflict.as_str() {
+                    AgdError::new(
+                        ErrorCode::UndoConflict,
+                        format!("{error} or press ⏎ to open it"),
+                    )
+                } else {
+                    error
+                }
+            })?;
         self.refresh_files(&result.file)?;
         self.set_status("undid the agent change");
         self.reload_rows()
@@ -518,6 +571,7 @@ impl App {
         self.recent_targets.truncate(10);
         if let Some(journal_id) = result.journal_ids.first() {
             self.record_triage(journal_id, 1, REFILED);
+            self.remember_undo(journal_id, format!("refile · {}", result.item.title));
         }
         self.set_status(format!("refiled to {label} · u undo"));
         self.reload_rows()
