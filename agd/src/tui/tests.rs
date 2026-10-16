@@ -752,18 +752,21 @@ fn ctrl_c_ctrl_w_refiles_and_ctrl_c_twice_quits() {
     });
 }
 
-/// Every line help shows at this size, scrolling to the end with j.
+/// Every line help shows at this size, choosing down to its last action
+/// (letters type into its filter, so ↓ moves).
 fn scrolled_help(app: &mut App, width: u16, height: u16) -> Vec<String> {
     use crossterm::event::KeyCode;
     press(app, KeyCode::Char('?'));
     let mut seen = Vec::new();
     for _ in 0..160 {
         for line in render(app, width, height) {
+            // The bar marks the chosen row; compare the text without it.
+            let line = line.replace('▌', " ");
             if !seen.contains(&line) {
                 seen.push(line);
             }
         }
-        press(app, KeyCode::Char('j'));
+        press(app, KeyCode::Down);
     }
     seen
 }
@@ -2001,13 +2004,62 @@ fn help_fits_80_by_24_with_its_hints_on_the_last_row() {
         assert!(!screen[top as usize].contains("scroll"), "{text}");
         let bottom = screen.iter().rposition(|line| line.contains('╰')).unwrap();
         assert!(
-            screen[bottom - 1].contains("↑↓ scroll   esc close"),
+            screen[bottom - 1].contains("⏎ run   ↑↓ choose   esc close"),
             "{text}"
         );
         let y = row_of(&buffer, "next row");
         let key = &buffer[(column_of(&buffer, y, "n j ↓"), y)];
         assert_eq!(key.fg, app.theme.accent);
         assert!(key.modifier.contains(Modifier::BOLD));
+    });
+}
+
+#[test]
+#[serial]
+fn help_is_a_palette_that_runs_the_action_it_finds() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('?'));
+        type_keys(&mut app, "sched");
+        let screen = render(&mut app, 120, 30).join("\n");
+        assert!(screen.contains("› sched"), "{screen}");
+        assert!(screen.contains("▌s            schedule"), "{screen}");
+        assert!(screen.contains("C-c C-s"), "{screen}");
+        assert!(!screen.contains("next row"), "{screen}");
+        // Triage's own `s` is listed, naming where it runs.
+        assert!(screen.contains("· Triage"), "{screen}");
+
+        // esc clears the filter first, then closes.
+        press(&mut app, KeyCode::Esc);
+        assert!(matches!(&app.overlay, Overlay::Help(palette) if palette.query.text().is_empty()));
+        press(&mut app, KeyCode::Esc);
+        assert!(matches!(app.overlay, Overlay::None));
+
+        // ⏎ runs the chosen action as its key would: here, the schedule
+        // prompt, and nothing is written yet.
+        press(&mut app, KeyCode::Char('?'));
+        type_keys(&mut app, "sched");
+        press(&mut app, KeyCode::Enter);
+        assert!(
+            matches!(&app.overlay, Overlay::Prompt(prompt) if prompt.kind == super::PromptKind::Schedule),
+            "{:?}",
+            app.overlay
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_TODAY);
+
+        // An action of another screen says where it runs.
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Char('?'));
+        type_keys(&mut app, "make next");
+        press(&mut app, KeyCode::Enter);
+        assert!(matches!(app.overlay, Overlay::Help(_)));
+        let status = &app.status.as_ref().unwrap().text;
+        assert!(status.contains("works in Triage"), "{status}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_TODAY);
     });
 }
 

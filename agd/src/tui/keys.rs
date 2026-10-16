@@ -26,7 +26,7 @@ use ratatui::backend::CrosstermBackend;
 
 use super::actions::Prompt;
 use super::input::Edit;
-use super::{App, Overlay, PromptKind, Screen, capture, open_in_editor};
+use super::{App, Overlay, PromptKind, Screen, capture, help, open_in_editor};
 
 type Term = Terminal<CrosstermBackend<Stdout>>;
 
@@ -541,6 +541,7 @@ pub(super) fn dispatch(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
     }
     match &app.overlay {
         Overlay::None => {}
+        Overlay::Help(_) => return help_key(app, key),
         Overlay::Capture(_) => return Ok(None),
         Overlay::Edit(_) => {
             let editor = super::edit::handle_key(app, key)?;
@@ -637,7 +638,7 @@ fn run_shared(app: &mut App, action: Action, key: KeyEvent) -> Result<bool> {
             app.reload_rows()?;
             app.set_status("refreshed");
         }
-        A::Help => app.overlay = Overlay::Help { scroll: 0 },
+        A::Help => app.overlay = Overlay::Help(help::Palette::default()),
         _ => return Ok(false),
     }
     Ok(true)
@@ -818,7 +819,7 @@ fn finished_triage_key(app: &mut App, key: KeyEvent) -> Result<()> {
         }
         KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => app.switch_screen(Screen::Today),
         KeyCode::Char('?') => {
-            app.overlay = Overlay::Help { scroll: 0 };
+            app.overlay = Overlay::Help(help::Palette::default());
             Ok(())
         }
         _ => Ok(()),
@@ -866,7 +867,7 @@ fn run_triage(app: &mut App, action: Action) -> Result<()> {
         A::Undo => triage_undo(app)?,
         A::Next => triage_move(app, 1)?,
         A::Previous => triage_move(app, -1)?,
-        A::Help => app.overlay = Overlay::Help { scroll: 0 },
+        A::Help => app.overlay = Overlay::Help(help::Palette::default()),
         A::Back => {
             let back = app.back.clone();
             app.switch_screen(back)?;
@@ -935,11 +936,63 @@ fn run_pane(app: &mut App, action: Action) -> Result<EditorTarget> {
         A::FullView => {
             app.leave_pane()?;
         }
-        A::Help => app.overlay = Overlay::Help { scroll: 0 },
+        A::Help => app.overlay = Overlay::Help(help::Palette::default()),
         A::Quit => app.quit = true,
         _ => {}
     }
     Ok(None)
+}
+
+/// `?`'s keys: typing filters, the picker keys (and the page keys) choose,
+/// ⏎ runs the chosen action as its key would, and esc clears the filter,
+/// then closes. An action of another screen says where it runs instead.
+fn help_key(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
+    let current = current_screen(app);
+    let Overlay::Help(palette) = &mut app.overlay else {
+        return Ok(None);
+    };
+    let entries = help::entries(current, palette.query.text());
+    match key.code {
+        KeyCode::Esc if palette.query.text().is_empty() => app.overlay = Overlay::None,
+        KeyCode::Esc => *palette = help::Palette::default(),
+        KeyCode::Enter => {
+            let Some(entry) = entries.get(palette.selected) else {
+                return Ok(None);
+            };
+            if entry.screen != current {
+                let (title, _) = SCREENS[entry.screen];
+                let label = entry.binding.label;
+                app.set_status(format!("{label} works in {title}, not here"));
+                return Ok(None);
+            }
+            let Some(pressed) = first_key(entry.binding) else {
+                return Ok(None);
+            };
+            app.overlay = Overlay::None;
+            return dispatch(app, pressed);
+        }
+        KeyCode::PageDown => palette.selected = stepped(palette.selected, Some(10), entries.len()),
+        KeyCode::PageUp => palette.selected = stepped(palette.selected, Some(-10), entries.len()),
+        _ if picker_step(key).is_some() => {
+            palette.selected = stepped(palette.selected, picker_step(key), entries.len());
+        }
+        _ => match palette.query.handle(key) {
+            Edit::Cancel => app.overlay = Overlay::None,
+            Edit::Changed => palette.selected = 0,
+            Edit::Other => {}
+        },
+    }
+    Ok(None)
+}
+
+/// The key event a binding's first key sends, for `?` to run it.
+fn first_key(binding: &Binding) -> Option<KeyEvent> {
+    Some(match binding.keys.first()? {
+        Key::Char(character) => KeyEvent::from(KeyCode::Char(*character)),
+        Key::Code(code) => KeyEvent::from(*code),
+        Key::Ctrl(character) => KeyEvent::new(KeyCode::Char(*character), KeyModifiers::CONTROL),
+        Key::Digit => KeyEvent::from(KeyCode::Char('1')),
+    })
 }
 
 /// A prompt's keys. The filter is live: rows narrow as you type, and esc
@@ -976,13 +1029,6 @@ fn prompt_key(app: &mut App, key: KeyEvent) -> Result<()> {
 
 fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
     match &mut app.overlay {
-        Overlay::Help { scroll } => match key.code {
-            KeyCode::Char('j') | KeyCode::Down => *scroll = scroll.saturating_add(1),
-            KeyCode::Char('k') | KeyCode::Up => *scroll = scroll.saturating_sub(1),
-            KeyCode::PageDown | KeyCode::Char(' ') => *scroll = scroll.saturating_add(10),
-            KeyCode::PageUp => *scroll = scroll.saturating_sub(10),
-            _ => app.overlay = Overlay::None,
-        },
         Overlay::Prompt(_) => prompt_key(app, key)?,
         Overlay::Refile(picker) => match key.code {
             KeyCode::Esc => app.overlay = Overlay::None,
@@ -1034,7 +1080,7 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
                 _ => {}
             }
         }
-        Overlay::None | Overlay::Capture(_) | Overlay::Edit(_) => {}
+        Overlay::None | Overlay::Capture(_) | Overlay::Edit(_) | Overlay::Help(_) => {}
     }
     Ok(())
 }
