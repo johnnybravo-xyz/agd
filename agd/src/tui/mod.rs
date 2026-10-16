@@ -220,6 +220,9 @@ struct App {
     triage: TriageState,
     review_diff: bool,
     agent_filter: Option<String>,
+    /// When `C-c` started a chord in the lists or Triage: `C-w` next
+    /// refiles, as in Org; `C-c` again, or a second without a key, quits.
+    chord: Option<Instant>,
     quit: bool,
 }
 
@@ -258,8 +261,15 @@ impl App {
             triage: TriageState::default(),
             review_diff: false,
             agent_filter: None,
+            chord: None,
             quit: false,
         }
+    }
+
+    /// A lone `C-c` still quits, a second after it was pressed.
+    fn chord_expired(&self) -> bool {
+        self.chord
+            .is_some_and(|started| started.elapsed() > StdDuration::from_secs(1))
     }
 
     fn set_status(&mut self, text: impl Into<String>) {
@@ -395,6 +405,9 @@ fn event_loop(
         });
         if expired {
             app.status = None;
+        }
+        if app.chord_expired() {
+            break;
         }
         terminal.draw(|frame| draw(frame, app))?;
         if !event::poll(StdDuration::from_millis(200))? {

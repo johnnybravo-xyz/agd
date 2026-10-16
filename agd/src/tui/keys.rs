@@ -32,11 +32,7 @@ fn is_quit_key(key: KeyEvent) -> bool {
 /// Every key outside the capture popup, without a terminal, so tests can
 /// press keys; returns where to open $EDITOR when the key asks for it.
 pub(super) fn dispatch(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
-    if key.kind == KeyEventKind::Release {
-        return Ok(None);
-    }
-    if is_quit_key(key) {
-        app.quit = true;
+    if key.kind == KeyEventKind::Release || chord_key(app, key) {
         return Ok(None);
     }
     match &app.overlay {
@@ -59,6 +55,34 @@ pub(super) fn dispatch(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
         Screen::Review => review_key(app, key),
         _ => list_key(app, key),
     }
+}
+
+/// `C-c` in the lists and Triage starts Org's `C-c C-w` refile chord;
+/// anywhere else, or pressed twice, it quits. Returns true when the key
+/// belonged to the chord.
+fn chord_key(app: &mut App, key: KeyEvent) -> bool {
+    let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    if app.chord.take().is_some() {
+        app.status = None;
+        match key.code {
+            KeyCode::Char('w') if control => app.open_refile(),
+            KeyCode::Char('c') if control => app.quit = true,
+            _ => app.set_status("C-c C-w refiles, C-c C-c quits"),
+        }
+        return true;
+    }
+    if !is_quit_key(key) {
+        return false;
+    }
+    let chord_screen =
+        !app.pane && matches!(app.overlay, Overlay::None) && app.screen != Screen::Review;
+    if chord_screen {
+        app.chord = Some(Instant::now());
+        app.set_status("C-c-  C-w refile · C-c quit");
+    } else {
+        app.quit = true;
+    }
+    true
 }
 
 /// Keys shared by every screen; returns true when handled.

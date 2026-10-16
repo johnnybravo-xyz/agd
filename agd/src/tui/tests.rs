@@ -706,6 +706,38 @@ fn triage_k_moves_back_a_card_and_shift_x_cancels() {
     });
 }
 
+fn press_control(app: &mut App, character: char) {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let key = KeyEvent::new(KeyCode::Char(character), KeyModifiers::CONTROL);
+    super::keys::dispatch(app, key).unwrap();
+}
+
+#[test]
+#[serial]
+fn ctrl_c_ctrl_w_refiles_and_ctrl_c_twice_quits() {
+    with_home(|root| {
+        fs::write(root.join("work.org"), THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press_control(&mut app, 'c');
+        assert!(!app.quit);
+        press_control(&mut app, 'w');
+        assert!(matches!(app.overlay, Overlay::Refile(_)));
+        assert!(!app.quit);
+
+        app.overlay = Overlay::None;
+        press_control(&mut app, 'c');
+        press_control(&mut app, 'c');
+        assert!(app.quit);
+
+        // The pane has no chords: C-c quits at once.
+        let mut pane = test_app(root);
+        pane.pane = true;
+        press_control(&mut pane, 'c');
+        assert!(pane.quit);
+    });
+}
+
 #[test]
 #[serial]
 fn an_empty_no_color_keeps_colour() {

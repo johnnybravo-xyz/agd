@@ -37,7 +37,7 @@ const SECTIONS: &[(&str, &[Key])] = &[
             (", + -", "priority", ", + -"),
             (":", "tags", ":"),
             ("S", "someday", ""),
-            ("R", "refile", "C-c C-w"),
+            ("R C-c C-w", "refile", "C-c C-w"),
             ("u", "undo last write", "C-_"),
             ("y", "copy link", ""),
         ],
