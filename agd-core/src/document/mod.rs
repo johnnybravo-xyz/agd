@@ -18,6 +18,7 @@ mod source;
 mod test_support;
 mod timestamp;
 
+pub(crate) use directive::ignored_priorities_line;
 pub use directive::{LogKind, LogSettings, PriorityRange, TodoKeyword};
 pub use headline::{HeadlineSpan, PropertySpan};
 pub(crate) use headline::{leading_priority_cookie, split_trailing_tags};

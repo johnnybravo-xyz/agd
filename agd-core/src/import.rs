@@ -802,18 +802,14 @@ mod tests {
     }
 
     #[test]
-    fn numeric_priorities_import_and_a_config_that_would_not_load_is_refused() {
+    fn a_config_that_would_not_load_is_refused() {
         let resolved = resolved_with(serde_json::json!({
             "highest_priority": "1", "default_priority": "3", "lowest_priority": "5"
         }));
-        let result = apply_import(&resolved, &Settings::default(), false).unwrap();
+        let error = apply_import(&resolved, &Settings::default(), false).unwrap_err();
         assert_eq!(
-            [
-                result.settings.highest_priority.as_str(),
-                &result.settings.default_priority,
-                &result.settings.lowest_priority
-            ],
-            ["1", "3", "5"]
+            error.to_string(),
+            "the imported settings would not load: highest_priority is \"1\": numeric priorities are not supported; use letters A–Z"
         );
 
         let resolved = resolved_with(serde_json::json!({ "deadline_warning_days": -1 }));

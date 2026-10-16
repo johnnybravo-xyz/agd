@@ -77,28 +77,9 @@ fn validate_todo_keywords(lines: &[String]) -> Result<(), AgdError> {
     Ok(())
 }
 
-/// A priority cookie's value: Org takes the letters A–Z, or the numbers
-/// 0–64 when org-priority-highest is below ?A.
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-enum PriorityValue {
-    Letter(char),
-    Number(u8),
-}
-
-fn priority_value(value: &str) -> Option<PriorityValue> {
-    let mut chars = value.chars();
-    if let (Some(letter @ 'A'..='Z'), None) = (chars.next(), chars.next()) {
-        return Some(PriorityValue::Letter(letter));
-    }
-    value
-        .parse::<u8>()
-        .ok()
-        .filter(|number| *number <= 64 && number.to_string() == value)
-        .map(PriorityValue::Number)
-}
-
-/// The three priorities are all letters or all numbers, and run from the
-/// highest (A, or the smallest number) through the default to the lowest.
+/// The three priorities are letters A–Z (agd does not support Org's
+/// numeric priorities) and run from the highest through the default to
+/// the lowest.
 fn validate_priorities(settings: &Settings) -> Result<(), AgdError> {
     let mut values = Vec::new();
     for (key, value) in [
@@ -106,22 +87,25 @@ fn validate_priorities(settings: &Settings) -> Result<(), AgdError> {
         ("default_priority", &settings.default_priority),
         ("lowest_priority", &settings.lowest_priority),
     ] {
-        values.push(priority_value(value).ok_or_else(|| {
-            config_error(format!(
-                "{key} must be a letter A-Z or a number 0-64, not \"{value}\""
-            ))
-        })?);
+        let mut chars = value.chars();
+        match (chars.next(), chars.next()) {
+            (Some(letter @ 'A'..='Z'), None) => values.push(letter),
+            _ if value.parse::<u8>().is_ok() => {
+                return Err(config_error(format!(
+                    "{key} is \"{value}\": numeric priorities are not supported; use letters A–Z"
+                )));
+            }
+            _ => {
+                return Err(config_error(format!(
+                    "{key} must be a letter A–Z, not \"{value}\""
+                )));
+            }
+        }
     }
     let [highest, default, lowest] = [values[0], values[1], values[2]];
-    let kind = std::mem::discriminant;
-    if kind(&highest) != kind(&default) || kind(&default) != kind(&lowest) {
-        return Err(config_error(
-            "highest_priority, default_priority and lowest_priority must be all letters or all numbers",
-        ));
-    }
     if highest > default || default > lowest {
         return Err(config_error(format!(
-            "priorities must run highest, default, lowest, as A, B, C or 1, 2, 3; not {}, {}, {}",
+            "priorities must run highest, default, lowest, as A, B, C; not {}, {}, {}",
             settings.highest_priority, settings.default_priority, settings.lowest_priority
         )));
     }
@@ -427,28 +411,21 @@ mod tests {
     }
 
     #[test]
-    fn priorities_are_letters_or_numbers_in_org_order() {
-        let numeric = load_body(
-            "highest_priority = \"1\"\ndefault_priority = \"3\"\nlowest_priority = \"64\"\n",
-        )
-        .unwrap();
-        assert_eq!(numeric.lowest_priority, "64");
+    fn priorities_are_letters_in_org_order() {
         assert!(load_body("lowest_priority = \"Z\"\n").is_ok());
         assert_eq!(
             load_error("highest_priority = \"a\"\n"),
-            "highest_priority must be a letter A-Z or a number 0-64, not \"a\""
+            "highest_priority must be a letter A–Z, not \"a\""
         );
         assert_eq!(
-            load_error("lowest_priority = \"65\"\n"),
-            "lowest_priority must be a letter A-Z or a number 0-64, not \"65\""
-        );
-        assert_eq!(
-            load_error("lowest_priority = \"5\"\n"),
-            "highest_priority, default_priority and lowest_priority must be all letters or all numbers"
+            load_error(
+                "highest_priority = \"1\"\ndefault_priority = \"3\"\nlowest_priority = \"5\"\n"
+            ),
+            "highest_priority is \"1\": numeric priorities are not supported; use letters A–Z"
         );
         assert_eq!(
             load_error("default_priority = \"D\"\n"),
-            "priorities must run highest, default, lowest, as A, B, C or 1, 2, 3; not A, D, C"
+            "priorities must run highest, default, lowest, as A, B, C; not A, D, C"
         );
     }
 

@@ -292,6 +292,22 @@ pub fn check_settings(settings: &Settings) -> Result<CheckReport, AgdError> {
             }
         };
 
+        if let Some(value) = crate::document::ignored_priorities_line(document.source()) {
+            let line = document.source().lines().position(|line| {
+                line.get(..13)
+                    .is_some_and(|key| key.eq_ignore_ascii_case("#+PRIORITIES:"))
+            });
+            problems.push(CheckProblem {
+                file: display_path.clone(),
+                line: line.map(|line| line + 1),
+                code: ErrorCode::InvalidPriority.as_str(),
+                message: format!(
+                    "agd ignores '#+PRIORITIES: {value}' and uses the configured {}: it takes three letters A–Z, highest, lowest and default; numeric priorities are not supported",
+                    document.priorities().describe()
+                ),
+            });
+        }
+
         let effective: std::collections::HashSet<&str> = document
             .todo_active()
             .iter()
@@ -591,6 +607,31 @@ mod tests {
         assert_eq!(report.problems[0].code, "duplicate_id");
         assert_eq!(report.problems[0].line, Some(1));
         assert!(report.problems[0].message.contains("one.org:1"));
+    }
+
+    #[test]
+    fn settings_check_reports_a_priorities_line_agd_ignores() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        fs::write(
+            directory.path().join("tasks.org"),
+            "#+TITLE: Tasks\n#+PRIORITIES: 1 5 3\n* TODO [#2] Kept\n",
+        )
+        .expect("fixture");
+        let settings = Settings {
+            roots: vec![directory.path().to_string_lossy().into_owned()],
+            ..Settings::default()
+        };
+        let report = check_settings(&settings).expect("check runs");
+        assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+        let problem = &report.problems[0];
+        assert_eq!((problem.code, problem.line), ("invalid_priority", Some(2)));
+        assert!(
+            problem
+                .message
+                .starts_with("agd ignores '#+PRIORITIES: 1 5 3' and uses the configured A–C"),
+            "{}",
+            problem.message
+        );
     }
 
     #[cfg(unix)]

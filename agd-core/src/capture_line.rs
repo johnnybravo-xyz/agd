@@ -97,9 +97,8 @@ fn tag_token(token: &str) -> Option<&str> {
 }
 
 /// The priority a capture token names: one uppercase letter, as in `#A`.
-/// A number stays text, so `Fix #42` keeps its issue number; numeric
-/// priorities are set from the edit popup instead. Whether the letter is in
-/// the configured range is checked when the capture is written.
+/// A number stays text, so `Fix #42` keeps its issue number. Whether the
+/// letter is in the file's range is checked when the capture is written.
 fn priority_token(token: &str) -> Option<&str> {
     let cookie = token.strip_prefix('#')?;
     (cookie.len() == 1 && cookie.bytes().all(|byte| byte.is_ascii_uppercase())).then_some(cookie)
