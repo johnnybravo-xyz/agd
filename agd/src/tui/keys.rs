@@ -116,7 +116,6 @@ pub(super) enum Action {
     NextWeek,
     MakeNext,
     Accept,
-    AcceptAll,
     Diff,
     FilterAgent,
     FullView,
@@ -276,14 +275,16 @@ pub(super) const AGENT_KEYS: &[KeyGroup] = &[
     KeyGroup {
         title: "Review",
         bindings: &[
-            bind("a", &[Char('a')], A::Accept, "accept", "accept: mark reviewed, write nothing", ""),
-            bind("A", &[Char('A')], A::AcceptAll, "accept all", "accept every unreviewed change", ""),
+            bind("a", &[Char('a')], A::Accept, "accept", "accept the marked changes, else this one", ""),
+            bind("m", &[Char('m')], A::Mark, "mark", "mark or unmark the change", "m"),
+            bind("*", &[Char('*')], A::MarkAll, "mark all", "mark every change shown", "*"),
+            bind("U", &[Char('U')], A::UnmarkAll, "unmark all", "unmark every change", "U"),
             bind("u", &[Char('u')], A::Undo, "undo", "undo the change if its bytes are unchanged", ""),
             bind("d", &[Char('d')], A::Diff, "diff", "show the raw diff", ""),
             bind("SPC", &[Char(' ')], A::Peek, "peek", "peek at the changed task", ""),
             bind("⏎ C-e", &[Code(KeyCode::Enter), Ctrl('e')], A::Editor, "open", "open the changed heading in $EDITOR", ""),
             bind("f", &[Char('f')], A::FilterAgent, "filter by agent", "show one agent, cycling", ""),
-            bind("esc q", &[Code(KeyCode::Esc), Char('q')], A::Back, "back", "close the diff or peek, else go back", ""),
+            bind("esc q", &[Code(KeyCode::Esc), Char('q')], A::Back, "back", "close the diff or peek, clear marks, else back", ""),
         ],
     },
     MOVE,
@@ -409,13 +410,17 @@ pub(super) fn footer_hints(app: &App) -> Vec<(String, &'static str)> {
                 (A::Back, "back"),
             ],
         ),
+        Screen::Review if !app.marked_changes.is_empty() => (
+            AGENT_KEYS,
+            &[(A::Accept, "accept marked"), (A::UnmarkAll, "unmark all")],
+        ),
         Screen::Review => (
             AGENT_KEYS,
             &[
                 (A::Accept, "accept"),
+                (A::Mark, "mark"),
                 (A::Undo, "undo"),
                 (A::Diff, "diff"),
-                (A::Editor, "open"),
             ],
         ),
         _ if !app.marks.is_empty() => (
@@ -891,8 +896,10 @@ fn run_agents(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarg
         return Ok(None);
     }
     match action {
-        A::Accept => app.accept_selected()?,
-        A::AcceptAll => app.accept_all()?,
+        A::Accept => app.accept_changes()?,
+        A::Mark => app.toggle_change_mark(),
+        A::MarkAll => app.mark_all_changes(),
+        A::UnmarkAll => app.marked_changes.clear(),
         A::Undo => app.undo_selected_change()?,
         A::Diff => app.review_diff = !app.review_diff,
         A::Peek => app.peek = !app.peek,
@@ -910,12 +917,15 @@ fn changed_location(app: &App) -> EditorTarget {
     Some(super::review::changed_place(app, record))
 }
 
-/// esc or q on the Agents tab: close the diff, then peek, then go back.
+/// esc or q on the Agents tab: close the diff, then peek, then clear the
+/// marks, then go back.
 fn agents_back(app: &mut App) -> Result<()> {
     if app.review_diff {
         app.review_diff = false;
     } else if app.peek {
         app.peek = false;
+    } else if !app.marked_changes.is_empty() {
+        app.marked_changes.clear();
     } else {
         let back = app.back.clone();
         app.switch_screen(if back == Screen::Review {

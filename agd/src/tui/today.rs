@@ -224,9 +224,14 @@ fn footer_hints(app: &App, room: usize) -> Vec<Span<'static>> {
         spans.push(Span::styled(app.short_location(&row.item), theme.muted()));
         spans.push(Span::styled("  │  ", theme.fg(theme.border)));
     }
-    if !app.marks.is_empty() {
+    let marked = if app.screen == Screen::Review {
+        app.marked_changes.len()
+    } else {
+        app.marks.len()
+    };
+    if marked > 0 {
         spans.push(Span::styled(
-            format!("{} marked  ", app.marks.len()),
+            format!("{marked} marked  "),
             theme.strong(theme.accent),
         ));
     }

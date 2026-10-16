@@ -1,12 +1,13 @@
 //! The Agents tab: one card per agent write, every card the same shape:
 //!
 //! ```text
-//! ▌● codex          ~/src/app · 15:01                         state
-//! ▌  TODO → DONE  Rotate staging certs                  work.org:42
+//! ▌  ● codex          ~/src/app · 15:01                       state
+//! ▌    TODO → DONE  Rotate staging certs                work.org:42
 //! ```
 //!
-//! who, where from and when, and what kind of change; then the change in
-//! the fewest words, the task, and where it is. `d` shows the raw diff.
+//! the marker cell (`*` when marked, as on a list row), who, where from and
+//! when, and what kind of change; then the change in the fewest words, the
+//! task, and where it is. `d` shows the raw diff.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -399,6 +400,8 @@ fn draw_diff(frame: &mut Frame<'_>, theme: &Theme, record: &JournalRecord, area:
 
 /// One change, ready to draw.
 struct Card {
+    /// Marked with `m` or `*`, for `a` to accept.
+    marked: bool,
     reviewed: bool,
     agent: String,
     project: String,
@@ -435,6 +438,7 @@ impl Card {
             other => vec![(other.kind().to_string(), ChangeRole::Now)],
         };
         Self {
+            marked: app.marked_changes.contains(&record.id),
             reviewed: record.status != JournalStatus::Committed,
             agent: agent_name(record).to_string(),
             project: shorten_project(&record.project),
@@ -480,7 +484,14 @@ impl Card {
         } else {
             Span::styled(format!("{} ", self.kind), role_style(ChangeRole::Now))
         };
+        // The marker cell, as on a list row: `*` when marked.
+        let marker = if self.marked {
+            Span::styled("* ", theme.strong(theme.accent))
+        } else {
+            Span::raw("  ")
+        };
         let mut head = vec![
+            marker,
             Span::styled("● ", dot),
             Span::styled(format!("{:<NAME$} ", truncate(&self.agent, NAME)), name),
         ];
@@ -495,7 +506,8 @@ impl Card {
         ))));
         head.push(kind);
 
-        let mut body = vec![Span::raw("  ")];
+        // Under the agent's name: past the marker cell and the dot.
+        let mut body = vec![Span::raw("    ")];
         for (text, role) in &self.change_parts {
             body.push(Span::styled(text.clone(), role_style(*role)));
         }

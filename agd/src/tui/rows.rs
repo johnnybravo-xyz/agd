@@ -88,6 +88,7 @@ impl App {
         self.rows.clear();
         self.selected = 0;
         self.marks.clear();
+        self.marked_changes.clear();
         self.overdue_expanded = false;
         self.reload_rows()?;
         self.cursor_to_today();
@@ -153,6 +154,31 @@ impl App {
             self.marks.insert(item_ref);
         }
         self.move_selection(1);
+    }
+
+    /// `m` on the Agents tab: marks or unmarks the change under the cursor
+    /// and moves on, as `m` does on a row.
+    pub(super) fn toggle_change_mark(&mut self) {
+        let Some(id) = self
+            .journals
+            .get(self.selected)
+            .map(|record| record.id.clone())
+        else {
+            return;
+        };
+        if !self.marked_changes.remove(&id) {
+            self.marked_changes.insert(id);
+        }
+        self.move_selection(1);
+    }
+
+    /// `*` on the Agents tab: marks every change shown.
+    pub(super) fn mark_all_changes(&mut self) {
+        self.marked_changes = self
+            .journals
+            .iter()
+            .map(|record| record.id.clone())
+            .collect();
     }
 
     /// `*`: marks every task row shown, as org-agenda-bulk-mark-all; the

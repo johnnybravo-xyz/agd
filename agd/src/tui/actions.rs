@@ -779,40 +779,56 @@ impl App {
         Ok(())
     }
 
-    /// Accept writes nothing: it only marks the change reviewed.
-    pub(super) fn accept_selected(&mut self) -> Result<()> {
-        let Some(record) = self.journals.get(self.selected) else {
-            return Ok(());
+    /// `a` on the Agents tab: accepts the marked changes shown, else the
+    /// one under the cursor. Accepting writes nothing to the org files: it
+    /// only marks each change reviewed in the journal.
+    pub(super) fn accept_changes(&mut self) -> Result<()> {
+        let chosen: Vec<&agd_core::JournalRecord> = if self.marked_changes.is_empty() {
+            self.journals.get(self.selected).into_iter().collect()
+        } else {
+            self.journals
+                .iter()
+                .filter(|record| self.marked_changes.contains(&record.id))
+                .collect()
         };
-        if record.status != JournalStatus::Committed {
-            return Ok(());
-        }
-        let location = super::review::subject_location(self, record);
-        let title = super::review::subject_title(self, record);
-        WriteEngine::with_default_journal(self.settings.clone())?.review(&record.id)?;
-        self.set_status(format!(
-            "{} · nothing written",
-            words::change(&location, "accepted", &title)
-        ));
-        self.reload_rows()
-    }
-
-    pub(super) fn accept_all(&mut self) -> Result<()> {
-        let engine = WriteEngine::with_default_journal(self.settings.clone())?;
-        let mut accepted = 0;
-        for record in &self.journals {
-            if record.status == JournalStatus::Committed {
-                engine.review(&record.id)?;
-                accepted += 1;
+        let unreviewed: Vec<&agd_core::JournalRecord> = chosen
+            .into_iter()
+            .filter(|record| record.status == JournalStatus::Committed)
+            .collect();
+        let status = match unreviewed.as_slice() {
+            [] => {
+                self.marked_changes.clear();
+                self.set_status("already accepted");
+                return Ok(());
             }
-        }
-        self.set_status(match accepted {
-            0 => "no unreviewed agent changes".to_string(),
-            count => format!(
-                "{}  accepted · nothing written",
-                crate::commands::counted(count, "change", "changes")
+            [record] => format!(
+                "{} · nothing written",
+                words::change(
+                    &super::review::subject_location(self, record),
+                    "accepted",
+                    &super::review::subject_title(self, record),
+                )
             ),
-        });
+            [first, rest @ ..] => format!(
+                "{} · nothing written",
+                words::change(
+                    &crate::commands::counted(rest.len() + 1, "change", "changes"),
+                    "accepted",
+                    &format!(
+                        "{} + {} more",
+                        super::review::subject_title(self, first),
+                        rest.len()
+                    ),
+                )
+            ),
+        };
+        let ids: Vec<String> = unreviewed.iter().map(|record| record.id.clone()).collect();
+        let engine = WriteEngine::with_default_journal(self.settings.clone())?;
+        for id in &ids {
+            engine.review(id)?;
+        }
+        self.marked_changes.clear();
+        self.set_status(status);
         self.reload_rows()
     }
 

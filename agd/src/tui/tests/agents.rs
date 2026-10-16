@@ -33,24 +33,70 @@ fn peek_on_the_agents_tab_shows_the_task_an_agent_wrote() {
 
 #[test]
 #[serial]
-fn shift_a_on_the_agents_tab_accepts_every_change() {
+fn a_second_shift_a_never_clears_the_queue_and_marks_choose_what_a_accepts() {
+    use agd_core::JournalStatus::{Committed, Reviewed};
+    use crossterm::event::KeyCode;
     with_home(|root| {
         fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
         let mut app = test_app(root);
         agent_capture(&app, root, "First agent task");
         agent_capture(&app, root, "Second agent task");
+        agent_capture(&app, root, "Third agent task");
         app.index.refresh_path(&root.join("inbox.org")).unwrap();
-        press(&mut app, crossterm::event::KeyCode::Char('A'));
+        let settings = app.settings.clone();
+        let journal = || {
+            agd_core::WriteEngine::with_default_journal(settings.clone())
+                .unwrap()
+                .journal()
+                .unwrap()
+        };
+        press(&mut app, KeyCode::Char('A'));
         assert_eq!(app.screen, Screen::Review);
-        assert_eq!(app.journals.len(), 2);
-        press(&mut app, crossterm::event::KeyCode::Char('A'));
+        assert_eq!(app.journals.len(), 3);
+        // `A` again goes nowhere new and accepts nothing.
+        press(&mut app, KeyCode::Char('A'));
         assert_eq!(app.screen, Screen::Review);
-        assert!(
-            app.journals
-                .iter()
-                .all(|record| record.status == agd_core::JournalStatus::Reviewed)
-        );
+        assert!(journal().iter().all(|record| record.status == Committed));
+
+        // m marks a card and moves on; a accepts the marked cards only.
+        press(&mut app, KeyCode::Char('m'));
+        assert_eq!(app.selected, 1);
+        let screen = render(&mut app, 120, 20);
+        let text = screen.join("\n");
+        assert!(text.contains("│▌* ●") || text.contains("│ * ●"), "{text}");
+        assert!(screen.last().unwrap().contains("1 marked"), "{text}");
+        let marked = app.journals[0].id.clone();
+        press(&mut app, KeyCode::Char('a'));
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert!(status.contains("accepted · Third agent task"), "{status}");
+        assert!(status.ends_with("· nothing written"), "{status}");
+        let records = journal();
+        for record in &records {
+            let expected = if record.id == marked {
+                Reviewed
+            } else {
+                Committed
+            };
+            assert_eq!(record.status, expected, "{}", record.id);
+        }
+        assert!(app.marked_changes.is_empty());
+
+        // * marks every change; a accepts them all at once.
+        press(&mut app, KeyCode::Char('*'));
+        assert_eq!(app.marked_changes.len(), 3);
+        press(&mut app, KeyCode::Char('a'));
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert!(status.starts_with("2 changes  accepted"), "{status}");
+        assert!(journal().iter().all(|record| record.status == Reviewed));
         assert_eq!(app.counts.agents, 0);
+        assert_eq!(
+            fs::read_to_string(root.join("inbox.org"))
+                .unwrap()
+                .matches("agent task")
+                .count(),
+            3,
+            "accepting writes nothing"
+        );
     });
 }
 
