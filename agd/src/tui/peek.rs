@@ -6,6 +6,7 @@ use ratatui::widgets::{Clear, Paragraph, Wrap};
 use agd_core::{Item, OccurrenceType, WorkspaceIndex};
 
 use super::actions::short_date;
+use super::keys::{self, Action};
 use super::rows::next_repeat;
 use super::theme::centered;
 use super::{App, Screen};
@@ -147,7 +148,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     let text = entry_text(&app.index, item);
     let label = |name: &str| Span::styled(format!("{name:<11}"), theme.muted());
     let mut lines = vec![
-        Line::from(Span::styled(item.title.clone(), theme.strong(theme.text))),
+        Line::from(Span::styled(display_title(item), theme.strong(theme.text))),
         Line::from(Span::styled(
             format!(
                 "{} › {}",
@@ -242,7 +243,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     let body = body_lines(&text);
     if !body.is_empty() {
         lines.push(Line::from(Span::styled(
-            "─".repeat(area.width.saturating_sub(4) as usize),
+            "─".repeat(block.inner(area).width as usize),
             theme.fg(theme.border),
         )));
         for line in body
@@ -263,26 +264,39 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
             theme.fg(theme.accent),
         )));
     }
+    // The keys of the screen underneath; on the Agents tab ⏎ opens the
+    // changed heading rather than the edit popup.
+    let (groups, actions) = if app.screen == Screen::Review {
+        (
+            keys::AGENT_KEYS,
+            [Action::Editor, Action::Accept, Action::Undo],
+        )
+    } else {
+        (
+            keys::LIST_KEYS,
+            [Action::Edit, Action::Editor, Action::CopyLink],
+        )
+    };
     let footer = Line::from(
-        [
-            theme.key_hint("⏎", "edit"),
-            theme.key_hint("ctrl-e", "$EDITOR"),
-            theme.key_hint("y", "copy link"),
-        ]
-        .concat(),
+        keys::hints(groups, &actions)
+            .into_iter()
+            .flat_map(|(key, action)| theme.key_hint(key, action))
+            .collect::<Vec<_>>(),
     );
-    let inner_height = area.height.saturating_sub(2) as usize;
-    while lines.len() + 1 < inner_height {
-        lines.push(Line::default());
-    }
-    lines.truncate(inner_height.saturating_sub(1));
-    lines.push(footer);
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(block)
-            .wrap(Wrap { trim: false }),
-        area,
-    );
+    // The footer has its own row, so wrapped text never pushes it out.
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let body_area = Rect {
+        height: inner.height.saturating_sub(1),
+        ..inner
+    };
+    let footer_area = Rect {
+        y: inner.y + body_area.height,
+        height: inner.height.min(1),
+        ..inner
+    };
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body_area);
+    frame.render_widget(Paragraph::new(footer), footer_area);
 }
 
 /// Under 100 columns peek is a centred overlay instead of a split.

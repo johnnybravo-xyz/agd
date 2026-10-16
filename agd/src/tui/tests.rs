@@ -1236,6 +1236,31 @@ blocks = [{ kind = "alltodo" }]"#,
 
 #[test]
 #[serial]
+fn peek_keeps_its_keys_under_wrapped_text_and_shows_link_text() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let long = "word ".repeat(60);
+        fs::write(
+            root.join("work.org"),
+            format!(
+                "* TODO Read [[https://example.com/spec][the spec]]\n\
+SCHEDULED: <2026-10-13 Tue>\n{long}\n{long}\n{long}\n"
+            ),
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char(' '));
+        let screen = render(&mut app, 80, 24).join("\n");
+        assert!(screen.contains("Read the spec"), "{screen}");
+        assert!(!screen.contains("[[https"), "{screen}");
+        assert!(screen.contains("⏎ edit"), "{screen}");
+        assert!(screen.contains("y copy link"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {
