@@ -7,19 +7,19 @@
 //!
 //! the marker cell (`*` when marked, as on a list row), who, where from and
 //! when, and what kind of change; then the change in the fewest words, the
-//! task, and where it is. `d` shows the raw diff.
+//! task, and where it is. SPC peeks at the change's diff and its task.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
 use agd_core::{Item, JournalRecord, JournalStatus};
 
 use super::App;
-use super::theme::{Theme, centered, truncate};
+use super::theme::{Theme, truncate};
 
 /// Cells for an agent's name: 13 characters and "…".
 const NAME: usize = 14;
@@ -362,40 +362,6 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
         .enumerate()
         .filter_map(|(line, card)| card.map(|card| (inner.y + line as u16, card)))
         .collect();
-    if app.review_diff
-        && let Some(record) = app.journals.get(app.selected)
-    {
-        draw_diff(frame, &app.theme, record, area);
-    }
-}
-
-fn draw_diff(frame: &mut Frame<'_>, theme: &Theme, record: &JournalRecord, area: Rect) {
-    let popup = centered(
-        area,
-        area.width.saturating_sub(6),
-        area.height.saturating_sub(4),
-    );
-    frame.render_widget(Clear, popup);
-    let lines: Vec<Line<'_>> = record
-        .diff
-        .lines()
-        .map(|line| {
-            let style = if line.starts_with('+') {
-                theme.fg(theme.done)
-            } else if line.starts_with('-') {
-                theme.fg(theme.overdue)
-            } else {
-                theme.muted()
-            };
-            Line::from(Span::styled(line.to_string(), style))
-        })
-        .collect();
-    frame.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .block(theme.popup("Raw diff · d closes")),
-        popup,
-    );
 }
 
 /// One change, ready to draw.

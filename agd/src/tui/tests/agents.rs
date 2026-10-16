@@ -21,12 +21,36 @@ fn peek_on_the_agents_tab_shows_the_task_an_agent_wrote() {
             .unwrap();
         app.index.refresh_path(&root.join("inbox.org")).unwrap();
         app.switch_screen(Screen::Review).unwrap();
-        app.peek = true;
-        let screen = render(&mut app, 120, 30).join("\n");
+        // `d` is no key here: the diff lives in peek.
+        let before = render(&mut app, 120, 30);
+        crate::tui::keys::dispatch(
+            &mut app,
+            crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('d')),
+        )
+        .unwrap();
+        assert_eq!(render(&mut app, 120, 30), before);
+        let footer = before.last().unwrap();
+        assert!(footer.contains("SPC diff"), "{footer}");
+
+        crate::tui::keys::dispatch(
+            &mut app,
+            crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char(' ')),
+        )
+        .unwrap();
+        let lines = render(&mut app, 120, 30);
+        let screen = lines.join("\n");
         assert!(screen.contains("Peek"), "{screen}");
         assert!(screen.contains("a accept"), "{screen}");
-        // The peek panel names the task and where it lives.
-        assert!(screen.matches("Agent task").count() >= 2, "{screen}");
+        // The change's diff comes first, then the task and where it lives.
+        let added = lines
+            .iter()
+            .position(|line| line.contains("+** TODO [#A] Agent task"))
+            .unwrap_or_else(|| panic!("{screen}"));
+        let task = lines
+            .iter()
+            .rposition(|line| line.contains("Agent task") && !line.contains('+'))
+            .unwrap_or_else(|| panic!("{screen}"));
+        assert!(added < task, "{screen}");
         assert!(screen.contains("inbox.org"), "{screen}");
     });
 }
@@ -186,7 +210,7 @@ fn every_agent_card_has_the_same_two_line_shape() {
         // A long name is cut to 13 characters and "…".
         assert!(text.contains("codex-with-a-…"), "{text}");
         assert!(text.contains("TODO → DONE  Rotate staging certs"), "{text}");
-        // No raw planning lines; `d` has the diff.
+        // No raw planning lines; peek has the diff.
         assert!(!text.contains("CLOSED:"), "{text}");
         // The bar runs down the selected card; the blank row between cards
         // is never selected.

@@ -101,7 +101,6 @@ impl App {
         self.selected = 0;
         self.marks.clear();
         self.marked_changes.clear();
-        self.review_diff = false;
         self.overdue_expanded = false;
         self.reload_rows()?;
         self.cursor_to_today();

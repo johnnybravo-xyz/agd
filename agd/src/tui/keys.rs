@@ -118,7 +118,6 @@ pub(super) enum Action {
     NextWeek,
     MakeNext,
     Accept,
-    Diff,
     FilterAgent,
     FullView,
 }
@@ -300,8 +299,7 @@ pub(super) const AGENT_KEYS: &[KeyGroup] = &[
             bind("*", &[Char('*')], A::MarkAll, "mark all", "mark every change shown", "*"),
             bind("U", &[Char('U')], A::UnmarkAll, "unmark all", "unmark every change", "U"),
             bind("u", &[Char('u')], A::Undo, "undo", "undo the change if its bytes are unchanged", ""),
-            bind("d", &[Char('d')], A::Diff, "diff", "show the raw diff", ""),
-            bind("SPC", &[Char(' ')], A::Peek, "peek", "peek at the changed task", ""),
+            bind("SPC", &[Char(' ')], A::Peek, "peek", "peek: the change's diff, then its task", "SPC"),
             bind("⏎ C-e", &[Code(KeyCode::Enter), Ctrl('e')], A::Editor, "open", "open the changed heading in $EDITOR", ""),
             bind("f", &[Char('f')], A::FilterAgent, "filter by agent", "show one agent, cycling", ""),
         ],
@@ -441,7 +439,7 @@ pub(super) fn footer_hints(app: &App) -> Vec<(String, &'static str)> {
                 (A::Accept, "accept"),
                 (A::Mark, "mark"),
                 (A::Undo, "undo"),
-                (A::Diff, "diff"),
+                (A::Peek, "diff"),
             ],
         ),
         _ if !app.marks.is_empty() => (
@@ -930,7 +928,6 @@ fn run_agents(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarg
         A::MarkAll => app.mark_all_changes(),
         A::UnmarkAll => app.marked_changes.clear(),
         A::Undo => app.undo_selected_change()?,
-        A::Diff => app.review_diff = !app.review_diff,
         A::Peek => app.peek = !app.peek,
         A::FilterAgent => app.cycle_agent_filter()?,
         A::Editor => return Ok(changed_location(app)),
@@ -946,12 +943,10 @@ fn changed_location(app: &App) -> EditorTarget {
     Some(super::review::changed_place(app, record))
 }
 
-/// esc on the Agents tab, as in the lists: close the diff or peek, then
-/// clear the marks, then the agent filter, then go back.
+/// esc on the Agents tab, as in the lists: close peek, then clear the
+/// marks, then the agent filter, then go back.
 fn agents_back(app: &mut App) -> Result<()> {
-    if app.review_diff {
-        app.review_diff = false;
-    } else if app.peek {
+    if app.peek {
         app.peek = false;
     } else if !app.marked_changes.is_empty() {
         app.marked_changes.clear();

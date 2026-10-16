@@ -269,7 +269,6 @@ struct App {
     /// Writes this TUI made, newest last, for `u`.
     undo_steps: Vec<actions::UndoStep>,
     triage: TriageState,
-    review_diff: bool,
     agent_filter: Option<String>,
     /// When `C-c` started a chord in the lists or Triage: `C-w` next
     /// refiles, as in Org; `C-c` again, or a second without a key, quits.
@@ -316,7 +315,6 @@ impl App {
             recent_targets: Vec::new(),
             undo_steps: Vec::new(),
             triage: TriageState::default(),
-            review_diff: false,
             agent_filter: None,
             chord: None,
             quit: false,
