@@ -34,7 +34,7 @@ pub struct AgendaCommand {
         num_args = 0..=1,
         default_missing_value = "",
         value_name = "KEY",
-        conflicts_with_all = ["span", "match_expression"]
+        conflicts_with_all = ["span", "match_expression", "brief", "profile"]
     )]
     view: Option<String>,
     /// Use the files and match of a configured agents.profiles entry
@@ -47,11 +47,21 @@ pub struct AgendaCommand {
     #[arg(long)]
     brief: bool,
     /// One line of counts for a tmux or herdr status bar
-    #[arg(long, conflicts_with_all = ["json", "csv", "brief", "view"])]
+    #[arg(
+        long,
+        conflicts_with_all = [
+            "json", "csv", "brief", "view", "span", "from", "match_expression", "log", "profile",
+        ]
+    )]
     status: bool,
     /// The saved views, start_view first; with --json, also what a client
     /// draws them with: theme, nerd_font and each TODO keyword's color
-    #[arg(long, conflicts_with_all = ["csv", "brief", "view", "status"])]
+    #[arg(
+        long,
+        conflicts_with_all = [
+            "csv", "brief", "view", "status", "span", "from", "match_expression", "log", "profile",
+        ]
+    )]
     views: bool,
     /// agd.agenda-entry/v1 objects
     #[arg(long, conflicts_with_all = ["csv", "brief"])]

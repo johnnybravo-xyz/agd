@@ -13,7 +13,11 @@ pub struct CaptureCommand {
     /// One line with tokens: due:fri on:+2d +tag #A
     text: Option<String>,
     /// Open the capture popup (for tmux display-popup or a pane keybinding)
-    #[arg(short = 'i', long, conflicts_with_all = ["template", "text"])]
+    #[arg(
+        short = 'i',
+        long,
+        conflicts_with_all = ["template", "text", "body", "prompts", "dry_run", "json"]
+    )]
     interactive: bool,
     /// Literal body text inserted at %i
     #[arg(long, default_value = "")]

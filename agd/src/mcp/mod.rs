@@ -5,7 +5,7 @@ use std::path::Path;
 
 use agd_core::{Settings, load_settings};
 use anyhow::{Context, Result};
-use clap::Args;
+use clap::{Args, ValueEnum};
 use rmcp::{ServiceExt, handler::server::tool::ToolRouter, transport::stdio};
 use tokio::runtime::Builder;
 use tracing::{error, info};
@@ -13,9 +13,30 @@ use tracing_subscriber::EnvFilter;
 
 #[derive(Args, Debug)]
 pub(crate) struct McpCommand {
-    /// Log level (trace, debug, info, warn, error)
-    #[arg(long)]
-    pub(crate) log_level: Option<String>,
+    /// Log level for stderr
+    #[arg(long, value_enum, default_value_t = LogLevel::Info)]
+    pub(crate) log_level: LogLevel,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub(crate) enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl From<LogLevel> for tracing::Level {
+    fn from(level: LogLevel) -> Self {
+        match level {
+            LogLevel::Trace => Self::TRACE,
+            LogLevel::Debug => Self::DEBUG,
+            LogLevel::Info => Self::INFO,
+            LogLevel::Warn => Self::WARN,
+            LogLevel::Error => Self::ERROR,
+        }
+    }
 }
 
 pub(crate) struct OrgModeRouter {
@@ -39,12 +60,7 @@ impl McpCommand {
             root_directory.as_deref().map(Path::new),
         )?
         .settings;
-        let log_level = self
-            .log_level
-            .as_deref()
-            .unwrap_or("info")
-            .parse::<tracing::Level>()
-            .unwrap_or(tracing::Level::INFO);
+        let log_level = tracing::Level::from(self.log_level);
         tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env().add_directive(log_level.into()))
             .with_writer(std::io::stderr)

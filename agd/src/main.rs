@@ -2,7 +2,8 @@ use std::process::ExitCode;
 
 use agd_core::AgdError;
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::error::ErrorKind;
+use clap::{CommandFactory, Parser, Subcommand};
 
 mod commands;
 mod importer;
@@ -63,6 +64,19 @@ fn main() -> ExitCode {
     }
 }
 
+/// Clap's parse, plus `--pane` with a command: clap cannot declare that
+/// conflict without also refusing the global options before a command.
+fn parse_cli() -> Result<Cli, clap::Error> {
+    let cli = Cli::try_parse()?;
+    if cli.pane && cli.command.is_some() {
+        return Err(Cli::command().error(
+            ErrorKind::ArgumentConflict,
+            "--pane opens the glance pane, so it takes no command",
+        ));
+    }
+    Ok(cli)
+}
+
 /// Returns true when the command completed but found problems (exit 1).
 fn run() -> Result<bool> {
     let Cli {
@@ -70,7 +84,7 @@ fn run() -> Result<bool> {
         root_directory,
         pane,
         command,
-    } = Cli::parse();
+    } = parse_cli().unwrap_or_else(|error| error.exit());
     match command {
         None => tui::run(config, root_directory, pane).map(|()| false),
         Some(Commands::Agenda(command)) => command.execute(config, root_directory).map(|()| false),

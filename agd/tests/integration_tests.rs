@@ -126,6 +126,35 @@ fn from_takes_a_negative_offset_as_its_value() {
 }
 
 #[test]
+fn flags_a_command_would_ignore_are_usage_errors() {
+    let fixture = Fixture::new();
+    let refused: [&[&str]; 11] = [
+        &["agenda", "--view", "n", "--brief"],
+        &["agenda", "--view", "n", "--profile", "work"],
+        &["agenda", "--status", "--span", "week"],
+        &["agenda", "--status", "--from", "fri"],
+        &["agenda", "--status", "--match", "work"],
+        &["agenda", "--views", "--span", "week"],
+        &["agenda", "--views", "--log"],
+        &["capture", "-i", "--dry-run"],
+        &["capture", "-i", "--prompt", "Who=me"],
+        &["mcp", "--log-level", "bogus"],
+        &["--pane", "agenda"],
+    ];
+    for arguments in refused {
+        let output = fixture.command().args(arguments).output().expect("agd");
+        assert_eq!(output.status.code(), Some(2), "{arguments:?}: {output:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("cannot be used with")
+                || stderr.contains("invalid value 'bogus'")
+                || stderr.contains("takes no command"),
+            "{arguments:?}: {stderr}"
+        );
+    }
+}
+
+#[test]
 fn status_line_counts_today_for_a_status_bar() {
     let fixture = Fixture::new();
     let now = chrono::Local::now().date_naive();
