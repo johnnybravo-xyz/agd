@@ -1981,6 +1981,34 @@ fn sectioned_rows_line_titles_up_after_the_widest_keyword() {
 
 #[test]
 #[serial]
+fn the_peek_overlay_says_when_and_keeps_its_keys_at_80_by_24() {
+    use crossterm::event::KeyCode;
+    use ratatui::style::Modifier;
+    with_home(|root| {
+        let notes: String = (1..30).map(|line| format!("note line {line}\n")).collect();
+        fs::write(
+            root.join("work.org"),
+            format!("* 1:1 with Sam\n<2026-10-13 Tue 16:30>\n{notes}"),
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char(' '));
+        let buffer = render_buffer(&mut app, 80, 24);
+        let screen: String = (0..24)
+            .map(|y| (0..80).map(|x| buffer[(x, y)].symbol()).collect::<String>() + "\n")
+            .collect();
+        assert!(screen.contains("When       Tue 13 Oct 16:30"), "{screen}");
+        assert!(!screen.contains("<2026-10-13"), "{screen}");
+        assert!(screen.contains("⏎ edit"), "{screen}");
+        assert!(screen.contains("y copy link"), "{screen}");
+        // The screen behind the popup is dimmed, as behind every popup.
+        assert!(buffer[(0, 0)].modifier.contains(Modifier::DIM));
+    });
+}
+
+#[test]
+#[serial]
 fn the_scrollbar_reads_as_the_border() {
     with_home(|root| {
         fs::write(root.join("tasks.org"), TASKS).unwrap();

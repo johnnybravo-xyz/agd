@@ -1,5 +1,6 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Wrap};
 
@@ -127,6 +128,10 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     } else {
         theme.panel("Peek")
     };
+    // Everything is sized from inside the frame and its padding; the last
+    // row is the footer's.
+    let inner = block.inner(area);
+    let room = inner.height.saturating_sub(1) as usize;
     // On the Agents tab the subject is the task the selected change touched.
     let subject = if app.screen == Screen::Review {
         app.journals
@@ -186,6 +191,18 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
         }
         lines.push(Line::from(spans));
     }
+    // An entry's own plain timestamp says when it is, as the dates above.
+    let (whens, body): (Vec<String>, Vec<String>) = body_lines(&text)
+        .into_iter()
+        .partition(|line| plain_timestamp(line).is_some());
+    for line in &whens {
+        if let Some((date, time)) = plain_timestamp(line) {
+            lines.push(Line::from(vec![
+                label("When"),
+                Span::raw(crate::words::when(date, time, app.today)),
+            ]));
+        }
+    }
     if let Ok((_, headline)) = app.index.resolve(&item.item_ref)
         && let Some(effort) = headline
             .properties
@@ -233,20 +250,18 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
             Span::styled(reason, theme.muted()),
         ]));
     }
-    let body = body_lines(&text);
+    let links: Vec<(String, String)> = links(&text).into_iter().take(3).collect();
     if !body.is_empty() {
         lines.push(Line::from(Span::styled(
-            "─".repeat(block.inner(area).width as usize),
+            "─".repeat(inner.width as usize),
             theme.fg(theme.border),
         )));
-        for line in body
-            .iter()
-            .take(area.height.saturating_sub(lines.len() as u16 + 4) as usize)
-        {
+        let shown = room.saturating_sub(lines.len() + links.len());
+        for line in body.iter().take(shown) {
             lines.push(Line::from(line.clone()));
         }
     }
-    for (target, description) in links(&text).into_iter().take(3) {
+    for (target, description) in links {
         let shown = if description == target {
             target
         } else {
@@ -277,7 +292,6 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
             .collect::<Vec<_>>(),
     );
     // The footer has its own row, so wrapped text never pushes it out.
-    let inner = block.inner(area);
     frame.render_widget(block, area);
     let body_area = Rect {
         height: inner.height.saturating_sub(1),
@@ -292,10 +306,30 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     frame.render_widget(Paragraph::new(footer), footer_area);
 }
 
-/// Under 100 columns peek is a centred overlay instead of a split.
+/// Under 100 columns peek is a centred overlay instead of a split, over a
+/// dimmed screen like every other popup.
 pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let screen = frame.area();
+    frame
+        .buffer_mut()
+        .set_style(screen, Style::default().add_modifier(Modifier::DIM));
     let popup = centered(area, 72, area.height.saturating_sub(4).max(10));
     draw(frame, app, popup, true);
+}
+
+/// `<2026-10-16 Fri 16:30>` alone on a line: its date and time. Ranges and
+/// timestamps inside text stay text.
+fn plain_timestamp(line: &str) -> Option<(&str, Option<&str>)> {
+    let inner = line.trim().strip_prefix('<')?.strip_suffix('>')?;
+    if inner.contains('>') {
+        return None;
+    }
+    let mut parts = inner.split_whitespace();
+    let date = parts.next()?;
+    date.parse::<chrono::NaiveDate>().ok()?;
+    let _weekday = parts.next();
+    let time = parts.next().filter(|part| part.contains(':'));
+    Some((date, time))
 }
 
 /// Which agenda rule put the row here, in org-agenda's own terms.
