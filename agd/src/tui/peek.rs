@@ -10,7 +10,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Wrap};
 
-use agd_core::{Item, OccurrenceType, WorkspaceIndex};
+use agd_core::{Item, Occurrence, OccurrenceType, WorkspaceIndex};
 
 use super::actions::when;
 use super::keys::{self, Action};
@@ -255,13 +255,13 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
         let mut spans = vec![label("Tags")];
         if !item.tags.is_empty() {
             spans.push(Span::styled(
-                format!("{} ", crate::words::tags(&item.tags)),
+                format!("{} ", crate::words::tags(app.settings.notation, &item.tags)),
                 theme.fg(theme.text),
             ));
         }
         if !item.inherited_tags.is_empty() {
             spans.push(Span::styled(
-                crate::words::tags(&item.inherited_tags),
+                crate::words::tags(app.settings.notation, &item.inherited_tags),
                 theme.muted(),
             ));
         }
@@ -271,14 +271,10 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     if logged > 0 {
         lines.push(Line::from(vec![
             label("Logged"),
-            Span::raw(crate::commands::counted(logged, "change", "changes")),
+            Span::raw(crate::words::counted(logged, "change", "changes")),
         ]));
     }
-    if let Some(reason) = why_listed(
-        occurrence
-            .as_ref()
-            .map(|occurrence| (occurrence.kind, occurrence.extra.as_str())),
-    ) {
+    if let Some(reason) = occurrence.as_ref().and_then(why_listed) {
         lines.push(Line::from(vec![
             label("Why here"),
             Span::styled(reason, theme.muted()),
@@ -383,12 +379,12 @@ fn plain_timestamp(line: &str) -> Option<(&str, Option<&str>)> {
 }
 
 /// Which agenda rule put the row here, in org-agenda's own terms.
-fn why_listed(occurrence: Option<(OccurrenceType, &str)>) -> Option<String> {
-    let (kind, extra) = occurrence?;
-    Some(match kind {
+fn why_listed(occurrence: &Occurrence) -> Option<String> {
+    let extra = &occurrence.extra;
+    Some(match occurrence.kind {
         OccurrenceType::PastScheduled => format!("scheduled earlier, still open ({extra})"),
         OccurrenceType::Scheduled => "scheduled for this day".to_string(),
-        OccurrenceType::Deadline if extra.ends_with("ago:") => format!("deadline passed ({extra})"),
+        OccurrenceType::Deadline if occurrence.late => format!("deadline passed ({extra})"),
         OccurrenceType::Deadline => "deadline is this day".to_string(),
         OccurrenceType::UpcomingDeadline => {
             format!("deadline warning period ({})", extra.trim_end_matches(':'))

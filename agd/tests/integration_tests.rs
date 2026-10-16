@@ -330,6 +330,24 @@ fn status_line_counts_today_for_a_status_bar() {
         .assert()
         .success()
         .stdout("1 overdue · 1 today · 1 inbox\n");
+    // As JSON: the same counts and the overdue rows, as Today lists them.
+    let output = fixture
+        .command()
+        .args(["agenda", "--status", "--json"])
+        .output()
+        .expect("status");
+    assert!(output.status.success(), "{output:?}");
+    let status: Value = serde_json::from_slice(&output.stdout).expect("status JSON");
+    assert_eq!(status["schema"], "agd.status/v1");
+    assert_eq!(
+        (&status["overdue"], &status["today"], &status["inbox"]),
+        (&Value::from(1), &Value::from(1), &Value::from(1))
+    );
+    assert_eq!(status["unreviewed"], 0);
+    let overdue = status["overdue_entries"].as_array().unwrap();
+    assert_eq!(overdue.len(), 1);
+    assert_eq!(overdue[0]["item"]["title"], "Late");
+    assert_eq!(overdue[0]["occurrence"]["late"], true);
 }
 
 #[test]
@@ -342,6 +360,7 @@ fn views_json_carries_what_a_client_draws_them_with() {
             concat!(
                 "start_view = \"w\"\n",
                 "theme = \"light\"\n",
+                "notation = \"org\"\n",
                 "nerd_font = true\n",
                 "todo_keyword_colors = {{ NEXT = \"teal\" }}\n",
                 "{config}",
@@ -375,6 +394,7 @@ fn views_json_carries_what_a_client_draws_them_with() {
     assert_eq!(payload["views"].as_array().unwrap().len(), 3);
     assert_eq!(payload["theme"], "light");
     assert_eq!(payload["nerd_font"], true);
+    assert_eq!(payload["notation"], "org");
     assert_eq!(payload["schema"], "agd.views/v1");
     // The TUI's palettes, by role, so the Claude Code pane keeps no copy.
     let palettes = &payload["palettes"];
@@ -415,7 +435,7 @@ fn capture_parses_tokens_and_keeps_body_literal() {
         .args([
             "capture",
             "t",
-            "Call embassy due:2026-10-30 +admin #A",
+            "Call embassy due:2026-10-30 #admin !A",
             "--body",
             "%(never-evaluate)",
             "--dry-run",
@@ -427,6 +447,17 @@ fn capture_parses_tokens_and_keeps_body_literal() {
         .stdout(predicate::str::contains("%(never-evaluate)"))
         .stdout(predicate::str::contains("DEADLINE: <2026-10-30 Fri>"));
     assert_eq!(fs::read(&fixture.tasks).expect("post-preview"), before);
+
+    // With notation = "org" a line takes Org's own :tags: and #A; agd's
+    // #tag and !A are text there, as #42 is in either notation.
+    let config = fs::read_to_string(&fixture.config).unwrap();
+    fs::write(&fixture.config, format!("notation = \"org\"\n{config}")).unwrap();
+    fixture
+        .command()
+        .args(["capture", "t", "Fix #42 :a:b: #B !A", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match(r"\+\*\* TODO \[#B\] Fix #42 !A {2,}:a:b:\n").unwrap());
 }
 
 #[test]
@@ -496,6 +527,17 @@ fn capture_takes_a_key_and_unquoted_words_or_the_text_alone() {
     ] {
         assert!(written.contains(heading), "{heading}: {written}");
     }
+    // --json adds where the item is as people read it, under its root.
+    let output = fixture
+        .command()
+        .args(["capture", "t", "Call the bank", "--json"])
+        .output()
+        .expect("capture");
+    assert!(output.status.success(), "{output:?}");
+    let mutation: Value = serde_json::from_slice(&output.stdout).expect("mutation JSON");
+    assert_eq!(mutation["schema"], "agd.mutation/v1");
+    let line = mutation["item"]["line"].as_u64().unwrap();
+    assert_eq!(mutation["location"], format!("tasks.org:{line}"));
 }
 
 #[cfg(unix)]

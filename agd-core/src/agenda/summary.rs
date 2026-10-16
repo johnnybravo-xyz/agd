@@ -49,24 +49,6 @@ pub struct AgendaSummary {
     pub unreviewed: usize,
 }
 
-impl AgendaSummary {
-    /// `1 overdue · 3 today · 9 inbox · 2 unreviewed`, leaving out zero
-    /// counts; empty when every count is zero.
-    pub fn line(&self) -> String {
-        [
-            (self.overdue, "overdue"),
-            (self.today, "today"),
-            (self.inbox, "inbox"),
-            (self.unreviewed, "unreviewed"),
-        ]
-        .iter()
-        .filter(|(count, _)| *count > 0)
-        .map(|(count, label)| format!("{count} {label}"))
-        .collect::<Vec<_>>()
-        .join(" · ")
-    }
-}
-
 impl AgendaEngine<'_> {
     /// The status band's counts for `today`, with unreviewed agent changes
     /// read from `journal` (`WriteEngine::journal`).
@@ -186,7 +168,5 @@ mod tests {
                 unreviewed: 1,
             }
         );
-        assert_eq!(summary.line(), "4 overdue · 1 today · 1 unreviewed");
-        assert_eq!(AgendaSummary::default().line(), "");
     }
 }

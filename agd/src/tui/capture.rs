@@ -1,7 +1,8 @@
 //! The capture popup (`c`, and `agd capture -i`): pick a template as in
-//! org-capture's menu, type one line with tokens (`due:fri +tag #A`) that
-//! show as chips, answer the template's prompts, and see the exact Org text
-//! a dry run would write before ⏎ writes it.
+//! org-capture's menu, type one line with tokens (`due:fri #tag !A`, or
+//! `:tag: #A` with `notation = "org"`) that show as chips, answer the
+//! template's prompts, and see the exact Org text a dry run would write
+//! before ⏎ writes it.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -10,10 +11,10 @@ use std::path::Path;
 use std::process::Command;
 
 use agd_core::{
-    CaptureDraft, CapturePrompt, WriteEngine, capture_prompts, keyword_colors, parse_capture_line,
+    CaptureDraft, CapturePrompt, Notation, WriteEngine, capture_prompts, keyword_colors,
+    parse_capture_line,
 };
 use anyhow::{Context, Result};
-use chrono::NaiveDate;
 use crossterm::event::{EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, enable_raw_mode};
@@ -111,7 +112,8 @@ impl Draft {
     }
 
     fn parsed(&self, app: &App) -> Result<CaptureDraft, String> {
-        parse_capture_line(self.input.text(), app.today).map_err(|error| error.to_string())
+        parse_capture_line(self.input.text(), app.today, app.settings.notation)
+            .map_err(|error| error.to_string())
     }
 
     /// The exact text that will be written, from a dry-run capture through
@@ -279,7 +281,7 @@ fn close(app: &mut App) -> Result<()> {
 
 fn commit(app: &mut App, draft: Draft) -> Result<()> {
     let template = draft.template.clone().unwrap_or_default();
-    let parsed = parse_capture_line(draft.input.text(), app.today)?;
+    let parsed = parse_capture_line(draft.input.text(), app.today, app.settings.notation)?;
     let prompts = prompt_answers(&draft.prompts);
     let mutation = WriteEngine::with_default_journal(app.settings.clone())?.capture(
         &template,
@@ -291,11 +293,7 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
     )?;
     app.index.refresh_path(Path::new(&mutation.item.file))?;
     let location = app.short_location(&mutation.item);
-    app.remember_undo(
-        &mutation.journal_id,
-        &location,
-        format!("captured · {}", mutation.item.title),
-    );
+    app.remember_undo(&mutation.journal_id, &location, &mutation.item.title);
     app.set_done(format!(
         "{} · u undo",
         crate::words::captured(&mutation.item, &location, app.today)
@@ -410,7 +408,10 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let mut input_spans = vec![Span::styled("› ", theme.strong(theme.accent))];
     if draft.input.text().is_empty() {
         input_spans.push(cursor(draft.field == 0));
-        input_spans.push(Span::styled(placeholder(), theme.muted()));
+        input_spans.push(Span::styled(
+            placeholder(app.settings.notation),
+            theme.muted(),
+        ));
     } else {
         input_spans.extend(draft.input.spans(theme, draft.field == 0));
     }
@@ -454,7 +455,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     }
     let next = 2 + if prompts > 0 { prompts as usize + 1 } else { 0 };
     frame.render_widget(
-        Paragraph::new(Line::from(chips(theme, draft.parsed(app).ok(), app.today))),
+        Paragraph::new(Line::from(chips(app, draft.parsed(app).ok()))),
         parts[next],
     );
     let destination = template.map_or(String::new(), destination);
@@ -487,17 +488,23 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     );
 }
 
-/// The tokens a capture line takes after the task, with what each does.
-const TOKENS: [(&str, &str); 4] = [
-    ("due:fri", "deadline"),
-    ("on:+2d", "scheduled"),
-    ("+work", "tag"),
-    ("#A", "priority"),
-];
+/// The tokens a capture line takes after the task in `notation`, with
+/// what each does.
+fn tokens(notation: Notation) -> [(String, &'static str); 4] {
+    [
+        ("due:fri".to_string(), "deadline"),
+        ("on:+2d".to_string(), "scheduled"),
+        (crate::words::tag(notation, "work"), "tag"),
+        (crate::words::priority(notation, "A"), "priority"),
+    ]
+}
 
 /// The empty field's placeholder: the task, then the tokens.
-fn placeholder() -> String {
-    let tokens: Vec<&str> = TOKENS.iter().map(|(token, _)| *token).collect();
+fn placeholder(notation: Notation) -> String {
+    let tokens: Vec<String> = tokens(notation)
+        .into_iter()
+        .map(|(token, _)| token)
+        .collect();
     format!("type a task  {}", tokens.join("  "))
 }
 
@@ -557,7 +564,7 @@ fn draw_chooser(frame: &mut Frame<'_>, app: &App, draft: &Draft, area: Rect) {
                 theme.muted(),
             )),
             Line::from(
-                TOKENS
+                tokens(app.settings.notation)
                     .iter()
                     .flat_map(|(token, meaning)| {
                         [
@@ -629,10 +636,11 @@ fn preview_lines(
 
 /// Parsed tokens shown as chips before anything is written. Dates carry
 /// their month, and their year when it is not this one.
-fn chips(theme: &Theme, draft: Option<CaptureDraft>, today: NaiveDate) -> Vec<Span<'static>> {
+fn chips(app: &App, draft: Option<CaptureDraft>) -> Vec<Span<'static>> {
     let Some(draft) = draft else {
         return Vec::new();
     };
+    let (theme, today) = (&app.theme, app.today);
     let mut spans = Vec::new();
     let date = |value: &str| crate::words::when(value, None, today);
     if let Some(deadline) = &draft.deadline {
@@ -643,12 +651,12 @@ fn chips(theme: &Theme, draft: Option<CaptureDraft>, today: NaiveDate) -> Vec<Sp
         spans.extend(theme.pill(format!("scheduled {}", date(&scheduled.date)), theme.accent));
         spans.push(Span::raw("  "));
     }
-    // `+work` is typed; the chip shows the tag as every list does.
+    // The chip shows the tag as every list does.
     for tag in &draft.tags {
-        spans.extend(theme.pill(crate::words::tag(tag), theme.muted));
+        spans.extend(theme.pill(crate::words::tag(app.settings.notation, tag), theme.muted));
         spans.push(Span::raw("  "));
     }
-    // `#A` is typed; the chip is the priority pill every row shows.
+    // The chip is the priority pill every row shows.
     if let Some(priority) = &draft.priority {
         spans.extend(theme.pill(priority.clone(), theme.due));
     }

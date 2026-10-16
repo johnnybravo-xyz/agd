@@ -160,6 +160,20 @@ function viewsJson(views: { key: string; desc: string; start: boolean }[], displ
   })
 }
 
+// `agd agenda --status --json`: the band's counts and the overdue rows, in
+// the order agd gives them.
+function statusJson(counts: Record<string, number> = {}, overdue: unknown[] = []) {
+  return JSON.stringify({
+    schema: 'agd.status/v1',
+    overdue: overdue.length,
+    today: 0,
+    inbox: 0,
+    unreviewed: 0,
+    ...counts,
+    overdue_entries: overdue,
+  })
+}
+
 const VIEWS = viewsJson(
   [
     { key: 'd', desc: 'Dashboard', start: true },
@@ -228,6 +242,31 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.unmount()
   })
 }
+
+test('tags are drawn in agd\'s notation', async ($, on) => {
+  panes(on)
+  agd(on, {
+    'agenda --status': { stdout: '' },
+    'agenda --views --json': { stdout: viewsJson([{ key: 'd', desc: 'Dashboard', start: true }], { notation: 'org' }) },
+    'agenda --view d --json': {
+      stdout: JSON.stringify([
+        {
+          header: 'Next Tasks',
+          from: null,
+          to: null,
+          entries: [],
+          items: [item('NEXT', 'Write the report', { tags: ['work', 'ops'] })],
+          groups: [],
+          color: 'blue',
+        },
+      ]),
+    },
+  })
+  await $.command.run(typed('agd'))
+  const ui = await $.ui.mount({ plugin: 'agd', surface: 'terminal', component: 'Pane', requestId: 'agd', props: PANE })
+  expect((await ui.find(exactly('  :work:ops:')))?.props.color).toBe('#808896')
+  await ui.unmount()
+})
 
 test('agd\'s theme setting picks the palette over Claude Code\'s', async ($, on) => {
   panes(on, 'dark')
@@ -310,8 +349,12 @@ test('the Today tab draws the TUI pane\'s compact rows: lead, title, right mark'
   const entry = (title: string, occurrence: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
     schema: 'agd.agenda-entry/v1',
     item: item('TODO', title, extra),
-    occurrence: { date: '2026-10-15', time: null, extra: '', ...occurrence },
+    occurrence: { date: '2026-10-15', time: null, extra: '', days: 0, late: false, ...occurrence },
   })
+  const late = [
+    entry('Pay the rent', { type: 'deadline', extra: '1 d. ago:', days: 1, late: true }),
+    entry('File the taxes', { type: 'past-scheduled', extra: 'Sched. 2x:', days: 2, late: true }),
+  ]
   const entries = [
     entry('Call the bank', { type: 'scheduled', time: '10:00', extra: 'Scheduled:' }),
     entry('Review the PR', { type: 'scheduled', time: '15:00', extra: 'Scheduled:' }, { priority: 'A' }),
@@ -319,29 +362,33 @@ test('the Today tab draws the TUI pane\'s compact rows: lead, title, right mark'
       planning: { scheduled: { date: '2026-10-15', repeater: '+3d' } },
     }),
     entry('Renew the lease', { type: 'deadline', extra: 'Deadline:' }),
-    entry('Quarterly report', { type: 'upcoming-deadline', extra: 'In   3 d.:' }),
-    entry('File the taxes', { type: 'past-scheduled', extra: 'Sched. 2x:' }),
-    entry('Pay the rent', { type: 'deadline', extra: '1 d. ago:' }),
+    entry('Quarterly report', { type: 'upcoming-deadline', extra: 'In   3 d.:', days: -3 }),
+    late[1],
+    late[0],
     entry('Stand-up', { type: 'scheduled', time: '09:00', extra: 'Scheduled:' }, { todo: 'DONE', done: true }),
   ]
   panes(on)
   agd(on, {
     'agenda --status': { stdout: '' },
+    'agenda --status --json': { stdout: statusJson({ today: 4 }, late) },
     'agenda --views --json': { stdout: viewsJson([{ key: 'n', desc: 'Next', start: false }]) },
     'agenda --span day --json': { stdout: JSON.stringify(entries) },
   })
   await $.command.run(typed('agd'))
   const ui = await $.ui.mount({ plugin: 'agd', surface: 'terminal', component: 'Pane', requestId: 'agd', props: { ...PANE, bodyColumns: 44 } })
-  // A section header with the open count, as in the TUI.
+  // Section headers with the status band's counts, as in the TUI.
+  expect((await ui.find(exactly('OVERDUE')))?.props.color).toBe('#f07178')
+  expect(await ui.find(exactly('  2'))).toBeDefined()
   expect((await ui.find(exactly('TODAY')))?.props.color).toBe('#6ea8fe')
-  expect(await ui.find(exactly('  7'))).toBeDefined()
+  expect(await ui.find(exactly('  4'))).toBeDefined()
   // No org-agenda prefix: the six-cell lead says when.
   expect(await ui.find(exactly('tasks:      '))).toBeUndefined()
   const badge = await ui.find(exactly('   2d '))
   expect(badge?.props.color).toBe('#f07178')
   expect(badge?.props.backgroundColor).toBe('#20252e')
   expect((await ui.find(exactly('  -1d ')))?.props.color).toBe('#f07178')
-  expect((await ui.find(exactly('in 3d ')))?.props.color).toBe('#e5b567')
+  // A deadline's warning is not today's: the TUI's Today has it.
+  expect(await ui.find(exactly('Quarterly report'))).toBeUndefined()
   const due = await ui.find(exactly('due   '))
   expect(due?.props.color).toBe('#e5b567')
   expect(due?.props.bold).toBe(true)
@@ -357,9 +404,9 @@ test('the Today tab draws the TUI pane\'s compact rows: lead, title, right mark'
   expect(await ui.find(exactly('↻'))).toBeDefined()
   expect((await ui.find(exactly('✓')))?.props.color).toBe('#7ec68f')
   expect((await ui.find(exactly('Stand-up')))?.props.strikethrough).toBe(true)
-  // Overdue rows come first, the most days late first.
+  // Overdue rows come first, in the order agd gives them, each once.
   const titles = (await ui.findAll({ type: 'Text', text: /^(File the taxes|Pay the rent|Call the bank)$/ })).map((found) => found.text)
-  expect(titles).toEqual(['File the taxes', 'Pay the rent', 'Call the bank'])
+  expect(titles).toEqual(['Pay the rent', 'File the taxes', 'Call the bank'])
   await ui.unmount()
 })
 
@@ -372,12 +419,12 @@ test('a saved view keeps org-agenda\'s prefix under the TUI\'s day lines', async
       {
         schema: 'agd.agenda-entry/v1',
         item: item('TODO', 'File the taxes', { category: 'home' }),
-        occurrence: { type: 'past-scheduled', date: '2026-10-15', time: null, extra: 'Sched. 2x:' },
+        occurrence: { type: 'past-scheduled', date: '2026-10-15', time: null, extra: 'Sched. 2x:', days: 2, late: true },
       },
       {
         schema: 'agd.agenda-entry/v1',
         item: item('TODO', 'Call the bank'),
-        occurrence: { type: 'scheduled', date: '2026-10-14', time: '10:00', extra: 'Scheduled:' },
+        occurrence: { type: 'scheduled', date: '2026-10-14', time: '10:00', extra: 'Scheduled:', days: 0, late: false },
       },
     ],
     items: [],
@@ -411,6 +458,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       'agenda --views --json': { stdout: VIEWS },
       'agenda --view d --json': { stdout: DASHBOARD },
       'agenda --view e --json': { stdout: LOW_EFFORT },
+      'agenda --status --json': { stdout: statusJson() },
       'agenda --span day --json': { stdout: '[]' },
     })
     await $.command.run(typed('agd'))
@@ -458,6 +506,7 @@ test('the band above the prompt shows the day\'s counts', async ($, on) => {
   agd(on, {
     'agenda --status': { stdout: '2 today · 5 inbox\n' },
     'agenda --views --json': { stdout: viewsJson([]) },
+    'agenda --status --json': { stdout: statusJson({ today: 2, inbox: 5 }) },
     'agenda --span day --json': { stdout: '[]' },
   })
   await $.command.run(typed('agd'))
@@ -481,13 +530,16 @@ test('/capture runs agd capture and says what it wrote as agd does', async ($, o
       line: 7,
       planning: { deadline: { date: '2026-10-16', time: null }, scheduled: { date: '2027-01-04', time: '09:00' } },
     }),
+    location: 'inbox.org:7',
   }
   agd(
     on,
     {
       'agenda --status': { stdout: '1 today · 1 inbox\n' },
       'capture --json -- t buy milk due:fri': { stdout: JSON.stringify(mutation) },
-      'capture --json -- t -1 point': { stdout: JSON.stringify({ ...mutation, item: item('TODO', '-1 point') }) },
+      'capture --json -- t -1 point': {
+        stdout: JSON.stringify({ ...mutation, item: item('TODO', '-1 point'), location: 'projects/tasks.org:1' }),
+      },
     },
     calls,
   )
@@ -497,7 +549,8 @@ test('/capture runs agd capture and says what it wrote as agd does', async ($, o
   )
   expect(calls).toContain('capture --json -- t buy milk due:fri')
   // After `--` a text that starts with `-` is text, not an option.
-  expect((await $.command.run(typed('capture', 't -1 point'))).text).toBe('tasks.org:1  captured · -1 point')
+  // The file is named under its root, as agd's terminal names it.
+  expect((await $.command.run(typed('capture', 't -1 point'))).text).toBe('projects/tasks.org:1  captured · -1 point')
 })
 
 test('/capture reports agd\'s own error as a sentence, and its usage', async ($, on) => {
@@ -506,7 +559,7 @@ test('/capture reports agd\'s own error as a sentence, and its usage', async ($,
     code: 'unknown_template',
     message: "capture template 'zz' is not configured",
   }
-  const stale = { schema: 'agd.error/v1', code: 'stale_ref', message: 'ref /org/a.org:3#sha256:0 is stale' }
+  const stale = { schema: 'agd.error/v1', code: 'ref_conflict', message: 'ref /org/a.org:3#sha256:0 is stale' }
   agd(on, {
     'agenda --status': { stdout: '' },
     // A skipped file is a warning line before agd's error.
@@ -644,6 +697,7 @@ test('show_band off hides the band and reads no counts', { options: { show_band:
     {
       'agenda --status': { stdout: '2 today\n' },
       'agenda --views --json': { stdout: viewsJson([]) },
+      'agenda --status --json': { stdout: statusJson({ today: 2 }) },
       'agenda --span day --json': { stdout: '[]' },
     },
     calls,

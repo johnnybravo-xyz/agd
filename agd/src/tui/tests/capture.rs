@@ -11,7 +11,7 @@ fn capture_preview_is_the_exact_text_that_will_be_written() {
         let mut app = test_app(root);
         app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
         app.overlay = Overlay::Capture(crate::tui::capture::Draft::default());
-        for key in "tRenew passport due:fri on:2027-01-04 +personal #A".chars() {
+        for key in "tRenew passport due:fri on:2027-01-04 #personal !A".chars() {
             crate::tui::capture::type_key(&mut app, key);
         }
         // Wide enough: the heading with its tags aligned to tags_column, as
@@ -32,17 +32,16 @@ fn capture_preview_is_the_exact_text_that_will_be_written() {
         assert!(heading.contains('…'), "{heading}");
         assert!(!narrow.contains(":personal:"), "{narrow}");
         let screen = render(&mut app, 100, 30).join("\n");
-        // `+personal` is what is typed; its chip shows the tag as lists do.
+        // The tag's chip shows it as lists do.
         let lines = render(&mut app, 100, 30);
         let chips = lines
             .iter()
             .find(|line| line.contains("deadline Fri 16 Oct"))
             .unwrap_or_else(|| panic!("{screen}"));
         assert!(chips.contains(" #personal "), "{chips}");
-        assert!(!chips.contains("+personal"), "{chips}");
-        // `#A` is typed; its chip is the priority pill rows show.
+        // `!A` is typed; its chip is the priority pill rows show.
         assert!(chips.contains("    A "), "{chips}");
-        assert!(!chips.contains("#A"), "{chips}");
+        assert!(!chips.contains("!A"), "{chips}");
         assert!(screen.contains("DEADLINE: <2026-10-16 Fri>"), "{screen}");
         // Chips name the month, and the year when it is not this one.
         assert!(screen.contains("deadline Fri 16 Oct"), "{screen}");
@@ -65,6 +64,38 @@ fn capture_opens_on_a_list_of_templates_with_their_destinations() {
         assert!(screen.contains("t  Todo"), "{screen}");
         assert!(screen.contains("→ inbox.org › Inbox"), "{screen}");
         assert!(screen.contains("esc cancel"), "{screen}");
+        // The tokens a line takes, in agd's notation.
+        assert!(screen.contains("#work tag  !A priority"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn with_org_notation_capture_takes_and_shows_orgs_tags_and_priority() {
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        app.settings.notation = agd_core::Notation::Org;
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        app.overlay = Overlay::Capture(crate::tui::capture::Draft::default());
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains(":work: tag  #A priority"), "{screen}");
+        crate::tui::capture::type_key(&mut app, 't');
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains(":work:  #A"), "{screen}");
+        for key in "Fix #42 :ops:web: #B".chars() {
+            crate::tui::capture::type_key(&mut app, key);
+        }
+        let lines = render(&mut app, 120, 30);
+        let screen = lines.join("\n");
+        assert!(screen.contains("TODO [#B] Fix #42"), "{screen}");
+        assert!(screen.contains(":ops:web:"), "{screen}");
+        let chips = lines
+            .iter()
+            .find(|line| line.contains(" :ops: "))
+            .unwrap_or_else(|| panic!("{screen}"));
+        assert!(chips.contains(" :web: "), "{chips}");
+        assert!(chips.contains(" B "), "{chips}");
     });
 }
 
@@ -108,7 +139,7 @@ fn the_capture_preview_colours_org_text_like_its_chips() {
         assert_eq!(buffer[(bar, y)].symbol(), "▌");
         assert_eq!(buffer[(bar + 40, y)].bg, app.theme.selection);
 
-        for key in "tRenew passport due:fri on:+2d +home".chars() {
+        for key in "tRenew passport due:fri on:+2d #home".chars() {
             crate::tui::capture::type_key(&mut app, key);
         }
         let buffer = render_buffer(&mut app, 100, 30);

@@ -1,6 +1,6 @@
 //! TODO keyword colors as agd draws them: a keyword's `todo_keyword_colors`
-//! entry, else green when done, orange for the first keyword of its sequence,
-//! and blue otherwise.
+//! entry (by default WAIT yellow and CANCELLED dim-red), else green when
+//! done, orange for the first keyword of its sequence, and blue otherwise.
 //!
 //! Colors are names from `COLOR_NAMES`, never terminal codes; the TUI maps
 //! them onto its palette. A keyword two files order differently takes the
@@ -62,4 +62,48 @@ fn color_in_sequence(
         })
         .is_some_and(|head| head.name == name);
     if first { "orange" } else { "blue" }.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agenda::test_support::fixture;
+
+    fn colors(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(name, color)| (name.to_string(), color.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn the_default_workflow_has_the_designs_colors_until_a_map_replaces_them() {
+        let (temp, index) = fixture("* TODO a\n* NEXT b\n* WAIT c\n* DONE d\n* CANCELLED e\n");
+        assert_eq!(
+            keyword_colors(&index),
+            colors(&[
+                ("CANCELLED", "dim-red"),
+                ("DONE", "green"),
+                ("NEXT", "blue"),
+                ("TODO", "orange"),
+                ("WAIT", "yellow"),
+            ])
+        );
+        let settings = Settings {
+            todo_keyword_colors: colors(&[("NEXT", "teal")]),
+            ..index.settings().clone()
+        };
+        let index = WorkspaceIndex::load(settings).unwrap();
+        assert_eq!(
+            keyword_colors(&index),
+            colors(&[
+                ("CANCELLED", "green"),
+                ("DONE", "green"),
+                ("NEXT", "teal"),
+                ("TODO", "orange"),
+                ("WAIT", "blue"),
+            ])
+        );
+        drop(temp);
+    }
 }

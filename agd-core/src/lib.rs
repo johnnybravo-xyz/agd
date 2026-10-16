@@ -25,9 +25,9 @@
 //! - An error is an [`AgdError`] whose `code` is one of [`ErrorCode`], the one
 //!   list of agd.error/v1 codes, named by one rule (`invalid_<thing>`,
 //!   `unknown_<thing>`, `<thing>_not_found`, `<thing>_conflict`,
-//!   `<thing>_failed`; see [`model`]); its message says what to do.
+//!   `<thing>_failed`; see [`ErrorCode`]); its message says what to do.
 //! - Every serialized record names its schema, `agd.<name>/v1`, with a
-//!   constant from [`model`] such as [`ITEM_SCHEMA`] or [`MUTATION_SCHEMA`].
+//!   `*_SCHEMA` constant such as [`ITEM_SCHEMA`] or [`MUTATION_SCHEMA`].
 //! - Config keys are snake_case. Values are lowercase, kebab-case when they
 //!   name an Org option (`ids = "add-on-write"`, `sorting_strategy =
 //!   ["time-up"]`, `kind = "tags-todo"`).
@@ -76,17 +76,19 @@
 //! # }
 //! ```
 
-pub mod agenda;
-pub mod capture_line;
-pub mod capture_template;
-pub mod check;
-pub mod config;
-pub mod date;
-pub mod document;
-pub mod import;
-pub mod model;
-pub mod path;
-pub mod write;
+// Every module is private; each public item has one path, the re-export
+// from this root below.
+mod agenda;
+mod capture_line;
+mod capture_template;
+mod check;
+mod config;
+mod date;
+mod document;
+mod import;
+mod model;
+mod path;
+mod write;
 
 pub use agenda::{
     AgendaEngine, AgendaQuery, AgendaSpan, AgendaSummary, ViewSection, ViewSectionGroup,
@@ -99,9 +101,10 @@ pub use check::{
     CheckFileReport, CheckProblem, CheckReport, CheckSummary, check_settings, journal_problems,
 };
 pub use config::{
-    AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, LogMode, SORTING_KEYS,
-    Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, WeekStart,
-    default_config_path, load_settings, parse_agenda_day, parse_config_file, render_config,
+    AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, LogMode, Notation,
+    SORTING_KEYS, Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings,
+    WeekStart, default_config_path, load_settings, parse_agenda_day, parse_config_file,
+    render_config,
 };
 pub use date::{
     date_preview, format_active_timestamp, now_local_naive, parse_date_change, parse_date_input,
@@ -118,8 +121,8 @@ pub use import::{
 pub use model::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, CHECK_SCHEMA, DESCRIBE_SCHEMA, ERROR_SCHEMA,
     ErrorCode, ErrorResponse, ITEM_SCHEMA, Item, JOURNAL_SCHEMA, MUTATION_SCHEMA, Mutation,
-    Occurrence, OccurrenceType, Planning, PlanningTimestamp, REFILE_SCHEMA, Repeat, UNDO_SCHEMA,
-    VIEW_SECTION_SCHEMA, VIEWS_SCHEMA,
+    Occurrence, OccurrenceType, Planning, PlanningTimestamp, REFILE_SCHEMA, Repeat, STATUS_SCHEMA,
+    UNDO_SCHEMA, VIEW_SECTION_SCHEMA, VIEWS_SCHEMA,
 };
 pub use path::{OrgFiles, RootSet, SkipReason};
 pub use write::{

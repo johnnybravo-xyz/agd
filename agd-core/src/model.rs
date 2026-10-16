@@ -38,6 +38,9 @@ pub const ERROR_SCHEMA: &str = "agd.error/v1";
 pub const VIEW_SECTION_SCHEMA: &str = "agd.view-section/v1";
 /// The payload of `agd agenda --views --json`.
 pub const VIEWS_SCHEMA: &str = "agd.views/v1";
+/// The payload of `agd agenda --status --json`: the status band's counts
+/// (`AgendaSummary`) and the overdue rows (`overdue_entries`).
+pub const STATUS_SCHEMA: &str = "agd.status/v1";
 /// An `agd setup check` report (`CheckReport`).
 pub const CHECK_SCHEMA: &str = "agd.check/v1";
 /// One line of the write journal (`JournalRecord`).

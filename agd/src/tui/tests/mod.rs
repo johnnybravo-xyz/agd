@@ -143,7 +143,7 @@ fn type_keys(app: &mut App, keys: &str) {
 fn agent_capture(app: &App, root: &Path, title: &str) {
     let mut settings = app.settings.clone();
     settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
-    let draft = agd_core::parse_capture_line(title, today()).unwrap();
+    let draft = agd_core::parse_capture_line(title, today(), agd_core::Notation::Agd).unwrap();
     let context = agd_core::WriteContext {
         actor: "mcp:test-agent".to_string(),
         project: root.to_string_lossy().into_owned(),

@@ -7,14 +7,18 @@
 //! - a countdown is `in 3d`, an age `12d`, a missed deadline `-2d`;
 //! - a change is `<file:line or N items>  <change> · <title>`, which the
 //!   TUI ends with ` · u undo` while it can be undone;
-//! - a tag is `#work` (`tag`), wherever one is drawn;
+//! - a count names its noun, singular for one (`1 file`, `3 files`), and
+//!   the day's counts read `1 overdue · 3 today · 9 inbox` (`summary`);
+//! - a tag is `#work`, or Org's `:work:` with `notation = "org"` (`tag`,
+//!   `tags`), wherever one is drawn, and a capture line takes it and a
+//!   priority (`priority`) the same way;
 //! - an error is a sentence without its code (codes are for JSON).
 //!
 //! Org's own text (the org-agenda layout, `--csv`, JSON) is never reworded.
 
 use std::path::{Path, PathBuf};
 
-use agd_core::{AgdError, ErrorCode, Item};
+use agd_core::{AgdError, AgendaSummary, ErrorCode, Item, Notation};
 use chrono::{Datelike, NaiveDate};
 
 /// `Fri 16 Oct`, or `Fri 16 Oct 2027` outside `today`'s year.
@@ -92,20 +96,63 @@ fn abbreviated(path: &str, home: &str) -> String {
     }
 }
 
-/// A tag as agd shows it: `#work`. Every tag drawn goes through here, so
-/// its notation lives in one place; `+work` is only what capture and the
-/// tags prompt take as input.
-pub fn tag(name: &str) -> String {
-    format!("#{name}")
+/// A tag as agd shows it in `notation`, as a capture line takes it:
+/// `#work`, or Org's `:work:`. Every tag drawn goes through here or `tags`;
+/// `+work` and `-work` are only the tags prompt's add and remove.
+pub fn tag(notation: Notation, name: &str) -> String {
+    match notation {
+        Notation::Agd => format!("#{name}"),
+        Notation::Org => format!(":{name}:"),
+    }
 }
 
-/// Tags as agd shows them, one space apart: `#work #ops`.
-pub fn tags(names: &[String]) -> String {
-    names
-        .iter()
-        .map(|name| tag(name))
-        .collect::<Vec<_>>()
-        .join(" ")
+/// Tags as agd shows them in `notation`: `#work #ops`, or Org's
+/// `:work:ops:`; empty without tags.
+pub fn tags(notation: Notation, names: &[String]) -> String {
+    match notation {
+        _ if names.is_empty() => String::new(),
+        Notation::Agd => names
+            .iter()
+            .map(|name| tag(notation, name))
+            .collect::<Vec<_>>()
+            .join(" "),
+        Notation::Org => format!(":{}:", names.join(":")),
+    }
+}
+
+/// A priority as a capture line takes it in `notation`: `!A`, or Org's
+/// `#A`. Rows show the letter alone, as a pill.
+pub fn priority(notation: Notation, letter: &str) -> String {
+    match notation {
+        Notation::Agd => format!("!{letter}"),
+        Notation::Org => format!("#{letter}"),
+    }
+}
+
+/// `count` with its noun, singular for one: "1 file", "0 files".
+pub fn counted(count: usize, singular: &str, plural: &str) -> String {
+    if count == 1 {
+        format!("1 {singular}")
+    } else {
+        format!("{count} {plural}")
+    }
+}
+
+/// The day's counts as the status band, the TUI and the panes say them:
+/// `1 overdue · 3 today · 9 inbox · 2 unreviewed`, leaving out zero
+/// counts; empty when every count is zero.
+pub fn summary(summary: &AgendaSummary) -> String {
+    [
+        (summary.overdue, "overdue"),
+        (summary.today, "today"),
+        (summary.inbox, "inbox"),
+        (summary.unreviewed, "unreviewed"),
+    ]
+    .iter()
+    .filter(|(count, _)| *count > 0)
+    .map(|(count, word)| counted(*count, word, word))
+    .collect::<Vec<_>>()
+    .join(" · ")
 }
 
 /// `<location>  <change> · <title>`, the one shape of every change line.
@@ -213,10 +260,30 @@ mod tests {
     }
 
     #[test]
-    fn tags_read_one_way() {
-        assert_eq!(tag("work"), "#work");
-        assert_eq!(tags(&["work".to_string(), "ops".to_string()]), "#work #ops");
-        assert_eq!(tags(&[]), "");
+    fn tags_and_priorities_read_in_the_configured_notation() {
+        let names = ["work".to_string(), "ops".to_string()];
+        assert_eq!(tag(Notation::Agd, "work"), "#work");
+        assert_eq!(tags(Notation::Agd, &names), "#work #ops");
+        assert_eq!(priority(Notation::Agd, "A"), "!A");
+        assert_eq!(tag(Notation::Org, "work"), ":work:");
+        assert_eq!(tags(Notation::Org, &names), ":work:ops:");
+        assert_eq!(priority(Notation::Org, "A"), "#A");
+        assert_eq!(tags(Notation::Agd, &[]), "");
+        assert_eq!(tags(Notation::Org, &[]), "");
+    }
+
+    #[test]
+    fn counts_name_their_noun_and_the_day_leaves_out_zeros() {
+        assert_eq!(counted(1, "file", "files"), "1 file");
+        assert_eq!(counted(0, "file", "files"), "0 files");
+        let day = AgendaSummary {
+            overdue: 4,
+            today: 1,
+            inbox: 0,
+            unreviewed: 1,
+        };
+        assert_eq!(summary(&day), "4 overdue · 1 today · 1 unreviewed");
+        assert_eq!(summary(&AgendaSummary::default()), "");
     }
 
     #[test]

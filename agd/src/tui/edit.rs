@@ -297,11 +297,7 @@ fn commit(app: &mut App, form: Box<EditForm>) -> Result<()> {
     let mutation = engine.edit(&form.item_ref, &intent, false, &write_context())?;
     app.index.refresh_path(Path::new(&mutation.item.file))?;
     let location = app.short_location(&mutation.item);
-    app.remember_undo(
-        &mutation.journal_id,
-        &location,
-        format!("edited · {}", mutation.item.title),
-    );
+    app.remember_undo(&mutation.journal_id, &location, &mutation.item.title);
     let line = crate::words::change(&location, "edited", &mutation.item.title);
     // On the Agents tab `u` undoes the agent's change, not this one.
     app.set_done(if app.screen == Screen::Review {

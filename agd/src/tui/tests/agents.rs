@@ -9,7 +9,8 @@ fn peek_on_the_agents_tab_shows_the_task_an_agent_wrote() {
         fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
         let mut app = test_app(root);
         app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
-        let draft = agd_core::parse_capture_line("Agent task #A", today()).unwrap();
+        let draft = agd_core::parse_capture_line("Agent task !A", today(), agd_core::Notation::Agd)
+            .unwrap();
         let context = agd_core::WriteContext {
             actor: "mcp:test-agent".to_string(),
             project: root.to_string_lossy().into_owned(),
@@ -112,7 +113,7 @@ fn a_second_shift_a_never_clears_the_queue_and_marks_choose_what_a_accepts() {
         let status = app.status.as_ref().unwrap().text.clone();
         assert!(status.starts_with("2 changes  accepted"), "{status}");
         assert!(journal().iter().all(|record| record.status == Reviewed));
-        assert_eq!(app.counts.agents, 0);
+        assert_eq!(app.counts.unreviewed, 0);
         assert_eq!(
             fs::read_to_string(root.join("inbox.org"))
                 .unwrap()
@@ -192,7 +193,7 @@ fn every_agent_card_has_the_same_two_line_shape() {
         fs::write(root.join("inbox.org"), "").unwrap();
         fs::write(root.join("work.org"), "* TODO Rotate staging certs\n").unwrap();
         let mut app = test_app(root);
-        agent_capture(&app, root, "Benchmark the agenda +perf");
+        agent_capture(&app, root, "Benchmark the agenda #perf");
         let item = app
             .index
             .items()
@@ -229,7 +230,7 @@ fn every_agent_card_has_the_same_two_line_shape() {
             .unwrap_or_else(|| panic!("{text}"));
         assert!(!text.contains("+ * Inbox"), "{text}");
         assert!(!text.contains(":perf:"), "{text}");
-        assert!(screen[task].contains("captured  "), "{text}");
+        assert!(screen[task].contains("capture  "), "{text}");
         assert!(screen[task].contains("inbox.org:"), "{text}");
         assert!(screen[task - 1].contains("● test-agent"), "{text}");
         // A long name is cut to 13 characters and "…".
@@ -238,8 +239,8 @@ fn every_agent_card_has_the_same_two_line_shape() {
         let when = crate::words::moment(&app.journals[0].timestamp, today());
         assert!(text.contains(&format!(" · {when}")), "{text}");
         assert!(text.contains("TODO → DONE  Rotate staging certs"), "{text}");
-        // Each kind is a past-tense verb, as change lines are.
-        assert!(text.contains("changed state"), "{text}");
+        // Each kind is the journal's word for the change, as undo says it.
+        assert!(text.contains("state change"), "{text}");
         // No raw planning lines; peek has the diff.
         assert!(!text.contains("CLOSED:"), "{text}");
         // The bar runs down the selected card; the blank row between cards
@@ -283,7 +284,8 @@ fn less_than_narrows_the_agents_tab_by_agent_as_it_narrows_lists_by_category() {
             .unwrap()
             .capture(
                 "t",
-                &agd_core::parse_capture_line("From codex", today()).unwrap(),
+                &agd_core::parse_capture_line("From codex", today(), agd_core::Notation::Agd)
+                    .unwrap(),
                 "",
                 &Default::default(),
                 false,
@@ -349,5 +351,21 @@ fn on_the_agents_tab_esc_steps_back_and_q_quits() {
         press(&mut app, KeyCode::Char('A'));
         press(&mut app, KeyCode::Char('q'));
         assert!(app.quit);
+    });
+}
+
+#[test]
+#[serial]
+fn undoing_an_agent_change_says_it_as_agd_undo_does() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        agent_capture(&app, root, "Agent task");
+        app.index.refresh_path(&root.join("inbox.org")).unwrap();
+        app.switch_screen(Screen::Review).unwrap();
+        press(&mut app, KeyCode::Char('u'));
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert_eq!(status, "inbox.org:2  undid capture · Agent task");
     });
 }

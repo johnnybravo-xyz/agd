@@ -20,8 +20,8 @@ pub use file::{
     LoadedSettings, default_config_path, load_settings, parse_config_file, render_config,
 };
 pub use model::{
-    AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LogMode, SORTING_KEYS, Settings,
-    VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, WeekStart,
+    AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LogMode, Notation, SORTING_KEYS,
+    Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, WeekStart,
     parse_agenda_day,
 };
 pub(crate) use validation::validate_values;

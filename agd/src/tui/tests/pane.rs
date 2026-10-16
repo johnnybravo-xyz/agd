@@ -10,11 +10,10 @@ fn pane_sorts_by_clock_time_and_keeps_done_rows_last() {
         let mut app = test_app(root);
         app.pane = true;
         app.reload_rows().unwrap();
+        // Quarterly report's deadline is in three days: Today's DUE SOON,
+        // not today's.
         let titles: Vec<&str> = app.rows.iter().map(|row| row.item.title.as_str()).collect();
-        assert_eq!(
-            titles,
-            ["Review ingestion PR", "Quarterly report", "Call with bank"]
-        );
+        assert_eq!(titles, ["Review ingestion PR", "Call with bank"]);
         let screen = render(&mut app, 35, 12).join("\n");
         assert!(screen.contains("1 overdue"), "{screen}");
         assert!(screen.contains("Inbox 1"), "{screen}");
@@ -82,16 +81,40 @@ fn a_full_pane_title_keeps_a_space_before_its_mark() {
     with_home(|root| {
         fs::write(
             root.join("work.org"),
-            "* TODO [#A] Submit expense claims for the offsite\nDEADLINE: <2026-10-22 Thu>\n",
+            "* TODO [#A] Submit expense claims for the offsite\nDEADLINE: <2026-10-13 Tue>\n",
         )
         .unwrap();
         let mut app = test_app(root);
         app.pane = true;
         app.reload_rows().unwrap();
         let screen = render(&mut app, 34, 10).join("\n");
-        // The countdown leads, as on Today; the priority is the pill rows
+        // The lead says when, as on Today; the priority is the pill rows
         // show, a space after the title however long it is.
-        assert!(screen.contains("in 9d  Submit"), "{screen}");
+        assert!(screen.contains("due    Submit"), "{screen}");
         assert!(screen.contains("…  A │"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn the_pane_counts_each_item_once_as_the_status_band_does() {
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* TODO Late twice\nSCHEDULED: <2026-09-01 Tue> DEADLINE: <2026-10-10 Sat>\n\
+* TODO Both today\nSCHEDULED: <2026-10-13 Tue> DEADLINE: <2026-10-13 Tue>\n\
+* TODO Due soon\nDEADLINE: <2026-10-16 Fri>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.pane = true;
+        app.reload_rows().unwrap();
+        // A deadline's warning is not today's, so the pane leaves it to
+        // Today, and two rows of one task count once.
+        assert_eq!(crate::words::summary(&app.counts), "1 overdue · 1 today");
+        let screen = render(&mut app, 34, 12).join("\n");
+        assert!(screen.contains(" 1 overdue "), "{screen}");
+        assert!(screen.contains("TODAY  1"), "{screen}");
+        assert!(!screen.contains("Due soon"), "{screen}");
     });
 }

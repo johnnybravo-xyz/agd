@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use std::time::Instant;
 
 use agd_core::{
-    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalRecord, JournalStatus,
-    Occurrence, OccurrenceType, WorkspaceIndex, WriteEngine,
+    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalOperation, JournalRecord,
+    JournalStatus, OccurrenceType, WorkspaceIndex, WriteEngine, overdue_entries,
 };
 use anyhow::Result;
 use chrono::{Datelike, Duration, NaiveDate};
@@ -46,13 +46,13 @@ impl App {
         Ok(())
     }
 
-    /// `T`: overdue tasks, most days late first, then the inbox, frozen as
-    /// the pass's queue.
+    /// `T`: overdue tasks in the core's order (overdue_entries), then the
+    /// inbox, frozen as the pass's queue.
     pub(super) fn start_triage(&mut self) -> Result<()> {
         let engine = AgendaEngine::new(&self.index);
         let entries = engine.agenda(&self.query(self.today, self.today))?;
         let someday = &self.settings.someday_tag;
-        let mut queue = triage_rows(entries, engine.inbox());
+        let mut queue = triage_rows(&entries, engine.inbox());
         // Demoted tasks are done being triaged.
         queue.retain(|row| !row.item.tags.contains(someday) && self.visible(&row.item));
         self.triage = TriageState {
@@ -220,32 +220,18 @@ impl App {
         let journals = WriteEngine::with_default_journal(self.settings.clone())?.journal()?;
         self.provenance.clear();
         for record in &journals {
-            if is_capture(record)
+            if record.operation == Some(JournalOperation::Capture)
                 && let Some(item_ref) = &record.item_ref
             {
-                let actor = record
-                    .actor
-                    .strip_prefix("mcp:")
-                    .unwrap_or("you")
-                    .to_string();
                 self.provenance.insert(
                     super::stable_ref(item_ref),
-                    (actor, record.timestamp.clone()),
+                    (record.actor_name().to_string(), record.timestamp.clone()),
                 );
             }
         }
-        self.counts.agents = journals
-            .iter()
-            .filter(|record| is_agent(record) && record.status == JournalStatus::Committed)
-            .count();
         let engine = AgendaEngine::new(&self.index);
-        let today_entries = engine.agenda(&self.query(self.today, self.today))?;
-        self.counts.overdue = today_entries
-            .iter()
-            .filter(|entry| is_overdue(entry))
-            .count();
+        self.counts = engine.summary(self.today, &journals)?;
         let inbox = engine.inbox();
-        self.counts.inbox = inbox.len();
 
         let mut headers: Vec<Header> = Vec::new();
         let mut rows = match &self.screen {
@@ -447,10 +433,18 @@ fn today_rows(
         (INBOX, Vec::new()),
     ];
     let mut shown = BTreeSet::new();
-    for entry in entries {
-        let slot = if is_overdue(&entry) {
-            0
-        } else if matches!(
+    // OVERDUE is the core's overdue list: one row per item, in its order.
+    for entry in overdue_entries(&entries) {
+        shown.insert(entry.item.item_ref.clone());
+        sections[0].1.push(DisplayRow {
+            section: OVERDUE.to_string(),
+            item: entry.item,
+            occurrence: Some(entry.occurrence),
+            more: 0,
+        });
+    }
+    for entry in entries.into_iter().filter(|entry| !entry.occurrence.late) {
+        let slot = if matches!(
             entry.occurrence.kind,
             OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline
         ) {
@@ -468,10 +462,14 @@ fn today_rows(
     }
     let overdue = std::mem::take(&mut sections[0].1);
     sections[0].1 = collapse_overdue(overdue, overdue_expanded);
-    // Deadlines soonest first; a deadline today counts as 0 days.
-    sections[2]
-        .1
-        .sort_by_key(|row| row.occurrence.as_ref().map_or(0, countdown));
+    // Deadlines soonest first: `days` is minus the days left, 0 on the day.
+    sections[2].1.sort_by_key(|row| {
+        std::cmp::Reverse(
+            row.occurrence
+                .as_ref()
+                .map_or(0, |occurrence| occurrence.days),
+        )
+    });
     for item in todos {
         if !shown.contains(&item.item_ref) && is_in_progress(item, index) {
             shown.insert(item.item_ref.clone());
@@ -500,28 +498,9 @@ fn today_rows(
     sections.into_iter().flat_map(|(_, rows)| rows).collect()
 }
 
-/// Days until a deadline from org's `In   3 d.:` leader; 0 on the day.
-fn countdown(occurrence: &Occurrence) -> i64 {
-    if occurrence.kind == OccurrenceType::UpcomingDeadline {
-        days_late(occurrence)
-    } else {
-        0
-    }
-}
-
-/// Missed deadlines before old scheduled items, most days late first;
-/// unless expanded, the first few and a "+N more" row standing for the
-/// rest. One hidden row is simply shown.
+/// Unless expanded, the first few overdue rows and a "+N more" row
+/// standing for the rest. One hidden row is simply shown.
 fn collapse_overdue(mut rows: Vec<DisplayRow>, expanded: bool) -> Vec<DisplayRow> {
-    rows.sort_by_key(|row| {
-        let occurrence = row.occurrence.as_ref();
-        let scheduled =
-            occurrence.is_some_and(|occurrence| occurrence.kind == OccurrenceType::PastScheduled);
-        (
-            scheduled,
-            std::cmp::Reverse(occurrence.map_or(0, days_late)),
-        )
-    });
     if expanded || rows.len() <= OVERDUE_ON_TODAY + 1 {
         return rows;
     }
@@ -533,23 +512,16 @@ fn collapse_overdue(mut rows: Vec<DisplayRow>, expanded: bool) -> Vec<DisplayRow
     rows
 }
 
-/// Days late from org's `Sched.12x:` or `3 d. ago:` leader.
-fn days_late(occurrence: &Occurrence) -> i64 {
-    occurrence
-        .extra
-        .chars()
-        .filter(char::is_ascii_digit)
-        .collect::<String>()
-        .parse()
-        .unwrap_or(0)
-}
-
 /// The pane: today's dated rows, timed ones by clock time, then untimed,
-/// with done rows last; overdue rows are only counted.
+/// with done rows last. Overdue rows are only counted, and a deadline's
+/// warning (`in 3d`) is not today's, as the status band counts them; Today
+/// lists both.
 fn pane_rows(entries: Vec<AgendaEntry>) -> Vec<DisplayRow> {
     let mut rows: Vec<DisplayRow> = entries
         .into_iter()
-        .filter(|entry| !is_overdue(entry))
+        .filter(|entry| {
+            !entry.occurrence.late && entry.occurrence.kind != OccurrenceType::UpcomingDeadline
+        })
         .map(|entry| DisplayRow {
             section: SCHEDULE.to_string(),
             item: entry.item,
@@ -676,13 +648,10 @@ fn current_item(index: &WorkspaceIndex, item: &Item) -> Option<Item> {
         .cloned()
 }
 
-/// Overdue items first (most days late first), then the inbox.
-fn triage_rows(entries: Vec<AgendaEntry>, inbox: Vec<Item>) -> Vec<DisplayRow> {
-    let mut seen = BTreeSet::new();
-    let mut rows: Vec<DisplayRow> = entries
+/// The core's overdue list, in its order, then the inbox; each item once.
+fn triage_rows(entries: &[AgendaEntry], inbox: Vec<Item>) -> Vec<DisplayRow> {
+    let mut rows: Vec<DisplayRow> = overdue_entries(entries)
         .into_iter()
-        .filter(|entry| is_overdue(entry) && !entry.item.done)
-        .filter(|entry| seen.insert(entry.item.item_ref.clone()))
         .map(|entry| DisplayRow {
             section: OVERDUE.to_string(),
             item: entry.item,
@@ -690,6 +659,7 @@ fn triage_rows(entries: Vec<AgendaEntry>, inbox: Vec<Item>) -> Vec<DisplayRow> {
             more: 0,
         })
         .collect();
+    let mut seen: BTreeSet<String> = rows.iter().map(|row| row.item.item_ref.clone()).collect();
     rows.extend(
         inbox
             .into_iter()
@@ -702,15 +672,6 @@ fn triage_rows(entries: Vec<AgendaEntry>, inbox: Vec<Item>) -> Vec<DisplayRow> {
             }),
     );
     rows
-}
-
-/// Past-scheduled reminders and overdue deadlines.
-pub(super) fn is_overdue(entry: &AgendaEntry) -> bool {
-    match entry.occurrence.kind {
-        OccurrenceType::PastScheduled => true,
-        OccurrenceType::Deadline => entry.occurrence.extra.ends_with("ago:"),
-        _ => false,
-    }
 }
 
 /// A TODO in a middle state of its sequence (NEXT, INPROGRESS, WAIT…):
@@ -732,36 +693,17 @@ fn is_in_progress(item: &Item, index: &WorkspaceIndex) -> bool {
     !item.done && head.is_some_and(|head| head.name != todo)
 }
 
-/// A journal entry that added a heading and removed none: a capture. A
-/// state change rewrites its heading line (`-*` then `+*`), and an undo or
-/// a refile moves one, so none of those name who captured the task.
-fn is_capture(record: &JournalRecord) -> bool {
-    let changed = || {
-        record
-            .diff
-            .lines()
-            .filter(|line| !line.starts_with("+++") && !line.starts_with("---"))
-    };
-    record.transaction.is_none()
-        && changed().any(|line| line.starts_with("+*"))
-        && !changed().any(|line| line.starts_with("-*"))
-}
-
-fn is_agent(record: &JournalRecord) -> bool {
-    record.actor.starts_with("mcp:")
-}
-
 /// Recent agent changes, unreviewed first, newest first within each group.
 fn review_records(journals: Vec<JournalRecord>, agent: Option<&str>) -> Vec<JournalRecord> {
     let mut records: Vec<JournalRecord> = journals
         .into_iter()
         .filter(|record| {
-            is_agent(record)
+            record.agent().is_some()
                 && matches!(
                     record.status,
                     JournalStatus::Committed | JournalStatus::Reviewed
                 )
-                && agent.is_none_or(|agent| record.actor.strip_prefix("mcp:") == Some(agent))
+                && agent.is_none_or(|agent| record.agent() == Some(agent))
         })
         .collect();
     records.sort_by(|left, right| {

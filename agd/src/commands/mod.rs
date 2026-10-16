@@ -36,15 +36,6 @@ pub fn cli_context() -> WriteContext {
     }
 }
 
-/// `count` with its noun, singular for one: "1 file", "0 files".
-pub fn counted(count: usize, singular: &str, plural: &str) -> String {
-    if count == 1 {
-        format!("1 {singular}")
-    } else {
-        format!("{count} {plural}")
-    }
-}
-
 /// Whether stdout gets terminal colours: it is a terminal and NO_COLOR is
 /// unset or empty (no-color.org).
 pub fn color_stdout() -> bool {

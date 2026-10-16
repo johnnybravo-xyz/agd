@@ -466,6 +466,39 @@ fn today_folds_overdue_behind_a_more_row_with_missed_deadlines_first() {
 
 #[test]
 #[serial]
+fn today_and_triage_list_the_cores_overdue_items_once_each_in_its_order() {
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* TODO Twice late\nSCHEDULED: <2026-09-01 Tue> DEADLINE: <2026-10-10 Sat>\n\
+* TODO Old schedule\nSCHEDULED: <2026-09-20 Sun>\n\
+* TODO Missed by one\nDEADLINE: <2026-10-12 Mon>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        // Missed deadlines first, most days late first; a task late twice
+        // is one row.
+        let overdue: Vec<String> = app
+            .rows
+            .iter()
+            .filter(|row| row.section == "OVERDUE")
+            .map(|row| row.item.title.clone())
+            .collect();
+        assert_eq!(overdue, ["Twice late", "Missed by one", "Old schedule"]);
+        app.start_triage().unwrap();
+        let queue: Vec<String> = app
+            .triage
+            .queue
+            .iter()
+            .map(|row| row.item.title.clone())
+            .collect();
+        assert_eq!(queue, overdue);
+    });
+}
+
+#[test]
+#[serial]
 fn status_lines_name_what_happened_and_never_blame_the_config() {
     use crossterm::event::KeyCode;
     with_home(|root| {
@@ -979,7 +1012,8 @@ fn u_undoes_only_this_sessions_changes_and_names_them() {
             .unwrap()
             .capture(
                 "t",
-                &agd_core::parse_capture_line("From codex", today()).unwrap(),
+                &agd_core::parse_capture_line("From codex", today(), agd_core::Notation::Agd)
+                    .unwrap(),
                 "",
                 &Default::default(),
                 false,
@@ -991,7 +1025,7 @@ fn u_undoes_only_this_sessions_changes_and_names_them() {
         app.undo().unwrap();
         assert_eq!(
             app.status.as_ref().unwrap().text,
-            "tasks.org:1  undid scheduled Tue 20 Oct · Pay rent"
+            "tasks.org:1  undid schedule · Pay rent"
         );
         assert!(
             fs::read_to_string(&tasks)
@@ -1032,7 +1066,7 @@ fn x_on_a_repeating_task_says_it_repeated_and_when_it_is_next() {
         app.undo().unwrap();
         assert_eq!(
             app.status.as_ref().unwrap().text,
-            "home.org:1  undid repeated → Tue 20 Oct · Water plants"
+            "home.org:1  undid state change · Water plants"
         );
     });
 }
@@ -1242,6 +1276,31 @@ fn peek_shows_the_headings_own_tags_then_the_inherited_ones_muted() {
         let y = row_of(&buffer, "TODO Rotate certs");
         let row: String = (0..120).map(|x| buffer[(x, y)].symbol()).collect();
         assert!(row.contains("#ops"), "{row}");
+    });
+}
+
+#[test]
+#[serial]
+fn with_org_notation_every_tag_is_drawn_as_org_writes_it() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* Project :infra:\n** TODO Rotate certs :ops:web:\nSCHEDULED: <2026-10-13 Tue>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.settings.notation = agd_core::Notation::Org;
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 120, 30).join("\n");
+        assert!(screen.contains("Rotate certs  :ops:web:"), "{screen}");
+        press(&mut app, KeyCode::Char(' '));
+        let screen = render(&mut app, 120, 30).join("\n");
+        assert!(screen.contains(":ops:web: :infra:"), "{screen}");
+        press(&mut app, KeyCode::Char(' '));
+        press(&mut app, KeyCode::Char('S'));
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert!(status.contains("→ :someday:"), "{status}");
     });
 }
 

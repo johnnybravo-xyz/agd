@@ -32,8 +32,8 @@ const WRITE_TOOL = /^mcp__(plugin_agd_)?agd__(capture|edit|plan|set_state)$/
 
 // What the band and the pane draw; refresh() replaces them. `views` and
 // `display` come from `agd agenda --views --json`, which reads config.toml:
-// the saved views, and the TUI's theme, nerd_font, keyword colors and
-// palettes.
+// the saved views, and the TUI's theme, nerd_font, notation, keyword colors
+// and palettes.
 // `current` is the open tab, a view's key or TODAY, starting on start_view.
 // `showBand` is the plugin's show_band option; `refreshes` counts refresh()
 // calls, so only the latest one started may replace what is drawn.
@@ -42,7 +42,7 @@ let sections = []
 let problem = ''
 let paneOpen = false
 let views = []
-let display = { theme: 'auto', nerd_font: false, keyword_colors: {}, palettes: null }
+let display = { theme: 'auto', nerd_font: false, notation: 'agd', keyword_colors: {}, palettes: null }
 let palette = THEME_KEYS
 let current = null
 let showBand = true
@@ -69,8 +69,8 @@ async function agd($, args) {
 // The codes whose message words::error_sentence says plainly instead, as
 // agd's terminal and TUI do.
 const PLAIN_ERRORS = {
-  stale_ref: 'this heading changed on disk since agd read it',
-  no_change: 'nothing would change',
+  ref_conflict: 'this heading changed on disk since agd read it',
+  invalid_edit: 'nothing would change',
 }
 
 // agd's stderr as the sentence its TUI shows: the agd.error/v1 line under
@@ -90,15 +90,26 @@ function errorSentence(stderr) {
   }
 }
 
-// A saved view's sections, or today's agenda as one section.
+// A saved view's sections, or Today as two: agd's overdue rows in its order
+// (`agd agenda --status --json`, as the TUI's Today and Triage list them),
+// then today's rows, each with the status band's count. A deadline's warning
+// (`in 3d`) is not today's, as the band and the TUI's pane count it.
 async function readSections($, key) {
   if (key !== TODAY) {
     const view = await agd($, ['agenda', '--view', key, '--json'])
     return view.error ? { error: view.error } : parsed(view.stdout, (sections) => sections)
   }
+  const status = await agd($, ['agenda', '--status', '--json'])
+  if (status.error) return { error: status.error }
   const day = await agd($, ['agenda', '--span', 'day', '--json'])
   if (day.error) return { error: day.error }
-  return parsed(day.stdout, (entries) => [{ header: 'Today', entries, items: [], groups: [], color: 'blue' }])
+  return parsed(day.stdout, (entries) => {
+    const counts = JSON.parse(status.stdout)
+    return [
+      { header: 'Overdue', count: counts.overdue, entries: counts.overdue_entries, color: 'red' },
+      { header: 'Today', count: counts.today, entries: entries.filter(isToday), color: 'blue' },
+    ]
+  })
 }
 
 // agd's JSON as { sections }, or { error } when it does not parse.
@@ -122,6 +133,7 @@ async function readDisplay($) {
       display: {
         theme: payload.theme || 'auto',
         nerd_font: payload.nerd_font === true,
+        notation: payload.notation === 'org' ? 'org' : 'agd',
         keyword_colors: payload.keyword_colors || {},
         palettes: payload.palettes || null,
       },
@@ -300,46 +312,36 @@ function pill(Text, text, color) {
   ]
 }
 
-// The lead's color, as the TUI's: overdue in red, deadlines amber; null for
+// Whether an agenda row of today is today's: not late, and not a deadline's
+// warning.
+function isToday(entry) {
+  return !entry.occurrence.late && entry.occurrence.type !== 'upcoming-deadline'
+}
+
+// The lead's color, as the TUI's: late rows red, deadlines amber; null for
 // the rest, which are muted.
 function leadColor(occurrence) {
-  if (occurrence.type === 'past-scheduled') return palette.overdue
-  if (occurrence.type === 'deadline' && occurrence.extra.endsWith('ago:')) return palette.overdue
+  if (occurrence.late) return palette.overdue
   if (occurrence.type === 'deadline' || occurrence.type === 'upcoming-deadline') return palette.due
   return null
-}
-
-// Whether an agenda row is overdue: a reminder past its date or a missed
-// deadline.
-function isOverdue(occurrence) {
-  return occurrence.type === 'past-scheduled' || (occurrence.type === 'deadline' && occurrence.extra.endsWith('ago:'))
-}
-
-// The first number in org's leader: 12 in `Sched.12x:`, 3 in `In   3 d.:`.
-function leaderDays(extra) {
-  const digits = extra.match(/\d+/)
-  return digits ? Number(digits[0]) : 0
 }
 
 // The clock time a row's lead shows (`16:30`, the start of a range), as
 // minutes since midnight; null when its lead is a badge or countdown.
 function leadMinutes(occurrence) {
-  if (isOverdue(occurrence) || occurrence.type === 'deadline' || occurrence.type === 'upcoming-deadline') return null
+  if (occurrence.late || occurrence.type === 'deadline' || occurrence.type === 'upcoming-deadline') return null
   const time = (occurrence.time || '').match(/^(\d{1,2}):(\d{2})/)
   return time ? Number(time[1]) * 60 + Number(time[2]) : null
 }
 
-// The six-cell lead that always says when, as the TUI's lead_cell: an
-// overdue badge (`12d`, `-2d`, right-aligned), a countdown (`in 3d`), `due`
-// on a deadline's day, or the time: muted once past or done, bold on the
-// next timed task, accent later.
+// The six-cell lead that always says when, as the TUI's lead_cell, from
+// agd's `days` and `late`: an overdue badge (`12d`, a missed deadline `-2d`,
+// right-aligned), `due` on a deadline's day, or the time: muted once past or
+// done, bold on the next timed task, accent later.
 function leadCell(Text, occurrence, done, clock) {
-  if (occurrence.type === 'past-scheduled') return pill(Text, (leaderDays(occurrence.extra) + 'd').padStart(4), palette.overdue)
-  if (occurrence.type === 'deadline' && occurrence.extra.endsWith('ago:')) {
-    return pill(Text, ('-' + leaderDays(occurrence.extra) + 'd').padStart(4), palette.overdue)
-  }
-  if (occurrence.type === 'upcoming-deadline') {
-    return [Text(colored(palette.due, { children: [('in ' + leaderDays(occurrence.extra) + 'd').padEnd(6)] }))]
+  if (occurrence.late) {
+    const missed = occurrence.type === 'deadline' ? '-' : ''
+    return pill(Text, (missed + occurrence.days + 'd').padStart(4), palette.overdue)
   }
   if (occurrence.type === 'deadline') return [Text(colored(palette.due, { bold: true, children: ['due   '] }))]
   if (!occurrence.time) return [Text({ children: ['      '] })]
@@ -377,9 +379,10 @@ function taskRow(Text, item, occurrence) {
   return Text({ wrap: 'truncate-end', children: parts })
 }
 
-// Tags as agd shows them (words::tags): `#work #ops`; every tag the pane
-// draws goes through here.
+// Tags as agd shows them in its notation (words::tags): `#work #ops`, or
+// Org's `:work:ops:`; every tag the pane draws goes through here.
 function tagsText(tags) {
+  if (display.notation === 'org') return ':' + tags.join(':') + ':'
   return tags.map((tag) => '#' + tag).join(' ')
 }
 
@@ -481,16 +484,17 @@ function sectionLines(Text, section) {
   return lines
 }
 
-// Today as the TUI's pane draws it, compact enough for a 40-column pane:
-// overdue rows first, most days late first, then timed rows by time,
-// untimed ones, and done rows last; each row the marker (`▸` on the next
-// timed task), the lead, the title, and at the right the priority, ↻ for
-// a repeating task or ✓ for done.
-function todayLines(Box, Text, entries) {
+// Today's two sections compact enough for a 40-column pane, with the TUI
+// pane's rows: OVERDUE in agd's order, then TODAY's timed rows by time,
+// untimed ones, and done rows last, each header with the status band's
+// count; each row the marker (`▸` on the next timed task), the lead, the
+// title, and at the right the priority, ↻ for a repeating task or ✓ for
+// done. A view's sections, drawn before Today's are read, show as none.
+function todayLines(Box, Text, sections) {
+  const none = { count: 0, entries: [] }
+  const [overdue, today] = sections.length === 2 && sections[0].header === 'Overdue' ? sections : [none, none]
   const minutes = now.getHours() * 60 + now.getMinutes()
-  const late = entries.filter((entry) => isOverdue(entry.occurrence))
-  late.sort((left, right) => leaderDays(right.occurrence.extra) - leaderDays(left.occurrence.extra))
-  const rest = entries.filter((entry) => !isOverdue(entry.occurrence))
+  const rest = [...today.entries]
   const order = (entry) => {
     const time = leadMinutes(entry.occurrence)
     return [entry.item.done ? 1 : 0, time === null ? 1 : 0, time ?? 0]
@@ -500,14 +504,18 @@ function todayLines(Box, Text, entries) {
     return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
   })
   const next = rest.find((entry) => !entry.item.done && (leadMinutes(entry.occurrence) ?? -1) >= minutes)
-  const open = entries.filter((entry) => !entry.item.done).length
-  const lines = [header(Text, 'Today', open, 'blue')]
-  for (const entry of [...late, ...rest]) {
+  const lines = []
+  if (overdue.entries.length > 0) {
+    lines.push(header(Text, overdue.header, overdue.count, overdue.color))
+    for (const entry of overdue.entries) lines.push(compactRow(Box, Text, entry, 'later'))
+  }
+  lines.push(header(Text, 'Today', today.count, 'blue'))
+  for (const entry of rest) {
     const time = leadMinutes(entry.occurrence)
     const clock = entry === next ? 'next' : time !== null && time < minutes ? 'past' : 'later'
     lines.push(compactRow(Box, Text, entry, clock))
   }
-  if (entries.length === 0) lines.push(Text(muted({ children: ['All clear for today.'] })))
+  if (overdue.entries.length + rest.length === 0) lines.push(Text(muted({ children: ['All clear for today.'] })))
   return lines
 }
 
@@ -543,7 +551,7 @@ function paneBody($, e) {
   const body = problem
     ? [Text(colored(palette.overdue, { children: [problem] }))]
     : today
-      ? todayLines(Box, Text, sections.flatMap((section) => section.entries || []))
+      ? todayLines(Box, Text, sections)
       : sections.flatMap((section, index) => [...(index > 0 ? [blank()] : []), ...sectionLines(Text, section)])
   const footer = Box({
     flexDirection: 'row',
@@ -567,8 +575,8 @@ function paneBody($, e) {
 
 // "/capture t buy milk due:fri" runs `agd capture --json -- t "buy milk
 // due:fri"`; after `--` a text such as `-1 point` is text, not an option.
-// It says what it wrote as agd's TUI and terminal do:
-// `inbox.org:7  captured · buy milk · deadline Fri 23 Oct`.
+// It says what it wrote as agd's TUI and terminal do, the file relative to
+// its root: `projects/inbox.org:7  captured · buy milk · deadline Fri 23 Oct`.
 async function capture($, args) {
   const match = args.trim().match(/^(\S+)\s+(.+)$/)
   if (!match) return { text: 'usage: /capture KEY text, such as /capture t buy milk due:fri' }
@@ -578,16 +586,18 @@ async function capture($, args) {
   const today = await readNow($)
   await refresh($)
   try {
-    return { text: capturedLine(JSON.parse(result.stdout).item, today) }
+    return { text: capturedLine(JSON.parse(result.stdout), today) }
   } catch {
     return { text: 'captured' }
   }
 }
 
-// agd's words::captured: the file and line, `captured`, the title, then its
-// dates (`scheduled Sat 17 Oct`, `deadline Fri 23 Oct`).
-function capturedLine(item, today) {
-  let line = item.file.split('/').pop() + ':' + item.line + '  captured · ' + item.title
+// agd's words::captured for a capture's JSON: its `location` (file:line
+// under its root), `captured`, the title, then its dates (`scheduled Sat 17
+// Oct`, `deadline Fri 23 Oct`).
+function capturedLine(captured, today) {
+  const item = captured.item
+  let line = captured.location + '  captured · ' + item.title
   const planning = item.planning || {}
   for (const [label, timestamp] of [
     ['scheduled', planning.scheduled],
@@ -623,7 +633,9 @@ async function registerCommands($) {
     await $.command.register({
       name: 'capture',
       description: 'File a task through an agd capture template',
-      argumentHint: 'KEY text  due:fri on:+2d +tag #A',
+      // Registered before agd's notation is read, so it names no tag or
+      // priority marker.
+      argumentHint: 'KEY text  due:fri on:+2d',
       immediate: true,
     })
   } catch (error) {

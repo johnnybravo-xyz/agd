@@ -12,9 +12,11 @@ use super::today::{self, Clock};
 use super::{App, DisplayRow, FULL_WIDTH};
 
 /// The 2-second glance for a herdr or tmux split: overdue collapses to a
-/// count, timed items sort by clock time with ▸ on the next one, done items
-/// stay dimmed, and the footer carries the only cross-screen signals. Rows
-/// use Today's marker and lead cells, so the two read alike.
+/// count, today's items follow (a deadline's warning is Today's DUE SOON,
+/// not today's), timed items sort by clock time with ▸ on the next one,
+/// done items stay dimmed, and the footer carries the only cross-screen
+/// signals. The counts are the status band's (AgendaSummary), each item
+/// once. Rows use Today's marker and lead cells, so the two read alike.
 pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     let theme = app.theme.clone();
     let block = theme.panel("agd");
@@ -63,10 +65,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled("TODAY", theme.strong(theme.accent)),
-            Span::styled(
-                format!("  {}", app.rows.iter().filter(|row| !row.item.done).count()),
-                theme.muted(),
-            ),
+            Span::styled(format!("  {}", app.counts.today), theme.muted()),
         ])),
         parts[2],
     );
@@ -131,9 +130,9 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 format!("Inbox {}  Agents", app.counts.inbox),
                 theme.muted(),
             )];
-            if app.counts.agents > 0 {
+            if app.counts.unreviewed > 0 {
                 spans.push(Span::styled(
-                    format!(" ● {}", app.counts.agents),
+                    format!(" ● {}", app.counts.unreviewed),
                     theme.strong(theme.accent),
                 ));
             }

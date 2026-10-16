@@ -187,7 +187,7 @@ const CONFIG_GROUPS: [(&str, &[&str]); 6] = [
     ),
     (
         "Editor and terminal",
-        &["editor", "theme", "nerd_font", "start_view"],
+        &["editor", "theme", "nerd_font", "notation", "start_view"],
     ),
     (
         "Agents and triage",
@@ -397,7 +397,7 @@ mod tests {
             roots: strings(&["~/notes"]),
             deadline_warning_days: 5,
             todo_keyword_colors: BTreeMap::from([
-                ("CANCELLED".to_string(), "dim-red".to_string()),
+                ("NEXT".to_string(), "teal".to_string()),
                 ("WAIT".to_string(), "yellow".to_string()),
             ]),
             captures: vec![CaptureTemplate {
@@ -417,8 +417,7 @@ mod tests {
         assert!(rendered.starts_with("# written by a test\n"), "{rendered}");
         assert!(rendered.contains("deadline_warning_days = 5"), "{rendered}");
         assert!(
-            rendered
-                .contains("todo_keyword_colors = { CANCELLED = \"dim-red\", WAIT = \"yellow\" }\n"),
+            rendered.contains("todo_keyword_colors = { NEXT = \"teal\", WAIT = \"yellow\" }\n"),
             "{rendered}"
         );
         assert!(!rendered.contains("agenda_span"), "{rendered}");
