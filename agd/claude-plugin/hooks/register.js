@@ -90,15 +90,25 @@ function errorSentence(stderr) {
   }
 }
 
-// A saved view's sections, or today's agenda as one section.
+// A saved view's sections, or Today as two: agd's overdue rows in its order
+// (`agd agenda --status --json`, as the TUI's Today and Triage list them),
+// then the day's other rows, each with the status band's count.
 async function readSections($, key) {
   if (key !== TODAY) {
     const view = await agd($, ['agenda', '--view', key, '--json'])
     return view.error ? { error: view.error } : parsed(view.stdout, (sections) => sections)
   }
+  const status = await agd($, ['agenda', '--status', '--json'])
+  if (status.error) return { error: status.error }
   const day = await agd($, ['agenda', '--span', 'day', '--json'])
   if (day.error) return { error: day.error }
-  return parsed(day.stdout, (entries) => [{ header: 'Today', entries, items: [], groups: [], color: 'blue' }])
+  return parsed(day.stdout, (entries) => {
+    const counts = JSON.parse(status.stdout)
+    return [
+      { header: 'Overdue', count: counts.overdue, entries: counts.overdue_entries, color: 'red' },
+      { header: 'Today', count: counts.today, entries: entries.filter((entry) => !entry.occurrence.late), color: 'blue' },
+    ]
+  })
 }
 
 // agd's JSON as { sections }, or { error } when it does not parse.
@@ -300,46 +310,33 @@ function pill(Text, text, color) {
   ]
 }
 
-// The lead's color, as the TUI's: overdue in red, deadlines amber; null for
+// The lead's color, as the TUI's: late rows red, deadlines amber; null for
 // the rest, which are muted.
 function leadColor(occurrence) {
-  if (occurrence.type === 'past-scheduled') return palette.overdue
-  if (occurrence.type === 'deadline' && occurrence.extra.endsWith('ago:')) return palette.overdue
+  if (occurrence.late) return palette.overdue
   if (occurrence.type === 'deadline' || occurrence.type === 'upcoming-deadline') return palette.due
   return null
-}
-
-// Whether an agenda row is overdue: a reminder past its date or a missed
-// deadline.
-function isOverdue(occurrence) {
-  return occurrence.type === 'past-scheduled' || (occurrence.type === 'deadline' && occurrence.extra.endsWith('ago:'))
-}
-
-// The first number in org's leader: 12 in `Sched.12x:`, 3 in `In   3 d.:`.
-function leaderDays(extra) {
-  const digits = extra.match(/\d+/)
-  return digits ? Number(digits[0]) : 0
 }
 
 // The clock time a row's lead shows (`16:30`, the start of a range), as
 // minutes since midnight; null when its lead is a badge or countdown.
 function leadMinutes(occurrence) {
-  if (isOverdue(occurrence) || occurrence.type === 'deadline' || occurrence.type === 'upcoming-deadline') return null
+  if (occurrence.late || occurrence.type === 'deadline' || occurrence.type === 'upcoming-deadline') return null
   const time = (occurrence.time || '').match(/^(\d{1,2}):(\d{2})/)
   return time ? Number(time[1]) * 60 + Number(time[2]) : null
 }
 
-// The six-cell lead that always says when, as the TUI's lead_cell: an
-// overdue badge (`12d`, `-2d`, right-aligned), a countdown (`in 3d`), `due`
-// on a deadline's day, or the time: muted once past or done, bold on the
-// next timed task, accent later.
+// The six-cell lead that always says when, as the TUI's lead_cell, from
+// agd's `days` and `late`: an overdue badge (`12d`, a missed deadline `-2d`,
+// right-aligned), a countdown (`in 3d`), `due` on a deadline's day, or the
+// time: muted once past or done, bold on the next timed task, accent later.
 function leadCell(Text, occurrence, done, clock) {
-  if (occurrence.type === 'past-scheduled') return pill(Text, (leaderDays(occurrence.extra) + 'd').padStart(4), palette.overdue)
-  if (occurrence.type === 'deadline' && occurrence.extra.endsWith('ago:')) {
-    return pill(Text, ('-' + leaderDays(occurrence.extra) + 'd').padStart(4), palette.overdue)
+  if (occurrence.late) {
+    const missed = occurrence.type === 'deadline' ? '-' : ''
+    return pill(Text, (missed + occurrence.days + 'd').padStart(4), palette.overdue)
   }
   if (occurrence.type === 'upcoming-deadline') {
-    return [Text(colored(palette.due, { children: [('in ' + leaderDays(occurrence.extra) + 'd').padEnd(6)] }))]
+    return [Text(colored(palette.due, { children: [('in ' + -occurrence.days + 'd').padEnd(6)] }))]
   }
   if (occurrence.type === 'deadline') return [Text(colored(palette.due, { bold: true, children: ['due   '] }))]
   if (!occurrence.time) return [Text({ children: ['      '] })]
@@ -481,16 +478,17 @@ function sectionLines(Text, section) {
   return lines
 }
 
-// Today as the TUI's pane draws it, compact enough for a 40-column pane:
-// overdue rows first, most days late first, then timed rows by time,
-// untimed ones, and done rows last; each row the marker (`▸` on the next
-// timed task), the lead, the title, and at the right the priority, ↻ for
-// a repeating task or ✓ for done.
-function todayLines(Box, Text, entries) {
+// Today's two sections compact enough for a 40-column pane, with the TUI
+// pane's rows: OVERDUE in agd's order, then TODAY's timed rows by time,
+// untimed ones, and done rows last, each header with the status band's
+// count; each row the marker (`▸` on the next timed task), the lead, the
+// title, and at the right the priority, ↻ for a repeating task or ✓ for
+// done. A view's sections, drawn before Today's are read, show as none.
+function todayLines(Box, Text, sections) {
+  const none = { count: 0, entries: [] }
+  const [overdue, today] = sections.length === 2 && sections[0].header === 'Overdue' ? sections : [none, none]
   const minutes = now.getHours() * 60 + now.getMinutes()
-  const late = entries.filter((entry) => isOverdue(entry.occurrence))
-  late.sort((left, right) => leaderDays(right.occurrence.extra) - leaderDays(left.occurrence.extra))
-  const rest = entries.filter((entry) => !isOverdue(entry.occurrence))
+  const rest = [...today.entries]
   const order = (entry) => {
     const time = leadMinutes(entry.occurrence)
     return [entry.item.done ? 1 : 0, time === null ? 1 : 0, time ?? 0]
@@ -500,14 +498,18 @@ function todayLines(Box, Text, entries) {
     return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
   })
   const next = rest.find((entry) => !entry.item.done && (leadMinutes(entry.occurrence) ?? -1) >= minutes)
-  const open = entries.filter((entry) => !entry.item.done).length
-  const lines = [header(Text, 'Today', open, 'blue')]
-  for (const entry of [...late, ...rest]) {
+  const lines = []
+  if (overdue.entries.length > 0) {
+    lines.push(header(Text, overdue.header, overdue.count, overdue.color))
+    for (const entry of overdue.entries) lines.push(compactRow(Box, Text, entry, 'later'))
+  }
+  lines.push(header(Text, 'Today', today.count, 'blue'))
+  for (const entry of rest) {
     const time = leadMinutes(entry.occurrence)
     const clock = entry === next ? 'next' : time !== null && time < minutes ? 'past' : 'later'
     lines.push(compactRow(Box, Text, entry, clock))
   }
-  if (entries.length === 0) lines.push(Text(muted({ children: ['All clear for today.'] })))
+  if (overdue.entries.length + rest.length === 0) lines.push(Text(muted({ children: ['All clear for today.'] })))
   return lines
 }
 
@@ -543,7 +545,7 @@ function paneBody($, e) {
   const body = problem
     ? [Text(colored(palette.overdue, { children: [problem] }))]
     : today
-      ? todayLines(Box, Text, sections.flatMap((section) => section.entries || []))
+      ? todayLines(Box, Text, sections)
       : sections.flatMap((section, index) => [...(index > 0 ? [blank()] : []), ...sectionLines(Text, section)])
   const footer = Box({
     flexDirection: 'row',
