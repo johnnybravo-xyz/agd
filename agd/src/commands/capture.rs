@@ -20,7 +20,8 @@ pub struct CaptureCommand {
     /// The capture line: its first word is a template key when it names one
     /// and more text follows (`t Renew passport due:fri`); otherwise the
     /// whole line goes through the first template. Tokens: due:fri on:+2d
-    /// +tag #A. Put text that starts with - after --: agd capture t -- -x
+    /// #tag !A, or :tag: #A with notation = "org". Put text that starts
+    /// with - after --: agd capture t -- -x
     #[arg(value_name = "[KEY] TEXT", allow_negative_numbers = true)]
     words: Vec<String>,
     /// Open the capture popup (for tmux display-popup or a pane keybinding)
@@ -69,7 +70,7 @@ impl CaptureCommand {
         .settings;
         let line = self.words.join(" ");
         let (template, text) = settings.capture_line_template(&line)?;
-        let draft = parse_capture_line(text, Local::now().date_naive())?;
+        let draft = parse_capture_line(text, Local::now().date_naive(), settings.notation)?;
         let prompts = parse_prompts(self.prompts)?;
         check_prompts(template, &prompts)?;
         let mutation = WriteEngine::with_default_journal(settings.clone())?.capture(

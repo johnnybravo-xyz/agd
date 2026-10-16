@@ -531,7 +531,8 @@ impl App {
                 }
             })
             .collect();
-        self.edit_each(edits, SOMEDAY, &format!("→ {}", words::tag(&tag)))
+        let label = format!("→ {}", words::tag(self.settings.notation, &tag));
+        self.edit_each(edits, SOMEDAY, &label)
     }
 
     /// `+`/`-`: raise or lower priority within the configured range, as

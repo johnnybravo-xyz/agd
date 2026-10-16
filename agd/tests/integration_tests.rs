@@ -433,7 +433,7 @@ fn capture_parses_tokens_and_keeps_body_literal() {
         .args([
             "capture",
             "t",
-            "Call embassy due:2026-10-30 +admin #A",
+            "Call embassy due:2026-10-30 #admin !A",
             "--body",
             "%(never-evaluate)",
             "--dry-run",
@@ -445,6 +445,17 @@ fn capture_parses_tokens_and_keeps_body_literal() {
         .stdout(predicate::str::contains("%(never-evaluate)"))
         .stdout(predicate::str::contains("DEADLINE: <2026-10-30 Fri>"));
     assert_eq!(fs::read(&fixture.tasks).expect("post-preview"), before);
+
+    // With notation = "org" a line takes Org's own :tags: and #A; agd's
+    // #tag and !A are text there, as #42 is in either notation.
+    let config = fs::read_to_string(&fixture.config).unwrap();
+    fs::write(&fixture.config, format!("notation = \"org\"\n{config}")).unwrap();
+    fixture
+        .command()
+        .args(["capture", "t", "Fix #42 :a:b: #B !A", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match(r"\+\*\* TODO \[#B\] Fix #42 !A {2,}:a:b:\n").unwrap());
 }
 
 #[test]

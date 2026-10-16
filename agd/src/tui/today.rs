@@ -615,7 +615,10 @@ fn row_line(app: &App, index: usize, columns: &RowColumns) -> Line<'static> {
     }
     let tags = (columns.wide && !item.tags.is_empty()).then(|| {
         Span::styled(
-            format!("  {}", crate::words::tags(&item.tags)),
+            format!(
+                "  {}",
+                crate::words::tags(app.settings.notation, &item.tags)
+            ),
             theme.muted(),
         )
     });

@@ -182,7 +182,7 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
         heading.push(Span::raw(" "));
         heading.extend(theme.pill(priority.clone(), theme.due));
     }
-    let tags = crate::words::tags(&item.tags);
+    let tags = crate::words::tags(app.settings.notation, &item.tags);
     let used: usize = heading.iter().map(Span::width).sum();
     if !tags.is_empty() && used + tags.len() + 2 < inner_width {
         heading.push(Span::raw(" ".repeat(inner_width - used - tags.len())));

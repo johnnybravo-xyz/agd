@@ -1,5 +1,5 @@
 //! The configuration's types: `Settings`, the view, capture and agent profile
-//! records, the value enums (`IdPolicy`, `WeekStart`, `LogMode`), the lists of
+//! records, the value enums (`IdPolicy`, `WeekStart`, `LogMode`, `Notation`), the lists of
 //! accepted values (`SORTING_KEYS`, `VIEW_BLOCK_KINDS`, `VIEW_GROUP_BY`,
 //! `COLOR_NAMES`), the defaults, the built-in `n` view, and lookups such as
 //! `Settings::view`.
@@ -78,6 +78,9 @@ pub struct Settings {
     /// Round pill and chip caps with Nerd Font glyphs; turn on when your
     /// terminal font has them (Ghostty, WezTerm and kitty bundle them).
     pub nerd_font: bool,
+    /// How a capture line takes tags and a priority, and how agd shows
+    /// tags: "agd" (`#work`, `!A`) or "org" (`:work:`, `#A`).
+    pub notation: Notation,
     /// The view key `agd` opens on, such as your dashboard or the built-in
     /// `n`; empty opens Today.
     pub start_view: String,
@@ -230,6 +233,18 @@ pub enum WeekStart {
     Sunday,
 }
 
+/// How tags and a priority are written in a capture line, and how agd
+/// draws tags: `agd` is `#work` and `!A`; `org` is Org's own `:work:` (or
+/// `:a:b:`) and `#A`. Org's files, `--csv` and the agenda text are Org's
+/// either way.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Notation {
+    #[default]
+    Agd,
+    Org,
+}
+
 /// What a state or planning change records, as an org-log-* variable: no
 /// log, a timestamp, or a timestamp and a note.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -302,6 +317,7 @@ impl Default for Settings {
             ],
             theme: "auto".to_string(),
             nerd_font: false,
+            notation: Notation::Agd,
             start_view: String::new(),
             agent_inbox: None,
             someday_tag: "someday".to_string(),
@@ -707,6 +723,25 @@ mod tests {
                 "2 | week_start = \"friday\"\n",
                 "  |              ^^^^^^^^\n",
                 "unknown variant `friday`, expected `monday` or `sunday`\n",
+            )
+        );
+    }
+
+    #[test]
+    fn notation_is_agd_or_org() {
+        assert_eq!(load_body("").unwrap().notation, Notation::Agd);
+        assert_eq!(
+            load_body("notation = \"org\"\n").unwrap().notation,
+            Notation::Org
+        );
+        assert_eq!(
+            load_error("notation = \"emacs\"\n"),
+            concat!(
+                "cannot parse CONFIG: TOML parse error at line 2, column 12\n",
+                "  |\n",
+                "2 | notation = \"emacs\"\n",
+                "  |            ^^^^^^^\n",
+                "unknown variant `emacs`, expected `agd` or `org`\n",
             )
         );
     }

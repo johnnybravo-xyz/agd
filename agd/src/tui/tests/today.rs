@@ -1012,7 +1012,8 @@ fn u_undoes_only_this_sessions_changes_and_names_them() {
             .unwrap()
             .capture(
                 "t",
-                &agd_core::parse_capture_line("From codex", today()).unwrap(),
+                &agd_core::parse_capture_line("From codex", today(), agd_core::Notation::Agd)
+                    .unwrap(),
                 "",
                 &Default::default(),
                 false,
@@ -1275,6 +1276,31 @@ fn peek_shows_the_headings_own_tags_then_the_inherited_ones_muted() {
         let y = row_of(&buffer, "TODO Rotate certs");
         let row: String = (0..120).map(|x| buffer[(x, y)].symbol()).collect();
         assert!(row.contains("#ops"), "{row}");
+    });
+}
+
+#[test]
+#[serial]
+fn with_org_notation_every_tag_is_drawn_as_org_writes_it() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* Project :infra:\n** TODO Rotate certs :ops:web:\nSCHEDULED: <2026-10-13 Tue>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.settings.notation = agd_core::Notation::Org;
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 120, 30).join("\n");
+        assert!(screen.contains("Rotate certs  :ops:web:"), "{screen}");
+        press(&mut app, KeyCode::Char(' '));
+        let screen = render(&mut app, 120, 30).join("\n");
+        assert!(screen.contains(":ops:web: :infra:"), "{screen}");
+        press(&mut app, KeyCode::Char(' '));
+        press(&mut app, KeyCode::Char('S'));
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert!(status.contains("→ :someday:"), "{status}");
     });
 }
 

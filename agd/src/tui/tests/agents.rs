@@ -9,7 +9,8 @@ fn peek_on_the_agents_tab_shows_the_task_an_agent_wrote() {
         fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
         let mut app = test_app(root);
         app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
-        let draft = agd_core::parse_capture_line("Agent task #A", today()).unwrap();
+        let draft = agd_core::parse_capture_line("Agent task !A", today(), agd_core::Notation::Agd)
+            .unwrap();
         let context = agd_core::WriteContext {
             actor: "mcp:test-agent".to_string(),
             project: root.to_string_lossy().into_owned(),
@@ -192,7 +193,7 @@ fn every_agent_card_has_the_same_two_line_shape() {
         fs::write(root.join("inbox.org"), "").unwrap();
         fs::write(root.join("work.org"), "* TODO Rotate staging certs\n").unwrap();
         let mut app = test_app(root);
-        agent_capture(&app, root, "Benchmark the agenda +perf");
+        agent_capture(&app, root, "Benchmark the agenda #perf");
         let item = app
             .index
             .items()
@@ -283,7 +284,8 @@ fn less_than_narrows_the_agents_tab_by_agent_as_it_narrows_lists_by_category() {
             .unwrap()
             .capture(
                 "t",
-                &agd_core::parse_capture_line("From codex", today()).unwrap(),
+                &agd_core::parse_capture_line("From codex", today(), agd_core::Notation::Agd)
+                    .unwrap(),
                 "",
                 &Default::default(),
                 false,

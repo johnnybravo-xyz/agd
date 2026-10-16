@@ -255,13 +255,13 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
         let mut spans = vec![label("Tags")];
         if !item.tags.is_empty() {
             spans.push(Span::styled(
-                format!("{} ", crate::words::tags(&item.tags)),
+                format!("{} ", crate::words::tags(app.settings.notation, &item.tags)),
                 theme.fg(theme.text),
             ));
         }
         if !item.inherited_tags.is_empty() {
             spans.push(Span::styled(
-                crate::words::tags(&item.inherited_tags),
+                crate::words::tags(app.settings.notation, &item.inherited_tags),
                 theme.muted(),
             ));
         }

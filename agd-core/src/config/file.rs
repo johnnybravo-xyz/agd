@@ -187,7 +187,7 @@ const CONFIG_GROUPS: [(&str, &[&str]); 6] = [
     ),
     (
         "Editor and terminal",
-        &["editor", "theme", "nerd_font", "start_view"],
+        &["editor", "theme", "nerd_font", "notation", "start_view"],
     ),
     (
         "Agents and triage",

@@ -99,9 +99,10 @@ pub use check::{
     CheckFileReport, CheckProblem, CheckReport, CheckSummary, check_settings, journal_problems,
 };
 pub use config::{
-    AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, LogMode, SORTING_KEYS,
-    Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, WeekStart,
-    default_config_path, load_settings, parse_agenda_day, parse_config_file, render_config,
+    AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, LogMode, Notation,
+    SORTING_KEYS, Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings,
+    WeekStart, default_config_path, load_settings, parse_agenda_day, parse_config_file,
+    render_config,
 };
 pub use date::{
     date_preview, format_active_timestamp, now_local_naive, parse_date_change, parse_date_input,
