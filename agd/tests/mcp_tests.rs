@@ -50,6 +50,20 @@ async fn service(
     Ok(().serve(TokioChildProcess::new(command)?).await?)
 }
 
+/// The config.toml the server under test reads, beside its org files.
+fn write_config(directory: &tempfile::TempDir, config: &str) {
+    let path = directory.path().join("config/agd/config.toml");
+    fs::create_dir_all(path.parent().expect("config directory")).expect("config directory");
+    fs::write(path, config).expect("config file");
+}
+
+/// An org date stamp `days` from today, such as `2026-10-15 Thu`.
+fn day(days: i64) -> String {
+    (Local::now().date_naive() + chrono::Duration::days(days))
+        .format("%Y-%m-%d %a")
+        .to_string()
+}
+
 fn fixture() -> tempfile::TempDir {
     let directory = tempfile::tempdir().expect("temporary directory");
     let today = Local::now().date_naive();
@@ -340,6 +354,104 @@ async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn 
             );
         }
     }
+    service.cancel().await?;
+    Ok(())
+}
+
+const VIEW_CONFIG: &str = r#"
+agenda_start_day = "-1d"
+
+[[view]]
+key = "w"
+desc = "Work"
+blocks = [{ kind = "agenda", span = "day" }, { kind = "tags-todo", match = "work", header = "Work" }]
+
+[[agent_profile]]
+name = "home"
+match = "home"
+"#;
+
+fn views_fixture() -> tempfile::TempDir {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("tasks.org"),
+        format!(
+            "* TODO Work task :work:\nSCHEDULED: <{yesterday}>\n* TODO Home task :home:\nSCHEDULED: <{yesterday}>\n* TODO Second work task :work:\n* DONE Closed today :work:\nCLOSED: [{today} 10:00]\n",
+            yesterday = day(-1),
+            today = day(0)
+        ),
+    )
+    .expect("org fixture");
+    write_config(&directory, VIEW_CONFIG);
+    directory
+}
+
+fn titles(rows: &Value) -> Vec<String> {
+    rows.as_array()
+        .expect("rows")
+        .iter()
+        .map(|row| row["item"]["title"].as_str().expect("title").to_string())
+        .collect()
+}
+
+#[tokio::test]
+async fn agenda_runs_views_and_profiles_from_agenda_start_day_as_the_cli_does()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = views_fixture();
+    let service = service(&directory).await?;
+
+    // agenda_start_day = "-1d": yesterday's tasks, scheduled on that day.
+    let result = call(&service, "agenda", json!({})).await?;
+    assert_eq!(titles(&first_block(&result)), ["Work task", "Home task"]);
+    // The profile's match narrows it; from overrides the start day; log
+    // adds what was closed.
+    let result = call(&service, "agenda", json!({"profile": "home"})).await?;
+    assert_eq!(titles(&first_block(&result)), ["Home task"]);
+    let result = call(&service, "agenda", json!({"from": "today", "log": true})).await?;
+    assert!(titles(&first_block(&result)).contains(&"Closed today".to_string()));
+
+    // A view's sections, exactly as `agd agenda --view w --json` prints them.
+    let result = call(&service, "agenda", json!({"view": "w"})).await?;
+    assert_eq!(result.content.len(), 1);
+    let cli = std::process::Command::new(binary())
+        .args([
+            "--root-directory",
+            directory.path().to_str().expect("UTF-8 path"),
+            "agenda",
+            "--view",
+            "w",
+            "--json",
+        ])
+        .env("XDG_CONFIG_HOME", directory.path().join("config"))
+        .env("XDG_DATA_HOME", directory.path().join("data"))
+        .output()?;
+    assert!(
+        cli.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cli.stderr)
+    );
+    let printed: Value = serde_json::from_slice(&cli.stdout)?;
+    assert_eq!(first_block(&result), printed);
+    assert_eq!(printed[1]["header"], "Work");
+
+    // limit cuts rows across the sections and keeps every section.
+    let result = call(&service, "agenda", json!({"view": "w", "limit": 3})).await?;
+    let sections = first_block(&result);
+    assert_eq!(sections.as_array().map(Vec::len), Some(2));
+    assert_eq!(sections[1]["items"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        result.content[1].as_text().map(|text| text.text.as_str()),
+        Some("showing 3 of 4; pass limit or narrow the query")
+    );
+
+    let result = call(&service, "agenda", json!({"view": "w", "span": "week"})).await?;
+    assert_eq!(first_block(&result)["code"], "invalid_arguments");
+    let result = call(&service, "agenda", json!({"view": "x"})).await?;
+    let error = first_block(&result);
+    assert_eq!(error["code"], "unknown_view");
+    assert_eq!(error["message"], "unknown view 'x'; configured views: w");
+    let result = call(&service, "agenda", json!({"profile": "work"})).await?;
+    assert_eq!(first_block(&result)["code"], "unknown_profile");
     service.cancel().await?;
     Ok(())
 }

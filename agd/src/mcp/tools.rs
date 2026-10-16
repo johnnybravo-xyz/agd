@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use agd_core::{
     AgdError, AgendaEngine, AgendaQuery, AgendaSpan, CaptureDraft, Change, EditIntent, ITEM_SCHEMA,
-    PlanningTimestamp, WorkspaceIndex, WriteContext, WriteEngine, parse_date_input,
+    PlanningTimestamp, ViewSection, WorkspaceIndex, WriteContext, WriteEngine, parse_date_input,
 };
 use chrono::{Local, NaiveDate};
 use rmcp::{
@@ -34,13 +34,25 @@ struct AgendaRequest {
     /// day, week or month; defaults to day.
     span: Option<String>,
     /// First day: today, tomorrow, a weekday (fri), +2d (also +1w, +1m,
-    /// +1y) or 2026-10-30; defaults to today.
+    /// +1y) or 2026-10-30; defaults to the configured agenda_start_day,
+    /// else today.
     from: Option<String>,
     /// Emacs tags/TODO match, such as `work-someday/NEXT|TODO`. TODO
     /// keywords come from each file's #+TODO line or the configured
     /// todo_keywords; `describe` lists them.
     #[serde(rename = "match")]
     match_expression: Option<String>,
+    /// A saved view's key, such as `n`: returns its sections (header,
+    /// entries, items, groups) instead of rows, as `agd agenda --view KEY
+    /// --json`. It runs its own spans and matches, so leave span and match
+    /// out; `describe` lists the views.
+    view: Option<String>,
+    /// An [[agent_profile]] name: its files, and its match when the call
+    /// gives none, narrow the agenda.
+    profile: Option<String>,
+    /// Also list CLOSED entries, as org-agenda's log mode.
+    #[serde(default)]
+    log: bool,
     /// Most rows to return; defaults to 100. A second content block says
     /// when rows were left out.
     limit: Option<usize>,
@@ -274,15 +286,45 @@ impl OrgModeRouter {
     }
 }
 
+/// `agenda`, as `agd agenda --json` runs it: a profile narrows the files,
+/// the start day defaults to agenda_start_day, and a view returns its
+/// sections instead of rows.
 fn agenda(settings: &agd_core::Settings, request: AgendaRequest) -> Result<Rows, AgdError> {
+    let mut settings = settings.clone();
+    let mut match_expression = request.match_expression.clone();
+    if let Some(name) = request.profile.as_deref() {
+        let profile = settings
+            .agent_profile(name)
+            .cloned()
+            .ok_or_else(|| unknown_profile(&settings, name))?;
+        if !profile.files.is_empty() {
+            settings.agenda_files = profile.files;
+        }
+        match_expression = match_expression.or(profile.match_expression);
+    }
     let index = WorkspaceIndex::load(settings.clone())?;
     let today = Local::now().date_naive();
-    let from = request
-        .from
-        .as_deref()
-        .map(|value| parse_day(value, today))
-        .transpose()?
-        .unwrap_or(today);
+    let start = match (
+        request.from.as_deref(),
+        settings.agenda_start_day.as_deref(),
+    ) {
+        (Some(from), _) => parse_day(from, today)?,
+        (None, Some(start_day)) => parse_day(start_day, today).map_err(|error| {
+            AgdError::new(
+                "config",
+                format!("invalid agenda_start_day {start_day:?}: {error}"),
+            )
+        })?,
+        (None, None) => today,
+    };
+    let limit = request.limit.unwrap_or(DEFAULT_LIMIT);
+    let bodies = request.with_body.then_some(&index);
+    if let Some(key) = request.view.as_deref() {
+        let view = view_settings(&settings, key, &request)?;
+        let mut sections = AgendaEngine::new(&index).view(view, start, today, request.log)?;
+        let (shown, total) = truncate_sections(&mut sections, limit);
+        return Rows::new(&sections, shown, total, bodies);
+    }
     let span = match request.span.as_deref().unwrap_or("day") {
         "day" => AgendaSpan::Day,
         "week" => AgendaSpan::Week,
@@ -294,17 +336,91 @@ fn agenda(settings: &agd_core::Settings, request: AgendaRequest) -> Result<Rows,
             ));
         }
     };
-    let (from, to) = span.bounds(from, &settings.week_start);
+    let (from, to) = span.bounds(start, &settings.week_start);
     let mut entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
         from,
         to,
         today,
-        match_expression: request.match_expression,
-        log_mode: false,
+        match_expression,
+        log_mode: request.log,
     })?;
     let total = entries.len();
-    entries.truncate(request.limit.unwrap_or(DEFAULT_LIMIT));
-    Rows::new(&entries, total, request.with_body.then_some(&index))
+    entries.truncate(limit);
+    Rows::new(&entries, entries.len(), total, bodies)
+}
+
+/// The saved view `key` names. A view runs its own spans and matches, so a
+/// call that also gives span or match is refused rather than half obeyed.
+fn view_settings<'a>(
+    settings: &'a agd_core::Settings,
+    key: &str,
+    request: &AgendaRequest,
+) -> Result<&'a agd_core::ViewSettings, AgdError> {
+    if request.span.is_some() || request.match_expression.is_some() {
+        return Err(AgdError::new(
+            "invalid_arguments",
+            "a view runs its own spans and matches; leave span and match out",
+        ));
+    }
+    settings.view(key).ok_or_else(|| {
+        let keys: Vec<&str> = settings
+            .views
+            .iter()
+            .map(|view| view.key.as_str())
+            .collect();
+        AgdError::new(
+            "unknown_view",
+            format!(
+                "unknown view '{key}'; configured views: {}",
+                keys.join(", ")
+            ),
+        )
+    })
+}
+
+fn unknown_profile(settings: &agd_core::Settings, name: &str) -> AgdError {
+    let names: Vec<&str> = settings
+        .agent_profiles
+        .iter()
+        .map(|profile| profile.name.as_str())
+        .collect();
+    AgdError::new(
+        "unknown_profile",
+        if names.is_empty() {
+            format!("unknown agent profile '{name}'; config.toml has no [[agent_profile]]")
+        } else {
+            format!(
+                "unknown agent profile '{name}'; configured profiles: {}",
+                names.join(", ")
+            )
+        },
+    )
+}
+
+/// Cuts a view to `limit` rows in display order (each section's entries
+/// and items, then its groups'), keeping every section and group. Returns
+/// the rows kept and the rows there were.
+fn truncate_sections(sections: &mut [ViewSection], limit: usize) -> (usize, usize) {
+    let mut room = limit;
+    let mut total = 0;
+    for section in sections {
+        total += keep_rows(&mut section.entries, &mut room);
+        total += keep_rows(&mut section.items, &mut room);
+        for group in &mut section.groups {
+            total += keep_rows(&mut group.entries, &mut room);
+            total += keep_rows(&mut group.items, &mut room);
+        }
+    }
+    (limit.min(total), total)
+}
+
+/// Keeps at most `room` of `rows`, spending `room` on what it kept, and
+/// returns how many rows there were.
+fn keep_rows<T>(rows: &mut Vec<T>, room: &mut usize) -> usize {
+    let count = rows.len();
+    rows.truncate(*room);
+    *room -= rows.len();
+    count
 }
 
 fn query(settings: &agd_core::Settings, request: QueryRequest) -> Result<Rows, AgdError> {
@@ -313,7 +429,12 @@ fn query(settings: &agd_core::Settings, request: QueryRequest) -> Result<Rows, A
         AgendaEngine::new(&index).query(&request.expression, Local::now().date_naive())?;
     let total = items.len();
     items.truncate(request.limit.unwrap_or(DEFAULT_LIMIT));
-    Rows::new(&items, total, request.with_body.then_some(&index))
+    Rows::new(
+        &items,
+        items.len(),
+        total,
+        request.with_body.then_some(&index),
+    )
 }
 
 /// What `agenda` and `query` answer: their JSON, which keeps its shape when
@@ -325,10 +446,11 @@ struct Rows {
 }
 
 impl Rows {
-    /// `rows` as JSON, with each item's body added when `bodies` gives the
-    /// index they were read from.
-    fn new<T: Serialize>(
-        rows: &[T],
+    /// `rows` (entries, items or view sections) as JSON, with each item's
+    /// body added when `bodies` gives the index they were read from.
+    fn new(
+        rows: &impl Serialize,
+        shown: usize,
         total: usize,
         bodies: Option<&WorkspaceIndex>,
     ) -> Result<Self, AgdError> {
@@ -338,11 +460,7 @@ impl Rows {
         if let Some(index) = bodies {
             add_bodies(&mut json, index);
         }
-        Ok(Self {
-            json,
-            shown: rows.len(),
-            total,
-        })
+        Ok(Self { json, shown, total })
     }
 }
 
@@ -577,7 +695,13 @@ fn parse_optional_date(
         .transpose()
 }
 
+/// An agenda start day: the date grammar, plus `-2d`-style offsets back
+/// from today, which agenda_start_day takes, as `agd agenda` reads them.
 fn parse_day(value: &str, today: NaiveDate) -> Result<NaiveDate, AgdError> {
+    if let Some(back) = value.trim().strip_prefix('-') {
+        let ahead = parse_day(&format!("+{back}"), today)?;
+        return Ok(today - (ahead - today));
+    }
     parse_date_input(value, today)?
         .date
         .parse()
