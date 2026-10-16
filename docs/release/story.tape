@@ -34,7 +34,7 @@ Type "/agd" Sleep 400ms Enter
 Sleep 3s
 Type "a" Sleep 2.5s
 Escape Sleep 800ms
-Type "/capture t Renew the car insurance due:mon +personal #A" Sleep 600ms Enter
+Type "/capture t Renew the car insurance due:mon #personal !A" Sleep 600ms Enter
 Sleep 2s
 
 # Claude finishes with a suggestion worth keeping.

@@ -60,7 +60,7 @@ Every module starts with a `//!` note on what it owns; this is the map.
 | `agenda/` | `AgendaEngine` (`engine.rs`) and what it is made of: spans, saved views and groups, keyword colors, the Emacs tags/TODO matcher, the org-ql query subset, sorting, repeaters, and the Emacs text and CSV exports. |
 | `write/` | `WriteEngine` (`engine.rs`) and every write: edits and batches, capture and placement, refile, undo, validation, the journal, file safety and patches. |
 | `date.rs` | Org's date prompt: `fri`, `+2d`, `-wed`, `oct 30 9am`, as org-read-date reads them. |
-| `capture_line.rs`, `capture_template.rs` | The one-line capture syntax (`due:fri +tag #A`) and capture templates (`%?`, `%U`, `%^{prompt}`). |
+| `capture_line.rs`, `capture_template.rs` | The one-line capture syntax (`due:fri #tag !A`, or `:tag:` and `#A` with `notation = "org"`) and capture templates (`%?`, `%U`, `%^{prompt}`). |
 | `path.rs` | `RootSet`: which paths agd may touch, and where config and data live. |
 | `import.rs` | Turning an Emacs or Neovim configuration into `config.toml`. |
 | `check.rs` | `agd setup check`, a read-only report on the files and the journal, through the index. |

@@ -29,10 +29,13 @@ and every surface follows.
 | An agent | by its client's name: `claude-code`, `codex` |
 | Your own changes | `you` |
 | A heading | heading (not headline) |
-| A change | past tense: captured, scheduled, changed state, refiled, undid … |
+| A change | by its operation: capture, state change, schedule, deadline, priority, tags, edit, refile |
 
 Counts use one plural rule (`1 marked row`, `2 marked rows`). The status
-line reads `1 overdue · 3 today · 9 inbox · 2 unreviewed`.
+line reads `1 overdue · 3 today · 9 inbox · 2 unreviewed`, and every
+surface counts the same way: overdue first, then what is scheduled or due
+today (a deadline's early warning is DUE SOON, not today), each task once.
+An undo line names the operation it undid: `undid schedule · Pay rent`.
 
 ## Formats
 
@@ -95,7 +98,9 @@ drift apart.
 | muted | metadata: category, tags, ages, file:line, who captured |
 | text | titles |
 
-Keyword colors follow your `todo_keyword_colors`. Fills only for state
+Keyword colors follow your `todo_keyword_colors`; without one, WAIT is
+yellow and CANCELLED dim red, done states green, a sequence's first
+keyword (TODO) amber and the rest blue. Fills only for state
 (the Agenda badge, overdue badges, priority, parsed chips). Uppercase only
 for section headers and pills; done rows are dim and struck through; no
 italics. Glyphs each mean one thing: `▌` focus, `▸` next, `✓` done, `↻`

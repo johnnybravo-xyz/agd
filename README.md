@@ -163,6 +163,9 @@ set -g status-right '#(agd agenda --status)'            # 1 overdue Â· 3 today Â
 set -g set-clipboard on                                 # lets y copy a link to your clipboard
 ```
 
+For your own status bar or script, `agd agenda --status --json` gives the
+same counts and the overdue rows as `agd.status/v1`.
+
 [herdr](https://herdr.dev) is a terminal workspace manager for AI coding
 agents; give `agd --pane` a pane there the same way. The pane and the TUI
 watch your files, so changes from Emacs, nvim or an agent show up as they
