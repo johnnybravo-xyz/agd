@@ -56,7 +56,7 @@ pub fn import_config(
         .join("\n");
     let mut command = match sources.editor {
         ConfigEditor::Emacs => {
-            let reader = reader_file("emacs.el", EMACS_READER)?;
+            let reader = reader_file(".el", EMACS_READER)?;
             let mut command = Command::new("emacs");
             command.args(["-Q", "--batch", "-l"]).arg(reader.path());
             if verify {
@@ -65,7 +65,7 @@ pub fn import_config(
             (command, reader)
         }
         ConfigEditor::Neovim => {
-            let reader = reader_file("nvim.lua", NEOVIM_READER)?;
+            let reader = reader_file(".lua", NEOVIM_READER)?;
             let mut command = Command::new("nvim");
             command
                 .args(["--clean", "--headless", "-l"])
@@ -74,19 +74,30 @@ pub fn import_config(
             (command, reader)
         }
     };
-    command.0.env("AGD_IMPORT_FILES", files);
+    command.0.env("AGD_IMPORT_FILES", &files);
     let label = format!("{} config reader", sources.editor.name());
     let output = run(&mut command.0, &label, READER_TIMEOUT)?;
-    let resolved = parse_process_json(&output, sources.editor.name())?;
-    finish_import(
+    let mut resolved = parse_marked_json(&output.stdout, sources.editor.name())?;
+    let editor_rows = std::mem::take(&mut resolved.verification);
+    let result = apply_import(&resolved, base, derive_roots)?;
+    let verification = verify_import(&result, &resolved.editor, &editor_rows, verify);
+    let header = format!(
+        "agd configuration, imported by `agd setup import` from:\n  {}\nEdit freely; rerun the import to start over. Keys are described at\nhttps://github.com/johnnybravo-xyz/agd#configuration",
+        files.replace('\n', "\n  ")
+    );
+    let toml = render_config(&result.settings, &header)?;
+    let diff = config_diff(destination, &toml)?;
+    // An unchanged config is left alone.
+    if write && !diff.is_empty() {
+        write_config(destination, &toml)?;
+    }
+    Ok(ImportExecution {
         sources,
-        resolved,
-        base,
-        derive_roots,
-        destination,
-        write,
-        verify,
-    )
+        result,
+        toml,
+        diff,
+        verification,
+    })
 }
 
 /// The Neovim config directory a file belongs to, so `require("x")` finds
@@ -162,10 +173,6 @@ fn read_to_end_in_background(
     })
 }
 
-fn parse_process_json(output: &Output, editor: &str) -> Result<ResolvedEditorConfig> {
-    parse_marked_json(&output.stdout, editor).or_else(|_| parse_marked_json(&output.stderr, editor))
-}
-
 fn parse_marked_json(bytes: &[u8], editor: &str) -> Result<ResolvedEditorConfig> {
     let output = String::from_utf8(bytes.to_vec())
         .with_context(|| format!("{editor} reader output is not UTF-8"))?;
@@ -176,42 +183,6 @@ fn parse_marked_json(bytes: &[u8], editor: &str) -> Result<ResolvedEditorConfig>
         .ok_or_else(|| anyhow!("{editor} reader produced no {marker} payload"))?;
     serde_json::from_str(payload)
         .with_context(|| format!("{editor} reader returned an unsupported payload shape"))
-}
-
-fn finish_import(
-    sources: ConfigSources,
-    mut resolved: ResolvedEditorConfig,
-    base: &Settings,
-    derive_roots: bool,
-    destination: &Path,
-    write: bool,
-    verify: bool,
-) -> Result<ImportExecution> {
-    let editor_rows = std::mem::take(&mut resolved.verification);
-    let result = apply_import(&resolved, base, derive_roots)?;
-    let verification = verify_import(&result, &resolved.editor, &editor_rows, verify);
-    let read: Vec<String> = sources
-        .files
-        .iter()
-        .map(|file| file.to_string_lossy().into_owned())
-        .collect();
-    let header = format!(
-        "agd configuration, imported by `agd setup import` from:\n  {}\nEdit freely; rerun the import to start over. Keys are described at\nhttps://github.com/johnnybravo-xyz/agd#configuration",
-        read.join("\n  ")
-    );
-    let toml = render_config(&result.settings, &header)?;
-    let diff = config_diff(destination, &toml)?;
-    // An unchanged config is left alone.
-    if write && !diff.is_empty() {
-        write_config(destination, &toml)?;
-    }
-    Ok(ImportExecution {
-        sources,
-        result,
-        toml,
-        diff,
-        verification,
-    })
 }
 
 /// A unified diff from the config at `destination` (/dev/null when there is
@@ -271,12 +242,12 @@ fn verify_import(
     let (index, start) = match loaded {
         Ok(loaded) => loaded,
         Err(error) => {
-            return vec![VerificationResult {
-                status: ImportStatus::Unsupported,
-                key: "a".to_string(),
-                description: "Agenda".to_string(),
-                detail: format!("native verification failed: {error}"),
-            }];
+            return vec![verdict(
+                ImportStatus::Unsupported,
+                "a",
+                "Agenda",
+                format!("native verification failed: {error}"),
+            )];
         }
     };
     let engine = AgendaEngine::new(&index);
@@ -300,30 +271,25 @@ fn verify_import(
         ));
     } else {
         results.push(match native_default {
-            Ok(_) => VerificationResult {
-                status: ImportStatus::Difference,
-                key: "a".to_string(),
-                description: "Agenda".to_string(),
-                detail: "native rows evaluated; nvim-orgmode has no stable row-export API, so the pinned Emacs oracle is the semantic reference".to_string(),
-            },
-            Err(error) => VerificationResult {
-                status: ImportStatus::Unsupported,
-                key: "a".to_string(),
-                description: "Agenda".to_string(),
-                detail: error.to_string(),
-            },
+            Ok(_) => verdict(
+                ImportStatus::Difference,
+                "a",
+                "Agenda",
+                "native rows evaluated; nvim-orgmode has no stable row-export API, so the pinned Emacs oracle is the semantic reference",
+            ),
+            Err(error) => verdict(ImportStatus::Unsupported, "a", "Agenda", error.to_string()),
         });
     }
 
     for view in &settings.views {
         let key = &view.key;
         if editor != "emacs" {
-            results.push(VerificationResult {
-                status: ImportStatus::Difference,
-                key: key.clone(),
-                description: view.desc.clone(),
-                detail: "view imported; nvim-orgmode has no stable row-export API".to_string(),
-            });
+            results.push(verdict(
+                ImportStatus::Difference,
+                key,
+                &view.desc,
+                "view imported; nvim-orgmode has no stable row-export API",
+            ));
             continue;
         }
         // The pinned Emacs has no org-super-agenda, so compare the rows
@@ -349,6 +315,8 @@ fn verify_import(
     results
 }
 
+/// One view's verdict: Exact or Difference by its rows, or Unsupported with
+/// why they could not be compared.
 fn compare_rows(
     key: &str,
     description: &str,
@@ -358,64 +326,48 @@ fn compare_rows(
         agd_core::AgdError,
     >,
 ) -> VerificationResult {
-    let native = match native {
-        Ok(Ok(rows)) => rows,
-        Ok(Err(error)) => {
-            return VerificationResult {
-                status: ImportStatus::Unsupported,
-                key: key.to_string(),
-                description: description.to_string(),
-                detail: format!("cannot normalize native rows: {error}"),
-            };
-        }
-        Err(error) => {
-            return VerificationResult {
-                status: ImportStatus::Unsupported,
-                key: key.to_string(),
-                description: description.to_string(),
-                detail: format!("native view failed: {error}"),
-            };
-        }
-    };
-    let Some(editor) = editor else {
-        return VerificationResult {
-            status: ImportStatus::Unsupported,
-            key: key.to_string(),
-            description: description.to_string(),
-            detail: "editor endpoint returned no verification rows".to_string(),
-        };
-    };
-    if let Some(error) = editor.strip_prefix("AGD_VERIFY_ERROR:") {
-        return VerificationResult {
-            status: ImportStatus::Unsupported,
-            key: key.to_string(),
-            description: description.to_string(),
-            detail: format!("editor view failed: {error}"),
-        };
-    }
-    match normalize_csv(editor) {
-        Ok(editor) if editor == native => VerificationResult {
-            status: ImportStatus::Exact,
-            key: key.to_string(),
-            description: description.to_string(),
-            detail: format!("{} normalized rows match the editor", native.len()),
-        },
-        Ok(editor) => VerificationResult {
-            status: ImportStatus::Difference,
-            key: key.to_string(),
-            description: description.to_string(),
-            detail: format!(
-                "row difference: editor returned {}, native returned {}",
-                editor.len(),
-                native.len()
-            ),
-        },
-        Err(error) => VerificationResult {
-            status: ImportStatus::Unsupported,
-            key: key.to_string(),
-            description: description.to_string(),
-            detail: format!("cannot normalize editor rows: {error}"),
-        },
+    let compared = native
+        .map_err(|error| format!("native view failed: {error}"))
+        .and_then(|rows| rows.map_err(|error| format!("cannot normalize native rows: {error}")))
+        .and_then(|native| {
+            let editor = editor
+                .ok_or_else(|| "editor endpoint returned no verification rows".to_string())?;
+            if let Some(error) = editor.strip_prefix("AGD_VERIFY_ERROR:") {
+                return Err(format!("editor view failed: {error}"));
+            }
+            let editor = normalize_csv(editor)
+                .map_err(|error| format!("cannot normalize editor rows: {error}"))?;
+            Ok(if editor == native {
+                (
+                    ImportStatus::Exact,
+                    format!("{} normalized rows match the editor", native.len()),
+                )
+            } else {
+                (
+                    ImportStatus::Difference,
+                    format!(
+                        "row difference: editor returned {}, native returned {}",
+                        editor.len(),
+                        native.len()
+                    ),
+                )
+            })
+        });
+    let (status, detail) = compared.unwrap_or_else(|detail| (ImportStatus::Unsupported, detail));
+    verdict(status, key, description, detail)
+}
+
+fn verdict(
+    status: ImportStatus,
+    key: &str,
+    description: &str,
+    detail: impl Into<String>,
+) -> VerificationResult {
+    VerificationResult {
+        status,
+        key: key.to_string(),
+        description: description.to_string(),
+        detail: detail.into(),
     }
 }
 
@@ -455,6 +407,10 @@ fn normalize_csv(value: &str) -> std::result::Result<Vec<Vec<String>>, csv::Erro
         row.truncate(9);
         rows.push(row);
     }
+    // A row without a priority sorts as Org's default, B.
+    fn priority(value: &str) -> &str {
+        if value.is_empty() { "B" } else { value }
+    }
     rows.sort_by(|left, right| {
         let rank = |kind: &str| match kind {
             "past-scheduled" | "scheduled" => 0,
@@ -469,12 +425,7 @@ fn normalize_csv(value: &str) -> std::result::Result<Vec<Vec<String>>, csv::Erro
             .cmp(&right[5])
             .then_with(|| left[6].is_empty().cmp(&right[6].is_empty()))
             .then_with(|| left[6].cmp(&right[6]))
-            .then_with(|| {
-                left[8]
-                    .as_str()
-                    .if_empty("B")
-                    .cmp(right[8].as_str().if_empty("B"))
-            })
+            .then_with(|| priority(&left[8]).cmp(priority(&right[8])))
             .then_with(|| rank(&left[2]).cmp(&rank(&right[2])))
             .then_with(|| left[0].cmp(&right[0]))
             .then_with(|| left[1].cmp(&right[1]))
@@ -482,24 +433,12 @@ fn normalize_csv(value: &str) -> std::result::Result<Vec<Vec<String>>, csv::Erro
     Ok(rows)
 }
 
-trait EmptyDefault {
-    fn if_empty<'a>(&'a self, default: &'a str) -> &'a str;
-}
-
-impl EmptyDefault for str {
-    fn if_empty<'a>(&'a self, default: &'a str) -> &'a str {
-        if self.is_empty() { default } else { self }
-    }
-}
-
-fn reader_file(name: &str, contents: &str) -> Result<tempfile::NamedTempFile> {
-    let suffix = Path::new(name)
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("reader");
+/// The reader in a temporary file ending in `suffix`, as the editor loads
+/// it by its extension.
+fn reader_file(suffix: &str, contents: &str) -> Result<tempfile::NamedTempFile> {
     let mut reader = tempfile::Builder::new()
         .prefix("agd-import-")
-        .suffix(&format!(".{suffix}"))
+        .suffix(suffix)
         .tempfile()
         .context("cannot create the editor config reader")?;
     reader
