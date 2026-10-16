@@ -189,6 +189,11 @@
       "key": "org-tag-persistent-alist",
       "message": "init.el:7: not used by agd",
       "status": "difference"
+    },
+    {
+      "key": "org-agenda-skip-function-global",
+      "message": "init.el:34: not supported; agd's rows differ from Emacs's",
+      "status": "unsupported"
     }
   ],
   "editor": "emacs",

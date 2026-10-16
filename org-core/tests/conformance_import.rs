@@ -2,7 +2,8 @@ use std::fs;
 use std::path::Path;
 
 use agd_core::{
-    AgendaSpan, ImportResult, LogMode, ResolvedEditorConfig, Settings, WeekStart, apply_import,
+    AgendaSpan, ImportResult, ImportStatus, LogMode, ResolvedEditorConfig, Settings, WeekStart,
+    apply_import,
 };
 
 /// Applies a case's resolved.json (the editor reader's output, with its
@@ -104,6 +105,17 @@ fn emacs_vanilla_keeps_what_agd_runs_and_reports_the_rest() {
         "org-tag-persistent-alist",
         "not used by agd"
     ));
+    // A global skip function changes rows, so it is unsupported, not unused.
+    let skip = result
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.key == "org-agenda-skip-function-global")
+        .unwrap();
+    assert_eq!(skip.status, ImportStatus::Unsupported);
+    assert!(
+        skip.message
+            .ends_with("not supported; agd's rows differ from Emacs's")
+    );
 }
 
 #[test]

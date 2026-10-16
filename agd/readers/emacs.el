@@ -39,6 +39,11 @@
   '("org-agenda-" "org-super-agenda-" "org-ql-" "org-capture-" "org-tag-")
   "Settings with these prefixes that agd does not import are reported as unused.")
 
+(defconst agd--unsupported
+  '(org-agenda-skip-function-global)
+  "Unused settings that change which rows Emacs's agenda shows, reported as
+unsupported rather than unused.")
+
 (defvar agd--assignments nil
   "Collected (KIND SYMBOL VALUE PHASE FILE LINE), newest first. KIND is set,
 default, add, append or push; PHASE 0 is top level, 1 deferred.")
@@ -222,8 +227,12 @@ then deferred, each in file order."
                    (seq-some (lambda (prefix) (string-prefix-p prefix (symbol-name symbol)))
                              agd--unused-prefixes))
           (puthash symbol t unused)
-          (agd--diagnostic "difference" (symbol-name symbol)
-                           (format "%s:%d: not used by agd" (nth 4 entry) (nth 5 entry))))))))
+          (if (memq symbol agd--unsupported)
+              (agd--diagnostic "unsupported" (symbol-name symbol)
+                               (format "%s:%d: not supported; agd's rows differ from Emacs's"
+                                       (nth 4 entry) (nth 5 entry)))
+            (agd--diagnostic "difference" (symbol-name symbol)
+                             (format "%s:%d: not used by agd" (nth 4 entry) (nth 5 entry)))))))))
 
 (defun agd--string (value)
   (cond ((null value) "nil")
