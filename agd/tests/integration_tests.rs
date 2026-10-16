@@ -503,13 +503,13 @@ fn a_closed_stdout_ends_the_command_quietly() {
 }
 
 #[test]
-fn help_lists_only_the_five_surfaces() {
+fn help_lists_every_command_and_none_that_went() {
     let assertion = cargo::cargo_bin_cmd!("agd")
         .arg("--help")
         .assert()
         .success();
     let help = String::from_utf8_lossy(&assertion.get_output().stdout).into_owned();
-    for command in ["agenda", "capture", "mcp", "setup", "--pane"] {
+    for command in ["agenda", "capture", "undo", "mcp", "setup", "--pane"] {
         assert!(help.contains(command), "missing {command} in\n{help}");
     }
     for removed in ["todo", "state", "schedule", "outline", "search"] {

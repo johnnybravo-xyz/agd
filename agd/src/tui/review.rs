@@ -185,27 +185,6 @@ fn second_word(headline: &str) -> String {
         .to_string()
 }
 
-/// A raw headline as a title: no stars, keyword, priority or tags.
-fn headline_title(headline: &str) -> String {
-    let mut words: Vec<&str> = headline.split_whitespace().skip(1).collect();
-    if words
-        .first()
-        .is_some_and(|word| word.len() > 1 && word.chars().all(|c| c.is_ascii_uppercase()))
-    {
-        words.remove(0);
-    }
-    if words.first().is_some_and(|word| word.starts_with("[#")) {
-        words.remove(0);
-    }
-    if words
-        .last()
-        .is_some_and(|word| word.len() > 1 && word.starts_with(':') && word.ends_with(':'))
-    {
-        words.pop();
-    }
-    words.join(" ")
-}
-
 /// The task a change touched, as the file reads now: the heading whose
 /// section holds the first patch's start. None once the change is undone
 /// or nothing is left at that place.
@@ -295,7 +274,7 @@ pub(super) fn subject_title(app: &App, record: &JournalRecord) -> String {
         Some(item) => super::peek::display_title(&item),
         None => classify(record, app.today)
             .heading()
-            .map(headline_title)
+            .map(crate::words::headline_title)
             .unwrap_or_default(),
     }
 }

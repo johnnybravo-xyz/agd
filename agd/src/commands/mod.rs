@@ -6,6 +6,7 @@ pub mod check;
 pub mod import;
 pub mod install;
 pub mod setup;
+pub mod undo;
 
 pub use agenda::AgendaCommand;
 pub use capture::CaptureCommand;
@@ -13,6 +14,7 @@ pub use check::CheckCommand;
 pub use import::ImportCommand;
 pub use install::InstallCommand;
 pub use setup::SetupCommand;
+pub use undo::UndoCommand;
 
 /// `count` with its noun, singular for one: "1 file", "0 files".
 pub fn counted(count: usize, singular: &str, plural: &str) -> String {

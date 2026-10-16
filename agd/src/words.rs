@@ -67,6 +67,28 @@ pub fn captured(item: &Item, location: &str, today: NaiveDate) -> String {
     line
 }
 
+/// A raw headline from a diff as a title, for a task no file holds any
+/// more: no stars, keyword, priority or tags.
+pub fn headline_title(headline: &str) -> String {
+    let mut words: Vec<&str> = headline.split_whitespace().skip(1).collect();
+    if words
+        .first()
+        .is_some_and(|word| word.len() > 1 && word.chars().all(|c| c.is_ascii_uppercase()))
+    {
+        words.remove(0);
+    }
+    if words.first().is_some_and(|word| word.starts_with("[#")) {
+        words.remove(0);
+    }
+    if words
+        .last()
+        .is_some_and(|word| word.len() > 1 && word.starts_with(':') && word.ends_with(':'))
+    {
+        words.pop();
+    }
+    words.join(" ")
+}
+
 /// A core error as a sentence. Most messages already read as one; a stale
 /// ref's names the raw ref and no_change's is about the edit, so they are
 /// said plainly.
