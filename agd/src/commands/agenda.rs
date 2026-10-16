@@ -57,7 +57,8 @@ pub struct AgendaCommand {
     )]
     status: bool,
     /// The saved views, start_view first; with --json, also what a client
-    /// draws them with: theme, nerd_font and each TODO keyword's color
+    /// draws them with: theme, nerd_font, notation and each TODO keyword's
+    /// color
     #[arg(
         long,
         conflicts_with_all = [
@@ -370,6 +371,7 @@ fn views_output(settings: &Settings, json: bool) -> Result<String> {
             "views": rows,
             "theme": settings.theme,
             "nerd_font": settings.nerd_font,
+            "notation": settings.notation,
             "keyword_colors": keyword_colors(&index),
             "palettes": crate::tui::palettes(),
         });

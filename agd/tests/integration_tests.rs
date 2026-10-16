@@ -360,6 +360,7 @@ fn views_json_carries_what_a_client_draws_them_with() {
             concat!(
                 "start_view = \"w\"\n",
                 "theme = \"light\"\n",
+                "notation = \"org\"\n",
                 "nerd_font = true\n",
                 "todo_keyword_colors = {{ NEXT = \"teal\" }}\n",
                 "{config}",
@@ -393,6 +394,7 @@ fn views_json_carries_what_a_client_draws_them_with() {
     assert_eq!(payload["views"].as_array().unwrap().len(), 3);
     assert_eq!(payload["theme"], "light");
     assert_eq!(payload["nerd_font"], true);
+    assert_eq!(payload["notation"], "org");
     assert_eq!(payload["schema"], "agd.views/v1");
     // The TUI's palettes, by role, so the Claude Code pane keeps no copy.
     let palettes = &payload["palettes"];

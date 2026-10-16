@@ -243,6 +243,31 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+test('tags are drawn in agd\'s notation', async ($, on) => {
+  panes(on)
+  agd(on, {
+    'agenda --status': { stdout: '' },
+    'agenda --views --json': { stdout: viewsJson([{ key: 'd', desc: 'Dashboard', start: true }], { notation: 'org' }) },
+    'agenda --view d --json': {
+      stdout: JSON.stringify([
+        {
+          header: 'Next Tasks',
+          from: null,
+          to: null,
+          entries: [],
+          items: [item('NEXT', 'Write the report', { tags: ['work', 'ops'] })],
+          groups: [],
+          color: 'blue',
+        },
+      ]),
+    },
+  })
+  await $.command.run(typed('agd'))
+  const ui = await $.ui.mount({ plugin: 'agd', surface: 'terminal', component: 'Pane', requestId: 'agd', props: PANE })
+  expect((await ui.find(exactly('  :work:ops:')))?.props.color).toBe('#808896')
+  await ui.unmount()
+})
+
 test('agd\'s theme setting picks the palette over Claude Code\'s', async ($, on) => {
   panes(on, 'dark')
   agd(on, {

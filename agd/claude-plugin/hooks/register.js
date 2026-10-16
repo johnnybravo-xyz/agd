@@ -32,8 +32,8 @@ const WRITE_TOOL = /^mcp__(plugin_agd_)?agd__(capture|edit|plan|set_state)$/
 
 // What the band and the pane draw; refresh() replaces them. `views` and
 // `display` come from `agd agenda --views --json`, which reads config.toml:
-// the saved views, and the TUI's theme, nerd_font, keyword colors and
-// palettes.
+// the saved views, and the TUI's theme, nerd_font, notation, keyword colors
+// and palettes.
 // `current` is the open tab, a view's key or TODAY, starting on start_view.
 // `showBand` is the plugin's show_band option; `refreshes` counts refresh()
 // calls, so only the latest one started may replace what is drawn.
@@ -42,7 +42,7 @@ let sections = []
 let problem = ''
 let paneOpen = false
 let views = []
-let display = { theme: 'auto', nerd_font: false, keyword_colors: {}, palettes: null }
+let display = { theme: 'auto', nerd_font: false, notation: 'agd', keyword_colors: {}, palettes: null }
 let palette = THEME_KEYS
 let current = null
 let showBand = true
@@ -132,6 +132,7 @@ async function readDisplay($) {
       display: {
         theme: payload.theme || 'auto',
         nerd_font: payload.nerd_font === true,
+        notation: payload.notation === 'org' ? 'org' : 'agd',
         keyword_colors: payload.keyword_colors || {},
         palettes: payload.palettes || null,
       },
@@ -374,9 +375,10 @@ function taskRow(Text, item, occurrence) {
   return Text({ wrap: 'truncate-end', children: parts })
 }
 
-// Tags as agd shows them (words::tags): `#work #ops`; every tag the pane
-// draws goes through here.
+// Tags as agd shows them in its notation (words::tags): `#work #ops`, or
+// Org's `:work:ops:`; every tag the pane draws goes through here.
 function tagsText(tags) {
+  if (display.notation === 'org') return ':' + tags.join(':') + ':'
   return tags.map((tag) => '#' + tag).join(' ')
 }
 
@@ -627,7 +629,9 @@ async function registerCommands($) {
     await $.command.register({
       name: 'capture',
       description: 'File a task through an agd capture template',
-      argumentHint: 'KEY text  due:fri on:+2d +tag #A',
+      // Registered before agd's notation is read, so it names no tag or
+      // priority marker.
+      argumentHint: 'KEY text  due:fri on:+2d',
       immediate: true,
     })
   } catch (error) {
