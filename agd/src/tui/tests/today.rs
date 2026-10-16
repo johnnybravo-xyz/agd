@@ -223,7 +223,10 @@ fn a_refused_write_names_its_file_relative_to_the_root() {
         app.set_error(&refused.into());
         assert_eq!(
             app.status.as_ref().unwrap().text,
-            "✗ writes to symlinks are refused: projects/alpha.org"
+            format!(
+                "✗ writes to symlinks are refused: {}",
+                std::path::Path::new("projects").join("alpha.org").display()
+            )
         );
     });
 }

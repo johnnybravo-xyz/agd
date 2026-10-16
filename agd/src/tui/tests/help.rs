@@ -282,7 +282,10 @@ fn keys_md_is_the_key_tables() {
         fs::write(&path, &expected).unwrap();
         return;
     }
-    let written = fs::read_to_string(&path).unwrap_or_default();
+    // A Windows checkout may write the file with CRLF line endings.
+    let written = fs::read_to_string(&path)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
     assert!(
         written == expected,
         "docs/KEYS.md is out of date with agd/src/tui/keys.rs \

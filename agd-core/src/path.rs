@@ -14,16 +14,16 @@ use ignore::WalkBuilder;
 
 use crate::{AgdError, ErrorCode};
 
-/// agd's configuration directory: `$XDG_CONFIG_HOME/agd`, else
-/// `~/.config/agd`, on every Unix including macOS; the platform
+/// agd's configuration directory: `$XDG_CONFIG_HOME/agd` when it is set,
+/// else `~/.config/agd` on every Unix including macOS and the platform
 /// configuration directory on Windows.
 pub fn config_dir() -> Result<PathBuf, AgdError> {
     base_dir("XDG_CONFIG_HOME", ".config", dirs::config_dir).map(|base| base.join("agd"))
 }
 
-/// agd's data directory, which holds the journal: `$XDG_DATA_HOME/agd`, else
-/// `~/.local/share/agd`, on every Unix including macOS; the platform local
-/// data directory on Windows.
+/// agd's data directory, which holds the journal: `$XDG_DATA_HOME/agd` when
+/// it is set, else `~/.local/share/agd` on every Unix including macOS and
+/// the platform local data directory on Windows.
 pub fn data_dir() -> Result<PathBuf, AgdError> {
     base_dir("XDG_DATA_HOME", ".local/share", dirs::data_local_dir).map(|base| base.join("agd"))
 }
@@ -33,6 +33,13 @@ fn base_dir(
     home_relative: &str,
     windows: fn() -> Option<PathBuf>,
 ) -> Result<PathBuf, AgdError> {
+    // The XDG Base Directory spec says a relative value is invalid and must be ignored.
+    if let Some(value) = std::env::var_os(variable) {
+        let path = PathBuf::from(value);
+        if path.is_absolute() {
+            return Ok(path);
+        }
+    }
     if cfg!(windows) {
         return windows().ok_or_else(|| {
             AgdError::new(
@@ -40,13 +47,6 @@ fn base_dir(
                 format!("cannot determine the Windows directory for {variable}"),
             )
         });
-    }
-    // The XDG Base Directory spec says a relative value is invalid and must be ignored.
-    if let Some(value) = std::env::var_os(variable) {
-        let path = PathBuf::from(value);
-        if path.is_absolute() {
-            return Ok(path);
-        }
     }
     let home = dirs::home_dir().ok_or_else(|| {
         AgdError::new(
@@ -668,7 +668,7 @@ mod tests {
         for path in [
             outside.path().join("real.org"),
             outside.path().join("missing.org"),
-            PathBuf::from("/no/such/file.org"),
+            outside.path().join("no/such/file.org"),
         ] {
             let error = roots.resolve_read(&path).unwrap_err();
             assert_eq!(error.code().as_str(), "invalid_path", "{}", path.display());

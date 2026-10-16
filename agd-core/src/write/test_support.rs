@@ -19,7 +19,8 @@ pub(super) fn context() -> WriteContext {
     }
 }
 
-/// Every path under `directory`, relative and sorted.
+/// Every path under `directory`, relative, `/`-separated on every
+/// platform, and sorted.
 pub(super) fn tree(directory: &Path) -> Vec<String> {
     let mut paths: Vec<String> = ignore::WalkBuilder::new(directory)
         .hidden(false)
@@ -27,7 +28,13 @@ pub(super) fn tree(directory: &Path) -> Vec<String> {
         .filter_map(Result::ok)
         .filter_map(|entry| {
             let relative = entry.path().strip_prefix(directory).ok()?;
-            (!relative.as_os_str().is_empty()).then(|| relative.display().to_string())
+            (!relative.as_os_str().is_empty()).then(|| {
+                relative
+                    .components()
+                    .map(|part| part.as_os_str().to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/")
+            })
         })
         .collect();
     paths.sort();

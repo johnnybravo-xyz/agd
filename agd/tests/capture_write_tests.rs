@@ -1,3 +1,7 @@
+// These tests move `~` by setting HOME. On Windows `~` is the profile
+// folder, which HOME does not move.
+#![cfg(not(target_os = "windows"))]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

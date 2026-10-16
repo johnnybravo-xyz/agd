@@ -493,8 +493,12 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(temp.path().join("tasks.org"), "* TODO One\n").unwrap();
         let index = WorkspaceIndex::load(settings(temp.path())).unwrap();
+        let outside = tempfile::tempdir().unwrap();
         let error = index
-            .resolve("/no/such/file:1#sha256:00000000000000000000000000000000")
+            .resolve(&format!(
+                "{}:1#sha256:00000000000000000000000000000000",
+                outside.path().join("no/such/file").display()
+            ))
             .unwrap_err();
         assert_eq!(error.code().as_str(), "invalid_path");
     }

@@ -53,9 +53,10 @@ fn emacs_doom_imports_olp_datetree_and_template_file_captures() {
     assert_eq!(journal.olpath, Some(vec!["Journal".to_string()]));
     let meeting = result.settings.capture_template("m").unwrap();
     assert_eq!(meeting.template, "");
+    // As paths: the fixture's `/fixture/meeting.txt` keeps its `/` on Windows.
     assert_eq!(
-        meeting.template_file.as_deref(),
-        Some(temp.path().join("meeting.txt").to_string_lossy().as_ref())
+        meeting.template_file.as_deref().map(Path::new),
+        Some(temp.path().join("meeting.txt").as_path())
     );
 }
 

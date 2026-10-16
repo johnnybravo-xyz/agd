@@ -44,6 +44,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Habit repeaters on completion, property edits that keep untouched lines,
   and capture placement as org-capture places entries.
+- `config_dir` and `data_dir` honor `XDG_CONFIG_HOME` and `XDG_DATA_HOME`
+  on Windows too.
 
 ## [0.1.0] - 2026-10-14
 

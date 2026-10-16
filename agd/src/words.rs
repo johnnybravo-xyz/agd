@@ -66,12 +66,14 @@ pub fn location(file: &str, line: usize, roots: &[PathBuf]) -> String {
 }
 
 /// A sentence with every path under a root written relative to it, as
-/// `location` writes one (`projects/alpha.org`), for errors that name a
-/// file. Absolute paths are for JSON.
+/// `location` writes one (`projects/alpha.org`, `projects\alpha.org` on
+/// Windows), for errors that name a file. Absolute paths are for JSON.
 pub fn relative_paths(text: &str, roots: &[PathBuf]) -> String {
     roots.iter().fold(text.to_string(), |text, root| {
         let root = root.display().to_string();
-        text.replace(&format!("{}/", root.trim_end_matches('/')), "")
+        let root = root.trim_end_matches(['/', std::path::MAIN_SEPARATOR]);
+        text.replace(&format!("{root}/"), "")
+            .replace(&format!("{root}{}", std::path::MAIN_SEPARATOR), "")
     })
 }
 

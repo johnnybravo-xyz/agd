@@ -82,6 +82,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Peek shows a link under your home directory with `~`.
 - Fast typing and pasting into capture keep up, and `agd agenda | head`
   ends quietly.
+- On Windows, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` are honored when set,
+  and messages name files relative to their root.
 
 ## [0.1.0] - 2026-10-14
 
