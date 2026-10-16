@@ -5,7 +5,7 @@
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{ListItem, ListState, Paragraph};
 
 use super::theme::truncate;
 use super::today::{self, Clock};
@@ -97,14 +97,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     };
     let mut state =
         ListState::default().with_selected((!app.rows.is_empty()).then_some(app.selected));
-    frame.render_stateful_widget(
-        List::new(items)
-            .highlight_symbol(Span::styled("▌", theme.fg(theme.accent)))
-            .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
-            .highlight_style(theme.selected()),
-        list_area,
-        &mut state,
-    );
+    frame.render_stateful_widget(theme.list(items), list_area, &mut state);
     app.list_area = list_area;
     app.click_rows = (0..app.rows.len())
         .skip(state.offset())

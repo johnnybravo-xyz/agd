@@ -617,15 +617,32 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
     }
 }
 
-/// Leaves the alternate screen, runs the configured editor directly (never
-/// through a shell), and re-reads the file on return.
+/// Opens the heading's file in the editor and re-reads it on return.
 fn open_in_editor(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
     file: &str,
     line: usize,
 ) -> Result<()> {
-    let (program, args) = app.settings.editor_command(file, line, 1);
+    let status = run_editor(terminal, &app.settings, file, line)?;
+    if !status.success() {
+        app.set_error(&anyhow::anyhow!("editor exited with {status}"));
+    }
+    if Path::new(file).exists() {
+        app.index.refresh_path(Path::new(file))?;
+    }
+    app.reload_rows()
+}
+
+/// Leaves the alternate screen, runs the configured editor on `file` at
+/// `line` directly (never through a shell), and comes back.
+fn run_editor(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    settings: &Settings,
+    file: &str,
+    line: usize,
+) -> Result<std::process::ExitStatus> {
+    let (program, args) = settings.editor_command(file, line, 1);
     stop_terminal(terminal)?;
     let status = Command::new(&program)
         .args(args)
@@ -634,14 +651,7 @@ fn open_in_editor(
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     terminal.clear()?;
-    let status = status?;
-    if !status.success() {
-        app.set_error(&anyhow::anyhow!("editor exited with {status}"));
-    }
-    if Path::new(file).exists() {
-        app.index.refresh_path(Path::new(file))?;
-    }
-    app.reload_rows()
+    status
 }
 
 /// Copies text through the terminal (OSC 52), which works over SSH and

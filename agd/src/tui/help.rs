@@ -231,12 +231,7 @@ fn help_lines(
         let (title, groups) = keys::SCREENS[entry.screen];
         let group = groups
             .iter()
-            .find(|group| {
-                group
-                    .bindings
-                    .iter()
-                    .any(|binding| std::ptr::eq(binding, entry.binding))
-            })
+            .find(|group| shares(entry, group))
             .map_or("", |group| group.title);
         if !filtered {
             if previous.is_none_or(|(screen, _)| screen != entry.screen) {

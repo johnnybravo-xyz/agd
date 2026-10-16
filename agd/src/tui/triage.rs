@@ -246,9 +246,7 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
     }
     // The nudge is earned: after enough reschedules, suggest Someday.
     if nudge {
-        let key = keys::hints(keys::TRIAGE_KEYS, &[Action::Someday])
-            .first()
-            .map_or("S", |(key, _)| *key);
+        let key = keys::key_label(keys::TRIAGE_KEYS, Action::Someday);
         lines.push(Line::default());
         lines.push(Line::from(vec![
             Span::styled("↳ Someday?  ", theme.fg(theme.accent)),
@@ -324,11 +322,7 @@ fn summary(app: &App) -> Vec<Line<'static>> {
         ])
     };
     // Undo is offered only when the pass wrote something it can undo.
-    let key = |action: Action| {
-        keys::hints(keys::TRIAGE_KEYS, &[action])
-            .first()
-            .map_or("", |(key, _)| *key)
-    };
+    let key = |action| keys::key_label(keys::TRIAGE_KEYS, action);
     let mut hints = Vec::new();
     if !app.triage.undo.is_empty() {
         hints.extend(theme.key_hint(key(Action::Undo), "undoes all"));

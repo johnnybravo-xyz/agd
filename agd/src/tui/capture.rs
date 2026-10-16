@@ -6,30 +6,27 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{self, Stdout, Write};
+use std::io::{Stdout, Write};
 use std::path::Path;
-use std::process::Command;
 
 use agd_core::{
     CaptureDraft, CapturePrompt, Notation, WriteEngine, capture_prompts, keyword_colors,
     parse_capture_line,
 };
 use anyhow::{Context, Result};
-use crossterm::event::{EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::execute;
-use crossterm::terminal::{EnterAlternateScreen, enable_raw_mode};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Frame;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Clear, ListItem, ListState, Paragraph, Wrap};
 
 use super::input::TextInput;
 use super::keys::{self, Action};
 use super::theme::{Theme, centered, truncate};
-use super::{App, Overlay, stop_terminal, write_context};
+use super::{App, Overlay, run_editor, write_context};
 
 /// The capture popup's state. Field 0 is the one-line title with tokens;
 /// later fields answer the template's `%^{prompt}`s.
@@ -317,18 +314,7 @@ fn edit_body(
         .context("cannot create capture draft")?;
     file.write_all(draft.body.as_bytes())?;
     file.flush()?;
-    let (program, args) = app
-        .settings
-        .editor_command(&file.path().to_string_lossy(), 1, 1);
-    stop_terminal(terminal)?;
-    let status = Command::new(&program)
-        .args(args)
-        .status()
-        .with_context(|| format!("cannot start editor {program}"));
-    enable_raw_mode()?;
-    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-    terminal.clear()?;
-    if status?.success() {
+    if run_editor(terminal, &app.settings, &file.path().to_string_lossy(), 1)?.success() {
         draft.body = fs::read_to_string(file.path()).context("cannot read capture draft")?;
         draft.body = draft.body.trim_end().to_string();
     }
@@ -351,7 +337,6 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     else {
         return draw_chooser(frame, app, draft, area);
     };
-    let template = Some(template);
     // As wide as the edit popup, so a heading with tags aligned at
     // org-tags-column fits when the terminal allows.
     let width = area
@@ -374,10 +359,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let height = 2 + 3 + 1 + prompt_rows + 1 + 1 + 1 + preview.len() as u16 + 2 + 1 + 1 + 1;
     let popup = centered(area, width, height);
     frame.render_widget(Clear, popup);
-    let title = template.map_or("Capture".to_string(), |template| {
-        format!("Capture · {}", template.desc)
-    });
-    let block = theme.popup(title);
+    let block = theme.popup(format!("Capture · {}", template.desc));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
     let mut constraints = vec![Constraint::Length(3), Constraint::Length(1)];
@@ -458,9 +440,8 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Paragraph::new(Line::from(chips(app, draft.parsed(app).ok()))),
         parts[next],
     );
-    let destination = template.map_or(String::new(), destination);
     frame.render_widget(
-        Paragraph::new(Span::styled(destination, theme.fg(theme.text))),
+        Paragraph::new(Span::styled(destination(template), theme.fg(theme.text))),
         parts[next + 2],
     );
     let key = |action| keys::key_label(keys::POPUP_KEYS, action);
@@ -549,14 +530,7 @@ fn draw_chooser(frame: &mut Frame<'_>, app: &App, draft: &Draft, area: Rect) {
         })
         .collect();
     let mut state = ListState::default().with_selected(Some(draft.selected));
-    frame.render_stateful_widget(
-        List::new(rows)
-            .highlight_symbol(Span::styled("▌", theme.fg(theme.accent)))
-            .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
-            .highlight_style(theme.selected()),
-        parts[0],
-        &mut state,
-    );
+    frame.render_stateful_widget(theme.list(rows), parts[0], &mut state);
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(Span::styled(

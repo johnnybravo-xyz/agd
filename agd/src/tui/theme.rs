@@ -61,7 +61,10 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
-use ratatui::widgets::{Block, BorderType, Borders, Padding, Scrollbar, ScrollbarOrientation};
+use ratatui::widgets::{
+    Block, BorderType, Borders, HighlightSpacing, List, ListItem, Padding, Scrollbar,
+    ScrollbarOrientation,
+};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// The colour roles above, built once at startup from the terminal and the
@@ -356,6 +359,15 @@ impl Theme {
             .padding(Padding::horizontal(2))
     }
 
+    /// A list whose selected row carries the ▌ bar and the selection's
+    /// tint, as every list and picker draws it.
+    pub(super) fn list<'a>(&self, items: Vec<ListItem<'a>>) -> List<'a> {
+        List::new(items)
+            .highlight_symbol(Span::styled("▌", self.fg(self.accent)))
+            .highlight_spacing(HighlightSpacing::Always)
+            .highlight_style(self.selected())
+    }
+
     /// A list's scroll position drawn on its right border: the track is
     /// the border itself and the thumb a heavier line in muted, so it
     /// reads as part of the frame.
@@ -553,12 +565,12 @@ impl BackgroundReply {
 /// not asked or not answered), the reply state for an answer still on its
 /// way, and any events that arrived meanwhile, for the event loop to handle
 /// first. Not asked under NO_COLOR, without truecolor (the 16-colour
-/// palette is the same on light and dark), when stdin or stdout is not a
-/// terminal, or in tests.
+/// palette is the same on light and dark), or when stdin or stdout is not a
+/// terminal.
 pub(super) fn ask_background(setting: &str) -> (Option<bool>, BackgroundReply, Vec<Event>) {
     let mut reply = BackgroundReply::default();
     let terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
-    if cfg!(test) || setting != "auto" || no_color() || !truecolor() || !terminal {
+    if setting != "auto" || no_color() || !truecolor() || !terminal {
         return (None, reply, Vec::new());
     }
     let mut typed = Vec::new();
@@ -726,14 +738,5 @@ mod tests {
             reply.feed(&char_key(character));
         }
         assert_eq!(reply.feed(&alt('\\')), ReplyKey::End(Some(false)));
-    }
-
-    #[test]
-    fn nothing_is_asked_when_nobody_waits_for_an_answer() {
-        assert_eq!(BackgroundReply::default().feed(&alt(']')), ReplyKey::Other);
-        let (light, reply, typed) = ask_background("auto");
-        assert_eq!(light, None);
-        assert!(!reply.awaiting);
-        assert!(typed.is_empty());
     }
 }

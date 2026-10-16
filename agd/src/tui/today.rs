@@ -8,7 +8,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, ScrollbarState};
+use ratatui::widgets::{Clear, ListItem, ListState, Paragraph, ScrollbarState};
 
 use agd_core::{Occurrence, OccurrenceType, keyword_color};
 use chrono::{NaiveTime, Timelike};
@@ -395,11 +395,7 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect, wide: bool) {
     }
     let total = items.len();
     let mut state = ListState::default().with_selected(selected_line);
-    let list = List::new(items)
-        .block(block)
-        .highlight_symbol(Span::styled("▌", theme.fg(theme.accent)))
-        .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
-        .highlight_style(theme.selected());
+    let list = theme.list(items).block(block);
     frame.render_stateful_widget(list, area, &mut state);
     app.click_rows = line_rows
         .iter()
@@ -1067,14 +1063,7 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 .map(|(_, label)| ListItem::new(label.clone()))
                 .collect();
             let mut state = ListState::default().with_selected(Some(picker.selected));
-            frame.render_stateful_widget(
-                List::new(items)
-                    .highlight_symbol(Span::styled("▌", theme.fg(theme.accent)))
-                    .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
-                    .highlight_style(theme.selected()),
-                parts[2],
-                &mut state,
-            );
+            frame.render_stateful_widget(theme.list(items), parts[2], &mut state);
             frame.render_widget(
                 Paragraph::new(footer(&[
                     (popup_key(Action::Save), "refile"),
@@ -1117,14 +1106,7 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 })
                 .collect();
             let mut state = ListState::default().with_selected(Some(*selected));
-            frame.render_stateful_widget(
-                List::new(items)
-                    .highlight_symbol(Span::styled("▌", theme.fg(theme.accent)))
-                    .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
-                    .highlight_style(theme.selected()),
-                parts[0],
-                &mut state,
-            );
+            frame.render_stateful_widget(theme.list(items), parts[0], &mut state);
             frame.render_widget(
                 Paragraph::new(footer(&[
                     ("key", "opens its view"),

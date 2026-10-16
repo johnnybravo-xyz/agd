@@ -19,6 +19,28 @@ use super::{
     TriageState,
 };
 
+impl DisplayRow {
+    /// An agenda row: the item and the occurrence that lists it.
+    fn entry(section: &str, entry: AgendaEntry) -> Self {
+        Self {
+            section: section.to_string(),
+            item: entry.item,
+            occurrence: Some(entry.occurrence),
+            more: 0,
+        }
+    }
+
+    /// A row without a date: the inbox, DOING, a list block.
+    fn item(section: &str, item: Item) -> Self {
+        Self {
+            section: section.to_string(),
+            item,
+            occurrence: None,
+            more: 0,
+        }
+    }
+}
+
 /// Rows shown under OVERDUE on Today; the rest wait in Triage.
 const OVERDUE_ON_TODAY: usize = 3;
 /// The Agents tab shows this many recent changes.
@@ -245,7 +267,7 @@ impl App {
             }
             Screen::Today if self.classic => {
                 headers.extend(day_labels(self.day, self.day));
-                self.day_rows(&engine)?
+                day_grouped(engine.agenda(&self.query(self.day, self.day))?)
             }
             // Filtered before OVERDUE folds, so "+N more" counts what the
             // filters let through.
@@ -267,12 +289,7 @@ impl App {
             }
             Screen::Inbox => inbox
                 .into_iter()
-                .map(|item| DisplayRow {
-                    section: INBOX.to_string(),
-                    item,
-                    occurrence: None,
-                    more: 0,
-                })
+                .map(|item| DisplayRow::item(INBOX, item))
                 .collect(),
             Screen::View(key) => {
                 let mut rows = Vec::new();
@@ -290,18 +307,18 @@ impl App {
                             for group in section.groups {
                                 headers
                                     .push(Header::section(group.name.clone(), Some(group.color)));
-                                rows.extend(group.entries.into_iter().map(|entry| DisplayRow {
-                                    section: group.name.clone(),
-                                    item: entry.item,
-                                    occurrence: Some(entry.occurrence),
-                                    more: 0,
-                                }));
-                                rows.extend(group.items.into_iter().map(|item| DisplayRow {
-                                    section: group.name.clone(),
-                                    item,
-                                    occurrence: None,
-                                    more: 0,
-                                }));
+                                rows.extend(
+                                    group
+                                        .entries
+                                        .into_iter()
+                                        .map(|entry| DisplayRow::entry(&group.name, entry)),
+                                );
+                                rows.extend(
+                                    group
+                                        .items
+                                        .into_iter()
+                                        .map(|item| DisplayRow::item(&group.name, item)),
+                                );
                             }
                             continue;
                         }
@@ -323,12 +340,12 @@ impl App {
                                 Some(section.color.clone()),
                             ));
                         }
-                        rows.extend(section.items.into_iter().map(|item| DisplayRow {
-                            section: section.header.clone(),
-                            item,
-                            occurrence: None,
-                            more: 0,
-                        }));
+                        rows.extend(
+                            section
+                                .items
+                                .into_iter()
+                                .map(|item| DisplayRow::item(&section.header, item)),
+                        );
                     }
                 }
                 rows
@@ -392,11 +409,6 @@ impl App {
         }
     }
 
-    /// Classic view: the plain org-agenda day list for `day`.
-    fn day_rows(&self, engine: &AgendaEngine<'_>) -> Result<Vec<DisplayRow>> {
-        Ok(day_grouped(engine.agenda(&self.query(self.day, self.day))?))
-    }
-
     /// Context (`<`) and text/tag (`/`) filters.
     fn visible(&self, item: &Item) -> bool {
         let context = self
@@ -436,12 +448,7 @@ fn today_rows(
     // OVERDUE is the core's overdue list: one row per item, in its order.
     for entry in overdue_entries(&entries) {
         shown.insert(entry.item.item_ref.clone());
-        sections[0].1.push(DisplayRow {
-            section: OVERDUE.to_string(),
-            item: entry.item,
-            occurrence: Some(entry.occurrence),
-            more: 0,
-        });
+        sections[0].1.push(DisplayRow::entry(OVERDUE, entry));
     }
     for entry in entries.into_iter().filter(|entry| !entry.occurrence.late) {
         let slot = if matches!(
@@ -453,12 +460,9 @@ fn today_rows(
             1
         };
         shown.insert(entry.item.item_ref.clone());
-        sections[slot].1.push(DisplayRow {
-            section: sections[slot].0.to_string(),
-            item: entry.item,
-            occurrence: Some(entry.occurrence),
-            more: 0,
-        });
+        sections[slot]
+            .1
+            .push(DisplayRow::entry(sections[slot].0, entry));
     }
     let overdue = std::mem::take(&mut sections[0].1);
     sections[0].1 = collapse_overdue(overdue, overdue_expanded);
@@ -473,22 +477,12 @@ fn today_rows(
     for item in todos {
         if !shown.contains(&item.item_ref) && is_in_progress(item, index) {
             shown.insert(item.item_ref.clone());
-            sections[3].1.push(DisplayRow {
-                section: DOING.to_string(),
-                item: item.clone(),
-                occurrence: None,
-                more: 0,
-            });
+            sections[3].1.push(DisplayRow::item(DOING, item.clone()));
         }
     }
     for item in inbox {
         if shown.insert(item.item_ref.clone()) {
-            sections[4].1.push(DisplayRow {
-                section: INBOX.to_string(),
-                item: item.clone(),
-                occurrence: None,
-                more: 0,
-            });
+            sections[4].1.push(DisplayRow::item(INBOX, item.clone()));
         }
     }
     // Done rows stay visible, last in their section.
@@ -522,12 +516,7 @@ fn pane_rows(entries: Vec<AgendaEntry>) -> Vec<DisplayRow> {
         .filter(|entry| {
             !entry.occurrence.late && entry.occurrence.kind != OccurrenceType::UpcomingDeadline
         })
-        .map(|entry| DisplayRow {
-            section: SCHEDULE.to_string(),
-            item: entry.item,
-            occurrence: Some(entry.occurrence),
-            more: 0,
-        })
+        .map(|entry| DisplayRow::entry(SCHEDULE, entry))
         .collect();
     rows.sort_by_key(|row| {
         (
@@ -626,12 +615,7 @@ fn day_grouped(entries: Vec<AgendaEntry>) -> Vec<DisplayRow> {
                 .parse::<NaiveDate>()
                 .map(day_label)
                 .unwrap_or_else(|_| entry.occurrence.date.clone());
-            DisplayRow {
-                section,
-                item: entry.item,
-                occurrence: Some(entry.occurrence),
-                more: 0,
-            }
+            DisplayRow::entry(&section, entry)
         })
         .collect()
 }
@@ -652,24 +636,14 @@ fn current_item(index: &WorkspaceIndex, item: &Item) -> Option<Item> {
 fn triage_rows(entries: &[AgendaEntry], inbox: Vec<Item>) -> Vec<DisplayRow> {
     let mut rows: Vec<DisplayRow> = overdue_entries(entries)
         .into_iter()
-        .map(|entry| DisplayRow {
-            section: OVERDUE.to_string(),
-            item: entry.item,
-            occurrence: Some(entry.occurrence),
-            more: 0,
-        })
+        .map(|entry| DisplayRow::entry(OVERDUE, entry))
         .collect();
     let mut seen: BTreeSet<String> = rows.iter().map(|row| row.item.item_ref.clone()).collect();
     rows.extend(
         inbox
             .into_iter()
             .filter(|item| seen.insert(item.item_ref.clone()))
-            .map(|item| DisplayRow {
-                section: INBOX.to_string(),
-                item,
-                occurrence: None,
-                more: 0,
-            }),
+            .map(|item| DisplayRow::item(INBOX, item)),
     );
     rows
 }

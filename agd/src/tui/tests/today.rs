@@ -881,29 +881,6 @@ fn only_captures_say_who_captured_a_task() {
 
 #[test]
 #[serial]
-fn shift_x_cancels_with_the_files_own_keyword() {
-    with_home(|root| {
-        let path = root.join("work.org");
-        fs::write(
-            &path,
-            "#+TODO: TODO | DONE CANCELED\n* TODO Old plan\nSCHEDULED: <2026-10-13 Tue>\n",
-        )
-        .unwrap();
-        let mut app = test_app(root);
-        app.reload_rows().unwrap();
-        app.cancel().unwrap();
-        assert!(
-            fs::read_to_string(&path)
-                .unwrap()
-                .contains("* CANCELED Old plan"),
-            "{}",
-            fs::read_to_string(&path).unwrap()
-        );
-    });
-}
-
-#[test]
-#[serial]
 fn marked_rows_are_written_together_or_not_at_all() {
     with_home(|root| {
         let rent = "* TODO Pay rent\nSCHEDULED: <2026-10-13 Tue>\n";

@@ -14,7 +14,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{ListItem, ListState, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
 use agd_core::{Item, JournalOperation, JournalRecord, JournalStatus};
@@ -149,15 +149,23 @@ fn keyword(headline: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// The task a change touched, as the file reads now: the heading whose
-/// section holds the first patch's start. None once the change is undone
-/// or nothing is left at that place.
-pub(super) fn touched_item(app: &App, record: &JournalRecord) -> Option<Item> {
+/// The task a change is about, as the files read now: the heading its ref
+/// names while the file still holds it (a capture that also made its
+/// parent names the task), else the heading whose section holds the first
+/// patch's start. None once the change is undone or nothing is left there.
+pub(super) fn subject(app: &App, record: &JournalRecord) -> Option<Item> {
     if matches!(
         record.status,
         JournalStatus::Undone | JournalStatus::Unapplied
     ) {
         return None;
+    }
+    if let Some(item) = app
+        .index
+        .items()
+        .find(|item| record.item_ref.as_deref() == Some(item.item_ref.as_str()))
+    {
+        return Some(item.clone());
     }
     let start = record.patches.first()?.start;
     let file = record.file.split(',').next()?;
@@ -167,23 +175,6 @@ pub(super) fn touched_item(app: &App, record: &JournalRecord) -> Option<Item> {
         .iter()
         .find(|headline| headline.section_span.start <= start && start < headline.section_span.end)
         .map(|headline| headline.item.clone())
-}
-
-/// The task a change is about: the heading its ref names while the file
-/// still holds it (a capture that also made its parent names the task),
-/// else the heading at the change's place.
-pub(super) fn subject(app: &App, record: &JournalRecord) -> Option<Item> {
-    if matches!(
-        record.status,
-        JournalStatus::Undone | JournalStatus::Unapplied
-    ) {
-        return None;
-    }
-    app.index
-        .items()
-        .find(|item| record.item_ref.as_deref() == Some(item.item_ref.as_str()))
-        .cloned()
-        .or_else(|| touched_item(app, record))
 }
 
 /// Where a change is, for its card and for ⏎: the task's line as the file
@@ -198,32 +189,15 @@ pub(super) fn changed_place(app: &App, record: &JournalRecord) -> (String, usize
                 .next()
                 .unwrap_or_default()
                 .to_string(),
-            first_changed_line(record),
+            // The new-file line of the first line the change added or removed.
+            [changed(record, '+'), changed(record, '-')]
+                .iter()
+                .filter_map(|lines| lines.first().map(|(line, _)| *line))
+                .min()
+                .unwrap_or(1)
+                .max(1),
         ),
     }
-}
-
-/// The new-file line of the diff's first added or removed line: the hunk
-/// header gives where its context starts, and each context line counts.
-fn first_changed_line(record: &JournalRecord) -> usize {
-    let mut line: Option<usize> = None;
-    for text in record.diff.lines() {
-        if let Some(hunk) = text.strip_prefix("@@ ") {
-            line = hunk
-                .split_whitespace()
-                .find_map(|part| part.strip_prefix('+'))
-                .and_then(|plus| plus.split(',').next()?.parse().ok());
-            continue;
-        }
-        let Some(current) = line else {
-            continue;
-        };
-        if text.starts_with('+') || text.starts_with('-') {
-            return current.max(1);
-        }
-        line = Some(current + 1);
-    }
-    line.unwrap_or(1).max(1)
 }
 
 /// What a card and the status line call a change's task: its title as the
@@ -298,12 +272,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     }
     let mut state = ListState::default().with_selected(Some(app.selected * 2));
     frame.render_stateful_widget(
-        List::new(items)
-            .block(block)
-            .highlight_symbol(Span::styled("▌", theme.fg(theme.accent)))
-            .repeat_highlight_symbol(true)
-            .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
-            .highlight_style(theme.selected()),
+        theme.list(items).block(block).repeat_highlight_symbol(true),
         area,
         &mut state,
     );

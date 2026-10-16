@@ -728,7 +728,7 @@ fn run_switch(app: &mut App, action: Action, key: KeyEvent) -> Result<bool> {
 /// nothing. `esc` is each screen's own. False for any other action.
 fn run_go(app: &mut App, action: Action) -> Result<bool> {
     match action {
-        A::Triage if app.screen != Screen::Triage => start_triage(app)?,
+        A::Triage if app.screen != Screen::Triage => app.start_triage()?,
         A::Agents if app.screen != Screen::Review => app.switch_screen(Screen::Review)?,
         A::Triage | A::Agents => {}
         A::Quit => app.quit = true,
@@ -888,10 +888,6 @@ fn prompt(app: &mut App, kind: PromptKind) {
     }
 }
 
-fn start_triage(app: &mut App) -> Result<()> {
-    app.start_triage()
-}
-
 /// The selected row's heading, for $EDITOR.
 fn selected_location(app: &App) -> EditorTarget {
     app.selected_row()
@@ -1036,7 +1032,7 @@ fn run_pane(app: &mut App, action: Action) -> Result<EditorTarget> {
         A::Editor => return Ok(selected_location(app)),
         A::Triage => {
             if app.leave_pane()? {
-                start_triage(app)?;
+                app.start_triage()?;
             }
         }
         A::FullView => {
