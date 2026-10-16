@@ -123,11 +123,12 @@ click it again to open the full TUI there.
 a network port.
 
 In Claude Code, install agd as a plugin. It brings the MCP server and the
-`agenda` skill, and a mod (Claude Code 2.1.287 or later) that adds `/agd`, a
+`agenda` skill, and a mod (Claude Code 2.1.296 or later) that adds `/agd`, a
 pane beside the transcript with your `start_view` (or today's agenda) and a
 tab per saved view on its own key, `/capture KEY text`, which files a task at
 once without a Claude turn, and a line above the prompt with the day's counts.
-It runs the `agd` on your `PATH`.
+It runs the `agd` on your `PATH`, which reads your `config.toml`, so the pane
+draws like the TUI: its palette, your keyword colors and `nerd_font` chips.
 
 ```bash
 claude plugin marketplace add johnnybravo-xyz/agd

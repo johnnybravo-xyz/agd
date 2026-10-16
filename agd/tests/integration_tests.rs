@@ -119,6 +119,53 @@ fn status_line_counts_today_for_a_status_bar() {
 }
 
 #[test]
+fn views_json_carries_what_a_client_draws_them_with() {
+    let fixture = Fixture::new();
+    let config = fs::read_to_string(&fixture.config).unwrap();
+    fs::write(
+        &fixture.config,
+        format!(
+            concat!(
+                "start_view = \"w\"\n",
+                "theme = \"light\"\n",
+                "nerd_font = true\n",
+                "todo_keyword_colors = {{ NEXT = \"teal\" }}\n",
+                "{config}",
+                "[[view]]\n",
+                "key = \"d\"\n",
+                "desc = \"Dashboard\"\n",
+                "blocks = [{{ kind = \"todo\", match = \"NEXT\" }}]\n",
+                "[[view]]\n",
+                "key = \"w\"\n",
+                "desc = \"Work\"\n",
+                "blocks = [{{ kind = \"tags-todo\", match = \"work\" }}]\n",
+            ),
+            config = config,
+        ),
+    )
+    .unwrap();
+    let output = fixture
+        .command()
+        .args(["agenda", "--views", "--json"])
+        .output()
+        .expect("views command");
+    assert!(output.status.success(), "{output:?}");
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("views JSON");
+    // start_view first, then config order.
+    assert_eq!(payload["views"][0]["key"], "w");
+    assert_eq!(payload["views"][0]["start"], true);
+    assert_eq!(payload["views"][1]["key"], "d");
+    assert_eq!(payload["theme"], "light");
+    assert_eq!(payload["nerd_font"], true);
+    // The file's #+TODO keywords: a configured color, the sequence's first
+    // keyword orange, done green.
+    assert_eq!(
+        payload["keyword_colors"],
+        serde_json::json!({ "DONE": "green", "NEXT": "teal", "TODO": "orange" })
+    );
+}
+
+#[test]
 fn capture_parses_tokens_and_keeps_body_literal() {
     let fixture = Fixture::new();
     let before = fs::read(&fixture.tasks).expect("pre-image");

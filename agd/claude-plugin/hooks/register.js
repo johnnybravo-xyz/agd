@@ -7,14 +7,65 @@ const PANE = 'agd'
 
 const TODAY = 'today'
 
-// What the band and the pane draw; refresh() replaces them. `views` are the
-// saved views from `agd agenda --views`; `current` is the open tab, a view's
-// key or TODAY, starting on start_view.
+// agd's TUI palette, as agd/src/tui/theme.rs defines it; keep the two in step.
+const PALETTES = {
+  dark: {
+    accent: '#6ea8fe',
+    overdue: '#f07178',
+    due: '#e5b567',
+    done: '#7ec68f',
+    text: '#dee2e8',
+    muted: '#808896',
+    surface: '#20252e',
+    yellow: '#ecd678',
+    dimRed: '#b07076',
+    pink: '#e879b0',
+    teal: '#5ec4a0',
+    purple: '#b094f5',
+  },
+  light: {
+    accent: '#2563c4',
+    overdue: '#c53030',
+    due: '#b06f00',
+    done: '#248748',
+    text: '#1f2329',
+    muted: '#6c727e',
+    surface: '#eef0f3',
+    yellow: '#967a00',
+    dimRed: '#b87878',
+    pink: '#c83c82',
+    teal: '#148c64',
+    purple: '#6e50c8',
+  },
+  // The TUI's 16-color palette, for Claude Code's ANSI themes; text keeps
+  // the terminal's own foreground.
+  ansi: {
+    accent: 'blueBright',
+    overdue: 'red',
+    due: 'yellow',
+    done: 'green',
+    text: undefined,
+    muted: 'gray',
+    surface: undefined,
+    yellow: 'yellowBright',
+    dimRed: 'red',
+    pink: 'magenta',
+    teal: 'cyan',
+    purple: 'magentaBright',
+  },
+}
+
+// What the band and the pane draw; refresh() replaces them. `views` and
+// `display` come from `agd agenda --views --json`, which reads config.toml:
+// the saved views, and the TUI's theme, nerd_font and keyword colors.
+// `current` is the open tab, a view's key or TODAY, starting on start_view.
 let status = ''
 let sections = []
 let problem = ''
 let paneOpen = false
 let views = []
+let display = { theme: 'auto', nerd_font: false, keyword_colors: {} }
+let palette = PALETTES.dark
 let current = null
 
 // Runs agd with an argument list (no shell). Resolves { stdout } or { error }.
@@ -39,17 +90,7 @@ async function readSections($, key) {
   }
   const day = await agd($, ['agenda', '--span', 'day', '--json'])
   if (day.error) return { error: day.error }
-  return parsed(day.stdout, (entries) => [{ header: 'Today', entries, items: [], groups: [] }])
-}
-
-async function readViews($) {
-  const listed = await agd($, ['agenda', '--views', '--json'])
-  if (listed.error) return []
-  try {
-    return JSON.parse(listed.stdout)
-  } catch {
-    return []
-  }
+  return parsed(day.stdout, (entries) => [{ header: 'Today', entries, items: [], groups: [], color: 'blue' }])
 }
 
 // agd's JSON as { sections }, or { error } when it does not parse.
@@ -61,11 +102,42 @@ function parsed(stdout, toSections) {
   }
 }
 
+async function readDisplay($) {
+  const listed = await agd($, ['agenda', '--views', '--json'])
+  if (listed.error) return
+  try {
+    const payload = JSON.parse(listed.stdout)
+    views = payload.views || []
+    display = {
+      theme: payload.theme || 'auto',
+      nerd_font: payload.nerd_font === true,
+      keyword_colors: payload.keyword_colors || {},
+    }
+  } catch {
+    views = []
+  }
+}
+
+// agd's theme setting picks the palette; with `auto`, Claude Code's own theme
+// does, since a pane has no terminal background to read.
+async function readPalette($) {
+  if (display.theme === 'dark' || display.theme === 'light') return PALETTES[display.theme]
+  try {
+    const row = (await $.config.list()).find((config) => config.key === 'theme')
+    const theme = String(row?.value ?? '')
+    if (theme.includes('ansi')) return PALETTES.ansi
+    return theme.includes('light') ? PALETTES.light : PALETTES.dark
+  } catch {
+    return PALETTES.dark
+  }
+}
+
 async function refresh($) {
   const counts = await agd($, ['agenda', '--status'])
   status = counts.error ? '' : counts.stdout.trim()
   if (paneOpen) {
-    views = await readViews($)
+    await readDisplay($)
+    palette = await readPalette($)
     if (current === null || (current !== TODAY && !views.some((view) => view.key === current))) {
       const start = views.find((view) => view.start)
       current = start ? start.key : TODAY
@@ -80,6 +152,37 @@ async function refresh($) {
 async function showView($, key) {
   current = key
   await refresh($)
+}
+
+// A config color name (agd's COLOR_NAMES) in the palette.
+function colorOf(name) {
+  switch (name) {
+    case 'orange':
+      return palette.due
+    case 'yellow':
+      return palette.yellow
+    case 'green':
+      return palette.done
+    case 'red':
+      return palette.overdue
+    case 'dim-red':
+      return palette.dimRed
+    case 'pink':
+      return palette.pink
+    case 'teal':
+      return palette.teal
+    case 'purple':
+      return palette.purple
+    case 'grey':
+      return palette.muted
+    default:
+      return palette.accent
+  }
+}
+
+// Text props with a color, leaving `color` out when the palette has none.
+function colored(color, props = {}) {
+  return color ? { ...props, color } : props
 }
 
 // A button's props with its hotkey, when it has one; a hotkey prop must be a
@@ -111,47 +214,62 @@ function tabs($, Box, Button) {
   })
 }
 
-// A config color name (agd's COLOR_NAMES) as Text props.
-function colorProps(name) {
-  switch (name) {
-    case 'grey':
-      return { dimColor: true }
-    // dimColor would turn red grey in Claude Code, so a muted red instead,
-    // the TUI's own dim-red.
-    case 'dim-red':
-      return { color: '#b07076' }
-    case 'teal':
-      return { color: 'cyan' }
-    case 'purple':
-    case 'pink':
-      return { color: 'magenta' }
-    case 'orange':
-    case 'yellow':
-    case 'green':
-    case 'red':
-    case 'blue':
-      return { color: name }
-    default:
-      return { color: 'blue' }
+// The priority as the TUI's chip: amber on the surface color, rounded with
+// Nerd Font caps when nerd_font is on; black on amber without a surface.
+function priorityChip(Text, priority) {
+  if (!palette.surface) {
+    return [Text({ color: 'black', backgroundColor: palette.due, bold: true, children: [' ' + priority + ' '] })]
   }
+  const chip = { color: palette.due, backgroundColor: palette.surface, bold: true }
+  if (!display.nerd_font) return [Text({ ...chip, children: [' ' + priority + ' '] })]
+  return [
+    Text({ color: palette.surface, children: ['\ue0b6'] }),
+    Text({ ...chip, children: [priority] }),
+    Text({ color: palette.surface, children: ['\ue0b4'] }),
+  ]
 }
 
-// One task: the agenda lead (time, "In 2 d.:", "Sched. 2x:") when there is
-// one, the keyword, priority, title and tags.
-function rowText(item, lead) {
+// The lead's color, as the TUI's: overdue in red, deadlines amber, the rest muted.
+function leadColor(occurrence) {
+  if (occurrence.type === 'past-scheduled') return palette.overdue
+  if (occurrence.type === 'deadline' && occurrence.extra.endsWith('ago:')) return palette.overdue
+  if (occurrence.type === 'deadline' || occurrence.type === 'upcoming-deadline') return palette.due
+  return palette.muted
+}
+
+// One task as the TUI's view rows draw it: for an agenda entry the category
+// and org-agenda's lead (`10:00......`, `In 2 d.:`, `Sched. 2x:`), else an
+// indent; then the keyword in its color, the title, the priority chip and
+// the tags.
+function taskRow(Text, item, occurrence) {
   const parts = []
-  if (lead !== undefined) parts.push(lead.padEnd(11))
-  if (item.todo) parts.push(item.todo)
-  if (item.priority) parts.push('[#' + item.priority + ']')
-  // Like agd's own lists, drop active timestamps from the title.
-  parts.push(item.title.replace(/<\d{4}-\d{2}-\d{2}[^>]*>/g, '').trim())
-  if (item.tags.length > 0) parts.push(':' + item.tags.join(':') + ':')
-  return parts.join(' ')
+  if (occurrence) {
+    parts.push(Text(colored(palette.muted, { children: [(item.category + ':').padEnd(12)] })))
+    if (occurrence.time) parts.push(Text({ children: [occurrence.time + '...... '] }))
+    if (occurrence.extra) parts.push(Text(colored(leadColor(occurrence), { children: [occurrence.extra.padEnd(11) + ' '] })))
+  } else {
+    parts.push(Text({ children: ['       '] }))
+  }
+  if (item.todo) {
+    const name = display.keyword_colors[item.todo] || (item.done ? 'green' : 'blue')
+    const bold = !item.done && name !== 'orange'
+    parts.push(Text(colored(colorOf(name), { bold, children: [item.todo + ' '] })))
+  }
+  // A done title is muted and struck through, as in the TUI.
+  const title = item.done ? colored(palette.muted, { strikethrough: true }) : colored(palette.text)
+  parts.push(Text({ ...title, children: [displayTitle(item.title)] }))
+  if (item.priority) parts.push(Text({ children: [' '] }), ...priorityChip(Text, item.priority))
+  if (item.tags.length > 0) parts.push(Text(colored(palette.accent, { children: ['  #' + item.tags.join(' #')] })))
+  return Text({ wrap: 'truncate-end', children: parts })
 }
 
-function entryLead(entry) {
-  const occurrence = entry.occurrence
-  return occurrence.time ? occurrence.time : occurrence.extra || ''
+// The title as agd's lists show it: active timestamps dropped, and
+// `[[target][description]]` read as its description, `[[target]]` as the target.
+function displayTitle(title) {
+  return title
+    .replace(/[ \t]*<\d{4}-\d{2}-\d{2}[^>\n]*>/g, '')
+    .replace(/\[\[([^\]]*)\](?:\[([^\]]*)\])?\]/g, (_, target, description) => description || target)
+    .trim()
 }
 
 // Rows for a block or a group: agenda entries under their day, list items
@@ -162,16 +280,12 @@ function rows(Text, entries, items) {
   for (const entry of entries) {
     if (entry.occurrence.date !== day) {
       day = entry.occurrence.date
-      lines.push(Text({ bold: true, children: [dayLabel(day)] }))
+      lines.push(Text(colored(palette.text, { bold: true, children: [dayLabel(day)] })))
     }
-    lines.push(textRow(Text, entry.item, rowText(entry.item, entryLead(entry))))
+    lines.push(taskRow(Text, entry.item, entry.occurrence))
   }
-  for (const item of items) lines.push(textRow(Text, item, rowText(item)))
+  for (const item of items) lines.push(taskRow(Text, item, null))
   return lines
-}
-
-function textRow(Text, item, text) {
-  return Text({ wrap: 'truncate-end', dimColor: item.done, children: ['  ' + text] })
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -183,11 +297,17 @@ function dayLabel(date) {
   return WEEKDAYS[parsed.getUTCDay()] + ' ' + parsed.getUTCDate() + ' ' + MONTHS[parsed.getUTCMonth()]
 }
 
-// An uppercase header with its row count; empty sections are dimmed.
+// An uppercase header in its color with a muted row count, as in the TUI;
+// an empty section is muted.
 function header(Text, text, count, color) {
-  const style = count === 0 ? { dimColor: true } : colorProps(color)
-  const label = text.toUpperCase() + (count > 0 ? '  ' + count : '')
-  return Text({ bold: true, ...style, children: [label] })
+  const label = text.toUpperCase()
+  if (count === 0) return Text(colored(palette.muted, { bold: true, children: [label] }))
+  return Text({
+    children: [
+      Text(colored(colorOf(color), { bold: true, children: [label] })),
+      Text(colored(palette.muted, { children: ['  ' + count] })),
+    ],
+  })
 }
 
 function sectionCount(section) {
@@ -214,7 +334,7 @@ function paneBody($, e) {
   const { Box, Text, Button } = $.ui.resolve(e)
   const blank = () => Text({ children: [' '] })
   const body = problem
-    ? [Text({ color: 'red', children: [problem] })]
+    ? [Text(colored(palette.overdue, { children: [problem] }))]
     : sections.flatMap((section, index) => [...(index > 0 ? [blank()] : []), ...sectionLines(Text, section)])
   const footer = Box({
     flexDirection: 'row',
@@ -226,7 +346,7 @@ function paneBody($, e) {
           views.some((view) => view.key === 'g') ? undefined : 'g',
         ),
       ),
-      Text({ dimColor: true, children: ['esc close · ctrl-x x close'] }),
+      Text(colored(palette.muted, { children: ['esc close · ctrl-x x close'] })),
     ],
   })
   return Box({

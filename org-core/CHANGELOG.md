@@ -17,7 +17,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   org-super-agenda does, including `effort_max`/`effort_min`, and
   `AgendaEngine::view` returns them in `ViewSection::groups`.
 - `keyword_color` names a TODO keyword's color as agd draws it, from
-  `Settings::todo_keyword_colors` or its state, and every `ViewSection` and
+  `Settings::todo_keyword_colors` or its state, `keyword_colors` names every
+  keyword the agenda files use, and every `ViewSection` and
   `ViewSectionGroup` carries its resolved `color` (`COLOR_NAMES`).
 - Capture templates support Org's date prompts (`%^{name}t`, `T`, `u`, `U`
   and a bare `%^t`): the answer takes the same input as `due:` and renders as

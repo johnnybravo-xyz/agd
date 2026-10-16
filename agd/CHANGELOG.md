@@ -11,15 +11,18 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `agenda` skill and a mod: `/agd` opens a pane with your `start_view` or
   today's agenda and a tab per saved view on its own key (`d: Dashboard`),
   `/capture KEY text` files a task without a Claude turn, and a line above
-  the prompt shows the day's counts. The mod only runs `agd`; it needs
-  Claude Code 2.1.287 or later.
+  the prompt shows the day's counts. The pane draws rows as the TUI does, in
+  its palette (agd's `theme`, or with `auto` Claude Code's), with your
+  `todo_keyword_colors` and `nerd_font` chips. The mod only runs `agd`; it
+  needs Claude Code 2.1.296 or later.
 - `agd setup install` covers Codex and OpenCode, writing their MCP entry and
   the `agenda` skill to `.agents/skills/agenda/`, and leaves another skill of
   that name untouched.
 - `start_view = "KEY"` opens `agd` on that saved view, such as your
   dashboard, as the first tab; number keys follow the tab order.
   `agd agenda --view` without a key runs it, and `agd agenda --views` lists
-  the views.
+  the views; with `--json`, also the theme, `nerd_font` and each TODO
+  keyword's color, for a client to draw them as the TUI does.
 - View blocks take org-super-agenda groups: each row goes to the first group
   whose match it passes, `discard` drops rows, `by` groups by category,
   parent, todo or priority, `effort_max`/`effort_min` compare `:Effort:` as a

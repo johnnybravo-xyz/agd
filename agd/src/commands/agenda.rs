@@ -5,8 +5,8 @@ use chrono::{Datelike, Duration, Local, NaiveDate};
 use clap::{Args, ValueEnum};
 use org_core::{
     AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalStatus, Settings, ViewSection,
-    WorkspaceIndex, WriteEngine, agenda_csv, agenda_title, items_csv, load_settings,
-    parse_date_input,
+    WorkspaceIndex, WriteEngine, agenda_csv, agenda_title, items_csv, keyword_colors,
+    load_settings, parse_date_input,
 };
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -49,7 +49,8 @@ pub struct AgendaCommand {
     /// One line of counts for a tmux or herdr status bar
     #[arg(long, conflicts_with_all = ["json", "csv", "brief", "view"])]
     status: bool,
-    /// The saved views, start_view first; with --json, `{ key, desc, start }`
+    /// The saved views, start_view first; with --json, also what a client
+    /// draws them with: theme, nerd_font and each TODO keyword's color
     #[arg(long, conflicts_with_all = ["csv", "brief", "view", "status"])]
     views: bool,
     /// agd.agenda-entry/v1 objects
@@ -264,7 +265,9 @@ fn render_view(sections: &[ViewSection], settings: &Settings) -> String {
     blocks.join(&format!("{}\n", "=".repeat(78)))
 }
 
-/// The saved views in config order, with start_view moved first.
+/// The saved views in config order, with start_view moved first. The JSON
+/// carries the TUI's display settings, so a client such as the Claude Code
+/// pane draws them the same way.
 fn print_views(settings: &Settings, json: bool) -> Result<()> {
     let mut views: Vec<_> = settings
         .views
@@ -283,7 +286,14 @@ fn print_views(settings: &Settings, json: bool) -> Result<()> {
             .iter()
             .map(|(key, desc, start)| serde_json::json!({ "key": key, "desc": desc, "start": start }))
             .collect();
-        println!("{}", serde_json::to_string_pretty(&rows)?);
+        let index = load_index(settings.clone())?;
+        let payload = serde_json::json!({
+            "views": rows,
+            "theme": settings.theme,
+            "nerd_font": settings.nerd_font,
+            "keyword_colors": keyword_colors(&index),
+        });
+        println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
         for (key, desc, start) in views {
             println!("{key:<4}{desc}{}", if start { "  (start)" } else { "" });
