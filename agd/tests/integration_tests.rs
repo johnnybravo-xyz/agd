@@ -408,6 +408,16 @@ fn help_lists_only_the_five_surfaces() {
             "{removed} still listed"
         );
     }
+    assert!(help.contains("start_view"), "{help}");
+
+    let assertion = cargo::cargo_bin_cmd!("agd")
+        .args(["agenda", "--help"])
+        .assert()
+        .success();
+    let help = String::from_utf8_lossy(&assertion.get_output().stdout).into_owned();
+    for hint in ["built-in n", "C-c a m", "[[agent_profile]]"] {
+        assert!(help.contains(hint), "missing {hint} in\n{help}");
+    }
 }
 
 /// A home with `<config>/agd/config.toml` capturing into `org/inbox.org`.

@@ -19,17 +19,21 @@ pub enum SpanArg {
 
 #[derive(Args, Debug)]
 pub struct AgendaCommand {
-    /// Days to show; defaults to agenda.span from the configuration
+    /// Days to show; defaults to agenda_span from config.toml
     #[arg(long, value_enum)]
     span: Option<SpanArg>,
-    /// First day: a date (2026-10-13) or org relative syntax (fri, +2d, -1w)
+    /// First day: a date (2026-10-13) or Org date-prompt syntax (fri, +2d,
+    /// -1w, oct 30)
     #[arg(long, allow_hyphen_values = true)]
     from: Option<String>,
-    /// Emacs tags/todo match, e.g. 'work-someday/NEXT|TODO'
+    /// Filter the dated agenda with an Emacs tags/todo match, e.g.
+    /// 'work-someday/NEXT|TODO'. For a tags search like C-c a m, run a
+    /// `tags` or `tags-todo` view
     #[arg(long = "match")]
     match_expression: Option<String>,
-    /// Run a saved view, like org-agenda's dispatcher keys (n, or a [[view]]
-    /// key); without a key, the configured start_view
+    /// Run a saved view by its dispatcher key, as org-agenda does: a [[view]]
+    /// key, or Org's built-in n, which is always available. Without a key,
+    /// the configured start_view
     #[arg(
         long,
         num_args = 0..=1,
@@ -38,7 +42,7 @@ pub struct AgendaCommand {
         conflicts_with_all = ["span", "match_expression", "brief", "profile"]
     )]
     view: Option<String>,
-    /// Use the files and match of a configured agents.profiles entry
+    /// Use the files and match of a configured [[agent_profile]]
     #[arg(long)]
     profile: Option<String>,
     /// Also list CLOSED entries, like org-agenda log mode (l)

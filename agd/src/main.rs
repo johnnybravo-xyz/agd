@@ -12,7 +12,8 @@ mod tui;
 use commands::{AgendaCommand, CaptureCommand, SetupCommand};
 use mcp::McpCommand;
 
-/// Org agenda for terminals and coding agents. With no command, opens Today.
+/// Org agenda for terminals and coding agents. With no command, opens your
+/// start_view (or Today when none is set).
 #[derive(Parser)]
 #[command(name = "agd", version)]
 struct Cli {
