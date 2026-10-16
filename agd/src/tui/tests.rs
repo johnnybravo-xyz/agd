@@ -74,7 +74,7 @@ fn column_of(buffer: &ratatui::buffer::Buffer, y: u16, needle: &str) -> u16 {
 fn theme_for(colorterm: Option<&str>) -> super::theme::Theme {
     with_vars(
         [("NO_COLOR", None::<&str>), ("COLORTERM", colorterm)],
-        || super::theme::Theme::detect("dark"),
+        || super::theme::Theme::detect("dark", None),
     )
 }
 
@@ -203,7 +203,7 @@ fn pane_sorts_by_clock_time_and_keeps_done_rows_last() {
         );
         let screen = render(&mut app, 35, 12).join("\n");
         assert!(screen.contains("1 overdue"), "{screen}");
-        assert!(screen.contains("inbox 1"), "{screen}");
+        assert!(screen.contains("Inbox 1"), "{screen}");
     });
 }
 
@@ -442,7 +442,7 @@ fn nerd_font_rounds_pills_and_the_default_does_not() {
         // with_home sets NO_COLOR, which never rounds; build colour themes.
         let colour = || {
             temp_env::with_var("NO_COLOR", None::<&str>, || {
-                super::theme::Theme::detect("dark")
+                super::theme::Theme::detect("dark", None)
             })
         };
         app.theme = colour();
@@ -699,7 +699,7 @@ fn triage_k_moves_back_a_card_and_shift_x_cancels() {
         press(&mut app, KeyCode::Char('T'));
         assert_eq!(app.screen, Screen::Triage);
         let screen = render(&mut app, 100, 30).join("\n");
-        assert!(screen.contains("k previous card"), "{screen}");
+        assert!(screen.contains("p previous card"), "{screen}");
         assert!(screen.contains("X  cancel"), "{screen}");
         assert!(screen.contains("R  refile"), "{screen}");
 
@@ -752,18 +752,21 @@ fn ctrl_c_ctrl_w_refiles_and_ctrl_c_twice_quits() {
     });
 }
 
-/// Every line help shows at this size, scrolling to the end with j.
+/// Every line help shows at this size, choosing down to its last action
+/// (letters type into its filter, so ↓ moves).
 fn scrolled_help(app: &mut App, width: u16, height: u16) -> Vec<String> {
     use crossterm::event::KeyCode;
     press(app, KeyCode::Char('?'));
     let mut seen = Vec::new();
-    for _ in 0..80 {
+    for _ in 0..160 {
         for line in render(app, width, height) {
+            // The bar marks the chosen row; compare the text without it.
+            let line = line.replace('▌', " ");
             if !seen.contains(&line) {
                 seen.push(line);
             }
         }
-        press(app, KeyCode::Char('j'));
+        press(app, KeyCode::Down);
     }
     seen
 }
@@ -794,8 +797,12 @@ fn help_scrolls_through_every_screens_keys_at_60_by_24() {
         // Too narrow for the org-agenda column: long help wraps instead of
         // being cut.
         assert!(!text.contains("C-c C-s"), "{text}");
-        assert!(text.contains("filter, leave "), "{text}");
-        assert!(text.contains("            a view "), "{text}");
+        assert!(text.contains("clear marks or filter,"), "{text}");
+        let wrapped = text
+            .lines()
+            .find(|line| line.contains("leave a view"))
+            .unwrap_or_else(|| panic!("{text}"));
+        assert!(!wrapped.contains("esc"), "{wrapped}");
         press(&mut app, crossterm::event::KeyCode::Esc);
         assert!(matches!(app.overlay, Overlay::None));
     });
@@ -1698,18 +1705,19 @@ fn only_captures_say_who_captured_a_task() {
 #[serial]
 fn a_full_pane_title_keeps_a_space_before_its_mark() {
     with_home(|root| {
-        // 21 characters: exactly the room a 34-column pane leaves.
         fs::write(
             root.join("work.org"),
-            "* TODO Submit expense claims\nDEADLINE: <2026-10-22 Thu>\n",
+            "* TODO [#A] Submit expense claims for the offsite\nDEADLINE: <2026-10-22 Thu>\n",
         )
         .unwrap();
         let mut app = test_app(root);
         app.pane = true;
         app.reload_rows().unwrap();
         let screen = render(&mut app, 34, 10).join("\n");
-        assert!(!screen.contains("claims9d"), "{screen}");
-        assert!(screen.contains(" 9d│"), "{screen}");
+        // The countdown leads, as on Today; the priority keeps a space
+        // before it however long the title.
+        assert!(screen.contains("in 9d  Submit"), "{screen}");
+        assert!(screen.contains("… A│"), "{screen}");
     });
 }
 
@@ -1718,7 +1726,7 @@ fn a_full_pane_title_keeps_a_space_before_its_mark() {
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {
-            super::theme::Theme::detect("dark").plain
+            super::theme::Theme::detect("dark", None).plain
         })
     };
     assert!(plain(Some("1")));
@@ -1871,7 +1879,7 @@ fn u_undoes_only_this_sessions_changes_and_names_them() {
         app.undo().unwrap();
         assert_eq!(
             app.status.as_ref().unwrap().text,
-            "undid scheduled Tue 20 Oct · Pay rent"
+            "tasks.org:1  undid scheduled Tue 20 Oct · Pay rent"
         );
         assert!(
             fs::read_to_string(&tasks)
@@ -1902,7 +1910,7 @@ fn x_on_a_repeating_task_says_it_repeated_and_when_it_is_next() {
         app.mark_done().unwrap();
         assert_eq!(
             app.status.as_ref().unwrap().text,
-            "repeated · Water plants → Tue 20 Oct · u undo"
+            "home.org:1  repeated → Tue 20 Oct · Water plants · u undo"
         );
         assert!(
             fs::read_to_string(&path)
@@ -1912,7 +1920,7 @@ fn x_on_a_repeating_task_says_it_repeated_and_when_it_is_next() {
         app.undo().unwrap();
         assert_eq!(
             app.status.as_ref().unwrap().text,
-            "undid repeated · Water plants → Tue 20 Oct"
+            "home.org:1  undid repeated → Tue 20 Oct · Water plants"
         );
     });
 }
@@ -1932,5 +1940,669 @@ fn priority_keys_step_through_the_files_own_range() {
         app.shift_priority(false).unwrap();
         let written = fs::read_to_string(&path).unwrap();
         assert!(written.contains("* TODO [#E] Low"), "{written}");
+    });
+}
+
+#[test]
+#[serial]
+fn sectioned_rows_line_titles_up_after_the_widest_keyword() {
+    use ratatui::style::Color;
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "#+TODO: TODO WAITING | DONE\n\
+* TODO Alpha :ops:\nSCHEDULED: <2026-10-13 Tue>\n\
+* WAITING Beta\nSCHEDULED: <2026-10-13 Tue>\n\
+* DONE Delta\nSCHEDULED: <2026-10-13 Tue>\n\
+* Inbox\n** Gamma\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(Some("truecolor"));
+        app.reload_rows().unwrap();
+        app.marks.insert(app.rows[1].item.item_ref.clone());
+        let buffer = render_buffer(&mut app, 120, 20);
+        let title_column = |title: &str| column_of(&buffer, row_of(&buffer, title), title);
+        assert_eq!(title_column("Alpha"), title_column("Beta"));
+        assert_eq!(title_column("Alpha"), title_column("Gamma"));
+        assert_eq!(title_column("Alpha"), title_column("Delta"));
+        // Tags are metadata, muted; a bulk mark is `*` in the marker cell.
+        let y = row_of(&buffer, "Alpha");
+        assert_eq!(
+            buffer[(column_of(&buffer, y, "#ops"), y)].fg,
+            app.theme.muted
+        );
+        let y = row_of(&buffer, "Beta");
+        let line: String = (0..120).map(|x| buffer[(x, y)].symbol()).collect();
+        assert!(line.starts_with("│ * "), "{line}");
+        // A done row shows DONE, so no ✓ repeats it.
+        let y = row_of(&buffer, "Delta");
+        let line: String = (0..120).map(|x| buffer[(x, y)].symbol()).collect();
+        assert!(!line.contains('✓'), "{line}");
+        assert_ne!(buffer[(column_of(&buffer, y, "Delta"), y)].fg, Color::Reset);
+    });
+}
+
+#[test]
+#[serial]
+fn help_fits_80_by_24_with_its_hints_on_the_last_row() {
+    use ratatui::style::Modifier;
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(Some("truecolor"));
+        app.reload_rows().unwrap();
+        press(&mut app, crossterm::event::KeyCode::Char('?'));
+        let buffer = render_buffer(&mut app, 80, 24);
+        let screen = render(&mut app, 80, 24);
+        let text = screen.join("\n");
+        let top = row_of(&buffer, "Keys");
+        let left = column_of(&buffer, top, "╭ Keys") as usize;
+        // Clear of the list's border on both sides, and no org-agenda column.
+        assert!(left > 2, "{text}");
+        assert!(!text.contains("org-agenda"), "{text}");
+        assert!(!screen[top as usize].contains("scroll"), "{text}");
+        let bottom = screen.iter().rposition(|line| line.contains('╰')).unwrap();
+        assert!(
+            screen[bottom - 1].contains("⏎ run   ↑↓ choose   esc close"),
+            "{text}"
+        );
+        let y = row_of(&buffer, "next row");
+        let key = &buffer[(column_of(&buffer, y, "n j ↓"), y)];
+        assert_eq!(key.fg, app.theme.accent);
+        assert!(key.modifier.contains(Modifier::BOLD));
+    });
+}
+
+#[test]
+#[serial]
+fn help_is_a_palette_that_runs_the_action_it_finds() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('?'));
+        type_keys(&mut app, "sched");
+        let screen = render(&mut app, 120, 30).join("\n");
+        assert!(screen.contains("› sched"), "{screen}");
+        assert!(screen.contains("▌s            schedule"), "{screen}");
+        assert!(screen.contains("C-c C-s"), "{screen}");
+        assert!(!screen.contains("next row"), "{screen}");
+        // Triage's own `s` is listed, naming where it runs.
+        assert!(screen.contains("· Triage"), "{screen}");
+
+        // esc clears the filter first, then closes.
+        press(&mut app, KeyCode::Esc);
+        assert!(matches!(&app.overlay, Overlay::Help(palette) if palette.query.text().is_empty()));
+        press(&mut app, KeyCode::Esc);
+        assert!(matches!(app.overlay, Overlay::None));
+
+        // ⏎ runs the chosen action as its key would: here, the schedule
+        // prompt, and nothing is written yet.
+        press(&mut app, KeyCode::Char('?'));
+        type_keys(&mut app, "sched");
+        press(&mut app, KeyCode::Enter);
+        assert!(
+            matches!(&app.overlay, Overlay::Prompt(prompt) if prompt.kind == super::PromptKind::Schedule),
+            "{:?}",
+            app.overlay
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_TODAY);
+
+        // An action of another screen says where it runs.
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Char('?'));
+        type_keys(&mut app, "make next");
+        press(&mut app, KeyCode::Enter);
+        assert!(matches!(app.overlay, Overlay::Help(_)));
+        let status = &app.status.as_ref().unwrap().text;
+        assert!(status.contains("works in Triage"), "{status}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_TODAY);
+    });
+}
+
+#[test]
+#[serial]
+fn overdue_badges_line_their_days_up_on_the_right() {
+    with_home(|root| {
+        fs::write(root.join("work.org"), FIVE_OVERDUE).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 100, 20).join("\n");
+        assert!(screen.contains("  -1d  TODO Missed filing"), "{screen}");
+        assert!(screen.contains("  23d  TODO Sched older"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn today_reads_as_a_timeline_against_the_clock() {
+    use ratatui::style::Modifier;
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* DONE Call with bank\nSCHEDULED: <2026-10-13 Tue 08:00>\n\
+* TODO Standup\nSCHEDULED: <2026-10-13 Tue 10:00>\n\
+* NEXT Review PR\nSCHEDULED: <2026-10-13 Tue 15:00>\n\
+* TODO One-on-one\nSCHEDULED: <2026-10-13 Tue 16:30>\n\
+* TODO Pay rent\nDEADLINE: <2026-10-16 Fri>\n\
+* TODO File taxes\nDEADLINE: <2026-10-14 Wed>\n\
+* TODO Submit claims\nDEADLINE: <2026-10-18 Sun>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(Some("truecolor"));
+        app.clock = chrono::NaiveTime::from_hms_opt(12, 0, 30).unwrap();
+        app.reload_rows().unwrap();
+        let titles: Vec<&str> = app.rows.iter().map(|row| row.item.title.as_str()).collect();
+        // Done rows last in their section; deadlines soonest first.
+        assert_eq!(
+            titles,
+            [
+                "Standup",
+                "Review PR",
+                "One-on-one",
+                "Call with bank",
+                "File taxes",
+                "Pay rent",
+                "Submit claims"
+            ]
+        );
+        let buffer = render_buffer(&mut app, 120, 24);
+        let lead = |title: &str| {
+            let y = row_of(&buffer, title);
+            let cells: Vec<&ratatui::buffer::Cell> = (0..120).map(|x| &buffer[(x, y)]).collect();
+            let line: String = cells.iter().map(|cell| cell.symbol()).collect();
+            (line, buffer[(4, y)].clone())
+        };
+        // The next timed task is marked and bold; a past time is muted.
+        let (line, time) = lead("Review PR");
+        assert!(line.starts_with("│ ▸ 15:00"), "{line}");
+        assert!(time.modifier.contains(Modifier::BOLD));
+        assert_eq!(time.fg, app.theme.accent);
+        let (_, time) = lead("Standup");
+        assert_eq!(time.fg, app.theme.muted);
+        let (line, time) = lead("One-on-one");
+        assert!(!line.contains('▸'), "{line}");
+        assert!(!time.modifier.contains(Modifier::BOLD));
+        assert_eq!(time.fg, app.theme.accent);
+
+        // Week's today stands out.
+        press(&mut app, crossterm::event::KeyCode::Tab);
+        let buffer = render_buffer(&mut app, 120, 30);
+        let y = row_of(&buffer, "Tuesday");
+        let today = &buffer[(column_of(&buffer, y, "Tuesday"), y)];
+        assert_eq!(today.fg, app.theme.accent);
+        assert!(today.modifier.contains(Modifier::UNDERLINED));
+    });
+}
+
+#[test]
+#[serial]
+fn the_capture_preview_colours_org_text_like_its_chips() {
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(Some("truecolor"));
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        app.overlay = Overlay::Capture(capture::Draft::default());
+        // The chooser is a list: the bar and the tint cross the whole row.
+        let buffer = render_buffer(&mut app, 100, 30);
+        let y = row_of(&buffer, "t  Todo");
+        let bar = column_of(&buffer, y, "t  Todo") - 1;
+        assert_eq!(buffer[(bar, y)].symbol(), "▌");
+        assert_eq!(buffer[(bar + 40, y)].bg, app.theme.selection);
+
+        for key in "tRenew passport due:fri on:+2d +home".chars() {
+            capture::type_key(&mut app, key);
+        }
+        let buffer = render_buffer(&mut app, 100, 30);
+        let at = |needle: &str| {
+            let y = row_of(&buffer, needle);
+            buffer[(column_of(&buffer, y, needle), y)].fg
+        };
+        assert_eq!(at("DEADLINE:"), app.theme.due);
+        assert_eq!(at("SCHEDULED:"), app.theme.accent);
+        assert_eq!(at(":home:"), app.theme.muted);
+        let y = row_of(&buffer, "* TODO Renew");
+        let star = column_of(&buffer, y, "* TODO Renew");
+        assert_eq!(buffer[(star, y)].fg, app.theme.muted);
+        assert_eq!(buffer[(star + 2, y)].fg, app.theme.named("orange"));
+    });
+}
+
+#[test]
+#[serial]
+fn a_triage_card_shows_only_the_facts_it_has_and_earns_its_nudge() {
+    with_home(|root| {
+        let logged = "- Rescheduled from \"[2026-09-20 Sun]\" on [2026-09-21 Mon]\n".repeat(3);
+        fs::write(
+            root.join("work.org"),
+            format!(
+                "* TODO Migrate cron jobs\nSCHEDULED: <2026-10-01 Thu>\n:LOGBOOK:\n{logged}:END:\n"
+            ),
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, crossterm::event::KeyCode::Char('T'));
+        let screen = render(&mut app, 100, 30);
+        let text = screen.join("\n");
+        // The counter ends the gauge's own row.
+        let gauge = screen
+            .iter()
+            .find(|line| line.contains('━') || line.contains('─') && line.contains(" / "))
+            .unwrap_or_else(|| panic!("{text}"));
+        assert!(gauge.trim_end().ends_with("1 / 1"), "{text}");
+        assert!(text.contains("Overdue · 12d"), "{text}");
+        assert!(text.contains("scheduled Thu 1 Oct"), "{text}");
+        assert!(text.contains("rescheduled 3x"), "{text}");
+        assert!(!text.contains("no deadline"), "{text}");
+        assert!(text.contains("↳ Someday?  S"), "{text}");
+        // One blank row between the card and its keys.
+        let bottom = screen
+            .iter()
+            .position(|line| line.contains('╰'))
+            .unwrap_or_else(|| panic!("{text}"));
+        assert!(screen[bottom + 1].trim().is_empty(), "{text}");
+        assert!(screen[bottom + 2].contains(".  today"), "{text}");
+    });
+}
+
+#[test]
+#[serial]
+fn every_agent_card_has_the_same_two_line_shape() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        // No `* Inbox` yet: the capture creates it, then the task under it.
+        fs::write(root.join("inbox.org"), "").unwrap();
+        fs::write(root.join("work.org"), "* TODO Rotate staging certs\n").unwrap();
+        let mut app = test_app(root);
+        agent_capture(&app, root, "Benchmark the agenda +perf");
+        let item = app
+            .index
+            .items()
+            .find(|item| item.title.contains("Rotate"))
+            .unwrap()
+            .clone();
+        let context = agd_core::WriteContext {
+            actor: "mcp:codex-with-a-very-long-client-name".to_string(),
+            project: root.to_string_lossy().into_owned(),
+            now: None,
+        };
+        let intent = agd_core::EditIntent {
+            state: agd_core::Change::Set("DONE".to_string()),
+            ..Default::default()
+        };
+        agd_core::WriteEngine::with_default_journal(app.settings.clone())
+            .unwrap()
+            .edit(&item.item_ref, &intent, false, &context)
+            .unwrap();
+        app.index = WorkspaceIndex::load(app.settings.clone()).unwrap();
+        app.theme = theme_for(Some("truecolor"));
+        press(&mut app, KeyCode::Char('A'));
+        let screen = render(&mut app, 120, 20);
+        let text = screen.join("\n");
+        // The capture names the task, not the `* Inbox` it also made.
+        assert!(
+            app.journals
+                .iter()
+                .any(|record| record.diff.contains("+* Inbox"))
+        );
+        let task = screen
+            .iter()
+            .position(|line| line.contains("Benchmark the agenda"))
+            .unwrap_or_else(|| panic!("{text}"));
+        assert!(!text.contains("+ * Inbox"), "{text}");
+        assert!(!text.contains(":perf:"), "{text}");
+        assert!(screen[task].contains("captured  "), "{text}");
+        assert!(screen[task].contains("inbox.org:"), "{text}");
+        assert!(screen[task - 1].contains("● test-agent"), "{text}");
+        // A long name is cut to 13 characters and "…".
+        assert!(text.contains("codex-with-a-…"), "{text}");
+        assert!(text.contains("TODO → DONE  Rotate staging certs"), "{text}");
+        // No raw planning lines; `d` has the diff.
+        assert!(!text.contains("CLOSED:"), "{text}");
+        // The bar runs down the selected card; the blank row between cards
+        // is never selected.
+        let selected: Vec<usize> = screen
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.starts_with("│▌"))
+            .map(|(row, _)| row)
+            .collect();
+        assert_eq!(selected.len(), 2, "{text}");
+        assert_eq!(selected[1], selected[0] + 1, "{text}");
+        press(&mut app, KeyCode::Char('j'));
+        let screen = render(&mut app, 120, 20);
+        let moved: Vec<usize> = screen
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.starts_with("│▌"))
+            .map(|(row, _)| row)
+            .collect();
+        assert_eq!(moved[0], selected[1] + 2, "{}", screen.join("\n"));
+    });
+}
+
+#[test]
+#[serial]
+fn the_header_shows_triage_as_a_tab_and_alerts_in_accent() {
+    use crossterm::event::KeyCode;
+    use ratatui::style::Modifier;
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        fs::write(root.join("work.org"), TWO_OVERDUE).unwrap();
+        let mut app = test_app(root);
+        agent_capture(&app, root, "Agent task");
+        app.index = WorkspaceIndex::load(app.settings.clone()).unwrap();
+        app.theme = theme_for(Some("truecolor"));
+        app.reload_rows().unwrap();
+        let buffer = render_buffer(&mut app, 120, 20);
+        let alert = &buffer[(column_of(&buffer, 0, "● 1"), 0)];
+        assert_eq!(alert.fg, app.theme.accent);
+        assert!(alert.modifier.contains(Modifier::BOLD));
+        assert!(!render(&mut app, 120, 20)[0].contains("ctx"));
+
+        // A context filter is an accent pill while it is on.
+        app.context = Some("work".to_string());
+        let buffer = render_buffer(&mut app, 120, 20);
+        let pill = &buffer[(column_of(&buffer, 0, "ctx work"), 0)];
+        assert_eq!(pill.fg, app.theme.accent);
+
+        app.context = None;
+        press(&mut app, KeyCode::Char('T'));
+        let buffer = render_buffer(&mut app, 120, 20);
+        let header = render(&mut app, 120, 20)[0].clone();
+        assert!(header.starts_with(" Agenda "), "{header}");
+        assert!(!header.contains("TRIAGE"), "{header}");
+        let triage = &buffer[(column_of(&buffer, 0, "Triage"), 0)];
+        assert!(triage.modifier.contains(Modifier::UNDERLINED), "{header}");
+    });
+}
+
+#[test]
+#[serial]
+fn the_peek_overlay_says_when_and_keeps_its_keys_at_80_by_24() {
+    use crossterm::event::KeyCode;
+    use ratatui::style::Modifier;
+    with_home(|root| {
+        let notes: String = (1..30).map(|line| format!("note line {line}\n")).collect();
+        fs::write(
+            root.join("work.org"),
+            format!("* 1:1 with Sam\n<2026-10-13 Tue 16:30>\n{notes}"),
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char(' '));
+        let buffer = render_buffer(&mut app, 80, 24);
+        let screen: String = (0..24)
+            .map(|y| (0..80).map(|x| buffer[(x, y)].symbol()).collect::<String>() + "\n")
+            .collect();
+        assert!(screen.contains("When       Tue 13 Oct 16:30"), "{screen}");
+        assert!(!screen.contains("<2026-10-13"), "{screen}");
+        assert!(screen.contains("⏎ edit"), "{screen}");
+        assert!(screen.contains("y copy link"), "{screen}");
+        // The screen behind the popup is dimmed, as behind every popup.
+        assert!(buffer[(0, 0)].modifier.contains(Modifier::DIM));
+    });
+}
+
+#[test]
+#[serial]
+fn the_scrollbar_reads_as_the_border() {
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(Some("truecolor"));
+        app.reload_rows().unwrap();
+        let buffer = render_buffer(&mut app, 100, 12);
+        let border: Vec<&ratatui::buffer::Cell> = (1..10).map(|y| &buffer[(99, y)]).collect();
+        let symbols: String = border.iter().map(|cell| cell.symbol()).collect();
+        assert!(
+            !symbols.contains('▲') && !symbols.contains('▼'),
+            "{symbols}"
+        );
+        let thumb: Vec<_> = border.iter().filter(|cell| cell.symbol() == "┃").collect();
+        assert!(!thumb.is_empty(), "{symbols}");
+        assert!(thumb.iter().all(|cell| cell.fg == app.theme.muted));
+        let track = border
+            .iter()
+            .find(|cell| cell.symbol() == "│")
+            .expect("track");
+        assert_eq!(track.fg, app.theme.border);
+        // The corners stay rounded: the track runs between them.
+        assert_eq!(buffer[(99, 1)].symbol(), "╮");
+        assert_eq!(buffer[(99, 10)].symbol(), "╯");
+    });
+}
+
+#[test]
+#[serial]
+fn an_inbox_item_names_its_agent_after_the_agents_dot() {
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        agent_capture(&app, root, "Agent task");
+        app.index = WorkspaceIndex::load(app.settings.clone()).unwrap();
+        app.theme = theme_for(Some("truecolor"));
+        app.reload_rows().unwrap();
+        let buffer = render_buffer(&mut app, 120, 20);
+        let y = row_of(&buffer, "Agent task");
+        let dot = column_of(&buffer, y, "● test-agent");
+        assert_eq!(buffer[(dot, y)].fg, app.theme.agent("test-agent"));
+        assert_eq!(buffer[(dot + 2, y)].fg, app.theme.muted);
+        // The right column ends one cell before the border.
+        assert_eq!(buffer[(dot + 12, y)].symbol(), " ");
+        assert_eq!(buffer[(dot + 13, y)].symbol(), "│");
+    });
+}
+
+const THREE_OVERDUE: &str = "#+TODO: TODO NEXT | DONE\n\
+* TODO Old one\nSCHEDULED: <2026-10-01 Thu>\n\
+* TODO Old two\nSCHEDULED: <2026-10-05 Mon>\n\
+* TODO Old three\nSCHEDULED: <2026-10-09 Fri>\n";
+
+#[test]
+#[serial]
+fn triage_keys_mean_what_they_mean_in_the_lists() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, THREE_OVERDUE).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('T'));
+        assert_eq!(app.screen, Screen::Triage);
+        // n and j go to the next card, p and k back, and none writes.
+        for (key, position) in [('n', 1), ('j', 2), ('p', 1), ('k', 0)] {
+            press(&mut app, KeyCode::Char(key));
+            assert_eq!(app.triage.position, position, "after {key}");
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_OVERDUE);
+
+        // s asks for a date, as in the lists.
+        press(&mut app, KeyCode::Char('s'));
+        assert!(
+            matches!(&app.overlay, Overlay::Prompt(prompt) if prompt.kind == super::PromptKind::Schedule)
+        );
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_OVERDUE);
+
+        // S is someday and N makes it NEXT; each moves on to the next card.
+        let first = app.selected_row().unwrap().item.title.clone();
+        press(&mut app, KeyCode::Char('S'));
+        let written = fs::read_to_string(&path).unwrap();
+        let line = written.lines().find(|line| line.contains(&first)).unwrap();
+        assert!(line.ends_with(":someday:"), "{written}");
+        let second = app.selected_row().unwrap().item.title.clone();
+        press(&mut app, KeyCode::Char('N'));
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains(&format!("* NEXT {second}")), "{written}");
+
+        // Help and the chips name the same keys.
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("N  make NEXT"), "{screen}");
+        assert!(screen.contains("S  someday"), "{screen}");
+        assert!(screen.contains("s  pick date"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn ctrl_n_and_ctrl_j_move_in_pickers_where_letters_are_typed() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(root.join("work.org"), THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.settings.views = toml::from_str::<ViewsOnly>(
+            r#"[[view]]
+key = "k"
+desc = "Keep going"
+blocks = [{ kind = "alltodo" }]
+
+[[view]]
+key = "j"
+desc = "Journal"
+blocks = [{ kind = "alltodo" }]"#,
+        )
+        .unwrap()
+        .view;
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('a'));
+        press_control(&mut app, 'n');
+        assert!(matches!(app.overlay, Overlay::Views { selected: 1 }));
+        press_control(&mut app, 'k');
+        assert!(matches!(app.overlay, Overlay::Views { selected: 0 }));
+        press_control(&mut app, 'j');
+        assert!(matches!(app.overlay, Overlay::Views { selected: 1 }));
+        press_control(&mut app, 'p');
+        assert!(matches!(app.overlay, Overlay::Views { selected: 0 }));
+        assert_eq!(app.screen, Screen::Today, "moving opens no view");
+        press(&mut app, KeyCode::Esc);
+
+        press(&mut app, KeyCode::Char('R'));
+        press_control(&mut app, 'n');
+        press_control(&mut app, 'k');
+        press_control(&mut app, 'j');
+        let Overlay::Refile(picker) = &app.overlay else {
+            panic!("the picker closed");
+        };
+        assert_eq!(picker.selected, 1);
+        assert_eq!(picker.input.text(), "", "ctrl keys type nothing");
+        press_control(&mut app, 'p');
+        let Overlay::Refile(picker) = &app.overlay else {
+            panic!("the picker closed");
+        };
+        assert_eq!(picker.selected, 0);
+    });
+}
+
+#[test]
+fn wait_yellow_and_agent_hues_stay_clear_of_due_and_done() {
+    use super::theme::Theme;
+    for theme in [Theme::dark(), Theme::light(), Theme::basic()] {
+        assert_ne!(theme.named("yellow"), theme.due);
+        for agent in ["claude-code", "codex", "opencode", "gemini", "cursor"] {
+            let hue = theme.agent(agent);
+            for meaning in [theme.due, theme.done, theme.overdue, theme.named("teal")] {
+                assert_ne!(hue, meaning, "{agent} looks like a meaning colour");
+            }
+        }
+    }
+    // Hue angles: WAIT yellow sits well apart from due amber.
+    let hue = |color: ratatui::style::Color| {
+        let ratatui::style::Color::Rgb(r, g, b) = color else {
+            panic!("truecolor")
+        };
+        let (r, g, b) = (f64::from(r), f64::from(g), f64::from(b));
+        let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+        let degrees = if max == r {
+            60.0 * ((g - b) / (max - min))
+        } else if max == g {
+            60.0 * ((b - r) / (max - min) + 2.0)
+        } else {
+            60.0 * ((r - g) / (max - min) + 4.0)
+        };
+        degrees.rem_euclid(360.0)
+    };
+    let dark = Theme::dark();
+    assert!(hue(dark.named("yellow")) - hue(dark.due) > 18.0);
+}
+
+#[test]
+#[serial]
+fn auto_follows_the_background_the_terminal_reports() {
+    use super::theme::Theme;
+    let theme = |setting: &str, reported: Option<bool>, colorfgbg: Option<&str>| {
+        with_vars(
+            [
+                ("NO_COLOR", None),
+                ("COLORTERM", Some("truecolor")),
+                ("COLORFGBG", colorfgbg),
+            ],
+            || Theme::detect(setting, reported).text,
+        )
+    };
+    let (light, dark) = (Theme::light().text, Theme::dark().text);
+    assert_eq!(theme("auto", Some(true), None), light);
+    // The terminal's own answer wins over COLORFGBG, which wins over dark.
+    assert_eq!(theme("auto", Some(false), Some("0;15")), dark);
+    assert_eq!(theme("auto", None, Some("0;15")), light);
+    assert_eq!(theme("auto", None, None), dark);
+    // An explicit setting is never second-guessed.
+    assert_eq!(theme("dark", Some(true), None), dark);
+    assert_eq!(theme("light", Some(false), None), light);
+}
+
+#[test]
+#[serial]
+fn sixteen_colours_draw_no_grey_bars_and_muted_text_dims() {
+    use ratatui::style::{Color, Modifier};
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.theme = theme_for(None);
+        app.context = Some("tasks".to_string());
+        app.reload_rows().unwrap();
+        let buffer = render_buffer(&mut app, 120, 30);
+        for cell in buffer.content() {
+            assert_ne!(cell.fg, Color::DarkGray, "{:?}", cell.symbol());
+            assert_ne!(cell.bg, Color::DarkGray, "{:?}", cell.symbol());
+        }
+        // A pill with a meaning keeps its hue reversed, so the cursor row's
+        // reverse video leaves it filled.
+        let y = row_of(&buffer, "Migrate cron jobs");
+        let badge = &buffer[(column_of(&buffer, y, "12d"), y)];
+        assert_eq!(badge.fg, Color::Red);
+        assert!(badge.modifier.contains(Modifier::REVERSED));
+        // The count after a section header is muted: dimmed, not grey.
+        let y = row_of(&buffer, "SCHEDULE");
+        let count = &buffer[(column_of(&buffer, y, "SCHEDULE") + 10, y)];
+        assert!(count.modifier.contains(Modifier::DIM), "{count:?}");
+    });
+}
+
+#[test]
+#[serial]
+fn no_color_reverses_only_pills_that_carry_state() {
+    use ratatui::style::Modifier;
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let buffer = render_buffer(&mut app, 120, 30);
+        let reversed = |needle: &str| {
+            let y = row_of(&buffer, needle);
+            buffer[(column_of(&buffer, y, needle), y)]
+                .modifier
+                .contains(Modifier::REVERSED)
+        };
+        assert!(reversed("12d"), "an overdue badge carries state");
+        assert!(!reversed("Agenda"), "the badge is chrome");
+        assert!(!reversed("TODAY"), "the mode pill is chrome");
     });
 }

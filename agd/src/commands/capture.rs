@@ -1,16 +1,17 @@
 use std::collections::BTreeMap;
 use std::io::IsTerminal;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use agd_core::{
-    AgdError, CaptureTemplate, Item, RootSet, Settings, WriteContext, WriteEngine, capture_prompts,
+    AgdError, CaptureTemplate, RootSet, Settings, WriteContext, WriteEngine, capture_prompts,
     load_settings, parse_capture_line,
 };
 use anyhow::Result;
-use chrono::{Local, NaiveDate};
+use chrono::Local;
 use clap::Args;
 
 use super::write_stdout;
+use crate::words;
 
 const USAGE: &str =
     "usage: agd capture [KEY] TEXT (KEY defaults to the first template), or agd capture -i";
@@ -92,7 +93,12 @@ impl CaptureCommand {
             let roots = RootSet::new(&settings.roots, &settings.agenda_files)
                 .map(|roots| roots.roots().to_vec())
                 .unwrap_or_default();
-            format!("{}\n", captured_sentence(&mutation.item, &roots))
+            let item = &mutation.item;
+            let location = words::location(&item.file, item.line, &roots);
+            format!(
+                "{}\n",
+                words::captured(item, &location, Local::now().date_naive())
+            )
         } else {
             format!("{}\n", mutation.item.item_ref)
         };
@@ -136,37 +142,6 @@ fn template_and_text(words: &[String], settings: &Settings) -> Result<(String, S
             ),
         )),
     }
-}
-
-/// `captured "Renew passport" → inbox.org › Inbox · deadline Fri 23 Oct`,
-/// the file shown relative to its root.
-fn captured_sentence(item: &Item, roots: &[PathBuf]) -> String {
-    let path = Path::new(&item.file);
-    let file = roots
-        .iter()
-        .find_map(|root| path.strip_prefix(root).ok())
-        .unwrap_or(path);
-    let mut sentence = format!("captured \"{}\" → {}", item.title, file.display());
-    for heading in &item.olpath[..item.olpath.len().saturating_sub(1)] {
-        sentence.push_str(&format!(" › {heading}"));
-    }
-    let planning = [
-        ("scheduled", &item.planning.scheduled),
-        ("deadline", &item.planning.deadline),
-    ];
-    for (label, timestamp) in planning {
-        let Some(timestamp) = timestamp else {
-            continue;
-        };
-        let Ok(date) = NaiveDate::parse_from_str(&timestamp.date, "%Y-%m-%d") else {
-            continue;
-        };
-        sentence.push_str(&format!(" · {label} {}", date.format("%a %-d %b")));
-        if let Some(time) = &timestamp.time {
-            sentence.push_str(&format!(" {time}"));
-        }
-    }
-    sentence
 }
 
 /// Names the `--prompt` a template's `%^{...}` field still needs; a date
@@ -215,10 +190,11 @@ fn parse_prompts(values: Vec<String>) -> Result<BTreeMap<String, String>, AgdErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agd_core::{Planning, PlanningTimestamp};
+    use agd_core::{Item, Planning, PlanningTimestamp};
+    use std::path::PathBuf;
 
     #[test]
-    fn a_terminal_reads_where_the_capture_went() {
+    fn a_terminal_reads_the_capture_as_the_tui_says_it() {
         let item = Item {
             schema: "agd.item/v1".to_string(),
             item_ref: "ref".to_string(),
@@ -245,9 +221,10 @@ mod tests {
                 ..Planning::default()
             },
         };
+        let location = words::location(&item.file, item.line, &[PathBuf::from("/notes/org")]);
         assert_eq!(
-            captured_sentence(&item, &[PathBuf::from("/notes/org")]),
-            "captured \"Renew passport\" → inbox.org › Inbox · deadline Fri 23 Oct"
+            words::captured(&item, &location, "2026-10-16".parse().unwrap()),
+            "inbox.org:19  captured · Renew passport · deadline Fri 23 Oct"
         );
     }
 }

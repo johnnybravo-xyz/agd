@@ -12,7 +12,7 @@ use ratatui::widgets::{Clear, Paragraph, Wrap};
 
 use super::input::{self, TextInput};
 use super::theme::centered;
-use super::{App, Overlay, write_context};
+use super::{App, Overlay, keys, write_context};
 
 const TITLE: usize = 0;
 const STATE: usize = 1;
@@ -250,8 +250,10 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<bool> {
             }
             return Ok(false);
         }
-        KeyCode::Tab | KeyCode::Down => form.focus((form.field + 1) % LABELS.len()),
-        KeyCode::BackTab | KeyCode::Up => {
+        KeyCode::Tab => form.focus((form.field + 1) % LABELS.len()),
+        KeyCode::BackTab => form.focus((form.field + LABELS.len() - 1) % LABELS.len()),
+        _ if keys::picker_step(key) == Some(1) => form.focus((form.field + 1) % LABELS.len()),
+        _ if keys::picker_step(key) == Some(-1) => {
             form.focus((form.field + LABELS.len() - 1) % LABELS.len())
         }
         _ if form.field == STATE || form.field == PRIORITY => {
@@ -296,11 +298,16 @@ fn commit(app: &mut App, form: Box<EditForm>) -> Result<()> {
     let engine = WriteEngine::with_default_journal(app.settings.clone())?;
     let mutation = engine.edit(&form.item_ref, &intent, false, &write_context())?;
     app.index.refresh_path(Path::new(&mutation.item.file))?;
+    let location = app.short_location(&mutation.item);
     app.remember_undo(
         &mutation.journal_id,
+        &location,
         format!("edit · {}", mutation.item.title),
     );
-    app.set_status(format!("{}  edited · u undo", form.location));
+    app.set_status(format!(
+        "{} · u undo",
+        crate::words::change(&location, "edited", &mutation.item.title)
+    ));
     app.reload_rows()
 }
 
@@ -358,7 +365,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let value = &form.values[field];
         let choice = field == STATE || field == PRIORITY;
         let mut spans = vec![
-            Span::styled(if focused { "› " } else { "  " }, theme.fg(theme.accent)),
+            Span::styled(if focused { "▌ " } else { "  " }, theme.fg(theme.accent)),
             Span::styled(
                 format!("{label:<11}"),
                 if focused {

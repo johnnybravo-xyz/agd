@@ -1,120 +1,179 @@
+//! The Agents tab: one card per agent write, every card the same shape:
+//!
+//! ```text
+//! ▌● codex          ~/src/app · 15:01                         state
+//! ▌  TODO → DONE  Rotate staging certs                  work.org:42
+//! ```
+//!
+//! who, where from and when, and what kind of change; then the change in
+//! the fewest words, the task, and where it is. `d` shows the raw diff.
+
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
+use unicode_width::UnicodeWidthStr;
 
 use agd_core::{Item, JournalRecord, JournalStatus};
 
 use super::App;
-use super::theme::{Theme, centered};
+use super::theme::{Theme, centered, truncate};
+
+/// Cells for an agent's name: 13 characters and "…".
+const NAME: usize = 14;
+/// The change column is as wide as the widest change, up to this.
+const CHANGE_MAX: usize = 24;
+/// The right column (kind, file:line), as on Today.
+const RIGHT: usize = 14;
 
 /// What an agent change did, in the fewest words that let you judge it.
 enum Change {
     Captured {
         heading: String,
-        target: String,
     },
     State {
-        title: String,
+        heading: String,
         from: String,
         to: String,
-        added: Vec<String>,
     },
     Dates {
         from: String,
         to: String,
     },
     Refiled {
-        title: String,
+        heading: String,
     },
-    Edited {
-        lines: Vec<String>,
-    },
+    Edited,
 }
 
-fn classify(record: &JournalRecord) -> Change {
-    let removed: Vec<&str> = changed(record, '-');
-    let added: Vec<&str> = changed(record, '+');
-    let headline = |lines: &[&str]| {
+impl Change {
+    /// The kind, as the card's first line names it.
+    fn kind(&self) -> &'static str {
+        match self {
+            Change::Captured { .. } => "captured",
+            Change::State { .. } => "state",
+            Change::Dates { .. } => "date",
+            Change::Refiled { .. } => "refiled",
+            Change::Edited => "edited",
+        }
+    }
+
+    /// The headline the diff names, for when the task is gone.
+    fn heading(&self) -> Option<&str> {
+        match self {
+            Change::Captured { heading }
+            | Change::State { heading, .. }
+            | Change::Refiled { heading } => Some(heading),
+            Change::Dates { .. } | Change::Edited => None,
+        }
+    }
+}
+
+fn classify(record: &JournalRecord, today: chrono::NaiveDate) -> Change {
+    let removed = changed(record, '-');
+    let added = changed(record, '+');
+    let headline = |lines: &[(usize, &str)]| {
         lines
             .iter()
-            .find(|line| line.starts_with('*'))
-            .map(|line| line.to_string())
+            .find(|(_, line)| line.starts_with('*'))
+            .map(|(_, line)| line.to_string())
     };
     if record.transaction.is_some() {
         return Change::Refiled {
-            title: headline(&added)
+            heading: headline(&added)
                 .or_else(|| headline(&removed))
                 .unwrap_or_default(),
         };
     }
-    match (headline(&removed), headline(&added)) {
-        (None, Some(heading)) => {
-            let target = record
-                .file
-                .rsplit('/')
-                .next()
-                .unwrap_or_default()
-                .to_string();
-            Change::Captured { heading, target }
-        }
+    match (headline(&removed), captured_headline(record, &added)) {
+        (None, Some(heading)) => Change::Captured { heading },
         (Some(old), Some(new)) => {
-            let (old_word, new_word) = (second_word(&old), second_word(&new));
-            if old_word != new_word {
-                Change::State {
-                    title: title_after_keyword(&new),
-                    from: old_word,
-                    to: new_word,
-                    added: added
-                        .iter()
-                        .filter(|line| !line.starts_with('*'))
-                        .map(|line| line.to_string())
-                        .collect(),
-                }
+            let (from, to) = (second_word(&old), second_word(&new));
+            if from == to {
+                Change::Edited
             } else {
-                Change::Edited {
-                    lines: added.iter().map(|line| line.to_string()).collect(),
+                Change::State {
+                    heading: new,
+                    from,
+                    to,
                 }
             }
         }
         _ => {
-            let date = |lines: &[&str]| lines.iter().find_map(|line| compact_date(line));
+            let date = |lines: &[(usize, &str)]| {
+                lines.iter().find_map(|(_, line)| compact_date(line, today))
+            };
             match (date(&removed), date(&added)) {
                 (from, Some(to)) => Change::Dates {
                     from: from.unwrap_or_else(|| "—".to_string()),
                     to,
                 },
-                _ => Change::Edited {
-                    lines: added.iter().map(|line| line.to_string()).collect(),
-                },
+                _ => Change::Edited,
             }
         }
     }
 }
 
-/// `SCHEDULED: <2026-10-15 Thu 15:00>` reads as `15 Oct 15:00`.
-fn compact_date(line: &str) -> Option<String> {
-    let inner = line.split_once('<')?.1.split_once('>')?.0;
-    let mut parts = inner.split_whitespace();
-    let date = parts.next()?.parse::<chrono::NaiveDate>().ok()?;
-    let _weekday = parts.next();
-    let time = parts.next().filter(|part| part.contains(':'));
-    Some(match time {
-        Some(time) => format!("{} {time}", date.format("%-d %b")),
-        None => date.format("%-d %b").to_string(),
-    })
+/// The headline a capture added. A capture that also created its parent
+/// (`* Inbox`) adds two; the task is the one on the line its ref names,
+/// else the last.
+fn captured_headline(record: &JournalRecord, added: &[(usize, &str)]) -> Option<String> {
+    let line = record
+        .item_ref
+        .as_deref()
+        .and_then(|item_ref| item_ref.split_once("#sha256:"))
+        .and_then(|(location, _)| location.rsplit_once(':'))
+        .and_then(|(_, line)| line.parse::<usize>().ok());
+    let headlines: Vec<&(usize, &str)> = added
+        .iter()
+        .filter(|(_, text)| text.starts_with('*'))
+        .collect();
+    headlines
+        .iter()
+        .find(|(number, _)| Some(*number) == line)
+        .or(headlines.last())
+        .map(|(_, text)| text.to_string())
 }
 
-fn changed(record: &JournalRecord, sign: char) -> Vec<&str> {
+/// `SCHEDULED: <2026-10-15 Thu 15:00>` reads as `Thu 15 Oct 15:00`.
+fn compact_date(line: &str, today: chrono::NaiveDate) -> Option<String> {
+    let inner = line.split_once('<')?.1.split_once('>')?.0;
+    let mut parts = inner.split_whitespace();
+    let date = parts.next()?;
+    date.parse::<chrono::NaiveDate>().ok()?;
+    let _weekday = parts.next();
+    let time = parts.next().filter(|part| part.contains(':'));
+    Some(crate::words::when(date, time, today))
+}
+
+/// The diff's added (`+`) or removed (`-`) lines with their line in the
+/// new file, without the file headers or blank lines.
+fn changed(record: &JournalRecord, sign: char) -> Vec<(usize, &str)> {
     let header = format!("{sign}{sign}{sign}");
-    record
-        .diff
-        .lines()
-        .filter(|line| line.starts_with(sign) && !line.starts_with(&header))
-        .map(|line| line[1..].trim())
-        .filter(|line| !line.is_empty())
-        .collect()
+    let mut lines = Vec::new();
+    let mut number = 0;
+    for text in record.diff.lines() {
+        if let Some(hunk) = text.strip_prefix("@@ ") {
+            number = hunk
+                .split_whitespace()
+                .find_map(|part| part.strip_prefix('+'))
+                .and_then(|plus| plus.split(',').next()?.parse().ok())
+                .unwrap_or(0);
+            continue;
+        }
+        if text.starts_with(&header) {
+            continue;
+        }
+        if text.starts_with(sign) && !text[1..].trim().is_empty() {
+            lines.push((number, text[1..].trim()));
+        }
+        // Removed lines are not in the new file.
+        if !text.starts_with('-') {
+            number += 1;
+        }
+    }
+    lines
 }
 
 fn second_word(headline: &str) -> String {
@@ -124,19 +183,6 @@ fn second_word(headline: &str) -> String {
         .filter(|word| word.chars().all(|c| c.is_ascii_uppercase()))
         .unwrap_or("")
         .to_string()
-}
-
-fn title_after_keyword(headline: &str) -> String {
-    let words: Vec<&str> = headline.split_whitespace().collect();
-    let skip = if words
-        .get(1)
-        .is_some_and(|word| word.chars().all(|c| c.is_ascii_uppercase()))
-    {
-        2
-    } else {
-        1
-    };
-    words[skip.min(words.len())..].join(" ")
 }
 
 /// The task a change touched, as the file reads now: the heading whose
@@ -159,10 +205,27 @@ pub(super) fn touched_item(app: &App, record: &JournalRecord) -> Option<Item> {
         .map(|headline| headline.item.clone())
 }
 
-/// Where a change is, for its card and for ⏎: the touched heading's line
-/// as the file reads now, else the diff's first changed line.
+/// The task a change is about: the heading its ref names while the file
+/// still holds it (a capture that also made its parent names the task),
+/// else the heading at the change's place.
+pub(super) fn subject(app: &App, record: &JournalRecord) -> Option<Item> {
+    if matches!(
+        record.status,
+        JournalStatus::Undone | JournalStatus::Unapplied
+    ) {
+        return None;
+    }
+    app.index
+        .items()
+        .find(|item| record.item_ref.as_deref() == Some(item.item_ref.as_str()))
+        .cloned()
+        .or_else(|| touched_item(app, record))
+}
+
+/// Where a change is, for its card and for ⏎: the task's line as the file
+/// reads now, else the diff's first changed line.
 pub(super) fn changed_place(app: &App, record: &JournalRecord) -> (String, usize) {
-    match touched_item(app, record) {
+    match subject(app, record) {
         Some(item) => (item.file, item.line),
         None => (
             record
@@ -199,7 +262,30 @@ fn first_changed_line(record: &JournalRecord) -> usize {
     line.unwrap_or(1).max(1)
 }
 
-pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
+/// The agent's normalized client name (`mcp:codex` is `codex`).
+pub(super) fn agent_name(record: &JournalRecord) -> &str {
+    record.actor.strip_prefix("mcp:").unwrap_or(&record.actor)
+}
+
+/// What a card and the status line call a change's task: its title as the
+/// agenda shows it, else the headline the diff names.
+pub(super) fn subject_title(app: &App, record: &JournalRecord) -> String {
+    match subject(app, record) {
+        Some(item) => super::peek::display_title(&item),
+        None => classify(record, app.today)
+            .heading()
+            .map(crate::words::headline_title)
+            .unwrap_or_default(),
+    }
+}
+
+/// `work.org:42` for a change.
+pub(super) fn subject_location(app: &App, record: &JournalRecord) -> String {
+    let (file, line) = changed_place(app, record);
+    crate::words::location(&file, line, app.index.roots().roots())
+}
+
+pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     let theme = &app.theme;
     let unreviewed = app
         .journals
@@ -211,7 +297,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         title.push_str(&format!(" · {agent}"));
     }
     let block = theme.panel(title);
+    let inner = block.inner(area);
     if app.journals.is_empty() {
+        app.click_rows.clear();
         frame.render_widget(
             Paragraph::new(vec![
                 Line::from("No agent changes to review."),
@@ -225,204 +313,238 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         );
         return;
     }
-    let width = block.inner(area).width.saturating_sub(2) as usize;
-    let items: Vec<ListItem<'_>> = app
+    // The highlight column takes one cell.
+    let width = inner.width.saturating_sub(1) as usize;
+    let cards: Vec<Card> = app
         .journals
         .iter()
-        .map(|record| ListItem::new(card(theme, record, width, app)))
+        .map(|record| Card::new(app, record))
         .collect();
-    let mut state = ListState::default().with_selected(Some(app.selected));
+    let change_width = cards
+        .iter()
+        .map(|card| card.change.width())
+        .max()
+        .unwrap_or(0)
+        .min(CHANGE_MAX);
+    // A blank row between cards is its own item, so the selection never
+    // covers it and the bar runs down exactly the card.
+    let mut items = Vec::new();
+    let mut lines_for: Vec<Option<usize>> = Vec::new();
+    for (index, card) in cards.iter().enumerate() {
+        if index > 0 {
+            items.push(ListItem::new(Line::default()));
+            lines_for.push(None);
+        }
+        items.push(ListItem::new(card.lines(theme, width, change_width)));
+        lines_for.extend([Some(index), Some(index)]);
+    }
+    let mut state = ListState::default().with_selected(Some(app.selected * 2));
     frame.render_stateful_widget(
         List::new(items)
             .block(block)
             .highlight_symbol(Span::styled("▌", theme.fg(theme.accent)))
+            .repeat_highlight_symbol(true)
             .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
             .highlight_style(theme.selected()),
         area,
         &mut state,
     );
+    // Rows on screen for mouse clicks: each card's two lines, from the
+    // first item shown.
+    let first_line: usize = (0..state.offset())
+        .map(|item| if item % 2 == 0 { 2 } else { 1 })
+        .sum();
+    app.click_rows = lines_for
+        .iter()
+        .skip(first_line)
+        .take(inner.height as usize)
+        .enumerate()
+        .filter_map(|(line, card)| card.map(|card| (inner.y + line as u16, card)))
+        .collect();
     if app.review_diff
         && let Some(record) = app.journals.get(app.selected)
     {
-        let popup = centered(
-            area,
-            area.width.saturating_sub(6),
-            area.height.saturating_sub(4),
-        );
-        frame.render_widget(Clear, popup);
-        let lines: Vec<Line<'_>> = record
-            .diff
-            .lines()
-            .map(|line| {
-                let style = if line.starts_with('+') {
-                    theme.fg(theme.done)
-                } else if line.starts_with('-') {
-                    theme.fg(theme.overdue)
-                } else {
-                    theme.muted()
-                };
-                Line::from(Span::styled(line.to_string(), style))
-            })
-            .collect();
-        frame.render_widget(
-            Paragraph::new(lines)
-                .wrap(Wrap { trim: false })
-                .block(theme.popup("Raw diff · d closes")),
-            popup,
-        );
+        draw_diff(frame, &app.theme, record, area);
     }
 }
 
-fn card(theme: &Theme, record: &JournalRecord, width: usize, app: &App) -> Vec<Line<'static>> {
-    let reviewed = record.status != JournalStatus::Committed;
-    let agent = record
-        .actor
-        .strip_prefix("mcp:")
-        .unwrap_or(&record.actor)
-        .to_string();
-    let agent_color = if reviewed {
-        theme.muted
-    } else {
-        theme.agent(&agent)
-    };
-    let time = record.timestamp.get(11..16).unwrap_or_default().to_string();
-    let mut project = shorten_project(&record.project);
-    if project.chars().count() > 22 {
-        project = format!(
-            "…{}",
-            project
-                .chars()
-                .rev()
-                .take(21)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<String>()
-        );
-    }
-    let change = classify(record);
-    let kind = match &change {
-        Change::Captured { .. } => ("captured", theme.done),
-        Change::State { .. } => ("state", theme.due),
-        Change::Dates { .. } => ("date", theme.accent),
-        Change::Refiled { .. } => ("refiled", theme.accent),
-        Change::Edited { .. } => ("edited", theme.muted),
-    };
-    let pill = if reviewed {
-        theme.pill("reviewed", theme.muted)
-    } else {
-        theme.pill(kind.0, kind.1)
-    };
-    let mut head = vec![
-        Span::styled("● ", theme.fg(agent_color)),
-        Span::styled(format!("{agent:<14}"), theme.strong(agent_color)),
-        Span::styled(format!("{project:<23} "), theme.muted()),
-        Span::styled(time, theme.muted()),
-    ];
-    let used: usize = head.iter().map(Span::width).sum();
-    let pill_width: usize = pill.iter().map(Span::width).sum();
-    head.push(Span::raw(
-        " ".repeat(width.saturating_sub(used + pill_width)),
-    ));
-    head.extend(pill);
-    let body_style = |style: Style| if reviewed { theme.muted() } else { style };
-    let (file, line) = changed_place(app, record);
-    let location = format!(
-        "{:<14}",
-        format!("{}:{line}", file.rsplit('/').next().unwrap_or_default())
+fn draw_diff(frame: &mut Frame<'_>, theme: &Theme, record: &JournalRecord, area: Rect) {
+    let popup = centered(
+        area,
+        area.width.saturating_sub(6),
+        area.height.saturating_sub(4),
     );
-    let mut lines = vec![Line::from(head)];
-    match change {
-        Change::Captured { heading, target } => {
-            let parent = changed_item(app, record, &heading)
-                .map(|item| item.olpath[..item.olpath.len().saturating_sub(1)].join(" › "))
-                .unwrap_or_default();
-            lines.push(Line::from(vec![
-                Span::styled("  + ", body_style(theme.fg(theme.done))),
-                Span::styled(heading, body_style(theme.fg(theme.text))),
-            ]));
-            lines.push(Line::from(Span::styled(
-                format!("    → {target} › {parent}"),
-                theme.muted(),
-            )));
-        }
-        Change::State {
-            title,
-            from,
-            to,
-            added,
-        } => {
-            lines.push(Line::from(vec![
-                Span::styled(format!("  {location}"), theme.muted()),
-                Span::styled(format!("{title:<28}"), body_style(theme.fg(theme.text))),
-                Span::styled(from, body_style(theme.fg(theme.due))),
-                Span::styled(" → ", theme.muted()),
-                Span::styled(to, body_style(theme.strong(theme.done))),
-            ]));
-            for line in added.into_iter().take(1) {
-                lines.push(Line::from(vec![
-                    Span::styled("  + ", body_style(theme.fg(theme.done))),
-                    Span::styled(line, theme.muted()),
-                ]));
-            }
-        }
-        Change::Dates { from, to } => {
-            let title = changed_item(app, record, "")
-                .map(super::peek::display_title)
-                .unwrap_or_default();
-            lines.push(Line::from(vec![
-                Span::styled(format!("  {location}"), theme.muted()),
-                Span::styled(format!("{title:<28}"), body_style(theme.fg(theme.text))),
-                Span::styled(from, body_style(theme.fg(theme.muted))),
-                Span::styled(" → ", theme.muted()),
-                Span::styled(to, body_style(theme.fg(theme.accent))),
-            ]));
-        }
-        Change::Refiled { title } => {
-            lines.push(Line::from(vec![
-                Span::styled("  ↪ ", theme.muted()),
-                Span::styled(title, body_style(theme.fg(theme.text))),
-            ]));
-        }
-        Change::Edited { lines: added } => {
-            for line in added.into_iter().take(2) {
-                lines.push(Line::from(vec![
-                    Span::styled("  + ", body_style(theme.fg(theme.done))),
-                    Span::styled(line, theme.muted()),
-                ]));
-            }
-        }
-    }
-    lines.push(Line::default());
-    lines
-}
-
-/// The agent's project as `~/src/app`, or its last two path parts.
-fn shorten_project(path: &str) -> String {
-    if let Ok(home) = std::env::var("HOME")
-        && let Some(rest) = path.strip_prefix(&home)
-    {
-        return format!("~{rest}");
-    }
-    let parts: Vec<&str> = path.trim_end_matches('/').rsplit('/').take(2).collect();
-    format!(
-        "…/{}",
-        parts.into_iter().rev().collect::<Vec<_>>().join("/")
-    )
-}
-
-/// The changed heading in today's files: by ref, else by file and title.
-fn changed_item<'a>(
-    app: &'a App,
-    record: &JournalRecord,
-    title: &str,
-) -> Option<&'a agd_core::Item> {
-    app.index
-        .items()
-        .find(|item| record.item_ref.as_deref() == Some(item.item_ref.as_str()))
-        .or_else(|| {
-            app.index.items().find(|item| {
-                item.file == record.file && !title.is_empty() && title.contains(&item.title)
-            })
+    frame.render_widget(Clear, popup);
+    let lines: Vec<Line<'_>> = record
+        .diff
+        .lines()
+        .map(|line| {
+            let style = if line.starts_with('+') {
+                theme.fg(theme.done)
+            } else if line.starts_with('-') {
+                theme.fg(theme.overdue)
+            } else {
+                theme.muted()
+            };
+            Line::from(Span::styled(line.to_string(), style))
         })
+        .collect();
+    frame.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .block(theme.popup("Raw diff · d closes")),
+        popup,
+    );
+}
+
+/// One change, ready to draw.
+struct Card {
+    reviewed: bool,
+    agent: String,
+    project: String,
+    time: String,
+    kind: &'static str,
+    /// `TODO → DONE`, `captured`, `Thu 15 Oct → Fri 16 Oct`.
+    change: String,
+    /// The change's colour roles: before and after the arrow, if any.
+    change_parts: Vec<(String, ChangeRole)>,
+    title: String,
+    location: String,
+}
+
+#[derive(Clone, Copy)]
+enum ChangeRole {
+    Was,
+    Now,
+    Plain,
+}
+
+impl Card {
+    fn new(app: &App, record: &JournalRecord) -> Self {
+        let change = classify(record, app.today);
+        let arrow = |from: &str, to: &str| {
+            vec![
+                (from.to_string(), ChangeRole::Was),
+                (" → ".to_string(), ChangeRole::Plain),
+                (to.to_string(), ChangeRole::Now),
+            ]
+        };
+        let change_parts = match &change {
+            Change::State { from, to, .. } => arrow(from, to),
+            Change::Dates { from, to } => arrow(from, to),
+            other => vec![(other.kind().to_string(), ChangeRole::Now)],
+        };
+        Self {
+            reviewed: record.status != JournalStatus::Committed,
+            agent: agent_name(record).to_string(),
+            project: shorten_project(&record.project),
+            time: record.timestamp.get(11..16).unwrap_or_default().to_string(),
+            kind: change.kind(),
+            change: change_parts.iter().map(|(text, _)| text.as_str()).collect(),
+            change_parts,
+            title: subject_title(app, record),
+            location: subject_location(app, record),
+        }
+    }
+
+    /// Who, where from, when and the kind; then the change, the task and
+    /// where it is. A reviewed card is muted throughout.
+    fn lines(&self, theme: &Theme, width: usize, change_width: usize) -> Vec<Line<'static>> {
+        let muted = theme.muted();
+        let role_style = |role: ChangeRole| -> Style {
+            if self.reviewed {
+                return muted;
+            }
+            match (role, self.kind) {
+                (ChangeRole::Plain, _) => muted,
+                (ChangeRole::Was, "state") => theme.fg(theme.due),
+                (ChangeRole::Now, "state") => theme.strong(theme.done),
+                (ChangeRole::Was, _) => muted,
+                (ChangeRole::Now, "captured") => theme.fg(theme.done),
+                (ChangeRole::Now, "date") => theme.fg(theme.accent),
+                (ChangeRole::Now, _) => theme.fg(theme.text),
+            }
+        };
+        let dot = if self.reviewed {
+            muted
+        } else {
+            theme.fg(theme.agent(&self.agent))
+        };
+        let name = if self.reviewed {
+            muted
+        } else {
+            theme.strong(theme.text)
+        };
+        let kind = if self.reviewed {
+            Span::styled("reviewed ", muted)
+        } else {
+            Span::styled(format!("{} ", self.kind), role_style(ChangeRole::Now))
+        };
+        let mut head = vec![
+            Span::styled("● ", dot),
+            Span::styled(format!("{:<NAME$} ", truncate(&self.agent, NAME)), name),
+        ];
+        let used = head.iter().map(Span::width).sum::<usize>() + kind.width();
+        let place = format!("{} · {}", self.project, self.time);
+        head.push(Span::styled(
+            truncate(&place, width.saturating_sub(used + 1)),
+            muted,
+        ));
+        head.push(Span::raw(" ".repeat(width.saturating_sub(
+            head.iter().map(Span::width).sum::<usize>() + kind.width(),
+        ))));
+        head.push(kind);
+
+        let mut body = vec![Span::raw("  ")];
+        for (text, role) in &self.change_parts {
+            body.push(Span::styled(text.clone(), role_style(*role)));
+        }
+        body.push(Span::raw(
+            " ".repeat(change_width.saturating_sub(self.change.width()) + 2),
+        ));
+        let location = format!("{} ", truncate(&self.location, RIGHT));
+        let used = body.iter().map(Span::width).sum::<usize>();
+        let room = width.saturating_sub(used + location.width() + 2);
+        let title = truncate(&self.title, room);
+        let text = if self.reviewed {
+            muted
+        } else {
+            theme.fg(theme.text)
+        };
+        body.push(Span::styled(title.clone(), text));
+        body.push(Span::raw(" ".repeat(
+            width.saturating_sub(used + title.width() + location.width()),
+        )));
+        body.push(Span::styled(location, muted));
+        vec![Line::from(head), Line::from(body)]
+    }
+}
+
+/// The agent's project as `~/src/app`, or its last two path parts, cut
+/// from the left to 22 cells.
+fn shorten_project(path: &str) -> String {
+    let short = match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() && path.starts_with(&home) => {
+            format!("~{}", &path[home.len()..])
+        }
+        _ => {
+            let parts: Vec<&str> = path.trim_end_matches('/').rsplit('/').take(2).collect();
+            format!(
+                "…/{}",
+                parts.into_iter().rev().collect::<Vec<_>>().join("/")
+            )
+        }
+    };
+    if short.chars().count() <= 22 {
+        return short;
+    }
+    let tail: String = short
+        .chars()
+        .rev()
+        .take(21)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("…{tail}")
 }

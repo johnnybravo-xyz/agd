@@ -7,52 +7,23 @@ const PANE = 'agd'
 
 const TODAY = 'today'
 
-// agd's TUI palette, as agd/src/tui/theme.rs defines it; keep the two in step.
-const PALETTES = {
-  dark: {
-    accent: '#6ea8fe',
-    overdue: '#f07178',
-    due: '#e5b567',
-    done: '#7ec68f',
-    text: '#dee2e8',
-    muted: '#808896',
-    surface: '#20252e',
-    yellow: '#ecd678',
-    dimRed: '#b07076',
-    pink: '#e879b0',
-    teal: '#5ec4a0',
-    purple: '#b094f5',
-  },
-  light: {
-    accent: '#2563c4',
-    overdue: '#c53030',
-    due: '#b06f00',
-    done: '#248748',
-    text: '#1f2329',
-    muted: '#6c727e',
-    surface: '#eef0f3',
-    yellow: '#967a00',
-    dimRed: '#b87878',
-    pink: '#c83c82',
-    teal: '#148c64',
-    purple: '#6e50c8',
-  },
-  // The TUI's 16-color palette, for Claude Code's ANSI themes; text keeps
-  // the terminal's own foreground.
-  ansi: {
-    accent: 'blueBright',
-    overdue: 'red',
-    due: 'yellow',
-    done: 'green',
-    text: undefined,
-    muted: 'gray',
-    surface: undefined,
-    yellow: 'yellowBright',
-    dimRed: 'red',
-    pink: 'magenta',
-    teal: 'cyan',
-    purple: 'magentaBright',
-  },
+// The pane draws with the TUI's own palettes, which `agd agenda --views
+// --json` prints by role (agd/src/tui/theme.rs is their one definition). An
+// agd too old to print them gets Claude Code's theme colors for the same
+// roles instead of a copy that could drift.
+const THEME_KEYS = {
+  accent: 'suggestion',
+  overdue: 'error',
+  due: 'warning',
+  done: 'success',
+  text: 'text',
+  muted: 'inactive',
+  yellow: 'warning',
+  dim_red: 'error',
+  pink: 'claude',
+  teal: 'success',
+  purple: 'permission',
+  agents: ['claude', 'permission', 'suggestion'],
 }
 
 // agd's tools that change Org files; a call to one refreshes the band and
@@ -61,7 +32,8 @@ const WRITE_TOOL = /^mcp__(plugin_agd_)?agd__(capture|edit|plan|set_state)$/
 
 // What the band and the pane draw; refresh() replaces them. `views` and
 // `display` come from `agd agenda --views --json`, which reads config.toml:
-// the saved views, and the TUI's theme, nerd_font and keyword colors.
+// the saved views, and the TUI's theme, nerd_font, keyword colors and
+// palettes.
 // `current` is the open tab, a view's key or TODAY, starting on start_view.
 // `showBand` is the plugin's show_band option; `refreshes` counts refresh()
 // calls, so only the latest one started may replace what is drawn.
@@ -70,24 +42,41 @@ let sections = []
 let problem = ''
 let paneOpen = false
 let views = []
-let display = { theme: 'auto', nerd_font: false, keyword_colors: {} }
-let palette = PALETTES.dark
+let display = { theme: 'auto', nerd_font: false, keyword_colors: {}, palettes: null }
+let palette = THEME_KEYS
 let current = null
 let showBand = true
 let refreshes = 0
+// When the pane last read agd, for which timed rows are past and which is
+// next, and which day is today.
+let now = new Date()
 
-// Runs agd with an argument list (no shell). Resolves { stdout } or { error }.
+// Runs agd with an argument list (no shell). Resolves { stdout } or { error },
+// the error the sentence agd's terminal shows, never its code.
 async function agd($, args) {
   try {
     const result = await $.process.run(['agd', ...args], { timeoutMs: 15000 })
     if (result.exitCode !== 0) {
-      const message = result.stderr.trim().replace(/^Error:\s*/, '')
+      const message = errorSentence(result.stderr.trim())
       return { error: message || 'agd ' + args[0] + ' exited with ' + result.exitCode }
     }
     return { stdout: result.stdout }
   } catch (error) {
     return { error: 'cannot run agd (is it installed and on PATH?): ' + error.message }
   }
+}
+
+// agd's stderr as a sentence: agd.error/v1's message under --json, else
+// the text after `error:`.
+function errorSentence(stderr) {
+  if (stderr.startsWith('{')) {
+    try {
+      return String(JSON.parse(stderr).message || '')
+    } catch {
+      return stderr
+    }
+  }
+  return stderr.replace(/^error:\s*/i, '')
 }
 
 // A saved view's sections, or today's agenda as one section.
@@ -123,6 +112,7 @@ async function readDisplay($) {
         theme: payload.theme || 'auto',
         nerd_font: payload.nerd_font === true,
         keyword_colors: payload.keyword_colors || {},
+        palettes: payload.palettes || null,
       },
     }
   } catch {
@@ -132,15 +122,20 @@ async function readDisplay($) {
 
 // agd's theme setting picks the palette; with `auto`, Claude Code's own theme
 // does, since a pane has no terminal background to read.
-async function readPalette($, theme) {
-  if (theme === 'dark' || theme === 'light') return PALETTES[theme]
+async function readPalette($, display) {
+  const name = display.theme === 'dark' || display.theme === 'light' ? display.theme : await claudePalette($)
+  return display.palettes?.[name] || THEME_KEYS
+}
+
+// The palette Claude Code's theme asks for: ansi, light or dark.
+async function claudePalette($) {
   try {
     const row = (await $.config.list()).find((config) => config.key === 'theme')
     const claudeTheme = String(row?.value ?? '')
-    if (claudeTheme.includes('ansi')) return PALETTES.ansi
-    return claudeTheme.includes('light') ? PALETTES.light : PALETTES.dark
+    if (claudeTheme.includes('ansi')) return 'ansi'
+    return claudeTheme.includes('light') ? 'light' : 'dark'
   } catch {
-    return PALETTES.dark
+    return 'dark'
   }
 }
 
@@ -169,12 +164,13 @@ async function refresh($) {
     current = pane.current
     problem = pane.problem
     sections = pane.sections
+    now = pane.now
   }
   $.ui.invalidate('ui.render')
 }
 
 // Everything the pane draws, read fresh: the views and display settings,
-// the palette, the open tab and its sections.
+// the palette, the open tab and its sections, and the time.
 async function readPane($) {
   const shown = await readDisplay($)
   const tab = openTab(current, shown.views)
@@ -182,10 +178,20 @@ async function readPane($) {
   return {
     views: shown.views,
     display: shown.display,
-    palette: await readPalette($, shown.display.theme),
+    palette: await readPalette($, shown.display),
     current: tab,
     problem: opened.error || '',
     sections: opened.sections || [],
+    now: await readNow($),
+  }
+}
+
+// The time from Claude Code's clock, or the machine's when it has none.
+async function readNow($) {
+  try {
+    return new Date(await $.clock.now())
+  } catch {
+    return new Date()
   }
 }
 
@@ -213,7 +219,7 @@ function colorOf(name) {
     case 'red':
       return palette.overdue
     case 'dim-red':
-      return palette.dimRed
+      return palette.dim_red
     case 'pink':
       return palette.pink
     case 'teal':
@@ -230,6 +236,12 @@ function colorOf(name) {
 // Text props with a color, leaving `color` out when the palette has none.
 function colored(color, props = {}) {
   return color ? { ...props, color } : props
+}
+
+// Muted text: the palette's muted color, or the terminal's own foreground
+// dimmed where the palette keeps it (16 colours), as the TUI draws it.
+function muted(props = {}) {
+  return palette.muted ? { ...props, color: palette.muted } : { ...props, dimColor: true }
 }
 
 // A button's props with its hotkey, when it has one; a hotkey prop must be a
@@ -261,39 +273,85 @@ function tabs($, Box, Button) {
   })
 }
 
-// The priority as the TUI's chip: amber on the surface color, rounded with
-// Nerd Font caps when nerd_font is on; black on amber without a surface.
-function priorityChip(Text, priority) {
+// A pill as the TUI's theme.pill draws it: the label on the surface color,
+// rounded with Nerd Font caps when nerd_font is on; without a surface (16
+// colours) the hue reversed, so it keeps its fill on any row.
+function pill(Text, text, color) {
   if (!palette.surface) {
-    return [Text({ color: 'black', backgroundColor: palette.due, bold: true, children: [' ' + priority + ' '] })]
+    return [Text({ color, inverse: true, bold: true, children: [' ' + text + ' '] })]
   }
-  const chip = { color: palette.due, backgroundColor: palette.surface, bold: true }
-  if (!display.nerd_font) return [Text({ ...chip, children: [' ' + priority + ' '] })]
+  const chip = { color, backgroundColor: palette.surface, bold: true }
+  if (!display.nerd_font) return [Text({ ...chip, children: [' ' + text + ' '] })]
   return [
-    Text({ color: palette.surface, children: ['\ue0b6'] }),
-    Text({ ...chip, children: [priority] }),
-    Text({ color: palette.surface, children: ['\ue0b4'] }),
+    Text({ color: palette.surface, children: [''] }),
+    Text({ ...chip, children: [text] }),
+    Text({ color: palette.surface, children: [''] }),
   ]
 }
 
-// The lead's color, as the TUI's: overdue in red, deadlines amber, the rest muted.
+// The lead's color, as the TUI's: overdue in red, deadlines amber; null for
+// the rest, which are muted.
 function leadColor(occurrence) {
   if (occurrence.type === 'past-scheduled') return palette.overdue
   if (occurrence.type === 'deadline' && occurrence.extra.endsWith('ago:')) return palette.overdue
   if (occurrence.type === 'deadline' || occurrence.type === 'upcoming-deadline') return palette.due
-  return palette.muted
+  return null
+}
+
+// Whether an agenda row is overdue: a reminder past its date or a missed
+// deadline.
+function isOverdue(occurrence) {
+  return occurrence.type === 'past-scheduled' || (occurrence.type === 'deadline' && occurrence.extra.endsWith('ago:'))
+}
+
+// The first number in org's leader: 12 in `Sched.12x:`, 3 in `In   3 d.:`.
+function leaderDays(extra) {
+  const digits = extra.match(/\d+/)
+  return digits ? Number(digits[0]) : 0
+}
+
+// The clock time a row's lead shows (`16:30`, the start of a range), as
+// minutes since midnight; null when its lead is a badge or countdown.
+function leadMinutes(occurrence) {
+  if (isOverdue(occurrence) || occurrence.type === 'deadline' || occurrence.type === 'upcoming-deadline') return null
+  const time = (occurrence.time || '').match(/^(\d{1,2}):(\d{2})/)
+  return time ? Number(time[1]) * 60 + Number(time[2]) : null
+}
+
+// The six-cell lead that always says when, as the TUI's lead_cell: an
+// overdue badge (`12d`, `-2d`, right-aligned), a countdown (`in 3d`), `due`
+// on a deadline's day, or the time: muted once past or done, bold on the
+// next timed task, accent later.
+function leadCell(Text, occurrence, done, clock) {
+  if (occurrence.type === 'past-scheduled') return pill(Text, (leaderDays(occurrence.extra) + 'd').padStart(4), palette.overdue)
+  if (occurrence.type === 'deadline' && occurrence.extra.endsWith('ago:')) {
+    return pill(Text, ('-' + leaderDays(occurrence.extra) + 'd').padStart(4), palette.overdue)
+  }
+  if (occurrence.type === 'upcoming-deadline') {
+    return [Text(colored(palette.due, { children: [('in ' + leaderDays(occurrence.extra) + 'd').padEnd(6)] }))]
+  }
+  if (occurrence.type === 'deadline') return [Text(colored(palette.due, { bold: true, children: ['due   '] }))]
+  if (!occurrence.time) return [Text({ children: ['      '] })]
+  const time = { children: [occurrence.time.padEnd(6)] }
+  if (done || clock === 'past') return [Text(muted(time))]
+  if (clock === 'next') return [Text(colored(palette.accent, { ...time, bold: true }))]
+  return [Text(colored(palette.accent, time))]
 }
 
 // One task as the TUI's view rows draw it: for an agenda entry the category
 // and org-agenda's lead (`10:00......`, `In 2 d.:`, `Sched. 2x:`), else an
 // indent; then the keyword in its color, the title, the priority chip and
-// the tags.
+// the tags, muted.
 function taskRow(Text, item, occurrence) {
   const parts = []
   if (occurrence) {
-    parts.push(Text(colored(palette.muted, { children: [(item.category + ':').padEnd(12)] })))
+    parts.push(Text(muted({ children: [(item.category + ':').padEnd(12)] })))
     if (occurrence.time) parts.push(Text({ children: [occurrence.time + '...... '] }))
-    if (occurrence.extra) parts.push(Text(colored(leadColor(occurrence), { children: [occurrence.extra.padEnd(11) + ' '] })))
+    if (occurrence.extra) {
+      const lead = { children: [occurrence.extra.padEnd(11) + ' '] }
+      const color = leadColor(occurrence)
+      parts.push(Text(color ? { ...lead, color } : muted(lead)))
+    }
   } else {
     parts.push(Text({ children: ['       '] }))
   }
@@ -302,12 +360,17 @@ function taskRow(Text, item, occurrence) {
     const bold = !item.done && name !== 'orange'
     parts.push(Text(colored(colorOf(name), { bold, children: [item.todo + ' '] })))
   }
-  // A done title is muted and struck through, as in the TUI.
-  const title = item.done ? colored(palette.muted, { strikethrough: true }) : colored(palette.text)
-  parts.push(Text({ ...title, children: [displayTitle(item.title)] }))
-  if (item.priority) parts.push(Text({ children: [' '] }), ...priorityChip(Text, item.priority))
-  if (item.tags.length > 0) parts.push(Text(colored(palette.accent, { children: ['  #' + item.tags.join(' #')] })))
+  parts.push(Text({ ...titleStyle(item, false), children: [displayTitle(item.title)] }))
+  if (item.priority) parts.push(Text({ children: [' '] }), ...pill(Text, item.priority, palette.due))
+  if (item.tags.length > 0) parts.push(Text(muted({ children: ['  #' + item.tags.join(' #')] })))
   return Text({ wrap: 'truncate-end', children: parts })
+}
+
+// A title's style: muted and struck through when done, as in the TUI, bold
+// on the next timed task.
+function titleStyle(item, next) {
+  if (item.done) return muted({ strikethrough: true })
+  return colored(palette.text, next ? { bold: true } : {})
 }
 
 // The title as agd's lists show it: active timestamps dropped, and
@@ -327,7 +390,9 @@ function rows(Text, entries, items) {
   for (const entry of entries) {
     if (entry.occurrence.date !== day) {
       day = entry.occurrence.date
-      lines.push(Text(colored(palette.text, { bold: true, children: [dayLabel(day)] })))
+      // Today's date stands out in accent, underlined, as in the TUI.
+      const style = day === isoDate(now) ? colored(palette.accent, { underline: true }) : colored(palette.text)
+      lines.push(Text({ ...style, bold: true, children: [dayLabel(day)] }))
     }
     lines.push(taskRow(Text, entry.item, entry.occurrence))
   }
@@ -335,24 +400,46 @@ function rows(Text, entries, items) {
   return lines
 }
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+]
 
-// 2026-10-15 as "Thu 15 Oct", in UTC so the date never shifts.
+// 2026-10-15 as org-agenda and the TUI's day lists head it,
+// `Thursday   15 October 2026`, in UTC so the date never shifts.
 function dayLabel(date) {
   const parsed = new Date(date + 'T00:00:00Z')
-  return WEEKDAYS[parsed.getUTCDay()] + ' ' + parsed.getUTCDate() + ' ' + MONTHS[parsed.getUTCMonth()]
+  const weekday = WEEKDAYS[parsed.getUTCDay()].padEnd(10)
+  const day = String(parsed.getUTCDate()).padStart(2)
+  return weekday + ' ' + day + ' ' + MONTHS[parsed.getUTCMonth()] + ' ' + parsed.getUTCFullYear()
+}
+
+// A Date as `2026-10-16`, in local time as agd reads today.
+function isoDate(date) {
+  const pad = (number) => String(number).padStart(2, '0')
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
 }
 
 // An uppercase header in its color with a muted row count, as in the TUI;
 // an empty section is muted.
 function header(Text, text, count, color) {
   const label = text.toUpperCase()
-  if (count === 0) return Text(colored(palette.muted, { bold: true, children: [label] }))
+  if (count === 0) return Text(muted({ bold: true, children: [label] }))
   return Text({
     children: [
       Text(colored(colorOf(color), { bold: true, children: [label] })),
-      Text(colored(palette.muted, { children: ['  ' + count] })),
+      Text(muted({ children: ['  ' + count] })),
     ],
   })
 }
@@ -377,12 +464,70 @@ function sectionLines(Text, section) {
   return lines
 }
 
+// Today as the TUI's pane draws it, compact enough for a 40-column pane:
+// overdue rows first, most days late first, then timed rows by time,
+// untimed ones, and done rows last; each row the marker (`▸` on the next
+// timed task), the lead, the title, and at the right the priority, ↻ for
+// a repeating task or ✓ for done.
+function todayLines(Box, Text, entries) {
+  const minutes = now.getHours() * 60 + now.getMinutes()
+  const late = entries.filter((entry) => isOverdue(entry.occurrence))
+  late.sort((left, right) => leaderDays(right.occurrence.extra) - leaderDays(left.occurrence.extra))
+  const rest = entries.filter((entry) => !isOverdue(entry.occurrence))
+  const order = (entry) => {
+    const time = leadMinutes(entry.occurrence)
+    return [entry.item.done ? 1 : 0, time === null ? 1 : 0, time ?? 0]
+  }
+  rest.sort((left, right) => {
+    const [a, b] = [order(left), order(right)]
+    return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
+  })
+  const next = rest.find((entry) => !entry.item.done && (leadMinutes(entry.occurrence) ?? -1) >= minutes)
+  const open = entries.filter((entry) => !entry.item.done).length
+  const lines = [header(Text, 'Today', open, 'blue')]
+  for (const entry of [...late, ...rest]) {
+    const time = leadMinutes(entry.occurrence)
+    const clock = entry === next ? 'next' : time !== null && time < minutes ? 'past' : 'later'
+    lines.push(compactRow(Box, Text, entry, clock))
+  }
+  if (entries.length === 0) lines.push(Text(muted({ children: ['All clear for today.'] })))
+  return lines
+}
+
+// One compact row: what is left of the right mark's room goes to the
+// title, which ends in "…" when it does not fit.
+function compactRow(Box, Text, entry, clock) {
+  const { item, occurrence } = entry
+  const marker = clock === 'next' ? Text(colored(palette.accent, { bold: true, children: ['▸ '] })) : Text({ children: ['  '] })
+  const left = Text({
+    wrap: 'truncate-end',
+    children: [
+      marker,
+      ...leadCell(Text, occurrence, item.done, clock),
+      Text({ children: [' '] }),
+      Text({ ...titleStyle(item, clock === 'next'), children: [displayTitle(item.title)] }),
+    ],
+  })
+  const planning = item.planning || {}
+  const repeats = [planning.scheduled, planning.deadline].some((timestamp) => timestamp && timestamp.repeater)
+  let right = null
+  if (item.done) right = [Text(colored(palette.done, { bold: true, children: ['✓'] }))]
+  else if (item.priority) right = pill(Text, item.priority, palette.due)
+  else if (repeats) right = [Text(muted({ children: ['↻'] }))]
+  const children = [Box({ flexGrow: 1, flexShrink: 1, children: [left] })]
+  if (right) children.push(Box({ flexDirection: 'row', flexShrink: 0, marginLeft: 1, children: right }))
+  return Box({ flexDirection: 'row', children })
+}
+
 function paneBody($, e) {
   const { Box, Text, Button } = $.ui.resolve(e)
   const blank = () => Text({ children: [' '] })
+  const today = current === TODAY
   const body = problem
     ? [Text(colored(palette.overdue, { children: [problem] }))]
-    : sections.flatMap((section, index) => [...(index > 0 ? [blank()] : []), ...sectionLines(Text, section)])
+    : today
+      ? todayLines(Box, Text, sections.flatMap((section) => section.entries || []))
+      : sections.flatMap((section, index) => [...(index > 0 ? [blank()] : []), ...sectionLines(Text, section)])
   const footer = Box({
     flexDirection: 'row',
     columnGap: 3,
@@ -393,7 +538,7 @@ function paneBody($, e) {
           views.some((view) => view.key === 'g') ? undefined : 'g',
         ),
       ),
-      Text(colored(palette.muted, { children: ['esc close · ctrl-x x close'] })),
+      Text(muted({ children: ['esc close · ctrl-x x close'] })),
     ],
   })
   return Box({
@@ -404,16 +549,48 @@ function paneBody($, e) {
 }
 
 // "/capture t buy milk due:fri" runs `agd capture t "buy milk due:fri"`.
+// It says what it wrote as agd's TUI and terminal do:
+// `inbox.org:7  captured · buy milk · deadline Fri 23 Oct`.
 async function capture($, args) {
   const match = args.trim().match(/^(\S+)\s+(.+)$/)
   if (!match) return { text: 'usage: /capture KEY text, such as /capture t buy milk due:fri' }
-  const result = await agd($, ['capture', match[1], match[2]])
+  const result = await agd($, ['capture', match[1], match[2], '--json'])
   // Claude Code prefixes the plugin's name, so the text starts with agd's own.
   if (result.error) return { text: result.error }
+  const today = await readNow($)
   await refresh($)
-  // agd prints the new item's ref, "<file>:<line>#sha256:…".
-  const location = result.stdout.trim().split('#')[0].split('/').pop()
-  return { text: 'captured to ' + location }
+  try {
+    return { text: capturedLine(JSON.parse(result.stdout).item, today) }
+  } catch {
+    return { text: 'captured' }
+  }
+}
+
+// agd's words::captured: the file and line, `captured`, the title, then its
+// dates (`scheduled Sat 17 Oct`, `deadline Fri 23 Oct`).
+function capturedLine(item, today) {
+  let line = item.file.split('/').pop() + ':' + item.line + '  captured · ' + item.title
+  const planning = item.planning || {}
+  for (const [label, timestamp] of [
+    ['scheduled', planning.scheduled],
+    ['deadline', planning.deadline],
+  ]) {
+    if (timestamp) line += ' · ' + label + ' ' + when(timestamp.date, timestamp.time, today)
+  }
+  return line
+}
+
+const SHORT_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// agd's words::when: `Fri 16 Oct`, with the year when it is not `today`'s,
+// and the time after it.
+function when(date, time, today) {
+  const parsed = new Date(date + 'T00:00:00Z')
+  if (Number.isNaN(parsed.getTime())) return date
+  let text = SHORT_WEEKDAYS[parsed.getUTCDay()] + ' ' + parsed.getUTCDate() + ' ' + SHORT_MONTHS[parsed.getUTCMonth()]
+  if (parsed.getUTCFullYear() !== today.getFullYear()) text += ' ' + parsed.getUTCFullYear()
+  return time ? text + ' ' + time : text
 }
 
 // Literal names, so `claude plugin validate` sees each command.run hook

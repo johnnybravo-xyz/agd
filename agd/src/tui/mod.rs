@@ -1,5 +1,5 @@
 //! Terminal workflows from the TUI design: Today (with Week, Inbox and saved
-//! views as tabs), Triage, Capture, Agent review, and the narrow pane.
+//! views as tabs), Triage, Capture, the Agents tab, and the narrow pane.
 //! `mod.rs` owns state, the event loop and terminal handling; each screen
 //! draws itself from `App`, and every write goes through `actions`.
 
@@ -29,7 +29,7 @@ use agd_core::{
     load_settings,
 };
 use anyhow::{Context, Result};
-use chrono::{Local, NaiveDate};
+use chrono::{Local, NaiveDate, NaiveTime};
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, MouseEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -70,10 +70,8 @@ enum PromptKind {
 #[derive(Debug)]
 enum Overlay {
     None,
-    /// Every screen's keys; `scroll` is the first line shown.
-    Help {
-        scroll: u16,
-    },
+    /// `?`: every screen's keys as a palette that runs them.
+    Help(help::Palette),
     Capture(capture::Draft),
     Edit(Box<edit::EditForm>),
     Prompt(actions::Prompt),
@@ -221,6 +219,9 @@ struct App {
     index: WorkspaceIndex,
     theme: Theme,
     today: NaiveDate,
+    /// The time of day at the last tick, for which timed rows are past and
+    /// which is next.
+    clock: NaiveTime,
     /// First day of the Today/Week agenda; f, b and . move it.
     day: NaiveDate,
     screen: Screen,
@@ -275,12 +276,13 @@ struct App {
 
 impl App {
     fn new(settings: Settings, index: WorkspaceIndex, today: NaiveDate) -> Self {
-        let theme = Theme::detect(&settings.theme).rounded_pills(settings.nerd_font);
+        let theme = Theme::detect(&settings.theme, None).rounded_pills(settings.nerd_font);
         Self {
             settings,
             index,
             theme,
             today,
+            clock: Local::now().time(),
             day: today,
             screen: Screen::Today,
             back: Screen::Today,
@@ -331,6 +333,12 @@ impl App {
         Ok(true)
     }
 
+    /// The palette for the background the terminal reported.
+    fn set_background(&mut self, light: bool) {
+        self.theme =
+            Theme::detect(&self.settings.theme, Some(light)).rounded_pills(self.settings.nerd_font);
+    }
+
     /// A lone `C-c` still quits, a second after it was pressed.
     fn chord_expired(&self) -> bool {
         self.chord
@@ -348,7 +356,11 @@ impl App {
     /// A refused write or a failure, as a sentence without error codes.
     fn set_error(&mut self, error: &anyhow::Error) {
         let text = match error.downcast_ref::<AgdError>() {
-            Some(error) => format!("✗ {}", error_sentence(error)),
+            // Here `r` re-reads the files, which settles a stale heading.
+            Some(error) if error.code() == "stale_ref" => {
+                format!("✗ {}; r refreshes", crate::words::error_sentence(error))
+            }
+            Some(error) => format!("✗ {}", crate::words::error_sentence(error)),
             None => format!("✗ {error:#}"),
         };
         self.status = Some(Status {
@@ -370,15 +382,7 @@ impl App {
 
     /// `file:line` relative to the files root it lives in.
     fn short_location(&self, item: &Item) -> String {
-        let path = Path::new(&item.file);
-        let relative = self
-            .index
-            .roots()
-            .roots()
-            .iter()
-            .find_map(|root| path.strip_prefix(root).ok())
-            .unwrap_or(path);
-        format!("{}:{}", relative.display(), item.line)
+        crate::words::location(&item.file, item.line, self.index.roots().roots())
     }
 }
 
@@ -388,6 +392,12 @@ pub fn run(config: Option<String>, root: Option<String>, pane: bool) -> Result<(
 
 pub fn run_capture(config: Option<String>, root: Option<String>) -> Result<()> {
     run_mode(config, root, false, true)
+}
+
+/// The TUI's colour roles for each palette, so other clients draw with the
+/// same colours (theme.rs is their one definition).
+pub fn palettes() -> serde_json::Value {
+    theme::palettes_json()
 }
 
 fn run_mode(
@@ -403,7 +413,11 @@ fn run_mode(
     .settings;
     let index = WorkspaceIndex::load(settings.clone())?;
     let (events, _watcher) = watch_roots(&index)?;
+    let (light, reply, typed) = theme::ask_background(&settings.theme);
     let mut app = App::new(settings, index, Local::now().date_naive());
+    if let Some(light) = light {
+        app.set_background(light);
+    }
     app.pane = pane;
     app.pane_requested = pane;
     app.capture_only = capture_only;
@@ -424,16 +438,23 @@ fn run_mode(
     }
 
     let mut terminal = start_terminal()?;
-    let result = event_loop(&mut terminal, &mut app, &events);
+    let result = event_loop(&mut terminal, &mut app, &events, reply, typed);
     stop_terminal(&mut terminal)?;
     result
 }
 
+/// `reply` is the terminal's background answer if it is still on its way;
+/// `typed` holds what arrived while agd waited for it.
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
     changes: &Receiver<notify::Result<NotifyEvent>>,
+    mut reply: theme::BackgroundReply,
+    typed: Vec<Event>,
 ) -> Result<()> {
+    for event in typed {
+        handle_event(terminal, app, event);
+    }
     while !app.quit {
         let mut changed = false;
         for event in changes.try_iter() {
@@ -449,7 +470,9 @@ fn event_loop(
                 Err(error) => app.set_status(format!("watch failed: {error}")),
             }
         }
-        let today = Local::now().date_naive();
+        let now = Local::now();
+        app.clock = now.time();
+        let today = now.date_naive();
         if today != app.today {
             // Past midnight: done items leave and the agenda moves on.
             app.day += today - app.today;
@@ -481,12 +504,35 @@ fn event_loop(
         }
         // Handle every event already waiting before drawing again, so a
         // pasted line or fast typing costs one redraw, not one per key.
-        handle_event(terminal, app, event::read()?);
+        handle_input(terminal, app, &mut reply, event::read()?);
         while !app.quit && event::poll(StdDuration::ZERO)? {
-            handle_event(terminal, app, event::read()?);
+            handle_input(terminal, app, &mut reply, event::read()?);
         }
     }
     Ok(())
+}
+
+/// A key of a late background answer is dropped, and the whole answer sets
+/// the palette; every other event is handled.
+fn handle_input(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+    reply: &mut theme::BackgroundReply,
+    event: Event,
+) {
+    if let Event::Key(key) = &event {
+        match reply.feed(key) {
+            theme::ReplyKey::Part => return,
+            theme::ReplyKey::End(light) => {
+                if let Some(light) = light {
+                    app.set_background(light);
+                }
+                return;
+            }
+            theme::ReplyKey::Other => {}
+        }
+    }
+    handle_event(terminal, app, event);
 }
 
 fn handle_event(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App, event: Event) {
@@ -539,7 +585,7 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
     }
     match &app.overlay {
         Overlay::None => {}
-        Overlay::Help { .. } => help::draw(frame, app, area),
+        Overlay::Help(_) => help::draw(frame, app, area),
         Overlay::Capture(_) => capture::draw(frame, app, area),
         Overlay::Edit(_) => edit::draw(frame, app, area),
         Overlay::Prompt(_) | Overlay::Refile(_) | Overlay::Bulk | Overlay::Views { .. } => {
@@ -652,17 +698,6 @@ fn stable_ref(item_ref: &str) -> String {
             format!("{file}#sha256:{digest}")
         }
         None => item_ref.to_string(),
-    }
-}
-
-/// What a core error means for the person at the keyboard. Most messages
-/// already read as sentences; a stale ref's names the raw ref, so it is
-/// said plainly.
-fn error_sentence(error: &AgdError) -> String {
-    match error.code() {
-        "stale_ref" => "this heading changed on disk since agd read it; r refreshes".to_string(),
-        "no_change" => "nothing would change".to_string(),
-        _ => error.to_string(),
     }
 }
 

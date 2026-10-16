@@ -1,52 +1,40 @@
+//! Triage: one card at a time under a progress gauge, one key per
+//! decision on the rows of keys below it.
+
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{LineGauge, Paragraph, Wrap};
+use ratatui::widgets::{LineGauge, Padding, Paragraph, Wrap};
 
 use agd_core::OccurrenceType;
 
-use super::actions::{DONE, NEXT_WEEK, REFILED, SOMEDAY, TODAY, TOMORROW, short_date};
+use super::actions::{DONE, NEXT_WEEK, REFILED, SOMEDAY, TODAY, TOMORROW, when};
+use super::keys::{self, Action};
 use super::rows::days_since;
-use super::{App, DisplayRow, INBOX, keys, peek};
+use super::{App, DisplayRow, INBOX, peek, today};
+
+/// Card rows: borders, the top padding, and heading, path, facts, body
+/// line and nudge with blank rows between.
+const CARD_HEIGHT: u16 = 11;
+/// The card's widest; the gauge and keys line up with it.
+const CARD_WIDTH: u16 = 84;
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
+    let column = centered_column(area);
     let parts = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
             Constraint::Length(1),
-            Constraint::Length(CARD_HEIGHT + 1),
+            Constraint::Length(CARD_HEIGHT),
+            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(0),
         ])
-        .split(area);
-    // The queue is fixed for the pass, so the counter only moves forward.
-    let total = app.triage.queue.len();
-    let decided = app.triage.decided.len();
-    let position = (app.triage.position + 1).min(total);
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            format!("{position} / {total} "),
-            theme.strong(theme.text),
-        ))
-        .alignment(ratatui::layout::Alignment::Right),
-        parts[0],
-    );
-    frame.render_widget(
-        LineGauge::default()
-            .filled_style(theme.fg(theme.accent))
-            .unfilled_style(theme.fg(theme.border))
-            .ratio(if total == 0 {
-                1.0
-            } else {
-                (decided as f64 / total as f64).min(1.0)
-            })
-            .label(""),
-        parts[1],
-    );
-    let card_area = centered_card(parts[2]);
+        .split(column);
+    draw_progress(frame, app, parts[0]);
     let Some(row) = app.selected_row() else {
         frame.render_widget(
             Paragraph::new(summary(app))
@@ -55,14 +43,13 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
                     theme
                         .panel("Triage done")
                         .border_style(theme.fg(theme.done))
-                        .padding(ratatui::widgets::Padding::horizontal(1)),
+                        .padding(Padding::new(2, 2, 1, 0)),
                 ),
-            card_area,
+            parts[2],
         );
         return;
     };
-    draw_card(frame, app, row, card_area);
-    let indent = card_area.x.saturating_sub(area.x) as usize;
+    draw_card(frame, app, row, parts[2]);
     let rows = keys::triage_chips(row);
     // Both rows share one column width: the card's longest label.
     let label_width = rows
@@ -71,34 +58,74 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .map(|(_, action)| action.chars().count())
         .max()
         .unwrap_or(0)
-        + 2;
-    let chips = |actions: &[keys::Action]| {
-        let mut spans = vec![Span::raw(" ".repeat(indent))];
-        for (key, action) in keys::hints(keys::TRIAGE_KEYS, actions) {
-            spans.extend(theme.pill(key.to_string(), theme.accent));
-            spans.push(Span::styled(
-                format!(" {action:<label_width$}"),
-                theme.fg(theme.text),
-            ));
-        }
-        Line::from(spans)
-    };
-    for (actions, area) in rows.iter().zip([parts[3], parts[4]]) {
-        frame.render_widget(Paragraph::new(chips(actions)), area);
+        + 3;
+    for (actions, area) in rows.iter().zip([parts[4], parts[5]]) {
+        frame.render_widget(Paragraph::new(key_row(app, actions, label_width)), area);
     }
 }
 
-/// Card rows: heading, path, chips, body line and the nudge, with spacing.
-const CARD_HEIGHT: u16 = 11;
+/// The gauge of decided cards and, at its end, which card this is.
+fn draw_progress(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let theme = &app.theme;
+    // The queue is fixed for the pass, so the counter only moves forward.
+    let total = app.triage.queue.len();
+    let decided = app.triage.decided.len();
+    let position = (app.triage.position + 1).min(total);
+    let counter = format!(" {position} / {total}");
+    let parts = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(counter.chars().count() as u16),
+        ])
+        .split(area);
+    frame.render_widget(
+        LineGauge::default()
+            .filled_symbol("━")
+            .unfilled_symbol("─")
+            .filled_style(theme.fg(theme.accent))
+            .unfilled_style(theme.fg(theme.border))
+            .ratio(if total == 0 {
+                1.0
+            } else {
+                (decided as f64 / total as f64).min(1.0)
+            })
+            .label(""),
+        parts[0],
+    );
+    frame.render_widget(
+        Paragraph::new(Span::styled(counter, theme.strong(theme.text))).alignment(Alignment::Right),
+        parts[1],
+    );
+}
 
-fn centered_card(area: Rect) -> Rect {
-    let width = area.width.min(84);
-    Rect::new(
-        area.x + (area.width - width) / 2,
-        area.y + 1,
+/// The card's column, centred: the gauge, card and keys share it.
+fn centered_column(area: Rect) -> Rect {
+    let width = area.width.min(CARD_WIDTH);
+    Rect {
+        x: area.x + (area.width - width) / 2,
         width,
-        area.height.saturating_sub(1).min(CARD_HEIGHT),
-    )
+        ..area
+    }
+}
+
+/// One row of decision keys: each key in bold accent, then what it does,
+/// in columns `label_width` wide.
+fn key_row(app: &App, actions: &[Action], label_width: usize) -> Line<'static> {
+    let theme = &app.theme;
+    // Under the card's text: past its border and padding.
+    let mut spans = vec![Span::raw("   ")];
+    for (key, action) in keys::hints(keys::TRIAGE_KEYS, actions) {
+        spans.push(Span::styled(
+            format!("{key:<2}"),
+            theme.strong(theme.accent),
+        ));
+        spans.push(Span::styled(
+            format!(" {action:<label_width$}"),
+            theme.fg(theme.text),
+        ));
+    }
+    Line::from(spans)
 }
 
 fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
@@ -111,19 +138,22 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
             None => "Inbox".to_string(),
         }
     } else {
-        format!("Overdue · {} days", overdue_days(row, app.today))
+        format!("Overdue · {}d", overdue_days(row, app.today))
     };
     let color = if inbox { theme.accent } else { theme.overdue };
     let block = theme
         .panel(title)
         .border_style(theme.fg(color))
         .title_style(theme.strong(color))
-        .padding(ratatui::widgets::Padding::horizontal(1));
+        .padding(Padding::new(2, 2, 1, 0));
     let inner_width = block.inner(area).width as usize;
 
     let mut heading = Vec::new();
     if let Some(todo) = &item.todo {
-        heading.push(Span::styled(format!("{todo} "), theme.strong(theme.due)));
+        heading.push(Span::styled(
+            format!("{todo} "),
+            today::keyword_style(app, row),
+        ));
     }
     heading.push(Span::styled(
         peek::display_title(item),
@@ -141,8 +171,8 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
         .join(" ");
     let used: usize = heading.iter().map(Span::width).sum();
     if !tags.is_empty() && used + tags.len() + 2 < inner_width {
-        heading.push(Span::raw(" ".repeat(inner_width - used - tags.len() - 1)));
-        heading.push(Span::styled(tags, theme.fg(theme.accent)));
+        heading.push(Span::raw(" ".repeat(inner_width - used - tags.len())));
+        heading.push(Span::styled(tags, theme.muted()));
     }
     let file = app
         .short_location(item)
@@ -160,7 +190,6 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
                 .join(" › "),
             theme.muted(),
         )),
-        Line::default(),
     ];
 
     let reschedules = app
@@ -169,40 +198,27 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
         .copied()
         .unwrap_or(0);
     let nudge = reschedules >= app.settings.reschedule_nudge;
-    let mut chips = theme.pill(
-        item.planning
-            .scheduled
-            .as_ref()
-            .map_or("not scheduled".to_string(), |scheduled| {
-                format!("scheduled {}", short_date(scheduled))
-            }),
-        theme.muted,
-    );
-    chips.push(Span::raw("  "));
+    // Facts the task has, as chips; an absent one gets none.
+    let mut facts = Vec::new();
+    if let Some(scheduled) = &item.planning.scheduled {
+        facts.push(theme.pill(
+            format!("scheduled {}", when(scheduled, app.today)),
+            theme.muted,
+        ));
+    }
     if reschedules > 0 {
-        chips.extend(theme.pill(
+        facts.push(theme.pill(
             format!("rescheduled {reschedules}x"),
             if nudge { theme.overdue } else { theme.muted },
         ));
-        chips.push(Span::raw("  "));
     }
-    chips.extend(
-        theme.pill(
-            item.planning
-                .deadline
-                .as_ref()
-                .map_or("no deadline".to_string(), |deadline| {
-                    format!("deadline {}", short_date(deadline))
-                }),
-            if item.planning.deadline.is_some() {
-                theme.due
-            } else {
-                theme.muted
-            },
-        ),
-    );
-    lines.push(Line::from(chips));
-    lines.push(Line::default());
+    if let Some(deadline) = &item.planning.deadline {
+        facts.push(theme.pill(format!("deadline {}", when(deadline, app.today)), theme.due));
+    }
+    if !facts.is_empty() {
+        lines.push(Line::default());
+        lines.push(Line::from(facts.join(&Span::raw("  "))));
+    }
     let text = peek::entry_text(&app.index, item);
     if let Some(first) = text.lines().map(str::trim).find(|line| {
         !line.is_empty()
@@ -211,20 +227,19 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
             && !line.contains("DEADLINE:")
             && !line.starts_with("- ")
     }) {
-        lines.push(Line::from(first.to_string()));
         lines.push(Line::default());
+        lines.push(Line::from(first.to_string()));
     }
     // The nudge is earned: after enough reschedules, suggest Someday.
     if nudge {
-        lines.push(Line::from(
-            vec![Span::styled(
-                format!(" ↳ Rescheduled {reschedules} times. Someday? "),
-                theme.fg(theme.accent),
-            )]
-            .into_iter()
-            .chain(theme.pill("s", theme.accent))
-            .collect::<Vec<_>>(),
-        ));
+        let key = keys::hints(keys::TRIAGE_KEYS, &[Action::Someday])
+            .first()
+            .map_or("S", |(key, _)| *key);
+        lines.push(Line::default());
+        lines.push(Line::from(vec![
+            Span::styled("↳ Someday?  ", theme.fg(theme.accent)),
+            Span::styled(key, theme.strong(theme.accent)),
+        ]));
     }
     frame.render_widget(
         Paragraph::new(lines)
@@ -311,7 +326,7 @@ fn summary(app: &App) -> Vec<Line<'static>> {
         keys.extend(theme.key_hint("u", "undoes all"));
     }
     if !app.triage.queue.is_empty() {
-        keys.extend(theme.key_hint("k", "last card"));
+        keys.extend(theme.key_hint("p", "last card"));
     }
     keys.extend(theme.key_hint("⏎", "returns to Today"));
     vec![headline, Line::default(), Line::from(keys)]

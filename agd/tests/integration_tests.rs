@@ -228,7 +228,7 @@ fn json_mode_reports_every_error_as_agd_error() {
         .args(["agenda", "--view", "zz"])
         .assert()
         .failure()
-        .stderr(predicate::str::starts_with("Error: unknown view 'zz'"));
+        .stderr(predicate::str::starts_with("error: unknown view 'zz'"));
 }
 
 #[test]
@@ -362,6 +362,16 @@ fn views_json_carries_what_a_client_draws_them_with() {
     assert_eq!(payload["theme"], "light");
     assert_eq!(payload["nerd_font"], true);
     assert_eq!(payload["schema"], "agd.views/v1");
+    // The TUI's palettes, by role, so the Claude Code pane keeps no copy.
+    let palettes = &payload["palettes"];
+    assert_eq!(palettes["dark"]["accent"], "#6ea8fe");
+    assert_eq!(palettes["dark"]["yellow"], "#dcd664");
+    assert_eq!(palettes["light"]["yellow"], "#787600");
+    assert_eq!(palettes["dark"]["agents"].as_array().unwrap().len(), 3);
+    assert_eq!(palettes["ansi"]["accent"], "blueBright");
+    // In 16 colours text keeps the terminal's colour and muted dims it.
+    assert!(palettes["ansi"].get("text").is_none(), "{palettes}");
+    assert!(palettes["ansi"].get("muted").is_none(), "{palettes}");
 
     // Every section names its schema and carries groups, empty or not.
     let output = fixture
@@ -493,13 +503,21 @@ fn a_closed_stdout_ends_the_command_quietly() {
 }
 
 #[test]
-fn help_lists_only_the_five_surfaces() {
+fn help_lists_every_command_and_none_that_went() {
     let assertion = cargo::cargo_bin_cmd!("agd")
         .arg("--help")
         .assert()
         .success();
     let help = String::from_utf8_lossy(&assertion.get_output().stdout).into_owned();
-    for command in ["agenda", "capture", "mcp", "setup", "--pane"] {
+    for command in [
+        "agenda",
+        "capture",
+        "undo",
+        "mcp",
+        "setup",
+        "completions",
+        "--pane",
+    ] {
         assert!(help.contains(command), "missing {command} in\n{help}");
     }
     for removed in ["todo", "state", "schedule", "outline", "search"] {
@@ -592,7 +610,7 @@ fn first_run_without_config_or_org_says_how_to_start() {
         .failure()
         .stderr(format!(
             concat!(
-                "Error: no config at {} and no ~/org to read. Start with one of:\n",
+                "error: no config at {} and no ~/org to read. Start with one of:\n",
                 "  mkdir ~/org    agd then reads it with its defaults\n",
                 "  agd setup import <your Emacs or Neovim config directory>\n",
                 "  agd -r DIR    read another directory for this run\n",
@@ -618,6 +636,39 @@ fn first_run_without_config_or_org_says_how_to_start() {
         .assert()
         .success()
         .stdout("n   Agenda and all TODOs  (built-in)\n");
+}
+
+#[test]
+fn completions_cover_every_command_on_a_fresh_machine() {
+    // No config, no org files, an empty home: completions need none.
+    let home = tempfile::tempdir().expect("home directory");
+    for shell in ["bash", "zsh", "fish", "elvish", "powershell"] {
+        let output = cargo::cargo_bin_cmd!("agd")
+            .env("HOME", home.path())
+            .env("XDG_CONFIG_HOME", home.path().join(".config"))
+            .env("XDG_DATA_HOME", home.path().join(".local/share"))
+            .args(["completions", shell])
+            .output()
+            .expect("agd completions");
+        assert!(output.status.success(), "{shell}: {output:?}");
+        let script = String::from_utf8_lossy(&output.stdout);
+        // fish names a long flag `-l json`; the others write `--json`.
+        let flag = |name: &str| match shell {
+            "fish" => format!("-l {name}"),
+            _ => format!("--{name}"),
+        };
+        for word in ["agenda", "capture", "undo", "setup"]
+            .map(String::from)
+            .into_iter()
+            .chain([flag("json"), flag("view"), flag("dry-run")])
+        {
+            assert!(script.contains(&word), "{shell} misses {word}");
+        }
+    }
+    assert!(
+        fs::read_dir(home.path()).expect("home").next().is_none(),
+        "completions write nothing"
+    );
 }
 
 #[test]

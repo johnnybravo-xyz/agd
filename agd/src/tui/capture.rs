@@ -4,9 +4,11 @@ use std::io::{self, Stdout, Write};
 use std::path::Path;
 use std::process::Command;
 
-use agd_core::{CaptureDraft, CapturePrompt, WriteEngine, capture_prompts, parse_capture_line};
+use agd_core::{
+    CaptureDraft, CapturePrompt, WriteEngine, capture_prompts, keyword_colors, parse_capture_line,
+};
 use anyhow::{Context, Result};
-use chrono::{Datelike, NaiveDate};
+use chrono::NaiveDate;
 use crossterm::event::{EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, enable_raw_mode};
@@ -16,11 +18,11 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, Paragraph, Wrap};
+use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
 
 use super::input::{self, TextInput};
 use super::theme::{Theme, centered};
-use super::{App, Overlay, stop_terminal, write_context};
+use super::{App, Overlay, keys, stop_terminal, write_context};
 
 /// The capture popup's state. Field 0 is the one-line title with tokens;
 /// later fields answer the template's `%^{prompt}`s.
@@ -211,26 +213,24 @@ pub(super) fn handle_key(
                 draft.choose(app, key);
             }
         }
-        // Before a template is chosen, ↑/↓ and ⏎ pick one from the list.
-        KeyCode::Down if draft.template.is_none() => {
-            draft.selected =
-                (draft.selected + 1).min(app.settings.captures.len().saturating_sub(1));
+        // Before a template is chosen, the picker keys and ⏎ pick one from
+        // the list; after, the picker keys move between fields.
+        _ if keys::picker_step(key).is_some() && draft.template.is_none() => {
+            let count = app.settings.captures.len();
+            draft.selected = keys::stepped(draft.selected, keys::picker_step(key), count);
         }
-        KeyCode::Up if draft.template.is_none() => {
-            draft.selected = draft.selected.saturating_sub(1);
+        _ if keys::picker_step(key) == Some(1) => {
+            if let Some(field) = draft.next_field(app) {
+                draft.field = field;
+            }
         }
+        _ if keys::picker_step(key) == Some(-1) => draft.field = draft.previous_field(app),
         KeyCode::Enter if draft.template.is_none() => {
             if let Some(template) = app.settings.captures.get(draft.selected) {
                 let key = template.key.clone();
                 draft.choose(app, &key);
             }
         }
-        KeyCode::Down => {
-            if let Some(field) = draft.next_field(app) {
-                draft.field = field;
-            }
-        }
-        KeyCode::Up => draft.field = draft.previous_field(app),
         // Backspace on an empty line goes back to the template list.
         KeyCode::Backspace if draft.field == 0 && draft.input.text().is_empty() => {
             draft.template = None;
@@ -286,13 +286,15 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
         &write_context(),
     )?;
     app.index.refresh_path(Path::new(&mutation.item.file))?;
+    let location = app.short_location(&mutation.item);
     app.remember_undo(
         &mutation.journal_id,
+        &location,
         format!("capture · {}", mutation.item.title),
     );
     app.set_status(format!(
-        "captured to {} · u undo",
-        app.short_location(&mutation.item)
+        "{} · u undo",
+        crate::words::captured(&mutation.item, &location, app.today)
     ));
     if app.capture_only {
         app.quit = true;
@@ -348,7 +350,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         return draw_chooser(frame, app, draft, area);
     };
     let template = Some(template);
-    let preview = preview_lines(theme, &draft.preview);
+    let preview = preview_lines(theme, &keyword_colors(&app.index), &draft.preview);
     let open = draft.open_fields(app);
     let prompts = open.len() as u16;
     let prompt_rows = if prompts > 0 { prompts + 1 } else { 0 };
@@ -411,7 +413,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let (prompt, value) = &draft.prompts[field - 1];
         let focused = draft.field == *field;
         let mut spans = vec![
-            Span::styled(if focused { "› " } else { "  " }, theme.fg(theme.accent)),
+            Span::styled(if focused { "▌ " } else { "  " }, theme.fg(theme.accent)),
             Span::styled(
                 format!("{:<label_width$}", prompt.name),
                 if focused {
@@ -509,32 +511,27 @@ fn draw_chooser(frame: &mut Frame<'_>, app: &App, draft: &Draft, area: Rect) {
         .max()
         .unwrap_or(0)
         + 2;
-    let rows: Vec<Line<'_>> = templates
+    // As the Views popup: the key, what it is, where it files, and the
+    // selection bar across the whole row.
+    let rows: Vec<ListItem<'_>> = templates
         .iter()
-        .enumerate()
-        .map(|(index, template)| {
-            let focused = index == draft.selected;
-            let line = Line::from(vec![
-                Span::styled(if focused { "› " } else { "  " }, theme.fg(theme.accent)),
+        .map(|template| {
+            ListItem::new(Line::from(vec![
                 Span::styled(format!("{:<3}", template.key), theme.strong(theme.accent)),
-                Span::styled(
-                    format!("{:<width$}", template.desc),
-                    if focused {
-                        theme.strong(theme.text)
-                    } else {
-                        theme.fg(theme.text)
-                    },
-                ),
+                Span::styled(format!("{:<width$}", template.desc), theme.fg(theme.text)),
                 Span::styled(destination(template), theme.muted()),
-            ]);
-            if focused {
-                line.style(theme.selected())
-            } else {
-                line
-            }
+            ]))
         })
         .collect();
-    frame.render_widget(Paragraph::new(rows), parts[0]);
+    let mut state = ListState::default().with_selected(Some(draft.selected));
+    frame.render_stateful_widget(
+        List::new(rows)
+            .highlight_symbol(Span::styled("▌", theme.fg(theme.accent)))
+            .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
+            .highlight_style(theme.selected()),
+        parts[0],
+        &mut state,
+    );
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(Span::styled(
@@ -588,13 +585,20 @@ fn destination(template: &agd_core::CaptureTemplate) -> String {
     }
 }
 
-fn preview_lines(theme: &Theme, preview: &Result<String, String>) -> Vec<Line<'static>> {
+fn preview_lines(
+    theme: &Theme,
+    colors: &BTreeMap<String, String>,
+    preview: &Result<String, String>,
+) -> Vec<Line<'static>> {
     match preview {
         Ok(text) if text.is_empty() => vec![Line::from(Span::styled(
             "the exact org text appears here",
             theme.muted(),
         ))],
-        Ok(text) => text.lines().map(|line| org_line(theme, line)).collect(),
+        Ok(text) => text
+            .lines()
+            .map(|line| org_line(theme, colors, line))
+            .collect(),
         Err(error) => vec![Line::from(Span::styled(
             error.clone(),
             theme.fg(theme.overdue),
@@ -609,19 +613,7 @@ fn chips(theme: &Theme, draft: Option<CaptureDraft>, today: NaiveDate) -> Vec<Sp
         return Vec::new();
     };
     let mut spans = Vec::new();
-    let date = |value: &str| {
-        value
-            .parse::<NaiveDate>()
-            .map(|date| {
-                let format = if date.year() == today.year() {
-                    "%a %-d %b"
-                } else {
-                    "%a %-d %b %Y"
-                };
-                date.format(format).to_string()
-            })
-            .unwrap_or_else(|_| value.to_string())
-    };
+    let date = |value: &str| crate::words::when(value, None, today);
     if let Some(deadline) = &draft.deadline {
         spans.extend(theme.pill(format!("deadline {}", date(&deadline.date)), theme.due));
         spans.push(Span::raw("  "));
@@ -640,15 +632,16 @@ fn chips(theme: &Theme, draft: Option<CaptureDraft>, today: NaiveDate) -> Vec<Sp
     spans
 }
 
-/// Light org syntax colouring for the preview: stars, keyword, priority,
-/// tags, planning keywords and drawers.
-fn org_line(theme: &Theme, line: &str) -> Line<'static> {
+/// Org syntax coloured as the chips and rows are: stars and tags muted,
+/// the keyword in its configured colour, priority amber, and each planning
+/// keyword in its role (DEADLINE due, SCHEDULED accent, CLOSED muted).
+fn org_line(theme: &Theme, colors: &BTreeMap<String, String>, line: &str) -> Line<'static> {
     if let Some(rest) = line.strip_prefix('*') {
         let stars = 1 + rest
             .chars()
             .take_while(|character| *character == '*')
             .count();
-        let mut spans = vec![Span::styled("*".repeat(stars), theme.strong(theme.accent))];
+        let mut spans = vec![Span::styled("*".repeat(stars), theme.muted())];
         // Only the first word can be the TODO keyword; capitals later in
         // the title are ordinary text.
         let mut first = true;
@@ -662,11 +655,17 @@ fn org_line(theme: &Theme, line: &str) -> Line<'static> {
                 first = false;
             }
             let style = if keyword {
-                theme.strong(theme.due)
+                // A keyword no agenda file names yet reads as a TODO.
+                let name = colors.get(trimmed).map_or("orange", String::as_str);
+                if name == "orange" {
+                    theme.fg(theme.named(name))
+                } else {
+                    theme.strong(theme.named(name))
+                }
             } else if trimmed.starts_with("[#") {
-                theme.fg(theme.due)
+                theme.strong(theme.due)
             } else if trimmed.starts_with(':') && trimmed.ends_with(':') && trimmed.len() > 1 {
-                theme.fg(theme.accent)
+                theme.muted()
             } else {
                 theme.strong(theme.text)
             };
@@ -675,14 +674,62 @@ fn org_line(theme: &Theme, line: &str) -> Line<'static> {
         return Line::from(spans);
     }
     let trimmed = line.trim_start();
-    if ["SCHEDULED:", "DEADLINE:", "CLOSED:"]
+    if PLANNING
         .iter()
-        .any(|keyword| trimmed.contains(keyword))
+        .any(|(keyword, _)| trimmed.starts_with(keyword))
     {
-        return Line::from(Span::styled(line.to_string(), theme.fg(theme.accent)));
+        return planning_line(theme, line);
     }
     if trimmed.starts_with(':') {
         return Line::from(Span::styled(line.to_string(), theme.muted()));
     }
     Line::from(line.to_string())
+}
+
+/// Org's planning keywords and the role each is drawn in.
+const PLANNING: [(&str, Role); 3] = [
+    ("DEADLINE:", Role::Due),
+    ("SCHEDULED:", Role::Accent),
+    ("CLOSED:", Role::Muted),
+];
+
+#[derive(Clone, Copy)]
+enum Role {
+    Due,
+    Accent,
+    Muted,
+}
+
+/// `SCHEDULED: <…> DEADLINE: <…>`: each keyword and its timestamp in its
+/// own role.
+fn planning_line(theme: &Theme, line: &str) -> Line<'static> {
+    let style = |role: Role| match role {
+        Role::Due => theme.fg(theme.due),
+        Role::Accent => theme.fg(theme.accent),
+        Role::Muted => theme.muted(),
+    };
+    let mut spans = Vec::new();
+    let mut rest = line;
+    let mut role = Role::Muted;
+    while !rest.is_empty() {
+        // The next planning keyword after the start splits off a part.
+        let next = PLANNING
+            .iter()
+            .filter_map(|(keyword, keyword_role)| {
+                rest.get(1..)?
+                    .find(keyword)
+                    .map(|at| (at + 1, *keyword_role))
+            })
+            .min_by_key(|(at, _)| *at);
+        if let Some((_, keyword_role)) = PLANNING
+            .iter()
+            .find(|(keyword, _)| rest.trim_start().starts_with(keyword))
+        {
+            role = *keyword_role;
+        }
+        let end = next.map_or(rest.len(), |(at, _)| at);
+        spans.push(Span::styled(rest[..end].to_string(), style(role)));
+        rest = &rest[end..];
+    }
+    Line::from(spans)
 }

@@ -1,5 +1,20 @@
 //! Every key binding, defined once. The tables below drive dispatch, the
 //! footers, Triage's chips and the `?` help, so they cannot drift apart.
+//!
+//! Key rules, so that no key surprises:
+//! - A key means the same on every screen that has it: `n j ↓` next and
+//!   `p k ↑` previous (rows, cards, changes), `s` schedule on a typed
+//!   date, `d` deadline, `S` someday, `x` done, `X` cancel, `R` or
+//!   `C-c C-w` refile, `u` undo, `c` capture, `?` keys, `esc` back one
+//!   level.
+//! - Keys follow org-agenda wherever it has one (`t`, `C-c C-s`, `f b .`,
+//!   `l`, `<`, `/`, `m U B` for marks); the help shows its key beside ours.
+//! - Triage and the bulk menu add one-key outcomes: `.` today, `m`
+//!   tomorrow, `w` next week, `N` make NEXT.
+//! - Where letters are typed or name items (the Views popup, capture's
+//!   templates, the refile picker, `?`'s filter, the edit popup's fields),
+//!   only `↓ C-n C-j` and `↑ C-p C-k` move, as in fzf and Emacs.
+//! - Footers show a key's first label; help shows every label.
 
 use std::io::Stdout;
 use std::time::Instant;
@@ -11,7 +26,7 @@ use ratatui::backend::CrosstermBackend;
 
 use super::actions::Prompt;
 use super::input::Edit;
-use super::{App, Overlay, PromptKind, Screen, capture, open_in_editor};
+use super::{App, Overlay, PromptKind, Screen, capture, help, open_in_editor};
 
 type Term = Terminal<CrosstermBackend<Stdout>>;
 
@@ -234,16 +249,16 @@ pub(super) const TRIAGE_KEYS: &[KeyGroup] = &[KeyGroup {
         bind(".", &[Char('.')], A::Today, "today", "schedule today", ""),
         bind("m", &[Char('m')], A::Tomorrow, "tomorrow", "schedule tomorrow", ""),
         bind("w", &[Char('w')], A::NextWeek, "next week", "schedule in a week", ""),
-        bind("p", &[Char('p')], A::Schedule, "pick date", "schedule on a date you type", ""),
-        bind("d", &[Char('d')], A::Deadline, "move deadline", "move a missed deadline", ""),
+        bind("s", &[Char('s')], A::Schedule, "pick date", "schedule on a date you type", "C-c C-s"),
+        bind("d", &[Char('d')], A::Deadline, "move deadline", "move a missed deadline", "C-c C-d"),
         bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
-        bind("n", &[Char('n')], A::MakeNext, "make NEXT", "make it NEXT", ""),
-        bind("s", &[Char('s')], A::Someday, "someday", "someday: tag it, drop the date", ""),
+        bind("N", &[Char('N')], A::MakeNext, "make NEXT", "make it NEXT", ""),
+        bind("S", &[Char('S')], A::Someday, "someday", "someday: tag it, drop the date", ""),
         bind("X", &[Char('X')], A::Cancel, "cancel", "cancel: the file's last done state", ""),
-        bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", ""),
-        bind("u", &[Char('u')], A::Undo, "undo", "undo a step; at the end, the whole pass", ""),
-        bind("j ↓ tab", &[Char('j'), Code(KeyCode::Down), Code(KeyCode::Tab)], A::Next, "next card", "skip to the next card", ""),
-        bind("k ↑ S-tab", &[Char('k'), Code(KeyCode::Up), Code(KeyCode::BackTab)], A::Previous, "previous card", "back to the previous card", ""),
+        bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", "C-c C-w"),
+        bind("u", &[Char('u')], A::Undo, "undo", "undo a step; at the end, the whole pass", "C-_"),
+        bind("n j ↓ tab", &[Char('n'), Char('j'), Code(KeyCode::Down), Code(KeyCode::Tab)], A::Next, "next card", "skip to the next card", "n"),
+        bind("p k ↑ S-tab", &[Char('p'), Char('k'), Code(KeyCode::Up), Code(KeyCode::BackTab)], A::Previous, "previous card", "back to the previous card", "p"),
         bind("esc q", &[Code(KeyCode::Esc), Char('q')], A::Back, "back", "leave triage", ""),
         bind("?", &[Char('?')], A::Help, "help", "these keys", ""),
     ],
@@ -276,7 +291,7 @@ pub(super) const BULK_KEYS: &[KeyGroup] = &[KeyGroup {
         bind(".", &[Char('.')], A::Today, "today", "schedule today", ""),
         bind("m", &[Char('m')], A::Tomorrow, "tomorrow", "schedule tomorrow", ""),
         bind("w", &[Char('w')], A::NextWeek, "next week", "schedule in a week", ""),
-        bind("s", &[Char('s')], A::Schedule, "schedule…", "schedule on a date you type", "s"),
+        bind("s", &[Char('s')], A::Schedule, "pick date", "schedule on a date you type", "s"),
         bind("d", &[Char('d')], A::Deadline, "deadline…", "deadline on a date you type", "d"),
         bind("S", &[Char('S')], A::Someday, "someday", "someday: tag it, drop the date", ""),
         bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
@@ -304,14 +319,50 @@ pub(super) const PANE_KEYS: &[KeyGroup] = &[KeyGroup {
     ],
 }];
 
+/// Moving where letters are typed or name items: the Views popup,
+/// capture's templates and fields, the refile picker, `?`'s filter and the
+/// edit popup's fields. Letters there are text or keys, so only the arrows
+/// and these ctrl keys move.
+#[rustfmt::skip]
+pub(super) const PICKER_KEYS: &[KeyGroup] = &[KeyGroup {
+    title: "Move",
+    bindings: &[
+        bind("↓ C-n C-j", &[Code(KeyCode::Down), Ctrl('n'), Ctrl('j')], A::Next, "next", "next choice or field", ""),
+        bind("↑ C-p C-k", &[Code(KeyCode::Up), Ctrl('p'), Ctrl('k')], A::Previous, "previous", "previous choice or field", ""),
+    ],
+}];
+
 /// Help's sections, one per screen: (title, keys).
-pub(super) const SCREENS: [(&str, &[KeyGroup]); 5] = [
+pub(super) const SCREENS: [(&str, &[KeyGroup]); 6] = [
     ("Today · Week · Inbox · views", LIST_KEYS),
     ("Bulk menu · B with rows marked", BULK_KEYS),
     ("Triage", TRIAGE_KEYS),
     ("Agents", AGENT_KEYS),
     ("Pane", PANE_KEYS),
+    (
+        "Pickers · views, templates, refile, edit fields",
+        PICKER_KEYS,
+    ),
 ];
+
+/// One line under help's keys: how moving works everywhere.
+pub(super) const MOVING: &str =
+    "j/k move like n/p everywhere; ctrl-n/ctrl-p or ctrl-j/ctrl-k move in pickers";
+
+/// +1 or -1 when `key` moves in a picker (PICKER_KEYS), else None.
+pub(super) fn picker_step(key: KeyEvent) -> Option<isize> {
+    match action_for(PICKER_KEYS, key)? {
+        A::Next => Some(1),
+        A::Previous => Some(-1),
+        _ => None,
+    }
+}
+
+/// `index` moved by `step` within `count` choices, stopping at the ends.
+pub(super) fn stepped(index: usize, step: Option<isize>, count: usize) -> usize {
+    let last = count.saturating_sub(1) as isize;
+    (index as isize + step.unwrap_or(0)).clamp(0, last) as usize
+}
 
 /// Triage's two rows of decision chips under a card: an inbox card leads
 /// with refiling it, a missed deadline with moving the deadline.
@@ -490,6 +541,7 @@ pub(super) fn dispatch(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
     }
     match &app.overlay {
         Overlay::None => {}
+        Overlay::Help(_) => return help_key(app, key),
         Overlay::Capture(_) => return Ok(None),
         Overlay::Edit(_) => {
             let editor = super::edit::handle_key(app, key)?;
@@ -586,7 +638,7 @@ fn run_shared(app: &mut App, action: Action, key: KeyEvent) -> Result<bool> {
             app.reload_rows()?;
             app.set_status("refreshed");
         }
-        A::Help => app.overlay = Overlay::Help { scroll: 0 },
+        A::Help => app.overlay = Overlay::Help(help::Palette::default()),
         _ => return Ok(false),
     }
     Ok(true)
@@ -767,7 +819,7 @@ fn finished_triage_key(app: &mut App, key: KeyEvent) -> Result<()> {
         }
         KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => app.switch_screen(Screen::Today),
         KeyCode::Char('?') => {
-            app.overlay = Overlay::Help { scroll: 0 };
+            app.overlay = Overlay::Help(help::Palette::default());
             Ok(())
         }
         _ => Ok(()),
@@ -815,7 +867,7 @@ fn run_triage(app: &mut App, action: Action) -> Result<()> {
         A::Undo => triage_undo(app)?,
         A::Next => triage_move(app, 1)?,
         A::Previous => triage_move(app, -1)?,
-        A::Help => app.overlay = Overlay::Help { scroll: 0 },
+        A::Help => app.overlay = Overlay::Help(help::Palette::default()),
         A::Back => {
             let back = app.back.clone();
             app.switch_screen(back)?;
@@ -884,11 +936,63 @@ fn run_pane(app: &mut App, action: Action) -> Result<EditorTarget> {
         A::FullView => {
             app.leave_pane()?;
         }
-        A::Help => app.overlay = Overlay::Help { scroll: 0 },
+        A::Help => app.overlay = Overlay::Help(help::Palette::default()),
         A::Quit => app.quit = true,
         _ => {}
     }
     Ok(None)
+}
+
+/// `?`'s keys: typing filters, the picker keys (and the page keys) choose,
+/// ⏎ runs the chosen action as its key would, and esc clears the filter,
+/// then closes. An action of another screen says where it runs instead.
+fn help_key(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
+    let current = current_screen(app);
+    let Overlay::Help(palette) = &mut app.overlay else {
+        return Ok(None);
+    };
+    let entries = help::entries(current, palette.query.text());
+    match key.code {
+        KeyCode::Esc if palette.query.text().is_empty() => app.overlay = Overlay::None,
+        KeyCode::Esc => *palette = help::Palette::default(),
+        KeyCode::Enter => {
+            let Some(entry) = entries.get(palette.selected) else {
+                return Ok(None);
+            };
+            if entry.screen != current {
+                let (title, _) = SCREENS[entry.screen];
+                let label = entry.binding.label;
+                app.set_status(format!("{label} works in {title}, not here"));
+                return Ok(None);
+            }
+            let Some(pressed) = first_key(entry.binding) else {
+                return Ok(None);
+            };
+            app.overlay = Overlay::None;
+            return dispatch(app, pressed);
+        }
+        KeyCode::PageDown => palette.selected = stepped(palette.selected, Some(10), entries.len()),
+        KeyCode::PageUp => palette.selected = stepped(palette.selected, Some(-10), entries.len()),
+        _ if picker_step(key).is_some() => {
+            palette.selected = stepped(palette.selected, picker_step(key), entries.len());
+        }
+        _ => match palette.query.handle(key) {
+            Edit::Cancel => app.overlay = Overlay::None,
+            Edit::Changed => palette.selected = 0,
+            Edit::Other => {}
+        },
+    }
+    Ok(None)
+}
+
+/// The key event a binding's first key sends, for `?` to run it.
+fn first_key(binding: &Binding) -> Option<KeyEvent> {
+    Some(match binding.keys.first()? {
+        Key::Char(character) => KeyEvent::from(KeyCode::Char(*character)),
+        Key::Code(code) => KeyEvent::from(*code),
+        Key::Ctrl(character) => KeyEvent::new(KeyCode::Char(*character), KeyModifiers::CONTROL),
+        Key::Digit => KeyEvent::from(KeyCode::Char('1')),
+    })
 }
 
 /// A prompt's keys. The filter is live: rows narrow as you type, and esc
@@ -925,21 +1029,13 @@ fn prompt_key(app: &mut App, key: KeyEvent) -> Result<()> {
 
 fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
     match &mut app.overlay {
-        Overlay::Help { scroll } => match key.code {
-            KeyCode::Char('j') | KeyCode::Down => *scroll = scroll.saturating_add(1),
-            KeyCode::Char('k') | KeyCode::Up => *scroll = scroll.saturating_sub(1),
-            KeyCode::PageDown | KeyCode::Char(' ') => *scroll = scroll.saturating_add(10),
-            KeyCode::PageUp => *scroll = scroll.saturating_sub(10),
-            _ => app.overlay = Overlay::None,
-        },
         Overlay::Prompt(_) => prompt_key(app, key)?,
         Overlay::Refile(picker) => match key.code {
             KeyCode::Esc => app.overlay = Overlay::None,
             KeyCode::Enter => app.commit_refile()?,
-            KeyCode::Up => picker.selected = picker.selected.saturating_sub(1),
-            KeyCode::Down => {
+            _ if picker_step(key).is_some() => {
                 let count = picker.matches().len();
-                picker.selected = (picker.selected + 1).min(count.saturating_sub(1));
+                picker.selected = stepped(picker.selected, picker_step(key), count);
             }
             _ => match picker.input.handle(key) {
                 Edit::Cancel => app.overlay = Overlay::None,
@@ -961,12 +1057,12 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
                 .map(|view| view.key.clone())
                 .collect();
             // Letters are view keys (a view may be `j` or `k`), so only the
-            // arrows move; q closes, as in org-agenda's dispatcher.
+            // arrows and ctrl keys move; q closes, as in org-agenda's
+            // dispatcher.
             match key.code {
                 KeyCode::Esc | KeyCode::Char('q') => app.overlay = Overlay::None,
-                KeyCode::Up => *selected = selected.saturating_sub(1),
-                KeyCode::Down => {
-                    *selected = (*selected + 1).min(keys.len().saturating_sub(1));
+                _ if picker_step(key).is_some() => {
+                    *selected = stepped(*selected, picker_step(key), keys.len());
                 }
                 KeyCode::Enter => {
                     if let Some(key) = keys.get(*selected).cloned() {
@@ -984,7 +1080,7 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
                 _ => {}
             }
         }
-        Overlay::None | Overlay::Capture(_) | Overlay::Edit(_) => {}
+        Overlay::None | Overlay::Capture(_) | Overlay::Edit(_) | Overlay::Help(_) => {}
     }
     Ok(())
 }

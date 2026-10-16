@@ -9,7 +9,8 @@ mod commands;
 mod importer;
 mod mcp;
 mod tui;
-use commands::{AgendaCommand, CaptureCommand, SetupCommand};
+mod words;
+use commands::{AgendaCommand, CaptureCommand, CompletionsCommand, SetupCommand, UndoCommand};
 use mcp::McpCommand;
 
 /// Org agenda for terminals and coding agents. With no command, opens your
@@ -39,10 +40,14 @@ enum Commands {
     Agenda(AgendaCommand),
     /// Capture one line through a template, or open the popup with -i
     Capture(CaptureCommand),
+    /// Undo the latest change you made from the command line
+    Undo(UndoCommand),
     /// Run the stdio MCP server for coding agents
     Mcp(McpCommand),
     /// Import editor settings, install agent integrations, check files
     Setup(SetupCommand),
+    /// Print shell completions: bash, zsh, fish, elvish or powershell
+    Completions(CompletionsCommand),
 }
 
 impl Cli {
@@ -51,8 +56,9 @@ impl Cli {
         match &self.command {
             Some(Commands::Agenda(command)) => command.json(),
             Some(Commands::Capture(command)) => command.json(),
+            Some(Commands::Undo(command)) => command.json(),
             Some(Commands::Setup(command)) => command.json(),
-            Some(Commands::Mcp(_)) | None => false,
+            Some(Commands::Mcp(_)) | Some(Commands::Completions(_)) | None => false,
         }
     }
 }
@@ -74,9 +80,27 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
         Err(error) => {
-            eprintln!("Error: {error:#}");
+            eprintln!("{} {}", error_prefix(), error_text(&error));
             ExitCode::FAILURE
         }
+    }
+}
+
+/// `error:`, as clap starts its own, bold red on a terminal.
+fn error_prefix() -> &'static str {
+    if commands::color_stderr() {
+        "\x1b[1;31merror:\x1b[0m"
+    } else {
+        "error:"
+    }
+}
+
+/// An error as a sentence, read the same as in the TUI: a core error's
+/// message without its code (words::error_sentence), after any context.
+fn error_text(error: &anyhow::Error) -> String {
+    match error.downcast_ref::<AgdError>() {
+        Some(agd_error) if error.chain().count() == 1 => words::error_sentence(agd_error),
+        _ => format!("{error:#}"),
     }
 }
 
@@ -136,7 +160,7 @@ fn broken_pipe(error: &anyhow::Error) -> bool {
 fn print_json_error(response: &ErrorResponse) {
     match serde_json::to_string(response) {
         Ok(json) => eprintln!("{json}"),
-        Err(error) => eprintln!("Error: {}: {error}", response.message),
+        Err(error) => eprintln!("{} {}: {error}", error_prefix(), response.message),
     }
 }
 
@@ -152,7 +176,9 @@ fn run(cli: Cli) -> Result<bool> {
         None => tui::run(config, root_directory, pane).map(|()| false),
         Some(Commands::Agenda(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Capture(command)) => command.execute(config, root_directory).map(|()| false),
+        Some(Commands::Undo(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Mcp(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Setup(command)) => command.execute(config, root_directory),
+        Some(Commands::Completions(command)) => command.execute(Cli::command()).map(|()| false),
     }
 }
