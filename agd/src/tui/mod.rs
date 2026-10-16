@@ -114,6 +114,9 @@ struct DisplayRow {
     occurrence: Option<Occurrence>,
 }
 
+/// The full layout needs this many columns; under it only the pane fits.
+const FULL_WIDTH: u16 = 60;
+
 const OVERDUE: &str = "OVERDUE";
 const SCHEDULE: &str = "SCHEDULE";
 const DUE: &str = "DUE SOON";
@@ -204,9 +207,11 @@ struct App {
     log_mode: bool,
     peek: bool,
     /// The narrow pane is showing: asked for with --pane, or the terminal
-    /// is under 60 columns.
+    /// is under FULL_WIDTH columns.
     pane: bool,
     pane_requested: bool,
+    /// Terminal columns at the last draw.
+    width: u16,
     capture_only: bool,
     overlay: Overlay,
     status: Option<Status>,
@@ -252,6 +257,7 @@ impl App {
             peek: false,
             pane: false,
             pane_requested: false,
+            width: 0,
             capture_only: false,
             overlay: Overlay::None,
             status: None,
@@ -267,6 +273,20 @@ impl App {
             chord: None,
             quit: false,
         }
+    }
+
+    /// Leaves the pane for the full view, or says why it cannot: under
+    /// FULL_WIDTH columns the event loop would switch straight back.
+    fn leave_pane(&mut self) -> Result<bool> {
+        if self.width < FULL_WIDTH {
+            self.set_status(format!("widen to {FULL_WIDTH}+ columns for the full view"));
+            return Ok(false);
+        }
+        self.pane = false;
+        // From now on a narrow terminal brings the pane back.
+        self.pane_requested = false;
+        self.reload_rows()?;
+        Ok(true)
     }
 
     /// A lone `C-c` still quits, a second after it was pressed.
@@ -393,9 +413,9 @@ fn event_loop(
             app.today = today;
             changed = true;
         }
-        // Under 60 columns the full layout cannot fit; switch to the pane
-        // (and back when the terminal grows again).
-        let narrow = terminal.size()?.width < 60;
+        // Under FULL_WIDTH columns the full layout cannot fit; switch to the
+        // pane (and back when the terminal grows again).
+        let narrow = terminal.size()?.width < FULL_WIDTH;
         if !app.pane_requested && app.pane != narrow {
             app.pane = narrow;
             changed = true;
@@ -443,11 +463,11 @@ fn handle_event(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App
                     let already = index == app.selected;
                     app.selected = index;
                     // Clicking the selected pane row opens the full TUI there.
-                    if app.pane && already {
-                        app.pane = false;
-                        if let Err(error) = app.reload_rows() {
-                            app.set_error(&error);
-                        }
+                    if app.pane
+                        && already
+                        && let Err(error) = app.leave_pane()
+                    {
+                        app.set_error(&error);
                     }
                 }
             }
@@ -463,6 +483,7 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
     capture::refresh_stale(app);
     edit::refresh_stale(app);
     let area = frame.area();
+    app.width = area.width;
     if app.capture_only {
         capture::draw(frame, app, area);
         return;

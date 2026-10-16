@@ -852,6 +852,38 @@ fn the_footer_keeps_help_visible_at_80_columns_with_whole_hints() {
 
 #[test]
 #[serial]
+fn a_narrow_pane_says_to_widen_instead_of_opening_the_full_view() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.pane = true;
+        app.pane_requested = true;
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 34, 14).join("\n");
+        assert!(screen.contains("1 overdue"), "{screen}");
+        assert!(!screen.contains("triage"), "{screen}");
+
+        for code in [KeyCode::Enter, KeyCode::Char('T')] {
+            press(&mut app, code);
+            assert!(app.pane);
+            assert_eq!(app.screen, Screen::Today);
+        }
+        let screen = render(&mut app, 34, 14).join("\n");
+        assert!(screen.contains("widen to 60+ columns"), "{screen}");
+        assert!(screen.contains("full view"), "{screen}");
+
+        // Wide enough: Enter opens the full view, and a narrow terminal
+        // brings the pane back from then on.
+        render(&mut app, 100, 30);
+        press(&mut app, KeyCode::Enter);
+        assert!(!app.pane);
+        assert!(!app.pane_requested);
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {

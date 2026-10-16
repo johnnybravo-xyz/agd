@@ -733,12 +733,12 @@ fn run_pane(app: &mut App, action: Action) -> Result<EditorTarget> {
         A::Capture => app.overlay = Overlay::Capture(capture::Draft::default()),
         A::Editor => return Ok(selected_location(app)),
         A::Triage => {
-            app.pane = false;
-            start_triage(app)?;
+            if app.leave_pane()? {
+                start_triage(app)?;
+            }
         }
         A::FullView => {
-            app.pane = false;
-            app.reload_rows()?;
+            app.leave_pane()?;
         }
         A::Help => app.overlay = Overlay::Help { scroll: 0 },
         A::Quit => app.quit = true,

@@ -4,7 +4,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 
-use super::{App, DisplayRow};
+use super::{App, DisplayRow, FULL_WIDTH};
 
 /// The 2-second glance for a herdr or tmux split: overdue collapses to a
 /// count, timed items sort by clock time with ▸ on the next one, done items
@@ -14,21 +14,34 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     let block = theme.panel("agd").border_style(theme.fg(theme.accent));
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    // A status message too long for one row wraps onto a second.
+    let status_width = app
+        .status
+        .as_ref()
+        .map_or(0, |status| Span::raw(status.text.as_str()).width());
+    let footer_rows = if status_width + 2 > inner.width as usize {
+        2
+    } else {
+        1
+    };
     let parts = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(1),
-            Constraint::Length(1),
+            Constraint::Length(footer_rows),
         ])
         .split(inner);
 
     let mut top = Vec::new();
     if app.counts.overdue > 0 {
         top.extend(theme.pill(format!("{} overdue", app.counts.overdue), theme.overdue));
-        top.push(Span::raw("  "));
-        top.extend(theme.key_hint("T", "triage"));
+        // Triage needs the full view, which needs the columns.
+        if area.width >= FULL_WIDTH {
+            top.push(Span::raw("  "));
+            top.extend(theme.key_hint("T", "triage"));
+        }
     }
     frame.render_widget(Paragraph::new(Line::from(top)), parts[0]);
     frame.render_widget(
@@ -94,8 +107,23 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
         .map(|(line, row)| (parts[2].y + line as u16, row))
         .collect();
 
-    frame.render_widget(
-        Paragraph::new(Line::from(
+    draw_footer(frame, app, parts[3]);
+}
+
+/// The last write's confirmation or a refusal while it lasts, else the
+/// inbox and agent counts; `?` at the right.
+fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let theme = &app.theme;
+    let line = match &app.status {
+        Some(status) => Line::from(Span::styled(
+            status.text.clone(),
+            theme.strong(if status.error {
+                theme.overdue
+            } else {
+                theme.done
+            }),
+        )),
+        None => Line::from(
             [
                 theme.pill(format!("inbox {}", app.counts.inbox), theme.muted),
                 vec![Span::raw(" ")],
@@ -109,8 +137,23 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
                 ),
             ]
             .concat(),
-        )),
-        parts[3],
+        ),
+    };
+    let help = Line::from(vec![
+        Span::raw(" "),
+        Span::styled("?", theme.strong(theme.accent)),
+    ]);
+    let room = area.width.saturating_sub(help.width() as u16);
+    frame.render_widget(
+        Paragraph::new(line).wrap(ratatui::widgets::Wrap { trim: true }),
+        Rect {
+            width: room,
+            ..area
+        },
+    );
+    frame.render_widget(
+        Paragraph::new(help).alignment(ratatui::layout::Alignment::Right),
+        Rect { height: 1, ..area },
     );
 }
 
