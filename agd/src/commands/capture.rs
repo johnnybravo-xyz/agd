@@ -3,8 +3,8 @@ use std::io::IsTerminal;
 use std::path::Path;
 
 use agd_core::{
-    AgdError, CaptureTemplate, RootSet, Settings, WriteContext, WriteEngine, capture_prompts,
-    load_settings, parse_capture_line,
+    AgdError, CaptureTemplate, ErrorCode, RootSet, WriteEngine, capture_prompts, load_settings,
+    parse_capture_line,
 };
 use anyhow::Result;
 use chrono::Local;
@@ -13,15 +13,15 @@ use clap::Args;
 use super::write_stdout;
 use crate::words;
 
-const USAGE: &str =
-    "usage: agd capture [KEY] TEXT (KEY defaults to the first template), or agd capture -i";
+const USAGE: &str = "capture needs text: agd capture [KEY] TEXT (KEY defaults to the first template), or agd capture -i";
 
 #[derive(Args, Debug)]
 pub struct CaptureCommand {
-    /// A template key and the text, quoted or not: `t Renew passport
-    /// due:fri`. One argument alone is the text for the first template.
-    /// Tokens: due:fri on:+2d +tag #A
-    #[arg(value_name = "KEY TEXT")]
+    /// The capture line: its first word is a template key when it names one
+    /// and more text follows (`t Renew passport due:fri`); otherwise the
+    /// whole line goes through the first template. Tokens: due:fri on:+2d
+    /// +tag #A. Put text that starts with - after --: agd capture t -- -x
+    #[arg(value_name = "[KEY] TEXT", allow_negative_numbers = true)]
     words: Vec<String>,
     /// Open the capture popup (for tmux display-popup or a pane keybinding)
     #[arg(
@@ -58,32 +58,25 @@ impl CaptureCommand {
             return crate::tui::run_capture(config, root);
         }
         if self.words.is_empty() {
-            return Err(AgdError::new("usage", USAGE).into());
+            return Err(AgdError::new(ErrorCode::InvalidArguments, USAGE).into());
         }
         let settings = load_settings(
             config.as_deref().map(Path::new),
             root.as_deref().map(Path::new),
         )?
         .settings;
-        let (template, text) = template_and_text(&self.words, &settings)?;
-        let draft = parse_capture_line(&text, Local::now().date_naive())?;
+        let line = self.words.join(" ");
+        let (template, text) = settings.capture_line_template(&line)?;
+        let draft = parse_capture_line(text, Local::now().date_naive())?;
         let prompts = parse_prompts(self.prompts)?;
-        if let Some(capture) = settings.capture_template(&template) {
-            check_prompts(&template, capture, &prompts)?;
-        }
+        check_prompts(template, &prompts)?;
         let mutation = WriteEngine::with_default_journal(settings.clone())?.capture(
-            &template,
+            &template.key,
             &draft,
             &self.body,
             &prompts,
             self.dry_run,
-            &WriteContext {
-                actor: "cli".to_string(),
-                project: std::env::current_dir()
-                    .map(|path| path.to_string_lossy().into_owned())
-                    .unwrap_or_else(|_| "unknown".to_string()),
-                now: None,
-            },
+            &super::cli_context(),
         )?;
         let output = if self.json {
             format!("{}\n", serde_json::to_string_pretty(&mutation)?)
@@ -106,48 +99,9 @@ impl CaptureCommand {
     }
 }
 
-/// The template key and the capture text. Two or more words are a key and
-/// the text's words; one word is the text for the first template.
-fn template_and_text(words: &[String], settings: &Settings) -> Result<(String, String), AgdError> {
-    let keys = || {
-        let keys: Vec<&str> = settings
-            .captures
-            .iter()
-            .map(|template| template.key.as_str())
-            .collect();
-        keys.join(", ")
-    };
-    match words {
-        [] => Err(AgdError::new("usage", USAGE)),
-        [text] if settings.capture_template(text).is_some() => Err(AgdError::new(
-            "usage",
-            format!("capture template '{text}' needs text: agd capture {text} Renew passport"),
-        )),
-        [text] => {
-            let first = settings.captures.first().ok_or_else(|| {
-                AgdError::new("unknown_template", "no capture templates are configured")
-            })?;
-            Ok((first.key.clone(), text.clone()))
-        }
-        [key, text @ ..] if settings.capture_template(key).is_some() => {
-            Ok((key.clone(), text.join(" ")))
-        }
-        [key, ..] => Err(AgdError::new(
-            "unknown_template",
-            format!(
-                "capture template '{key}' is not configured; templates: {}. To use the first \
-                 template, quote the text: agd capture \"{}\"",
-                keys(),
-                words.join(" ")
-            ),
-        )),
-    }
-}
-
 /// Names the `--prompt` a template's `%^{...}` field still needs; a date
 /// prompt may stay empty.
 fn check_prompts(
-    key: &str,
     template: &CaptureTemplate,
     prompts: &BTreeMap<String, String>,
 ) -> Result<(), AgdError> {
@@ -156,9 +110,10 @@ fn check_prompts(
         .find(|prompt| !prompt.date && !prompts.contains_key(&prompt.name));
     match missing {
         Some(prompt) => Err(AgdError::new(
-            "missing_prompt",
+            ErrorCode::InvalidPrompt,
             format!(
-                "capture template '{key}' asks for {name}; answer with --prompt '{name}=...'",
+                "capture template '{key}' asks for '{name}'; answer with --prompt '{name}=...'",
+                key = template.key,
                 name = prompt.name
             ),
         )),
@@ -172,13 +127,13 @@ fn parse_prompts(values: Vec<String>) -> Result<BTreeMap<String, String>, AgdErr
         .map(|value| {
             let (key, value) = value.split_once('=').ok_or_else(|| {
                 AgdError::new(
-                    "invalid_prompt",
+                    ErrorCode::InvalidPrompt,
                     format!("--prompt must be KEY=VALUE: {value}"),
                 )
             })?;
             if key.is_empty() {
                 return Err(AgdError::new(
-                    "invalid_prompt",
+                    ErrorCode::InvalidPrompt,
                     "--prompt key cannot be empty",
                 ));
             }
@@ -196,7 +151,7 @@ mod tests {
     #[test]
     fn a_terminal_reads_the_capture_as_the_tui_says_it() {
         let item = Item {
-            schema: "agd.item/v1".to_string(),
+            schema: agd_core::ITEM_SCHEMA.to_string(),
             item_ref: "ref".to_string(),
             id: None,
             file: "/notes/org/inbox.org".to_string(),

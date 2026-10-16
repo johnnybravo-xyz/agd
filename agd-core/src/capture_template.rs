@@ -14,6 +14,8 @@ use std::sync::LazyLock;
 use chrono::{NaiveDate, NaiveDateTime};
 use regex::Regex;
 
+use crate::date::format_inactive_timestamp;
+use crate::write::line_ending;
 use crate::{
     AgdError, CaptureDraft, CaptureTemplate, ErrorCode, format_active_timestamp, parse_date_input,
 };
@@ -100,17 +102,13 @@ pub fn render_capture_template(
 ) -> Result<String, AgdError> {
     if template.template.contains("%(") {
         return Err(AgdError::new(
-            ErrorCode::UnsupportedTemplate,
+            ErrorCode::InvalidTemplate,
             "capture templates may not execute %(sexp) forms",
         ));
     }
     let rendered = expand_capture_escapes(&template.template, draft, body, prompts, now)?;
 
-    let newline = if rendered.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    };
+    let newline = line_ending(&rendered);
     let mut lines: Vec<String> = rendered.split(newline).map(str::to_string).collect();
     if let Some(first) = lines.first_mut() {
         if let Some(priority) = &draft.priority {
@@ -126,7 +124,7 @@ pub fn render_capture_template(
     // date is dropped.
     let template_planning = lines
         .get(1)
-        .filter(|line| is_planning_line(line))
+        .filter(|line| is_schedule_or_deadline_line(line))
         .map(|line| planning_dates(line));
     if template_planning.is_some() {
         lines.remove(1);
@@ -181,7 +179,7 @@ fn expand_capture_escapes(
             "%" => rendered.push('%'),
             "^g" => rendered.push_str(prompts.get("tags").ok_or_else(|| {
                 AgdError::new(
-                    ErrorCode::MissingPrompt,
+                    ErrorCode::InvalidPrompt,
                     "capture tag prompt has no 'tags' value",
                 )
             })?),
@@ -202,7 +200,7 @@ fn expand_capture_escapes(
                     None => {
                         let value = prompts.get(prompt).ok_or_else(|| {
                             AgdError::new(
-                                ErrorCode::MissingPrompt,
+                                ErrorCode::InvalidPrompt,
                                 format!("capture prompt '{prompt}' has no value"),
                             )
                         })?;
@@ -226,12 +224,11 @@ fn prompted_date(value: &str, kind: &str, today: NaiveDate) -> Result<String, Ag
     if kind == "t" || kind == "u" {
         timestamp.time = None;
     }
-    let active = format_active_timestamp(&timestamp)?;
-    Ok(if kind == "u" || kind == "U" {
-        format!("[{}]", &active[1..active.len() - 1])
+    if kind == "u" || kind == "U" {
+        format_inactive_timestamp(&timestamp)
     } else {
-        active
-    })
+        format_active_timestamp(&timestamp)
+    }
 }
 
 fn insert_before_title(line: &mut String, value: &str) {
@@ -255,7 +252,9 @@ fn insert_before_title(line: &mut String, value: &str) {
     line.insert_str(insertion, &format!(" {value}"));
 }
 
-fn is_planning_line(line: &str) -> bool {
+/// A template's own planning line, the one a capture's dates merge into:
+/// it starts with SCHEDULED: or DEADLINE:, the dates a capture sets.
+fn is_schedule_or_deadline_line(line: &str) -> bool {
     let trimmed = line.trim_start();
     trimmed.starts_with("SCHEDULED:") || trimmed.starts_with("DEADLINE:")
 }

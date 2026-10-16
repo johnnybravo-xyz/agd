@@ -1,0 +1,9 @@
+2 days-agenda (W42):
+Tuesday    13 October 2026
+  units:      In   1 d.:  TODO Hour warning
+  units:      In   3 d.:  TODO Day warning
+  units:      In   5 d.:  TODO Week warning, inside it
+  units:      In  23 d.:  TODO Month warning, past the default
+  units:      In 231 d.:  TODO Year warning
+Wednesday  14 October 2026
+  units:      Deadline:   TODO Hour warning

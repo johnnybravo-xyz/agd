@@ -1,0 +1,13 @@
+#+CATEGORY: units
+* TODO Week warning, outside it
+DEADLINE: <2026-10-25 Sun -1w>
+* TODO Week warning, inside it
+DEADLINE: <2026-10-18 Sun -1w>
+* TODO Month warning, past the default
+DEADLINE: <2026-11-05 Thu -1m>
+* TODO Day warning
+DEADLINE: <2026-10-16 Fri -3d>
+* TODO Hour warning
+DEADLINE: <2026-10-14 Wed -48h>
+* TODO Year warning
+DEADLINE: <2027-06-01 Tue -1y>

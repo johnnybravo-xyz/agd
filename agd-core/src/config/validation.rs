@@ -1,7 +1,8 @@
 //! Checks a configuration: the roots exist and differ, then every value in a
 //! fixed order (`validate_values`); the first check that fails is the error.
 //!
-//! Each failure is a `config` error that names the key and the accepted
+//! Each failure is an `invalid_config` error (`invalid_root` for a root)
+//! that names the key and the accepted
 //! values. A view's match is checked by the agenda's own parser, so a view
 //! that loads is a view that runs. Roots are checked apart from the values so
 //! `agd setup import` can check a config before its roots exist.
@@ -9,7 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use crate::AgdError;
+use crate::{AgdError, ErrorCode, RootSet};
 
 use super::file::config_error;
 use super::model::{
@@ -22,22 +23,18 @@ pub(super) fn validate_settings(settings: &Settings) -> Result<(), AgdError> {
     validate_values(settings)
 }
 
-/// Every root resolves to a distinct directory.
+/// Every root resolves to a distinct directory; a bad root is the same
+/// `invalid_root` error the write engine gives.
 pub(super) fn validate_roots(roots: &[String]) -> Result<(), AgdError> {
-    if roots.is_empty() {
-        return Err(config_error("roots must contain at least one directory"));
-    }
+    RootSet::new(roots, &[])?;
     let mut canonical_roots = BTreeSet::new();
     for root in roots {
-        let expanded = shellexpand::tilde(root).into_owned();
-        let canonical = PathBuf::from(&expanded)
-            .canonicalize()
-            .map_err(|error| config_error(format!("cannot resolve root '{root}': {error}")))?;
-        if !canonical.is_dir() {
-            return Err(config_error(format!("root is not a directory: {root}")));
-        }
-        if !canonical_roots.insert(canonical) {
-            return Err(config_error(format!("duplicate root: {root}")));
+        let canonical = PathBuf::from(shellexpand::tilde(root).into_owned()).canonicalize();
+        if canonical.is_ok_and(|canonical| !canonical_roots.insert(canonical)) {
+            return Err(AgdError::new(
+                ErrorCode::InvalidRoot,
+                format!("root '{root}' is listed twice"),
+            ));
         }
     }
     Ok(())
@@ -80,28 +77,9 @@ fn validate_todo_keywords(lines: &[String]) -> Result<(), AgdError> {
     Ok(())
 }
 
-/// A priority cookie's value: Org takes the letters A–Z, or the numbers
-/// 0–64 when org-priority-highest is below ?A.
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-enum PriorityValue {
-    Letter(char),
-    Number(u8),
-}
-
-fn priority_value(value: &str) -> Option<PriorityValue> {
-    let mut chars = value.chars();
-    if let (Some(letter @ 'A'..='Z'), None) = (chars.next(), chars.next()) {
-        return Some(PriorityValue::Letter(letter));
-    }
-    value
-        .parse::<u8>()
-        .ok()
-        .filter(|number| *number <= 64 && number.to_string() == value)
-        .map(PriorityValue::Number)
-}
-
-/// The three priorities are all letters or all numbers, and run from the
-/// highest (A, or the smallest number) through the default to the lowest.
+/// The three priorities are letters A–Z (agd does not support Org's
+/// numeric priorities) and run from the highest through the default to
+/// the lowest.
 fn validate_priorities(settings: &Settings) -> Result<(), AgdError> {
     let mut values = Vec::new();
     for (key, value) in [
@@ -109,22 +87,25 @@ fn validate_priorities(settings: &Settings) -> Result<(), AgdError> {
         ("default_priority", &settings.default_priority),
         ("lowest_priority", &settings.lowest_priority),
     ] {
-        values.push(priority_value(value).ok_or_else(|| {
-            config_error(format!(
-                "{key} must be a letter A-Z or a number 0-64, not \"{value}\""
-            ))
-        })?);
+        let mut chars = value.chars();
+        match (chars.next(), chars.next()) {
+            (Some(letter @ 'A'..='Z'), None) => values.push(letter),
+            _ if value.parse::<u8>().is_ok() => {
+                return Err(config_error(format!(
+                    "{key} is \"{value}\": numeric priorities are not supported; use letters A–Z"
+                )));
+            }
+            _ => {
+                return Err(config_error(format!(
+                    "{key} must be a letter A–Z, not \"{value}\""
+                )));
+            }
+        }
     }
     let [highest, default, lowest] = [values[0], values[1], values[2]];
-    let kind = std::mem::discriminant;
-    if kind(&highest) != kind(&default) || kind(&default) != kind(&lowest) {
-        return Err(config_error(
-            "highest_priority, default_priority and lowest_priority must be all letters or all numbers",
-        ));
-    }
     if highest > default || default > lowest {
         return Err(config_error(format!(
-            "priorities must run highest, default, lowest, as A, B, C or 1, 2, 3; not {}, {}, {}",
+            "priorities must run highest, default, lowest, as A, B, C; not {}, {}, {}",
             settings.highest_priority, settings.default_priority, settings.lowest_priority
         )));
     }
@@ -159,17 +140,9 @@ fn validate_editor(editor: &[String]) -> Result<(), AgdError> {
 /// `agent_inbox`, when set, is a `[[capture]]` key.
 fn validate_agent_inbox(settings: &Settings) -> Result<(), AgdError> {
     if let Some(key) = &settings.agent_inbox
-        && settings.capture_template(key).is_none()
+        && let Err(error) = settings.find_capture_template(key)
     {
-        let keys: Vec<&str> = settings
-            .captures
-            .iter()
-            .map(|template| template.key.as_str())
-            .collect();
-        return Err(config_error(format!(
-            "agent_inbox names capture template '{key}', which is not a [[capture]] key; use one of {}",
-            keys.join(", ")
-        )));
+        return Err(config_error(format!("agent_inbox: {error}")));
     }
     Ok(())
 }
@@ -288,16 +261,11 @@ fn validate_group(view_key: &str, group: &ViewGroup) -> Result<(), AgdError> {
 
 /// `start_view`, when set, names a view.
 fn validate_start_view(settings: &Settings) -> Result<(), AgdError> {
-    if !settings.start_view.is_empty() && settings.view(&settings.start_view).is_none() {
-        let keys: Vec<&str> = settings
-            .all_views()
-            .iter()
-            .map(|view| view.key.as_str())
-            .collect();
+    if !settings.start_view.is_empty()
+        && let Err(error) = settings.find_view(&settings.start_view)
+    {
         return Err(config_error(format!(
-            "start_view '{}' is not a view; use one of {}, or remove start_view to open Today",
-            settings.start_view,
-            keys.join(", ")
+            "start_view: {error}; or remove start_view to open Today"
         )));
     }
     Ok(())
@@ -337,16 +305,16 @@ fn validate_capture_shape(template: &CaptureTemplate) -> Result<(), &'static str
         _ => {}
     }
     let heading = template.heading.is_some();
-    let outline = template.outline_path.is_some();
+    let outline = template.olpath.is_some();
     match (template.file.is_some(), template.id.is_some()) {
         (false, false) => Err("needs a target: file or id"),
         (true, true) => Err("targets a file or an id, not both"),
         (false, true) if heading || outline || template.datetree => {
-            Err("targets an id, which takes no heading, outline_path or datetree")
+            Err("targets an id, which takes no heading, olpath or datetree")
         }
-        (true, false) if heading && outline => Err("takes heading or outline_path, not both"),
+        (true, false) if heading && outline => Err("takes heading or olpath, not both"),
         (true, false) if heading && template.datetree => Err(
-            "puts a datetree under the file or an outline_path, not a heading, as Org's file+datetree and file+olp+datetree do",
+            "puts a datetree under the file or an olpath, not a heading, as Org's file+datetree and file+olp+datetree do",
         ),
         _ => Ok(()),
     }
@@ -376,7 +344,7 @@ mod tests {
     fn unknown_start_view_says_how_to_open_today() {
         assert_eq!(
             load_error("start_view = \"d\"\n"),
-            "start_view 'd' is not a view; use one of n, or remove start_view to open Today"
+            "start_view: unknown view 'd'; the views are 'n'; or remove start_view to open Today"
         );
     }
 
@@ -392,9 +360,9 @@ mod tests {
             "id = \"abc\"\ntemplate = \"* %?\"\n",
             "file = \"j.org\"\ntemplate = \"* %?\"\n",
             "file = \"j.org\"\nheading = \"Log\"\ntemplate = \"* %?\"\n",
-            "file = \"j.org\"\noutline_path = [\"A\", \"B\"]\ntemplate = \"* %?\"\n",
+            "file = \"j.org\"\nolpath = [\"A\", \"B\"]\ntemplate = \"* %?\"\n",
             "file = \"j.org\"\ndatetree = true\ntemplate = \"* %?\"\n",
-            "file = \"j.org\"\noutline_path = [\"A\"]\ndatetree = true\ntemplate = \"* %?\"\n",
+            "file = \"j.org\"\nolpath = [\"A\"]\ndatetree = true\ntemplate = \"* %?\"\n",
         ] {
             let body = format!("[[capture]]\nkey = \"j\"\ndesc = \"Journal\"\n{fields}");
             assert!(load_body(&body).is_ok(), "{fields}");
@@ -412,15 +380,15 @@ mod tests {
             ),
             (
                 "id = \"abc\"\nheading = \"Log\"\ntemplate = \"* %?\"\n",
-                "targets an id, which takes no heading, outline_path or datetree",
+                "targets an id, which takes no heading, olpath or datetree",
             ),
             (
-                "file = \"j.org\"\nheading = \"Log\"\noutline_path = [\"Log\"]\ntemplate = \"* %?\"\n",
-                "takes heading or outline_path, not both",
+                "file = \"j.org\"\nheading = \"Log\"\nolpath = [\"Log\"]\ntemplate = \"* %?\"\n",
+                "takes heading or olpath, not both",
             ),
             (
                 "file = \"j.org\"\nheading = \"Log\"\ndatetree = true\ntemplate = \"* %?\"\n",
-                "puts a datetree under the file or an outline_path, not a heading, as Org's file+datetree and file+olp+datetree do",
+                "puts a datetree under the file or an olpath, not a heading, as Org's file+datetree and file+olp+datetree do",
             ),
         ];
         for (fields, detail) in cases {
@@ -438,33 +406,26 @@ mod tests {
         assert_eq!(load_body("").unwrap().agent_inbox, None);
         assert_eq!(
             load_error("agent_inbox = \"i\"\n"),
-            "agent_inbox names capture template 'i', which is not a [[capture]] key; use one of t"
+            "agent_inbox: unknown capture template 'i'; the templates are 't'"
         );
     }
 
     #[test]
-    fn priorities_are_letters_or_numbers_in_org_order() {
-        let numeric = load_body(
-            "highest_priority = \"1\"\ndefault_priority = \"3\"\nlowest_priority = \"64\"\n",
-        )
-        .unwrap();
-        assert_eq!(numeric.lowest_priority, "64");
+    fn priorities_are_letters_in_org_order() {
         assert!(load_body("lowest_priority = \"Z\"\n").is_ok());
         assert_eq!(
             load_error("highest_priority = \"a\"\n"),
-            "highest_priority must be a letter A-Z or a number 0-64, not \"a\""
+            "highest_priority must be a letter A–Z, not \"a\""
         );
         assert_eq!(
-            load_error("lowest_priority = \"65\"\n"),
-            "lowest_priority must be a letter A-Z or a number 0-64, not \"65\""
-        );
-        assert_eq!(
-            load_error("lowest_priority = \"5\"\n"),
-            "highest_priority, default_priority and lowest_priority must be all letters or all numbers"
+            load_error(
+                "highest_priority = \"1\"\ndefault_priority = \"3\"\nlowest_priority = \"5\"\n"
+            ),
+            "highest_priority is \"1\": numeric priorities are not supported; use letters A–Z"
         );
         assert_eq!(
             load_error("default_priority = \"D\"\n"),
-            "priorities must run highest, default, lowest, as A, B, C or 1, 2, 3; not A, D, C"
+            "priorities must run highest, default, lowest, as A, B, C; not A, D, C"
         );
     }
 

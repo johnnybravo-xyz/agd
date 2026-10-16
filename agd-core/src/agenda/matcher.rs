@@ -399,7 +399,11 @@ mod tests {
         assert_eq!(titles("work+TODO<>\"NEXT\""), ["A", "E"]);
         assert_eq!(titles("PRIORITY=\"B\"+home"), ["C", "D"]);
         assert_eq!(
-            TagTodoMatcher::parse("TODO={NE}").err().unwrap().code(),
+            TagTodoMatcher::parse("TODO={NE}")
+                .err()
+                .unwrap()
+                .code()
+                .as_str(),
             "invalid_match"
         );
     }

@@ -171,7 +171,9 @@ fn builtin_n_view_runs_beside_configured_views() {
         .args(["agenda", "--view", "x"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("unknown view 'x'; views: w, n"));
+        .stderr(predicate::str::contains(
+            "unknown view 'x'; the views are 'w' and 'n'",
+        ));
 }
 
 #[test]
@@ -198,21 +200,25 @@ fn from_takes_a_negative_offset_as_its_value() {
 #[test]
 fn json_mode_reports_every_error_as_agd_error() {
     let fixture = Fixture::new();
-    let failures: [(&[&str], &str); 7] = [
+    let failures: [(&[&str], &str); 8] = [
         (&["agenda", "--view", "zz", "--json"], "unknown_view"),
-        (&["agenda", "--view", "--json"], "no_start_view"),
+        (&["agenda", "--view", "--json"], "unknown_view"),
+        (
+            &["agenda", "--span", "fortnightly", "--json"],
+            "invalid_span",
+        ),
         (
             &["agenda", "--profile", "nope", "--json"],
             "unknown_profile",
         ),
         (&["agenda", "--from", "someday", "--json"], "invalid_date"),
-        (&["capture", "--json"], "usage"),
+        (&["capture", "--json"], "invalid_arguments"),
         (
             &["capture", "t", "Hi", "--prompt", "bad", "--json"],
             "invalid_prompt",
         ),
         // Clap refuses this before any command runs.
-        (&["agenda", "--bogus", "--json"], "usage"),
+        (&["agenda", "--bogus", "--json"], "invalid_arguments"),
     ];
     for (arguments, code) in failures {
         let output = fixture.command().args(arguments).output().expect("agd");
@@ -221,6 +227,9 @@ fn json_mode_reports_every_error_as_agd_error() {
             .unwrap_or_else(|_| panic!("{arguments:?}: {output:?}"));
         assert_eq!(error["schema"], "agd.error/v1", "{arguments:?}");
         assert_eq!(error["code"], code, "{arguments:?}: {error}");
+        let message = error["message"].as_str().unwrap_or_default();
+        assert!(!message.contains("For more information"), "{message}");
+        assert!(!message.starts_with("error:"), "{message}");
     }
     // Without --json the same error is a plain line.
     fixture
@@ -252,10 +261,15 @@ fn errors_name_the_valid_choices() {
         ),
     )
     .unwrap();
-    let failures: [(&[&str], &str); 3] = [
-        (&["capture", "x", "Buy milk"], "templates: t, m"),
-        (&["agenda", "--profile", "nope"], "profiles: coding"),
-        (&["capture", "m", "Budget"], "--prompt 'Who=...'"),
+    let failures: [(&[&str], &str); 2] = [
+        (
+            &["agenda", "--profile", "nope"],
+            "the profiles are 'coding'",
+        ),
+        (
+            &["capture", "m", "Budget"],
+            "asks for 'Who'; answer with --prompt 'Who=...'",
+        ),
     ];
     for (arguments, hint) in failures {
         fixture
@@ -458,21 +472,30 @@ fn capture_takes_a_key_and_unquoted_words_or_the_text_alone() {
             .unwrap()
             .contains("** TODO Renew visa\nDEADLINE: <")
     );
-    // Unquoted words without a key would file the first word as a key.
-    fixture
-        .command()
-        .args(["capture", "Renew", "visa"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "quote the text: agd capture \"Renew visa\"",
-        ));
-    fixture
-        .command()
-        .args(["capture", "t"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("needs text"));
+    // Words whose first is no template key go through the first template,
+    // quoted or not; a key alone is text too; text after -- may start with -.
+    for words in [
+        &["Renew", "passport"][..],
+        &["t"],
+        &["t", "-1", "point"],
+        &["t", "--", "-x", "marks"],
+    ] {
+        fixture
+            .command()
+            .arg("capture")
+            .args(words)
+            .assert()
+            .success();
+    }
+    let written = fs::read_to_string(&fixture.tasks).unwrap();
+    for heading in [
+        "** TODO Renew passport\n",
+        "** TODO t\n",
+        "** TODO -1 point\n",
+        "** TODO -x marks\n",
+    ] {
+        assert!(written.contains(heading), "{heading}: {written}");
+    }
 }
 
 #[cfg(unix)]
@@ -624,7 +647,7 @@ fn first_run_without_config_or_org_says_how_to_start() {
         .output()
         .expect("agenda command");
     let error: Value = serde_json::from_slice(&output.stderr).expect("error JSON");
-    assert_eq!(error["code"], "config");
+    assert_eq!(error["code"], "invalid_config");
 
     // `mkdir ~/org` is enough.
     fs::create_dir(home.path().join("org")).expect("org directory");

@@ -93,7 +93,7 @@ pub struct LogSettings {
 /// TODO keywords from every `#+TODO:`/`#+SEQ_TODO:`/`#+TYP_TODO:` line, or
 /// the configured `todo_keywords` lines, which hold the same text. A
 /// sequence without `|` makes its last keyword the done state, as in Org.
-pub(super) fn todo_keywords(source: &str, settings: &Settings) -> Vec<TodoKeyword> {
+pub(crate) fn todo_keywords(source: &str, settings: &Settings) -> Vec<TodoKeyword> {
     let in_file: Vec<&str> = directives(source, &["TODO", "SEQ_TODO", "TYP_TODO"]).collect();
     let lines = if in_file.is_empty() {
         settings.todo_keywords.iter().map(String::as_str).collect()
@@ -180,36 +180,46 @@ pub(super) fn log_settings(source: &str, settings: &Settings) -> LogSettings {
     logging
 }
 
-/// `#+PRIORITIES: highest lowest default`, each one cookie character with
-/// highest before lowest; anything else keeps the configured range.
+/// The file's priority range: its `#+PRIORITIES: highest lowest default`
+/// line when agd can use it, else the configured range.
 pub(super) fn priority_range(source: &str, settings: &Settings) -> PriorityRange {
-    let configured = PriorityRange::from_settings(settings);
-    let Some(value) = directive(source, "PRIORITIES") else {
-        return configured;
-    };
-    let cookies: Vec<char> = value
+    directive(source, "PRIORITIES")
+        .and_then(priorities_line)
+        .unwrap_or_else(|| PriorityRange::from_settings(settings))
+}
+
+/// A `#+PRIORITIES` line agd ignores, keeping the configured range: one
+/// with numeric priorities, which agd does not support, or one that is not
+/// three letters running highest, lowest, default. `agd setup check`
+/// reports it.
+pub(crate) fn ignored_priorities_line(source: &str) -> Option<&str> {
+    directive(source, "PRIORITIES").filter(|value| priorities_line(value).is_none())
+}
+
+/// `A C B`: three uppercase letters, highest before lowest, the default
+/// between them.
+fn priorities_line(value: &str) -> Option<PriorityRange> {
+    let letters: Vec<char> = value
         .split_whitespace()
-        .filter_map(|token| {
+        .map(|token| {
             let mut characters = token.chars();
             match (characters.next(), characters.next()) {
-                (Some(cookie), None) if cookie.is_ascii_alphanumeric() => Some(cookie),
+                (Some(letter @ 'A'..='Z'), None) => Some(letter),
                 _ => None,
             }
         })
-        .collect();
-    match cookies.as_slice() {
+        .collect::<Option<_>>()?;
+    match letters.as_slice() {
         [highest, lowest, default]
-            if value.split_whitespace().count() == 3
-                && highest <= lowest
-                && (highest..=lowest).contains(&default) =>
+            if highest <= lowest && (highest..=lowest).contains(&default) =>
         {
-            PriorityRange {
+            Some(PriorityRange {
                 highest: *highest,
                 lowest: *lowest,
                 default: *default,
-            }
+            })
         }
-        _ => configured,
+        _ => None,
     }
 }
 
@@ -261,10 +271,9 @@ mod tests {
         assert!(!in_file.contains("F"));
         assert_eq!(in_file.value(None), in_file.value(Some("C")));
         assert!(in_file.value(Some("A")) > in_file.value(Some("E")));
-        let numeric = parse("#+PRIORITIES: 1 5 3\n");
-        assert_eq!(numeric.cookies(), ["1", "2", "3", "4", "5"]);
-        // Malformed lines keep the configured A-C, default B.
+        // Numeric and malformed lines keep the configured A-C, default B.
         for source in [
+            "#+PRIORITIES: 1 5 3\n",
             "#+PRIORITIES: C A B\n",
             "#+PRIORITIES: A C\n",
             "#+PRIORITIES: 1 10 5\n",
@@ -273,6 +282,8 @@ mod tests {
                 parse(source),
                 PriorityRange::from_settings(&Settings::default())
             );
+            assert!(ignored_priorities_line(source).is_some(), "{source}");
         }
+        assert_eq!(ignored_priorities_line("#+PRIORITIES: A E C\n"), None);
     }
 }

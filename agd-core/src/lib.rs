@@ -23,7 +23,9 @@
 //!   written. A file's own syntax (`#+TODO`, `#+PRIORITIES`, `#+STARTUP`) wins
 //!   over configuration.
 //! - An error is an [`AgdError`] whose `code` is one of [`ErrorCode`], the one
-//!   list of agd.error/v1 codes, all snake_case; its message says what to do.
+//!   list of agd.error/v1 codes, named by one rule (`invalid_<thing>`,
+//!   `unknown_<thing>`, `<thing>_not_found`, `<thing>_conflict`,
+//!   `<thing>_failed`; see [`model`]); its message says what to do.
 //! - Every serialized record names its schema, `agd.<name>/v1`, with a
 //!   constant from [`model`] such as [`ITEM_SCHEMA`] or [`MUTATION_SCHEMA`].
 //! - Config keys are snake_case. Values are lowercase, kebab-case when they
@@ -87,21 +89,24 @@ pub mod path;
 pub mod write;
 
 pub use agenda::{
-    AgendaEngine, AgendaQuery, AgendaSpan, ViewSection, ViewSectionGroup, agenda_csv, agenda_row,
-    agenda_text, agenda_title, item_row, items_csv, keyword_color, keyword_colors,
+    AgendaEngine, AgendaQuery, AgendaSpan, AgendaSummary, ViewSection, ViewSectionGroup,
+    agenda_csv, agenda_row, agenda_text, agenda_title, item_row, items_csv, keyword_color,
+    keyword_colors, overdue_entries,
 };
 pub use capture_line::{CaptureDraft, parse_capture_line};
 pub use capture_template::{CapturePrompt, capture_prompts, render_capture_template};
 pub use check::{
-    CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError, IndexedHeadline,
-    OrgDocument, SourceSpan, check_paths, check_settings, journal_problems,
+    CheckFileReport, CheckProblem, CheckReport, CheckSummary, check_settings, journal_problems,
 };
 pub use config::{
     AgentProfile, COLOR_NAMES, CaptureTemplate, IdPolicy, LoadedSettings, LogMode, SORTING_KEYS,
     Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, WeekStart,
     default_config_path, load_settings, parse_agenda_day, parse_config_file, render_config,
 };
-pub use date::{date_preview, format_active_timestamp, now_local_naive, parse_date_input};
+pub use date::{
+    date_preview, format_active_timestamp, now_local_naive, parse_date_change, parse_date_input,
+    read_date,
+};
 pub use document::{
     ByteSpan, HeadlineSpan, LogKind, LogSettings, OrgDocument as IndexedDocument, PriorityRange,
     PropertySpan, SourceLine, TimestampSpan, TodoKeyword, WorkspaceIndex, parse_timestamp,
@@ -111,13 +116,14 @@ pub use import::{
     ImportedCommand, ResolvedEditorConfig, apply_import, find_config_sources, import_root,
 };
 pub use model::{
-    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, CHECK_SCHEMA, ERROR_SCHEMA, ErrorCode,
-    ErrorResponse, ITEM_SCHEMA, Item, JOURNAL_SCHEMA, MUTATION_SCHEMA, Mutation, Occurrence,
-    OccurrenceType, Planning, PlanningTimestamp, REFILE_SCHEMA, Repeat, UNDO_SCHEMA,
+    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, CHECK_SCHEMA, DESCRIBE_SCHEMA, ERROR_SCHEMA,
+    ErrorCode, ErrorResponse, ITEM_SCHEMA, Item, JOURNAL_SCHEMA, MUTATION_SCHEMA, Mutation,
+    Occurrence, OccurrenceType, Planning, PlanningTimestamp, REFILE_SCHEMA, Repeat, UNDO_SCHEMA,
     VIEW_SECTION_SCHEMA, VIEWS_SCHEMA,
 };
 pub use path::{OrgFiles, RootSet, SkipReason};
 pub use write::{
-    BatchMutation, Change, EditIntent, ItemEdit, JournalRecord, JournalStatus, Patch, RefileResult,
-    StoredPatch, UndoResult, WriteContext, WriteEngine, apply_patches,
+    BatchMutation, Change, EditIntent, ItemEdit, JournalOperation, JournalRecord, JournalStatus,
+    Patch, RefileResult, StoredPatch, UndoResult, WriteContext, WriteEngine, actor_name,
+    agent_actor, agent_name, apply_patches,
 };

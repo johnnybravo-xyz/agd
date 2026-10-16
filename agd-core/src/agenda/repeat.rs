@@ -9,7 +9,7 @@ use chrono::{Duration, Months, NaiveDate};
 
 use crate::{AgdError, ErrorCode, PlanningTimestamp};
 
-use super::engine::parse_date;
+use crate::date::parse_org_date;
 
 pub(super) fn repeated_dates(
     timestamp: &PlanningTimestamp,
@@ -17,7 +17,7 @@ pub(super) fn repeated_dates(
     to: NaiveDate,
     done: bool,
 ) -> Result<Vec<NaiveDate>, AgdError> {
-    let mut date = parse_date(&timestamp.date)?;
+    let mut date = parse_org_date(&timestamp.date)?;
     if done {
         return Ok((date >= from && date <= to)
             .then_some(date)
@@ -51,7 +51,7 @@ pub(super) fn planning_dates(
     today: NaiveDate,
     done: bool,
 ) -> Result<Vec<NaiveDate>, AgdError> {
-    let base = parse_date(&timestamp.date)?;
+    let base = parse_org_date(&timestamp.date)?;
     let mut dates = Vec::new();
     if base >= from && base <= to {
         dates.push(base);

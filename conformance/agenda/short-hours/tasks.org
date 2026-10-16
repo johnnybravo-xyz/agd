@@ -1,0 +1,8 @@
+#+CATEGORY: hours
+* TODO Ten o'clock
+SCHEDULED: <2026-10-13 Tue 10:00>
+* TODO Half past nine, one digit
+SCHEDULED: <2026-10-13 Tue 9:30-10:15>
+* TODO Eight, two digits
+SCHEDULED: <2026-10-13 Tue 08:00>
+* Seven, a plain timestamp <2026-10-13 Tue 7:05>

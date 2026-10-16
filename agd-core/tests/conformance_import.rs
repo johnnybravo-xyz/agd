@@ -50,7 +50,7 @@ fn emacs_doom_imports_olp_datetree_and_template_file_captures() {
     let (temp, result) = import_fixture("emacs/doom");
     let journal = result.settings.capture_template("j").unwrap();
     assert!(journal.datetree);
-    assert_eq!(journal.outline_path, Some(vec!["Journal".to_string()]));
+    assert_eq!(journal.olpath, Some(vec!["Journal".to_string()]));
     let meeting = result.settings.capture_template("m").unwrap();
     assert_eq!(meeting.template, "");
     assert_eq!(

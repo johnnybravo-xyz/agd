@@ -118,7 +118,7 @@ fn check_reports_duplicate_ids_and_exits_one() {
         serde_json::from_slice(&assertion.get_output().stdout).expect("JSON check report");
 
     assert_eq!(report["summary"]["errors"], 1);
-    assert_eq!(report["problems"][0]["code"], "duplicate_id");
+    assert_eq!(report["problems"][0]["code"], "id_conflict");
     assert_eq!(report["problems"][0]["line"], 1);
 
     let human = agd(&directory)

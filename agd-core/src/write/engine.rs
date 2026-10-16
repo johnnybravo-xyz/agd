@@ -30,11 +30,34 @@ impl WriteContext {
         self.now.unwrap_or_else(|| Local::now().naive_local())
     }
 
-    // MCP clients are journaled as "mcp:<client name>"; every other actor is a
-    // person using the CLI or TUI.
     pub fn is_agent(&self) -> bool {
-        self.actor.starts_with("mcp:")
+        agent_name(&self.actor).is_some()
     }
+}
+
+/// How an MCP client's writes are journaled: `mcp:<client name>`. Every
+/// other actor is a person using the CLI or the TUI.
+const AGENT_ACTOR_PREFIX: &str = "mcp:";
+
+/// The agent an actor names, `codex` for `mcp:codex`; None for a person.
+pub fn agent_name(actor: &str) -> Option<&str> {
+    actor.strip_prefix(AGENT_ACTOR_PREFIX)
+}
+
+/// Who an actor is as agd names them: the agent (`codex`), or `you`.
+pub fn actor_name(actor: &str) -> &str {
+    agent_name(actor).unwrap_or("you")
+}
+
+/// The actor an MCP client's writes are journaled under: `mcp:<client>`,
+/// without the `-mcp-client` suffix Codex sends (`codex-mcp-client` is
+/// `mcp:codex`); other names are kept as sent.
+pub fn agent_actor(client_name: &str) -> String {
+    let name = client_name
+        .strip_suffix("-mcp-client")
+        .filter(|name| !name.is_empty())
+        .unwrap_or(client_name);
+    format!("{AGENT_ACTOR_PREFIX}{name}")
 }
 
 #[derive(Debug)]
@@ -142,7 +165,7 @@ pub(super) fn parse_updated_item(
                 .min_by_key(|headline| headline.item.line.abs_diff(line_hint))
         })
         .map(|headline| headline.item.clone())
-        .ok_or_else(|| AgdError::new(ErrorCode::ParseError, "write produced no target headline"))
+        .ok_or_else(|| AgdError::new(ErrorCode::ParseFailed, "write produced no target headline"))
 }
 
 /// A successful mutation result.

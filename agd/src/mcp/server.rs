@@ -83,16 +83,17 @@ fn instructions(settings: &Settings) -> String {
         (Some(inbox), _) => format!(
             "Every capture goes through the inbox template `{inbox}`, undated, for the person to triage."
         ),
-        (None, Some(key)) => {
-            format!("Capture with template `{key}` unless the person names another.")
+        (None, Some(_)) => {
+            "Capture with the first template (leave template_key out) unless the person names another."
+                .to_string()
         }
         (None, None) => "No capture templates are configured.".to_string(),
     };
     format!(
         "agd reads and writes the person's org files on this machine; nothing leaves it, so keep agenda data in this session. \
-Read with agenda (today unless told otherwise), query (org-ql) or describe (templates, TODO keywords, priorities, views, tags). \
+Read with agenda (the configured agenda_span unless told otherwise; span day for today), query (org-ql) or describe (templates, TODO keywords, priorities, views, tags). \
 Write with capture, set_state, plan or edit. A write revalidates the item's ref, and a ref without an :ID: changes with every write: \
-use the item.ref it returns, or the current.ref of a stale_ref error, never an older one. Dates: {}; plan also takes none. {capture} \
+use the item.ref it returns, or the current.ref of a ref_conflict error, never an older one. Dates: {}; plan also takes none. {capture} \
 A failed call sets isError and answers agd.error/v1.",
         describe::DATE_GRAMMAR
     )

@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use agd_core::{
-    AgdError, CaptureTemplate, IndexedDocument, Settings, TodoKeyword, WorkspaceIndex,
-    capture_prompts,
+    AgdError, CaptureTemplate, DESCRIBE_SCHEMA, IndexedDocument, Settings, TodoKeyword,
+    WorkspaceIndex, capture_prompts,
 };
 use serde::Serialize;
 
@@ -94,7 +94,7 @@ pub(super) fn describe(
     index: &WorkspaceIndex,
 ) -> Result<Description, AgdError> {
     Ok(Description {
-        schema: "agd.describe/v1",
+        schema: DESCRIBE_SCHEMA,
         capture_templates: settings.captures.iter().map(template).collect(),
         default_template: default_template(settings).map(str::to_string),
         agent_inbox: agent_inbox(settings).map(str::to_string),
@@ -105,8 +105,8 @@ pub(super) fn describe(
             default: settings.default_priority.clone(),
         },
         views: settings
-            .views
-            .iter()
+            .all_views()
+            .into_iter()
             .map(|view| ViewDescription {
                 key: view.key.clone(),
                 desc: view.desc.clone(),
@@ -123,7 +123,7 @@ fn template(template: &CaptureTemplate) -> TemplateDescription {
     target.extend(template.file.clone());
     target.extend(template.id.as_ref().map(|id| format!("id:{id}")));
     target.extend(template.heading.clone());
-    target.extend(template.outline_path.clone().unwrap_or_default());
+    target.extend(template.olpath.clone().unwrap_or_default());
     let mut target = target.join(" > ");
     if template.datetree {
         target.push_str(" (datetree)");

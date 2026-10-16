@@ -17,7 +17,7 @@ pub(super) fn load_body(body: &str) -> Result<Settings, String> {
     load_settings(Some(&config), None)
         .map(|loaded| loaded.settings)
         .map_err(|error| {
-            assert_eq!(error.code(), "config");
+            assert_eq!(error.code().as_str(), "invalid_config");
             error
                 .to_string()
                 .replace(&config.display().to_string(), "CONFIG")

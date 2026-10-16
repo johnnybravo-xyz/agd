@@ -5,7 +5,7 @@
 //! A batch resolves and computes every edit first; if any is refused, nothing
 //! is written and the error names that target. Each edit is computed again
 //! under the write lock, and a target that moved to another file meanwhile is
-//! refused (`stale_ref`). The Org text an edit writes is `org_edit`'s.
+//! refused (`ref_conflict`). The Org text an edit writes is `org_edit`'s.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -22,7 +22,7 @@ use super::engine::{
     parse_text, parse_updated_item,
 };
 use super::file::refuse_emacs_lock;
-use super::journal::JournalRecord;
+use super::journal::{JournalOperation, JournalRecord};
 use super::org_edit::build_edit_patches;
 use super::patch::{Patch, apply_patches};
 use super::validation::{validate_id_change, validate_intent, validate_intent_for_file};
@@ -46,6 +46,49 @@ pub struct EditIntent {
     pub deadline: Change<PlanningTimestamp>,
     pub properties: BTreeMap<String, Option<String>>,
     pub note: Option<String>,
+}
+
+impl EditIntent {
+    /// What the journal calls this edit: the one kind of change it makes,
+    /// with or without a note, else `Edit`.
+    pub fn operation(&self) -> JournalOperation {
+        let tags = !self.tags_add.is_empty() || !self.tags_remove.is_empty();
+        let changes = [
+            (!matches!(self.state, Change::Keep), JournalOperation::State),
+            (
+                !matches!(self.scheduled, Change::Keep),
+                JournalOperation::Schedule,
+            ),
+            (
+                !matches!(self.deadline, Change::Keep),
+                JournalOperation::Deadline,
+            ),
+            (
+                !matches!(self.priority, Change::Keep),
+                JournalOperation::Priority,
+            ),
+            (tags, JournalOperation::Tags),
+            (!matches!(self.title, Change::Keep), JournalOperation::Edit),
+            (!self.properties.is_empty(), JournalOperation::Edit),
+        ];
+        let mut made = changes.iter().filter(|(changed, _)| *changed);
+        match (made.next(), made.next()) {
+            (Some((_, operation)), None) => *operation,
+            _ => JournalOperation::Edit,
+        }
+    }
+}
+
+/// A batch's operation: the one its edits share, else `Edit`.
+fn batch_operation(edits: &[ItemEdit]) -> JournalOperation {
+    let first = edits
+        .first()
+        .map_or(JournalOperation::Edit, |edit| edit.intent.operation());
+    if edits.iter().all(|edit| edit.intent.operation() == first) {
+        first
+    } else {
+        JournalOperation::Edit
+    }
 }
 
 /// One item and the edit to apply to it, for [`WriteEngine::edit_batch`].
@@ -163,11 +206,15 @@ impl WriteEngine {
         let (prepared, item) = self.prepare_edit(&fresh, item_ref, intent, now)?;
         if prepared.path != path {
             return Err(AgdError::new(
-                ErrorCode::StaleRef,
+                ErrorCode::RefConflict,
                 "item resolved to a different file while acquiring the write lock",
             ));
         }
-        let record = self.commit_image(prepared.journal_image(Some(item_ref)), context)?;
+        let record = self.commit_image(
+            prepared.journal_image(Some(item_ref)),
+            intent.operation(),
+            context,
+        )?;
         Ok(item.into_mutation(prepared.diff, &record.id))
     }
 
@@ -187,7 +234,7 @@ impl WriteEngine {
         let (post_image, stored) = apply_patches(document.source(), patches)?;
         if post_image == document.source() {
             return Err(AgdError::new(
-                ErrorCode::NoChange,
+                ErrorCode::InvalidEdit,
                 "edit does not change the item",
             ));
         }
@@ -235,7 +282,7 @@ impl WriteEngine {
             .collect();
         if fresh_paths != paths {
             return Err(AgdError::new(
-                ErrorCode::StaleRef,
+                ErrorCode::RefConflict,
                 "targets resolved to different files while acquiring the write locks",
             ));
         }
@@ -245,7 +292,7 @@ impl WriteEngine {
             .zip(&prepared.file_refs)
             .map(|(file, item_ref)| file.journal_image(Some(item_ref)))
             .collect();
-        let records = self.commit_transaction(&images, context)?;
+        let records = self.commit_transaction(&images, batch_operation(edits), context)?;
         let transaction = records
             .first()
             .and_then(|record| record.transaction.clone())
@@ -297,7 +344,7 @@ impl WriteEngine {
             let (alone, _) = apply_patches(document.source(), own.clone()).map_err(label)?;
             if alone == document.source() {
                 return Err(label(AgdError::new(
-                    ErrorCode::NoChange,
+                    ErrorCode::InvalidEdit,
                     "edit does not change the item",
                 )));
             }
@@ -325,7 +372,7 @@ impl WriteEngine {
                 .headline_at_line(line)
                 .map(|headline| headline.item.clone())
                 .ok_or_else(|| {
-                    AgdError::new(ErrorCode::ParseError, "edit produced no target headline")
+                    AgdError::new(ErrorCode::ParseFailed, "edit produced no target headline")
                 })?;
             items.push((
                 position,
@@ -372,7 +419,7 @@ fn resolve_batch_targets<'a>(
             && !new_ids.insert(id)
         {
             return Err(label(AgdError::new(
-                ErrorCode::DuplicateId,
+                ErrorCode::IdConflict,
                 format!("ID '{id}' is given to two of the targets"),
             )));
         }
@@ -382,7 +429,7 @@ fn resolve_batch_targets<'a>(
             .any(|(_, other)| other.line_span.start == headline.line_span.start)
         {
             return Err(label(AgdError::new(
-                ErrorCode::InvalidEdit,
+                ErrorCode::InvalidBatch,
                 "the same item is listed twice",
             )));
         }
@@ -408,6 +455,36 @@ mod tests {
 
     use super::*;
     use crate::write::test_support::{context, refs_by_title, scheduled, settings};
+
+    #[test]
+    fn an_edit_is_journaled_as_the_one_kind_of_change_it_makes() {
+        let state = EditIntent {
+            state: Change::Set("DONE".to_string()),
+            note: Some("shipped".to_string()),
+            ..EditIntent::default()
+        };
+        assert_eq!(state.operation(), JournalOperation::State);
+        assert_eq!(
+            scheduled("2026-10-19").operation(),
+            JournalOperation::Schedule
+        );
+        let cleared = EditIntent {
+            deadline: Change::Clear,
+            ..EditIntent::default()
+        };
+        assert_eq!(cleared.operation(), JournalOperation::Deadline);
+        let tags = EditIntent {
+            tags_add: BTreeSet::from(["work".to_string()]),
+            ..EditIntent::default()
+        };
+        assert_eq!(tags.operation(), JournalOperation::Tags);
+        let both = EditIntent {
+            deadline: Change::Clear,
+            ..scheduled("2026-10-19")
+        };
+        assert_eq!(both.operation(), JournalOperation::Edit);
+        assert_eq!(JournalOperation::State.label(), "state change");
+    }
 
     #[test]
     fn a_batch_writes_every_file_or_none_and_one_undo_reverts_it() {
@@ -438,7 +515,7 @@ mod tests {
                 &context(),
             )
             .unwrap_err();
-        assert_eq!(error.code(), "invalid_todo");
+        assert_eq!(error.code().as_str(), "invalid_todo");
         assert!(error.to_string().starts_with("Water plants: "), "{error}");
         assert_eq!(fs::read_to_string(&work).unwrap(), work_bytes);
         assert_eq!(fs::read_to_string(&home).unwrap(), home_bytes);
@@ -455,8 +532,9 @@ mod tests {
             engine
                 .edit_batch(&batch, false, &context())
                 .unwrap_err()
-                .code(),
-            "editor_dirty"
+                .code()
+                .as_str(),
+            "editor_conflict"
         );
         assert_eq!(fs::read_to_string(&work).unwrap(), work_bytes);
         fs::remove_file(temp.path().join(".#home.org")).unwrap();
@@ -483,6 +561,13 @@ mod tests {
             ]
         );
         assert_eq!(engine.journal().unwrap().len(), 2);
+        assert!(
+            engine
+                .journal()
+                .unwrap()
+                .iter()
+                .all(|record| record.operation == Some(JournalOperation::Schedule))
+        );
 
         let undone = engine
             .undo(&written.mutations[0].journal_id, &context())

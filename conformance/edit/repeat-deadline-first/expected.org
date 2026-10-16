@@ -1,0 +1,8 @@
+#+TODO: TODO | DONE
+* TODO Water plants
+DEADLINE: <2026-10-23 Fri> SCHEDULED: <2026-10-13 Tue 09:30 +1w>
+:PROPERTIES:
+:ID: task-id
+:LAST_REPEAT: [2026-10-13 Tue 14:22]
+:END:
+- State "DONE"       from "TODO"       [2026-10-13 Tue 14:22]

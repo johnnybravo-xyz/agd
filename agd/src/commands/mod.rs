@@ -1,5 +1,7 @@
 use std::io::{IsTerminal, Write};
 
+use agd_core::WriteContext;
+
 pub mod agenda;
 pub mod capture;
 pub mod check;
@@ -17,6 +19,22 @@ pub use import::ImportCommand;
 pub use install::InstallCommand;
 pub use setup::SetupCommand;
 pub use undo::UndoCommand;
+
+/// The actor of every change the command line makes, `agd capture` and
+/// the Claude Code /capture command among them.
+pub const CLI_ACTOR: &str = "cli";
+
+/// The write context of a command: the CLI actor, run from the current
+/// directory.
+pub fn cli_context() -> WriteContext {
+    WriteContext {
+        actor: CLI_ACTOR.to_string(),
+        project: std::env::current_dir()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| "unknown".to_string()),
+        now: None,
+    }
+}
 
 /// `count` with its noun, singular for one: "1 file", "0 files".
 pub fn counted(count: usize, singular: &str, plural: &str) -> String {

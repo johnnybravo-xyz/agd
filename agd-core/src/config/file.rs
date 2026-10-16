@@ -73,7 +73,7 @@ fn first_run_error(config_path: &Path, roots: &[String]) -> AgdError {
 pub fn parse_config_file(path: &Path) -> Result<Settings, AgdError> {
     let source = fs::read_to_string(path).map_err(|error| {
         AgdError::with_source(
-            ErrorCode::Io,
+            ErrorCode::IoFailed,
             format!("cannot read {}: {error}", path.display()),
             error,
         )
@@ -113,7 +113,7 @@ fn is_top_level_key(name: &str) -> bool {
 }
 
 pub(super) fn config_error(message: impl Into<String>) -> AgdError {
-    AgdError::new(ErrorCode::Config, message)
+    AgdError::new(ErrorCode::InvalidConfig, message)
 }
 
 /// Reads each `template_file` into its template's `template`, so a capture
@@ -132,7 +132,7 @@ fn read_template_files(captures: &mut [CaptureTemplate], roots: &[String]) -> Re
         };
         template.template = fs::read_to_string(&path).map_err(|error| {
             AgdError::with_source(
-                ErrorCode::Config,
+                ErrorCode::InvalidConfig,
                 format!(
                     "capture template '{}': cannot read template_file {}: {error}",
                     template.key,
@@ -194,7 +194,7 @@ const CONFIG_GROUPS: [(&str, &[&str]); 6] = [
         &[
             "agent_inbox",
             "someday_tag",
-            "someday_clears_scheduled",
+            "someday_clears_dates",
             "reschedule_nudge",
         ],
     ),
@@ -405,7 +405,7 @@ mod tests {
                 desc: "Journal".to_string(),
                 file: Some("journal.org".to_string()),
                 heading: None,
-                outline_path: None,
+                olpath: None,
                 id: None,
                 datetree: true,
                 template: "* %?".to_string(),
@@ -618,7 +618,7 @@ mod tests {
     fn explicit_missing_config_file_is_an_error() {
         let temp = tempfile::tempdir().unwrap();
         let error = load_settings(Some(&temp.path().join("missing.toml")), None).unwrap_err();
-        assert_eq!(error.code(), "config");
+        assert_eq!(error.code().as_str(), "invalid_config");
     }
 
     #[test]

@@ -96,14 +96,17 @@ const TASKS: &str = "#+TODO: TODO NEXT WAIT | DONE\n\
 * DONE Call with bank\nSCHEDULED: <2026-10-13 Tue 10:00>\n\
 * NEXT Review ingestion PR :review:\nSCHEDULED: <2026-10-13 Tue 15:00>\n\
 * TODO Quarterly report\nDEADLINE: <2026-10-16 Fri>\n\
-* WAIT Vendor reply\n\
-* Inbox\n** Compare jiff and chrono\n";
+* WAIT Vendor reply\n";
+
+/// Where the default capture template lands: inbox.org under Inbox.
+const INBOX: &str = "* Inbox\n** Compare jiff and chrono\n";
 
 #[test]
 #[serial]
 fn today_groups_sections_in_the_order_you_act_on_them() {
     with_home(|root| {
         fs::write(root.join("tasks.org"), TASKS).unwrap();
+        fs::write(root.join("inbox.org"), INBOX).unwrap();
         let mut app = test_app(root);
         app.reload_rows().unwrap();
         let sections: Vec<&str> = app.rows.iter().map(|row| row.section.as_str()).collect();
@@ -193,6 +196,7 @@ struct ViewsOnly {
 fn pane_sorts_by_clock_time_and_keeps_done_rows_last() {
     with_home(|root| {
         fs::write(root.join("tasks.org"), TASKS).unwrap();
+        fs::write(root.join("inbox.org"), INBOX).unwrap();
         let mut app = test_app(root);
         app.pane = true;
         app.reload_rows().unwrap();
@@ -1585,6 +1589,7 @@ fn the_footer_offers_what_the_selected_row_needs() {
     use crossterm::event::KeyCode;
     with_home(|root| {
         fs::write(root.join("tasks.org"), TASKS).unwrap();
+        fs::write(root.join("inbox.org"), INBOX).unwrap();
         let mut app = test_app(root);
         app.reload_rows().unwrap();
         let footer_for = |app: &mut App, title: &str| {
@@ -1621,10 +1626,10 @@ fn triage_advances_after_every_decision_with_a_fixed_counter() {
         fs::write(
             &path,
             "* TODO Book conference travel\nDEADLINE: <2026-10-10 Sat>\n\
-* TODO Old chore\nSCHEDULED: <2026-10-01 Thu>\n\
-* Inbox\n** Compare jiff and chrono\n",
+* TODO Old chore\nSCHEDULED: <2026-10-01 Thu>\n",
         )
         .unwrap();
+        fs::write(root.join("inbox.org"), INBOX).unwrap();
         let mut app = test_app(root);
         app.reload_rows().unwrap();
         press(&mut app, KeyCode::Char('T'));
@@ -1953,10 +1958,10 @@ fn sectioned_rows_line_titles_up_after_the_widest_keyword() {
             "#+TODO: TODO WAITING | DONE\n\
 * TODO Alpha :ops:\nSCHEDULED: <2026-10-13 Tue>\n\
 * WAITING Beta\nSCHEDULED: <2026-10-13 Tue>\n\
-* DONE Delta\nSCHEDULED: <2026-10-13 Tue>\n\
-* Inbox\n** Gamma\n",
+* DONE Delta\nSCHEDULED: <2026-10-13 Tue>\n",
         )
         .unwrap();
+        fs::write(root.join("inbox.org"), "* Inbox\n** Gamma\n").unwrap();
         let mut app = test_app(root);
         app.theme = theme_for(Some("truecolor"));
         app.reload_rows().unwrap();

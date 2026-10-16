@@ -140,11 +140,11 @@ async fn exposes_only_the_short_spec_tool_list() -> Result<(), Box<dyn std::erro
         .expect("instructions");
     for needle in [
         "nothing leaves it",
-        "use the item.ref it returns, or the current.ref of a stale_ref error",
+        "use the item.ref it returns, or the current.ref of a ref_conflict error",
         "today, tomorrow, a weekday (fri), +2d",
         "2026-10-30T14:00; plan also takes none",
         "describe (templates, TODO keywords",
-        "Capture with template `t`",
+        "Capture with the first template",
     ] {
         assert!(instructions.contains(needle), "{needle}: {instructions}");
     }
@@ -220,17 +220,19 @@ fn busy_fixture() -> tempfile::TempDir {
         tomorrow.format("%Y-%m-%d %a")
     ));
     fs::write(directory.path().join("busy.org"), source).expect("org fixture");
+    write_config(&directory, "agenda_span = 2\n");
     directory
 }
 
 #[tokio::test]
-async fn reads_default_to_a_day_and_100_rows_and_say_what_they_left_out()
+async fn reads_default_to_agenda_span_and_100_rows_and_say_what_they_left_out()
 -> Result<(), Box<dyn std::error::Error>> {
     let directory = busy_fixture();
     let service = service(&directory).await?;
 
-    // No span is today only; no limit is 100 rows, and a second block says
-    // how many there were. The first block keeps its array shape.
+    // No span is the configured agenda_span, today and tomorrow here; no
+    // limit is 100 rows, and a second block says how many there were. The
+    // first block keeps its array shape.
     let result = call(&service, "agenda", json!({})).await?;
     let entries = first_block(&result);
     assert_eq!(entries.as_array().map(Vec::len), Some(100));
@@ -238,7 +240,7 @@ async fn reads_default_to_a_day_and_100_rows_and_say_what_they_left_out()
     assert_eq!(entries[0]["item"].get("body"), None);
     assert_eq!(
         result.content[1].as_text().map(|text| text.text.as_str()),
-        Some("showing 100 of 150; pass limit or narrow the query")
+        Some("showing 100 of 151; pass limit or narrow the query")
     );
     let encoded = content_json(&result).to_string();
     assert!(!encoded.contains("Tomorrow's task"));
@@ -246,7 +248,7 @@ async fn reads_default_to_a_day_and_100_rows_and_say_what_they_left_out()
     let result = call(&service, "agenda", json!({"limit": 500, "with_body": true})).await?;
     assert_eq!(result.content.len(), 1);
     let entries = first_block(&result);
-    assert_eq!(entries.as_array().map(Vec::len), Some(150));
+    assert_eq!(entries.as_array().map(Vec::len), Some(151));
     assert_eq!(entries[0]["item"]["title"], "Task 000");
     assert_eq!(entries[0]["item"]["body"], "Call Ana first.\n");
     assert_eq!(entries[1]["item"]["body"], "");
@@ -273,7 +275,7 @@ async fn writes_return_mutations_and_failures_return_error_schemas()
 -> Result<(), Box<dyn std::error::Error>> {
     let directory = fixture();
     let service = service(&directory).await?;
-    let arguments: Map<String, Value> = json!({"ref": "today-task", "state": "DONE"})
+    let arguments: Map<String, Value> = json!({"ref": "today-task", "todo": "DONE"})
         .as_object()
         .expect("arguments")
         .clone();
@@ -296,7 +298,7 @@ async fn writes_return_mutations_and_failures_return_error_schemas()
         );
     }
 
-    let arguments: Map<String, Value> = json!({"ref": "missing", "state": "DONE"})
+    let arguments: Map<String, Value> = json!({"ref": "missing", "todo": "DONE"})
         .as_object()
         .expect("arguments")
         .clone();
@@ -305,7 +307,7 @@ async fn writes_return_mutations_and_failures_return_error_schemas()
         .await?;
     let encoded = content_json(&result).to_string();
     assert!(encoded.contains("agd.error/v1"));
-    assert!(encoded.contains("stale_ref"));
+    assert!(encoded.contains("ref_conflict"));
     // A refused write is a tool error, so the client knows nothing changed.
     assert_eq!(result.is_error, Some(true));
     service.cancel().await?;
@@ -318,7 +320,7 @@ async fn bad_arguments_are_error_schemas_naming_the_argument()
     let directory = fixture();
     let service = service(&directory).await?;
 
-    let result = call(&service, "set_state", json!({"ref": 3, "state": "DONE"})).await?;
+    let result = call(&service, "set_state", json!({"ref": 3, "todo": "DONE"})).await?;
     assert_eq!(result.is_error, Some(true));
     let error = first_block(&result);
     assert_eq!(error["schema"], "agd.error/v1");
@@ -330,15 +332,24 @@ async fn bad_arguments_are_error_schemas_naming_the_argument()
     );
     // In the request's own order, required ones first.
     assert!(
-        message.ends_with("accepted arguments: ref (required), state (required), note"),
+        message.ends_with("accepted arguments: ref (required), todo (required), note"),
         "{message}"
     );
 
-    let result = call(&service, "capture", json!({"title": "Buy milk"})).await?;
+    let result = call(&service, "capture", json!({"template_key": "t"})).await?;
     assert_eq!(result.is_error, Some(true));
     let message = first_block(&result)["message"].to_string();
-    assert!(message.contains("missing field `template`"), "{message}");
+    assert!(message.contains("missing field `title`"), "{message}");
     assert_eq!(org_files(&directory), 1);
+
+    // Without a template, a capture goes through the first one.
+    let result = call(&service, "capture", json!({"title": "Buy milk"})).await?;
+    assert_eq!(result.is_error, Some(false), "{:?}", result.content);
+    assert!(
+        first_block(&result)["item"]["file"]
+            .as_str()
+            .is_some_and(|file| file.ends_with("inbox.org"))
+    );
     service.cancel().await?;
     Ok(())
 }
@@ -354,7 +365,7 @@ async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn 
     let result = call(
         &service,
         "capture",
-        json!({"template": "t", "title": "Buy milk", "due": "fri"}),
+        json!({"template_key": "t", "title": "Buy milk", "due": "fri"}),
     )
     .await?;
     assert_eq!(result.is_error, Some(true));
@@ -363,7 +374,7 @@ async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn 
     let message = error["message"].as_str().expect("message");
     assert_eq!(
         message,
-        "unknown argument `due`; accepted arguments: template (required), title (required), \
+        "unknown argument `due`; accepted arguments: template_key, title (required), \
          scheduled, deadline, tags, priority, body, prompts, properties"
     );
     assert_eq!(org_files(&directory), 1);
@@ -371,7 +382,7 @@ async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn 
     let result = call(
         &service,
         "edit",
-        json!({"ref": "today-task", "state": "DONE"}),
+        json!({"ref": "today-task", "todo": "DONE"}),
     )
     .await?;
     assert_eq!(first_block(&result)["code"], "invalid_arguments");
@@ -404,6 +415,7 @@ async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn 
 
 const VIEW_CONFIG: &str = r#"
 agenda_start_day = "-1d"
+agenda_span = "day"
 
 [[view]]
 key = "w"
@@ -493,7 +505,10 @@ async fn agenda_runs_views_and_profiles_from_agenda_start_day_as_the_cli_does()
     let result = call(&service, "agenda", json!({"view": "x"})).await?;
     let error = first_block(&result);
     assert_eq!(error["code"], "unknown_view");
-    assert_eq!(error["message"], "unknown view 'x'; configured views: w");
+    assert_eq!(
+        error["message"],
+        "unknown view 'x'; the views are 'w' and 'n'"
+    );
     let result = call(&service, "agenda", json!({"profile": "work"})).await?;
     assert_eq!(first_block(&result)["code"], "unknown_profile");
     service.cancel().await?;
@@ -527,7 +542,7 @@ template = "* TODO %?"
     let result = call(
         &service,
         "capture",
-        json!({"template": "w", "title": "Ship it", "deadline": "2026-10-30", "scheduled": "2026-10-28T09:00"}),
+        json!({"template_key": "w", "title": "Ship it", "deadline": "2026-10-30", "scheduled": "2026-10-28T09:00"}),
     )
     .await?;
     assert_eq!(result.is_error, Some(false), "{:?}", result.content);
@@ -553,7 +568,7 @@ template = "* TODO %?"
     let result = call(
         &service,
         "capture",
-        json!({"template": "i", "title": "Plain"}),
+        json!({"template_key": "i", "title": "Plain"}),
     )
     .await?;
     assert_eq!(first_block(&result).get("notes"), None);
@@ -594,7 +609,7 @@ template = "* TODO %?"
 key = "m"
 desc = "Meeting"
 file = "meetings.org"
-outline_path = ["Work", "Meetings"]
+olpath = ["Work", "Meetings"]
 template = "* MEET %^{Who} about %?\nSCHEDULED: %^{When}t"
 
 [[view]]
@@ -634,7 +649,10 @@ blocks = [{ kind = "tags-todo", match = "work" }]
                 "overrides": [{"sequences": ["OPEN | SHUT"], "files": null}]
             },
             "priorities": {"highest": "A", "lowest": "E", "default": "C"},
-            "views": [{"key": "w", "desc": "Work", "start": true}],
+            "views": [
+                {"key": "w", "desc": "Work", "start": true},
+                {"key": "n", "desc": "Agenda and all TODOs", "start": false}
+            ],
             "tags": ["phone", "proj", "work"],
             "date_grammar": "today, tomorrow, a weekday (fri), +2d (also +1w, +1m, +1y), 2026-10-30 or 2026-10-30T14:00"
         })
@@ -715,7 +733,7 @@ fn session_actor(messages: &[Value]) -> Result<(Vec<String>, Value), Box<dyn std
 fn set_state_call(id: u64, meta: Option<&Value>) -> Value {
     let mut params = json!({
         "name": "set_state",
-        "arguments": {"ref": "today-task", "state": "DONE"},
+        "arguments": {"ref": "today-task", "todo": "DONE"},
     });
     if let Some(meta) = meta {
         params["_meta"] = meta.clone();

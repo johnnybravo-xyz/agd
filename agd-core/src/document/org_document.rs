@@ -2,8 +2,8 @@
 //! exactly, with its headlines and the TODO keywords, logging, priorities, file
 //! tags and category its directives give.
 //!
-//! It refuses a file that is not UTF-8 (`non_utf8`) or that orgize would not
-//! round-trip byte for byte (`parse_drift`), so every span points into bytes
+//! It refuses a file that is not UTF-8 (`invalid_utf8`) or that orgize would
+//! not round-trip byte for byte (`parse_failed`), so every span points into bytes
 //! that are exactly the file's.
 
 use std::path::{Path, PathBuf};
@@ -37,7 +37,7 @@ impl OrgDocument {
     pub fn parse(path: PathBuf, bytes: Vec<u8>, settings: &Settings) -> Result<Self, AgdError> {
         let source = String::from_utf8(bytes).map_err(|error| {
             AgdError::with_source(
-                ErrorCode::NonUtf8,
+                ErrorCode::InvalidUtf8,
                 format!("org file is not UTF-8: {}", path.display()),
                 error,
             )
@@ -77,7 +77,7 @@ impl OrgDocument {
         let parsed = parse_config.parse(&source);
         if parsed.to_org() != source {
             return Err(AgdError::new(
-                ErrorCode::ParseDrift,
+                ErrorCode::ParseFailed,
                 format!(
                     "orgize changed bytes during a no-op round trip: {}",
                     path.display()

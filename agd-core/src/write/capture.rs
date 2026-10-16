@@ -23,6 +23,7 @@ use super::engine::{
     parse_updated_item,
 };
 use super::file::{read_org_file, refuse_emacs_lock};
+use super::journal::JournalOperation;
 use super::org_edit::align_tags;
 use super::patch::{apply_patches, changed_lines_patch, line_ending};
 use super::placement::{heading_line_starts, insert_capture_entry, place_capture};
@@ -58,24 +59,7 @@ impl WriteEngine {
         dry_run: bool,
         context: &WriteContext,
     ) -> Result<Mutation, AgdError> {
-        let template = self
-            .settings
-            .capture_template(template_key)
-            .ok_or_else(|| {
-                let keys: Vec<&str> = self
-                    .settings
-                    .captures
-                    .iter()
-                    .map(|t| t.key.as_str())
-                    .collect();
-                AgdError::new(
-                    ErrorCode::UnknownTemplate,
-                    format!(
-                        "capture template '{template_key}' is not configured; templates: {}",
-                        keys.join(", ")
-                    ),
-                )
-            })?;
+        let template = self.settings.find_capture_template(template_key)?;
         let (template, draft) = apply_agent_capture_gate(template, draft, &self.settings, context);
         validate_capture_input(&draft, body, prompts)?;
         let input = CaptureInput {
@@ -104,6 +88,7 @@ impl WriteEngine {
         let prepared = self.prepare_capture(&path, &input)?;
         let record = self.commit_image(
             prepared.file.journal_image(Some(&prepared.item.item_ref)),
+            JournalOperation::Capture,
             context,
         )?;
         Ok(mutation(prepared.item, prepared.file.diff, &record.id))
@@ -122,7 +107,7 @@ impl WriteEngine {
         }
         let file = template.file.as_deref().ok_or_else(|| {
             AgdError::new(
-                ErrorCode::UnsupportedTarget,
+                ErrorCode::InvalidTemplate,
                 format!(
                     "capture template '{}' names no file or id target",
                     template.key
@@ -247,7 +232,7 @@ fn capture_entry(rendered: &str, level: usize, newline: &str) -> Result<String, 
 }
 
 fn capture_id_error(template_key: &str, id: &str, error: AgdError) -> AgdError {
-    if error.code() == ErrorCode::DuplicateId.as_str() {
+    if error.code() == ErrorCode::IdConflict {
         return error;
     }
     AgdError::new(
@@ -308,6 +293,8 @@ mod tests {
             record.item_ref.as_deref(),
             Some(mutation.item.item_ref.as_str())
         );
+        assert_eq!(record.operation, Some(JournalOperation::Capture));
+        assert_eq!(record.operation_label(), "capture");
         assert_eq!(
             Path::new(&record.file),
             fs::canonicalize(temp.path().join("inbox.org")).unwrap()
@@ -329,7 +316,7 @@ mod tests {
         let error = engine
             .capture("t", &draft, "", &BTreeMap::new(), false, &context())
             .unwrap_err();
-        assert_eq!(error.code(), "missing_prompt");
+        assert_eq!(error.code().as_str(), "invalid_prompt");
         assert!(tree(org.path()).is_empty());
         assert!(tree(data.path()).is_empty());
     }

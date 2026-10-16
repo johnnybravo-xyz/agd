@@ -86,8 +86,9 @@ pub struct Settings {
     /// Absent, agents choose a template.
     pub agent_inbox: Option<String>,
     pub someday_tag: String,
-    /// Someday also removes SCHEDULED, so the task leaves the agenda.
-    pub someday_clears_scheduled: bool,
+    /// Someday also removes the dates that put the task on the agenda
+    /// (SCHEDULED, and an overdue DEADLINE), so it leaves the agenda.
+    pub someday_clears_dates: bool,
     /// Triage suggests Someday after this many reschedules.
     pub reschedule_nudge: usize,
 
@@ -177,15 +178,15 @@ pub struct CaptureTemplate {
     pub key: String,
     pub desc: String,
     /// The target, as org-capture's: `id` alone, or `file` alone
-    /// (file), with `heading` (file+headline) or with `outline_path`
+    /// (file), with `heading` (file+headline) or with `olpath`
     /// (file+olp). `datetree` goes with `file` alone (file+datetree) or with
-    /// `outline_path` (file+olp+datetree).
+    /// `olpath` (file+olp+datetree).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heading: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub outline_path: Option<Vec<String>>,
+    pub olpath: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -304,7 +305,7 @@ impl Default for Settings {
             start_view: String::new(),
             agent_inbox: None,
             someday_tag: "someday".to_string(),
-            someday_clears_scheduled: true,
+            someday_clears_dates: true,
             reschedule_nudge: 3,
             captures: vec![CaptureTemplate::default()],
             views: Vec::new(),
@@ -341,7 +342,7 @@ impl Default for CaptureTemplate {
             desc: "Todo".to_string(),
             file: Some("inbox.org".to_string()),
             heading: Some("Inbox".to_string()),
-            outline_path: None,
+            olpath: None,
             id: None,
             datetree: false,
             template: "* TODO %?\n:PROPERTIES:\n:CREATED: %U\n:END:".to_string(),
@@ -365,6 +366,82 @@ impl Settings {
 
     pub fn capture_template(&self, key: &str) -> Option<&CaptureTemplate> {
         self.captures.iter().find(|template| template.key == key)
+    }
+
+    /// The template a capture goes through when none is named: the first
+    /// `[[capture]]`. (An agent's capture then goes to `agent_inbox` when
+    /// it is set, as every agent capture does.)
+    pub fn default_capture_template(&self) -> Result<&CaptureTemplate, AgdError> {
+        self.captures.first().ok_or_else(|| {
+            AgdError::new(
+                ErrorCode::UnknownTemplate,
+                "no [[capture]] template is configured",
+            )
+        })
+    }
+
+    /// How a capture line names its template, the one rule for every
+    /// surface: the first word is the template key when it names a
+    /// `[[capture]]` and more text follows; otherwise the whole line is the
+    /// text for the default template. Returns the template and the text.
+    pub fn capture_line_template<'a>(
+        &self,
+        line: &'a str,
+    ) -> Result<(&CaptureTemplate, &'a str), AgdError> {
+        let line = line.trim();
+        if let Some((key, text)) = line.split_once(char::is_whitespace)
+            && let Some(template) = self.capture_template(key)
+        {
+            return Ok((template, text.trim_start()));
+        }
+        Ok((self.default_capture_template()?, line))
+    }
+
+    /// The template `key` names, or an `unknown_template` error that lists
+    /// the templates there are.
+    pub fn find_capture_template(&self, key: &str) -> Result<&CaptureTemplate, AgdError> {
+        self.capture_template(key).ok_or_else(|| {
+            let keys = self.captures.iter().map(|template| template.key.as_str());
+            let known = if self.captures.is_empty() {
+                "no [[capture]] template is configured".to_string()
+            } else {
+                format!("the templates are {}", quoted_list(keys))
+            };
+            AgdError::new(
+                ErrorCode::UnknownTemplate,
+                format!("unknown capture template '{key}'; {known}"),
+            )
+        })
+    }
+
+    /// The view `key` runs, or an `unknown_view` error that lists every
+    /// view, the built-in ones too.
+    pub fn find_view(&self, key: &str) -> Result<&ViewSettings, AgdError> {
+        self.view(key).ok_or_else(|| {
+            AgdError::new(
+                ErrorCode::UnknownView,
+                format!("unknown view '{key}'; the views are {}", self.view_keys()),
+            )
+        })
+    }
+
+    /// The view `agd agenda --view` without a key runs: start_view.
+    pub fn find_start_view(&self) -> Result<&ViewSettings, AgdError> {
+        if self.start_view.is_empty() {
+            return Err(AgdError::new(
+                ErrorCode::UnknownView,
+                format!(
+                    "--view without a key runs start_view, which is not set; name one of {}",
+                    self.view_keys()
+                ),
+            ));
+        }
+        self.find_view(&self.start_view)
+    }
+
+    /// Every view's key, quoted, for messages: `'w' and 'n'`.
+    pub(super) fn view_keys(&self) -> String {
+        quoted_list(self.all_views().iter().map(|view| view.key.as_str()))
     }
 
     /// The view `key` runs: the user's `[[view]]`, else a built-in one.
@@ -393,6 +470,42 @@ impl Settings {
             .find(|profile| profile.name == name)
     }
 
+    /// Narrows these settings to `[[agent_profile]]` `name`, as `agd
+    /// agenda --profile` and MCP `agenda` do: its files replace
+    /// agenda_files, and its match is the match unless `match_expression`
+    /// gives one, which this returns.
+    pub fn apply_agent_profile(
+        &mut self,
+        name: &str,
+        match_expression: Option<String>,
+    ) -> Result<Option<String>, AgdError> {
+        let profile = self.find_agent_profile(name)?.clone();
+        if !profile.files.is_empty() {
+            self.agenda_files = profile.files;
+        }
+        Ok(match_expression.or(profile.match_expression))
+    }
+
+    /// The `[[agent_profile]]` `name` names, or an `unknown_profile` error
+    /// that lists the profiles there are.
+    pub fn find_agent_profile(&self, name: &str) -> Result<&AgentProfile, AgdError> {
+        self.agent_profile(name).ok_or_else(|| {
+            let names = self
+                .agent_profiles
+                .iter()
+                .map(|profile| profile.name.as_str());
+            let known = if self.agent_profiles.is_empty() {
+                "no [[agent_profile]] is configured".to_string()
+            } else {
+                format!("the profiles are {}", quoted_list(names))
+            };
+            AgdError::new(
+                ErrorCode::UnknownProfile,
+                format!("unknown agent profile '{name}'; {known}"),
+            )
+        })
+    }
+
     /// The editor program and its arguments with `{file}`, `{line}` and
     /// `{col}` (both 1-based) substituted inside each argument. The result
     /// goes straight to the process API, never to a shell, so file names
@@ -406,6 +519,17 @@ impl Settings {
         });
         let program = parts.next().unwrap_or_else(|| "vi".to_string());
         (program, parts.collect())
+    }
+}
+
+/// Names for a message, each in single quotes: `'a'`, `'a' and 'b'`,
+/// `'a', 'b' and 'c'`.
+pub(crate) fn quoted_list<'a>(names: impl IntoIterator<Item = &'a str>) -> String {
+    let quoted: Vec<String> = names.into_iter().map(|name| format!("'{name}'")).collect();
+    match quoted.split_last() {
+        None => String::new(),
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
     }
 }
 
@@ -437,10 +561,7 @@ where
 /// an offset from `today` such as -1d or +2w, or what `parse_date_input`
 /// reads, such as "fri".
 pub fn parse_agenda_day(value: &str, today: NaiveDate) -> Result<NaiveDate, AgdError> {
-    crate::parse_date_input(value, today)?
-        .date
-        .parse::<NaiveDate>()
-        .map_err(|_| AgdError::new(ErrorCode::InvalidDate, format!("invalid date: {value}")))
+    crate::date::parse_org_date(&crate::parse_date_input(value, today)?.date)
 }
 
 #[cfg(test)]
@@ -464,6 +585,80 @@ mod tests {
                 strings(&["-n", "+42:1", "/org/my tasks.org"])
             )
         );
+    }
+
+    #[test]
+    fn a_capture_line_names_its_template_only_with_text_after_the_key() {
+        let settings = Settings {
+            captures: vec![
+                CaptureTemplate::default(),
+                CaptureTemplate {
+                    key: "n".to_string(),
+                    ..CaptureTemplate::default()
+                },
+            ],
+            ..Settings::default()
+        };
+        let read = |line: &str| {
+            let (template, text) = settings.capture_line_template(line).unwrap();
+            (template.key.clone(), text.to_string())
+        };
+        assert_eq!(
+            read("n Call back"),
+            ("n".to_string(), "Call back".to_string())
+        );
+        assert_eq!(
+            read("Renew passport"),
+            ("t".to_string(), "Renew passport".to_string())
+        );
+        assert_eq!(read("n"), ("t".to_string(), "n".to_string()));
+        assert_eq!(
+            read("x -1 point"),
+            ("t".to_string(), "x -1 point".to_string())
+        );
+    }
+
+    #[test]
+    fn unknown_names_list_what_is_configured_or_say_nothing_is() {
+        let settings = Settings {
+            agent_profiles: vec![AgentProfile {
+                name: "coding".to_string(),
+                ..AgentProfile::default()
+            }],
+            ..Settings::default()
+        };
+        let message = |error: AgdError| (error.code(), error.to_string());
+        assert_eq!(
+            message(settings.find_view("x").unwrap_err()),
+            (
+                ErrorCode::UnknownView,
+                "unknown view 'x'; the views are 'n'".to_string()
+            )
+        );
+        assert_eq!(
+            message(settings.find_start_view().unwrap_err()).1,
+            "--view without a key runs start_view, which is not set; name one of 'n'"
+        );
+        assert_eq!(
+            message(settings.find_agent_profile("x").unwrap_err()).1,
+            "unknown agent profile 'x'; the profiles are 'coding'"
+        );
+        assert_eq!(
+            message(Settings::default().find_agent_profile("x").unwrap_err()).1,
+            "unknown agent profile 'x'; no [[agent_profile]] is configured"
+        );
+        let none = Settings {
+            captures: Vec::new(),
+            ..Settings::default()
+        };
+        assert_eq!(
+            message(none.find_capture_template("t").unwrap_err()),
+            (
+                ErrorCode::UnknownTemplate,
+                "unknown capture template 't'; no [[capture]] template is configured".to_string()
+            )
+        );
+        assert_eq!(quoted_list(["a", "b", "c"]), "'a', 'b' and 'c'");
     }
 
     #[test]

@@ -9,14 +9,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use agd_core::{
-    AgdError, AgendaEngine, AgendaQuery, AgendaSpan, CaptureDraft, Change, EditIntent, ITEM_SCHEMA,
-    PlanningTimestamp, ViewSection, WorkspaceIndex, WriteContext, WriteEngine, parse_date_input,
+    AgdError, AgendaEngine, AgendaQuery, AgendaSpan, CaptureDraft, Change, EditIntent, ErrorCode,
+    ITEM_SCHEMA, PlanningTimestamp, ViewSection, WorkspaceIndex, WriteContext, WriteEngine,
+    agent_actor, parse_date_change, parse_date_input,
 };
 use chrono::{Local, NaiveDate};
 use rmcp::{
     ErrorData as McpError, RoleServer,
     handler::server::tool::schema_for_input,
-    model::{CallToolResult, ContentBlock, ErrorCode, JsonObject},
+    model::{CallToolResult, ContentBlock, ErrorCode as McpErrorCode, JsonObject},
     schemars::{self, JsonSchema},
     service::RequestContext,
     tool, tool_router,
@@ -36,7 +37,8 @@ use crate::mcp::{OrgModeRouter, describe};
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AgendaRequest {
-    /// day, week or month; defaults to day.
+    /// day, week, month or a number of days; defaults to the configured
+    /// agenda_span, as `agd agenda` does.
     span: Option<String>,
     /// First day: today, tomorrow, a weekday (fri), +2d (also +1w, +1m,
     /// +1y) or 2026-10-30; defaults to the configured agenda_start_day,
@@ -70,9 +72,9 @@ struct AgendaRequest {
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CaptureRequest {
-    /// Capture template key from the configuration, such as `t`;
-    /// `describe` lists the templates.
-    template: String,
+    /// Capture template key from the configuration; left out, the first
+    /// template. `describe` lists the templates.
+    template_key: Option<String>,
     /// Heading text, taken literally.
     title: String,
     /// SCHEDULED date: today, tomorrow, a weekday (fri), +2d (also +1w,
@@ -109,7 +111,7 @@ struct SetStateRequest {
     item_ref: String,
     /// A TODO keyword of the item's file (its #+TODO line, else the
     /// configured todo_keywords), such as DONE; `describe` lists them.
-    state: String,
+    todo: String,
     /// Note logged with the state change.
     note: Option<String>,
 }
@@ -191,7 +193,7 @@ const DEFAULT_LIMIT: usize = 100;
 impl OrgModeRouter {
     #[tool(
         name = "agenda",
-        description = "Return agd.agenda-entry/v1 rows for today, or a span, or a saved view's sections",
+        description = "Return agd.agenda-entry/v1 rows for the configured agenda_span, or a given span, or a saved view's sections",
         input_schema = input_schema::<AgendaRequest>(),
         annotations(read_only_hint = true)
     )]
@@ -233,7 +235,7 @@ impl OrgModeRouter {
         tool_result(
             parse_arguments::<SetStateRequest>(arguments).and_then(|request| {
                 let intent = EditIntent {
-                    state: Change::Set(request.state),
+                    state: Change::Set(request.todo),
                     note: request.note,
                     ..EditIntent::default()
                 };
@@ -333,7 +335,11 @@ fn agenda(settings: &agd_core::Settings, request: AgendaRequest) -> Result<Rows,
         let (shown, total) = truncate_sections(&mut sections, limit);
         return Rows::new(&sections, shown, total, bodies);
     }
-    let (from, to) = agenda_span(request.span.as_deref())?.bounds(start, settings.week_start);
+    let span = match request.span.as_deref() {
+        Some(span) => span.parse::<AgendaSpan>()?,
+        None => settings.agenda_span,
+    };
+    let (from, to) = span.bounds(start, settings.week_start);
     let mut entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
         from,
         to,
@@ -353,17 +359,10 @@ fn with_profile(
     request: &AgendaRequest,
 ) -> Result<(agd_core::Settings, Option<String>), AgdError> {
     let mut settings = settings.clone();
-    let mut match_expression = request.match_expression.clone();
-    if let Some(name) = request.profile.as_deref() {
-        let profile = settings
-            .agent_profile(name)
-            .cloned()
-            .ok_or_else(|| unknown_profile(&settings, name))?;
-        if !profile.files.is_empty() {
-            settings.agenda_files = profile.files;
-        }
-        match_expression = match_expression.or(profile.match_expression);
-    }
+    let match_expression = match request.profile.as_deref() {
+        Some(name) => settings.apply_agent_profile(name, request.match_expression.clone())?,
+        None => request.match_expression.clone(),
+    };
     Ok((settings, match_expression))
 }
 
@@ -379,11 +378,6 @@ fn start_day(
     }
 }
 
-/// The call's span; a day when it gives none.
-fn agenda_span(span: Option<&str>) -> Result<AgendaSpan, AgdError> {
-    span.map_or(Ok(AgendaSpan::Day), str::parse)
-}
-
 /// The saved view `key` names. A view runs its own spans and matches, so a
 /// call that also gives span or match is refused rather than half obeyed.
 fn view_settings<'a>(
@@ -393,43 +387,11 @@ fn view_settings<'a>(
 ) -> Result<&'a agd_core::ViewSettings, AgdError> {
     if request.span.is_some() || request.match_expression.is_some() {
         return Err(AgdError::new(
-            "invalid_arguments",
+            ErrorCode::InvalidArguments,
             "a view runs its own spans and matches; leave span and match out",
         ));
     }
-    settings.view(key).ok_or_else(|| {
-        let keys: Vec<&str> = settings
-            .views
-            .iter()
-            .map(|view| view.key.as_str())
-            .collect();
-        AgdError::new(
-            "unknown_view",
-            format!(
-                "unknown view '{key}'; configured views: {}",
-                keys.join(", ")
-            ),
-        )
-    })
-}
-
-fn unknown_profile(settings: &agd_core::Settings, name: &str) -> AgdError {
-    let names: Vec<&str> = settings
-        .agent_profiles
-        .iter()
-        .map(|profile| profile.name.as_str())
-        .collect();
-    AgdError::new(
-        "unknown_profile",
-        if names.is_empty() {
-            format!("unknown agent profile '{name}'; config.toml has no [[agent_profile]]")
-        } else {
-            format!(
-                "unknown agent profile '{name}'; configured profiles: {}",
-                names.join(", ")
-            )
-        },
-    )
+    settings.find_view(key)
 }
 
 /// Cuts a view to `limit` rows in display order (each section's entries
@@ -490,7 +452,11 @@ impl Rows {
         bodies: Option<&WorkspaceIndex>,
     ) -> Result<Self, AgdError> {
         let mut json = serde_json::to_value(rows).map_err(|error| {
-            AgdError::with_source("internal", "cannot encode the rows as JSON", error)
+            AgdError::with_source(
+                ErrorCode::EncodeFailed,
+                "cannot encode the rows as JSON",
+                error,
+            )
         })?;
         if let Some(index) = bodies {
             add_bodies(&mut json, index);
@@ -551,8 +517,12 @@ fn capture(
         priority: request.priority,
         properties: request.properties,
     };
+    let template = match request.template_key.as_deref() {
+        Some(key) => settings.find_capture_template(key)?,
+        None => settings.default_capture_template()?,
+    };
     let mutation = WriteEngine::with_default_journal(settings.clone())?.capture(
-        &request.template,
+        &template.key,
         &draft,
         &request.body,
         &request.prompts,
@@ -560,9 +530,13 @@ fn capture(
         context,
     )?;
     let mut json = serde_json::to_value(mutation).map_err(|error| {
-        AgdError::with_source("internal", "cannot encode the mutation as JSON", error)
+        AgdError::with_source(
+            ErrorCode::EncodeFailed,
+            "cannot encode the mutation as JSON",
+            error,
+        )
     })?;
-    let notes = inbox_notes(settings, &request.template, &draft);
+    let notes = inbox_notes(settings, &template.key, &draft);
     if !notes.is_empty() {
         json["notes"] = Value::from(notes);
     }
@@ -609,7 +583,7 @@ fn plan(
 ) -> Result<agd_core::Mutation, AgdError> {
     if request.scheduled.is_none() && request.deadline.is_none() {
         return Err(AgdError::new(
-            "invalid_plan",
+            ErrorCode::InvalidPlan,
             "scheduled or deadline is required",
         ));
     }
@@ -624,16 +598,12 @@ fn plan(
 }
 
 /// A `plan` date argument: left out keeps the date, `none` removes it, and
-/// anything else is a date to set.
+/// anything else is a date to set (parse_date_change).
 fn planning_change(
     value: Option<&str>,
     today: NaiveDate,
 ) -> Result<Change<PlanningTimestamp>, AgdError> {
-    match value {
-        None => Ok(Change::Keep),
-        Some(value) if value.trim().eq_ignore_ascii_case("none") => Ok(Change::Clear),
-        Some(value) => parse_date_input(value, today).map(Change::Set),
-    }
+    value.map_or(Ok(Change::Keep), |value| parse_date_change(value, today))
 }
 
 fn edit(
@@ -690,7 +660,7 @@ fn parse_arguments<T: DeserializeOwned + JsonSchema + 'static>(
         }
     };
     Err(AgdError::new(
-        "invalid_arguments",
+        ErrorCode::InvalidArguments,
         format!(
             "{problem}; accepted arguments: {}",
             accepted_arguments(&schema)
@@ -774,7 +744,7 @@ fn rows_result(result: Result<Rows, AgdError>) -> Result<CallToolResult, McpErro
 
 fn json_block(value: impl Serialize) -> Result<ContentBlock, McpError> {
     ContentBlock::json(value).map_err(|error| McpError {
-        code: ErrorCode::INTERNAL_ERROR,
+        code: McpErrorCode::INTERNAL_ERROR,
         message: format!("cannot serialize schema response: {error}").into(),
         data: None,
     })
@@ -798,19 +768,9 @@ fn write_context(context: &RequestContext<RoleServer>, project: &str) -> WriteCo
     WriteContext {
         actor: context
             .client_info()
-            .map(|info| actor(&info.name))
-            .unwrap_or_else(|| "mcp:unknown".to_string()),
+            .map(|info| agent_actor(&info.name))
+            .unwrap_or_else(|| agent_actor("unknown")),
         project: project.to_string(),
         now: None,
     }
-}
-
-/// `mcp:<client name>`, without the "-mcp-client" suffix Codex sends
-/// (`codex-mcp-client` is `mcp:codex`); other names are kept as sent.
-fn actor(client_name: &str) -> String {
-    let name = client_name
-        .strip_suffix("-mcp-client")
-        .filter(|name| !name.is_empty())
-        .unwrap_or(client_name);
-    format!("mcp:{name}")
 }

@@ -1,0 +1,4 @@
+hours,Seven; a plain timestamp,timestamp,,,2026-10-13,7:05......,,,1000,2026-10-13
+hours,Eight; two digits,scheduled,TODO,,2026-10-13,8:00......,Scheduled:,,1000,2026-10-13
+hours,Half past nine; one digit,scheduled,TODO,,2026-10-13,9:30-10:15,Scheduled:,,1000,2026-10-13
+hours,Ten o'clock,scheduled,TODO,,2026-10-13,10:00......,Scheduled:,,1000,2026-10-13

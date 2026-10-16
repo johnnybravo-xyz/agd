@@ -205,7 +205,7 @@ impl App {
             let unchanged = targets.len() > 1
                 && matches!(
                     engine.edit(&item_ref, &intent, true, &write_context()),
-                    Err(error) if error.code() == "no_change"
+                    Err(error) if error.code() == ErrorCode::InvalidEdit
                 );
             if !unchanged {
                 edits.push(ItemEdit {
@@ -215,7 +215,9 @@ impl App {
             }
         }
         if edits.is_empty() {
-            return Err(AgdError::new("no_change", "edit does not change the items").into());
+            return Err(
+                AgdError::new(ErrorCode::InvalidEdit, "edit does not change the items").into(),
+            );
         }
         let batch = engine.edit_batch(&edits, false, &write_context())?;
         let files: BTreeSet<String> = batch
@@ -445,7 +447,9 @@ impl App {
         let unchanged = edit.unchanged;
         self.edit_targets(edit.intent, edit.outcome, &edit.label)
             .map_err(|error| match error.downcast_ref::<AgdError>() {
-                Some(refused) if refused.code() == "no_change" => anyhow::Error::msg(unchanged),
+                Some(refused) if refused.code() == ErrorCode::InvalidEdit => {
+                    anyhow::Error::msg(unchanged)
+                }
                 _ => error,
             })
     }
@@ -486,7 +490,7 @@ impl App {
     /// to be overdue.
     pub(super) fn someday(&mut self) -> Result<()> {
         let tag = self.settings.someday_tag.clone();
-        let clears = self.settings.someday_clears_scheduled;
+        let clears = self.settings.someday_clears_dates;
         let overdue_deadline = self.marks.is_empty()
             && self.selected_row().is_some_and(|row| {
                 row.occurrence
@@ -624,7 +628,7 @@ impl App {
                     changing += 1;
                     first.get_or_insert_with(|| super::edit::changed_lines(&mutation.diff));
                 }
-                Err(error) if error.code() == "no_change" => {}
+                Err(error) if error.code() == ErrorCode::InvalidEdit => {}
                 Err(error) => return Err(words::error_sentence(&error)),
             }
         }
@@ -822,7 +826,7 @@ impl App {
         let result = WriteEngine::with_default_journal(self.settings.clone())?
             .undo(&id, &write_context())
             .map_err(|error| {
-                if error.code() == ErrorCode::UndoConflict.as_str() {
+                if error.code() == ErrorCode::UndoConflict {
                     AgdError::new(
                         ErrorCode::UndoConflict,
                         format!("{error} or press ⏎ to open it"),

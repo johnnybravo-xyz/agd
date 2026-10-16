@@ -7,16 +7,21 @@
 //! Ordering is `sort`'s, repeaters `repeat`'s, matching `matcher`'s, views
 //! `view`'s and org-ql `query`'s. The engine only reads the index it is given.
 
+use std::collections::BTreeSet;
+use std::path::Path;
+
 use chrono::{Duration, NaiveDate};
 
+use crate::date::parse_org_date;
+use crate::write::{CaptureTarget, find_olpath, heading_titled};
 use crate::{
-    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ErrorCode, HeadlineSpan, Item, Occurrence,
-    OccurrenceType, WorkspaceIndex,
+    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, CaptureTemplate, ErrorCode, HeadlineSpan,
+    IndexedDocument, Item, Occurrence, OccurrenceType, WorkspaceIndex,
 };
 
 use super::matcher::{TagTodoMatcher, matcher_now};
 use super::repeat::{planning_dates, repeated_dates};
-use super::sort::{compare_by_strategy, compare_items, keyword_name, urgency};
+use super::sort::{compare_by_strategy, compare_items, urgency};
 
 #[derive(Clone, Debug)]
 pub struct AgendaQuery {
@@ -68,7 +73,7 @@ impl<'a> AgendaEngine<'a> {
                 }
                 let occurrences = self.occurrences(headline, query).map_err(|error| {
                     AgdError::new(
-                        error.code().to_string(),
+                        error.code(),
                         format!("{}:{}: {error}", headline.item.file, headline.item.line),
                     )
                 })?;
@@ -81,14 +86,10 @@ impl<'a> AgendaEngine<'a> {
             .into_iter()
             .map(|entry| (urgency(&entry, query.today, self.index), entry))
             .collect();
-        let todo_order: Vec<String> = self
-            .index
-            .settings()
-            .todo_keywords
-            .iter()
-            .flat_map(|line| line.split_whitespace())
-            .filter(|keyword| *keyword != "|")
-            .map(|keyword| keyword_name(keyword).to_string())
+        // The configured keywords in order, as a file without #+TODO reads them.
+        let todo_order: Vec<String> = crate::document::todo_keywords("", self.index.settings())
+            .into_iter()
+            .map(|keyword| keyword.name)
             .collect();
         keyed.sort_by(|left, right| {
             left.1
@@ -122,37 +123,67 @@ impl<'a> AgendaEngine<'a> {
         Ok(items)
     }
 
-    /// Unfinished headings in an inbox: under a heading named Inbox, or in a
-    /// file or category named inbox. Containers without a TODO keyword that have
-    /// children are left out.
+    /// The inbox: unfinished entries where captures land, in file and
+    /// buffer order. For each `[[capture]]` template (`agent_inbox` is one
+    /// of them) that is the direct children of its target heading
+    /// (`heading`, `olpath` or `id`), or the top-level entries of a
+    /// file it targets as a whole. A `datetree` target files entries by
+    /// date, a log rather than an inbox, so it is left out.
     pub fn inbox(&self) -> Vec<Item> {
-        let mut items = Vec::new();
-        for document in self.index.documents() {
-            let in_inbox_file = document
-                .path()
-                .file_stem()
-                .is_some_and(|stem| stem.eq_ignore_ascii_case("inbox"));
-            for headline in document.headlines() {
-                let item = &headline.item;
-                let ancestors = &item.olpath[..item.olpath.len().saturating_sub(1)];
-                let under_inbox = ancestors
-                    .iter()
-                    .any(|heading| heading.eq_ignore_ascii_case("inbox"));
-                let leaf = headline.subtree_span.end == headline.section_span.end;
-                // Top-level headings without a keyword in an inbox file are
-                // its sections (Tasks, Notes, Bookmarks), not items.
-                let container = in_inbox_file && headline.level == 1 && item.todo.is_none();
-                if !item.done
-                    && !container
-                    && (under_inbox || in_inbox_file || item.category.eq_ignore_ascii_case("inbox"))
-                    && (item.todo.is_some() || leaf)
-                    && !item.title.eq_ignore_ascii_case("inbox")
-                {
-                    items.push(item.clone());
+        let mut landed: BTreeSet<(&Path, usize)> = BTreeSet::new();
+        for template in &self.index.settings().captures {
+            if template.datetree {
+                continue;
+            }
+            if let Some((document, parent)) = self.capture_target(template) {
+                let level = parent.map_or(1, |parent| parent.level + 1);
+                let region = parent.map_or(0..document.source().len(), |parent| {
+                    parent.subtree_span.start..parent.subtree_span.end
+                });
+                for headline in document.headlines() {
+                    if headline.level == level && region.contains(&headline.line_span.start) {
+                        landed.insert((document.path(), headline.item.line));
+                    }
                 }
             }
         }
-        items
+        self.headlines()
+            .filter(|headline| {
+                !headline.item.done
+                    && landed.contains(&(Path::new(&headline.item.file), headline.item.line))
+            })
+            .map(|headline| headline.item.clone())
+            .collect()
+    }
+
+    /// The document a template captures into and the heading its entries go
+    /// under (None for a whole-file target), as the index reads them now;
+    /// None when the target is missing, as a capture would find it.
+    fn capture_target(
+        &self,
+        template: &CaptureTemplate,
+    ) -> Option<(&IndexedDocument, Option<&HeadlineSpan>)> {
+        if let CaptureTarget::Id(id) = CaptureTarget::of(template) {
+            let (document, headline) = self.index.resolve(&id).ok()?;
+            return Some((document, Some(headline)));
+        }
+        let file = shellexpand::tilde(template.file.as_deref()?).into_owned();
+        let path = self.index.roots().resolve_read(Path::new(&file)).ok()?;
+        let document = self.index.document(&path)?;
+        let parent = match CaptureTarget::of(template) {
+            CaptureTarget::File | CaptureTarget::Id(_) => None,
+            CaptureTarget::Heading(title) => Some(heading_titled(document, &title)?),
+            CaptureTarget::OutlinePath(outline) => {
+                let start = find_olpath(document, &outline).ok()?;
+                Some(
+                    document
+                        .headlines()
+                        .iter()
+                        .find(|headline| headline.line_span.start == start)?,
+                )
+            }
+        };
+        Some((document, parent))
     }
 
     /// Every heading matching an Emacs tags match, done or not, like an
@@ -193,7 +224,7 @@ impl<'a> AgendaEngine<'a> {
         if !(item.done && settings.skip_scheduled_if_done)
             && let Some(scheduled) = &item.planning.scheduled
         {
-            let base = parse_date(&scheduled.date)?;
+            let base = parse_org_date(&scheduled.date)?;
             for date in planning_dates(scheduled, from, to, today, item.done)? {
                 entries.push(entry(
                     item,
@@ -204,12 +235,13 @@ impl<'a> AgendaEngine<'a> {
                 ));
             }
             if !item.done && base < today && today >= from && today <= to {
-                entries.push(entry(
+                let late = (today - base).num_days();
+                entries.push(reminder(
                     item,
                     OccurrenceType::PastScheduled,
                     today,
-                    (None, None),
-                    format!("Sched.{:>2}x:", (today - base).num_days()),
+                    format!("Sched.{late:>2}x:"),
+                    late,
                 ));
             }
         }
@@ -217,7 +249,7 @@ impl<'a> AgendaEngine<'a> {
         if !(item.done && settings.skip_deadline_if_done)
             && let Some(deadline) = &item.planning.deadline
         {
-            let base = parse_date(&deadline.date)?;
+            let base = parse_org_date(&deadline.date)?;
             for date in planning_dates(deadline, from, to, today, item.done)? {
                 entries.push(entry(
                     item,
@@ -230,25 +262,26 @@ impl<'a> AgendaEngine<'a> {
             let warning_days = deadline
                 .warning
                 .as_deref()
-                .and_then(parse_day_interval)
+                .and_then(warning_days)
                 .unwrap_or(settings.deadline_warning_days)
                 .max(0);
             if !item.done && today >= from && today <= to {
-                if base < today {
-                    entries.push(entry(
+                let late = (today - base).num_days();
+                if late > 0 {
+                    entries.push(reminder(
                         item,
                         OccurrenceType::Deadline,
                         today,
-                        (None, None),
-                        format!("{} d. ago:", (today - base).num_days()),
+                        format!("{late} d. ago:"),
+                        late,
                     ));
-                } else if base > today && (base - today).num_days() <= warning_days {
-                    entries.push(entry(
+                } else if late < 0 && -late <= warning_days {
+                    entries.push(reminder(
                         item,
                         OccurrenceType::UpcomingDeadline,
                         today,
-                        (None, None),
-                        format!("In {:>3} d.:", (base - today).num_days()),
+                        format!("In {:>3} d.:", -late),
+                        late,
                     ));
                 }
             }
@@ -257,7 +290,7 @@ impl<'a> AgendaEngine<'a> {
         if query.log_mode
             && let Some(closed) = &item.planning.closed
         {
-            let date = parse_date(&closed.date)?;
+            let date = parse_org_date(&closed.date)?;
             if date >= from && date <= to {
                 entries.push(entry(
                     item,
@@ -286,8 +319,8 @@ impl<'a> AgendaEngine<'a> {
                         .document(std::path::Path::new(&item.file))
                         .expect("headline document");
                     if document.source()[timestamp.span.end..end.span.start].trim() == "--" {
-                        let start_date = parse_date(&timestamp.timestamp.date)?;
-                        let end_date = parse_date(&end.timestamp.date)?;
+                        let start_date = parse_org_date(&timestamp.timestamp.date)?;
+                        let end_date = parse_org_date(&end.timestamp.date)?;
                         let total = (end_date - start_date).num_days() + 1;
                         for day in date_range(start_date.max(from), end_date.min(to)) {
                             let ordinal = (day - start_date).num_days() + 1;
@@ -329,6 +362,21 @@ impl<'a> AgendaEngine<'a> {
     }
 }
 
+/// A reminder row on today: a past-scheduled or missed deadline `days`
+/// late (a late row), or an upcoming deadline `-days` away.
+fn reminder(
+    item: &Item,
+    kind: OccurrenceType,
+    today: NaiveDate,
+    extra: String,
+    days: i64,
+) -> AgendaEntry {
+    let mut row = entry(item, kind, today, (None, None), extra);
+    row.occurrence.days = days;
+    row.occurrence.late = days > 0;
+    row
+}
+
 /// One agenda row on `date`; the time pair is the start time and, for a
 /// range such as `10:00-11:30`, the end time.
 fn entry(
@@ -347,19 +395,28 @@ fn entry(
             time,
             end_time,
             extra,
+            days: 0,
+            late: false,
         },
     }
 }
 
-fn parse_day_interval(input: &str) -> Option<i64> {
-    let value = input.strip_prefix('-')?;
-    let days = value.strip_suffix('d')?;
-    days.parse().ok()
-}
-
-pub(super) fn parse_date(input: &str) -> Result<NaiveDate, AgdError> {
-    NaiveDate::parse_from_str(input, "%Y-%m-%d")
-        .map_err(|_| AgdError::new(ErrorCode::InvalidDate, format!("invalid Org date: {input}")))
+/// A deadline's warning period in days, as org-get-wdays reads `-3d`,
+/// `-1w`, `-1m`, `-1y` or `-48h`: the count times the unit's days (a month
+/// is 30.4, a year 365.25, an hour 0.041667), rounded down.
+fn warning_days(warning: &str) -> Option<i64> {
+    let value = warning.trim_start_matches('-');
+    let unit = value.chars().last()?;
+    let factor = match unit {
+        'h' => 0.041667,
+        'd' => 1.0,
+        'w' => 7.0,
+        'm' => 30.4,
+        'y' => 365.25,
+        _ => return None,
+    };
+    let count: u32 = value[..value.len() - 1].parse().ok()?;
+    Some((f64::from(count) * factor).floor() as i64)
 }
 
 pub(super) fn date_range(start: NaiveDate, end: NaiveDate) -> impl Iterator<Item = NaiveDate> {
@@ -380,6 +437,60 @@ fn collection_rank(kind: OccurrenceType) -> u8 {
 mod tests {
     use super::*;
     use crate::agenda::test_support::fixture;
+    use crate::{CaptureTemplate, Settings};
+
+    #[test]
+    fn the_inbox_is_where_capture_templates_land() {
+        let temp = tempfile::tempdir().unwrap();
+        let write = |name: &str, text: &str| std::fs::write(temp.path().join(name), text).unwrap();
+        write(
+            "refile.org",
+            "* Refile\n** TODO Renew passport\n*** Notes under it\n** DONE Filed already\n",
+        );
+        write("work.org", "* Inbox\n** TODO Not a capture target\n");
+        write(
+            "projects.org",
+            "* Agd\n** Ideas\n*** Faster index\n* Other\n** Ideas\n*** Elsewhere\n",
+        );
+        write("notes.org", "* Loose note\n** Its detail\n");
+        write(
+            "journal.org",
+            "* 2026\n** 2026-10 October\n*** 2026-10-16 Friday\n**** Wrote\n",
+        );
+        let template = |key: &str, file: &str| CaptureTemplate {
+            key: key.to_string(),
+            file: Some(file.to_string()),
+            heading: None,
+            ..CaptureTemplate::default()
+        };
+        let settings = Settings {
+            roots: vec![temp.path().to_string_lossy().into_owned()],
+            agenda_files: vec!["*.org".to_string()],
+            captures: vec![
+                CaptureTemplate {
+                    heading: Some("Refile".to_string()),
+                    ..template("t", "refile.org")
+                },
+                CaptureTemplate {
+                    olpath: Some(vec!["Agd".to_string(), "Ideas".to_string()]),
+                    ..template("i", "projects.org")
+                },
+                template("n", "notes.org"),
+                CaptureTemplate {
+                    datetree: true,
+                    ..template("j", "journal.org")
+                },
+            ],
+            ..Settings::default()
+        };
+        let index = WorkspaceIndex::load(settings).unwrap();
+        let titles: Vec<String> = AgendaEngine::new(&index)
+            .inbox()
+            .into_iter()
+            .map(|item| item.title)
+            .collect();
+        assert_eq!(titles, ["Loose note", "Faster index", "Renew passport"]);
+    }
 
     #[test]
     fn expands_warnings_repeaters_ranges_and_past_scheduled() {

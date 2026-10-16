@@ -1,6 +1,6 @@
 //! The one-line capture syntax: `Renew passport due:fri +admin #A` read into a
-//! [`CaptureDraft`], with `due:` and `on:` dates in any [`parse_date_input`]
-//! form, `+tags`, and an uppercase `#A` priority.
+//! [`CaptureDraft`], with `due:` and `on:` dates as [`read_date`] reads them,
+//! `+tags`, and an uppercase `#A` priority.
 //!
 //! A token it does not recognize stays in the title (`+5`, `#42`, `#a`), so a
 //! line never loses text. Whether a priority is in the target file's range is
@@ -10,7 +10,9 @@ use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
 
-use crate::{AgdError, ErrorCode, PlanningTimestamp, parse_date_input};
+use crate::date::unsupported_date;
+use crate::document::is_org_tag;
+use crate::{AgdError, ErrorCode, PlanningTimestamp, read_date};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CaptureDraft {
@@ -23,10 +25,11 @@ pub struct CaptureDraft {
     pub properties: BTreeMap<String, String>,
 }
 
-/// Reads one capture line: `due:DATE` and `on:DATE` (any `parse_date_input`
-/// form, which may continue into the next words: `due:fri 9am`, `on:oct
-/// 30`), `+tag`, and `#A` for the priority. Every other token, including a
-/// digits-only `+5` and a lowercase `#a`, stays in the title.
+/// Reads one capture line: `due:DATE` and `on:DATE` (a date as
+/// [`read_date`] reads it, which may continue into the next words: `due:fri
+/// 9am`, `on:oct 30`, `due:2026-10-30 14:00 +1w -2d`), a tag (`+tag`) and a
+/// priority (`#A`). Every other token, including a digits-only `+5` and a
+/// lowercase `#a`, stays in the title.
 pub fn parse_capture_line(input: &str, today: NaiveDate) -> Result<CaptureDraft, AgdError> {
     let mut title = Vec::new();
     let mut scheduled = None;
@@ -36,7 +39,6 @@ pub fn parse_capture_line(input: &str, today: NaiveDate) -> Result<CaptureDraft,
     let tokens: Vec<&str> = input.split_whitespace().collect();
     let mut index = 0;
     while let Some(&token) = tokens.get(index) {
-        index += 1;
         let planning = if let Some(value) = token.strip_prefix("due:") {
             Some((value, &mut deadline))
         } else {
@@ -47,21 +49,22 @@ pub fn parse_capture_line(input: &str, today: NaiveDate) -> Result<CaptureDraft,
         if let Some((value, slot)) = planning
             && !value.is_empty()
         {
-            let (timestamp, taken) = capture_date(value, &tokens[index..], today)?;
+            let mut words = vec![value];
+            words.extend(&tokens[index + 1..]);
+            let (timestamp, taken) =
+                read_date(&words, today)?.ok_or_else(|| unsupported_date(value))?;
             *slot = Some(timestamp);
             index += taken;
-        } else if let Some(tag) = token.strip_prefix('+')
-            && valid_tag(tag)
-            && !tag.bytes().all(|byte| byte.is_ascii_digit())
-        {
+            continue;
+        }
+        if let Some(tag) = tag_token(token) {
             tags.push(tag.to_string());
-        } else if let Some(value) = token.strip_prefix('#')
-            && priority_cookie(value)
-        {
-            priority = Some(value.to_string());
+        } else if let Some(cookie) = priority_token(token) {
+            priority = Some(cookie.to_string());
         } else {
             title.push(token);
         }
+        index += 1;
     }
     let title = title.join(" ");
     if title.trim().is_empty() {
@@ -82,36 +85,19 @@ pub fn parse_capture_line(input: &str, today: NaiveDate) -> Result<CaptureDraft,
     })
 }
 
-/// A `due:`/`on:` token's date, with up to two following words when together
-/// they read as one date (`due:fri 9am`, `on:oct 30 14:00`); also returns
-/// how many following words it took.
-fn capture_date(
-    value: &str,
-    following: &[&str],
-    today: NaiveDate,
-) -> Result<(PlanningTimestamp, usize), AgdError> {
-    for taken in (1..=following.len().min(2)).rev() {
-        let words = format!("{value} {}", following[..taken].join(" "));
-        if let Ok(timestamp) = parse_date_input(&words, today) {
-            return Ok((timestamp, taken));
-        }
-    }
-    Ok((parse_date_input(value, today)?, 0))
+/// The tag a capture token names: `+admin` is `admin`. A digits-only `+5`
+/// and characters outside Org's tag characters stay title text.
+fn tag_token(token: &str) -> Option<&str> {
+    let tag = token.strip_prefix('+')?;
+    (is_org_tag(tag) && !tag.bytes().all(|byte| byte.is_ascii_digit())).then_some(tag)
 }
 
-fn valid_tag(tag: &str) -> bool {
-    !tag.is_empty()
-        && tag
-            .chars()
-            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
-}
-
-/// A capture line's priority cookie: one uppercase letter, as in `#A`. A
-/// number stays text, so `Fix #42` keeps its issue number; numeric
-/// priorities are set from the edit popup instead. Whether the letter is in
-/// the configured range is checked when the capture is written.
-fn priority_cookie(value: &str) -> bool {
-    value.len() == 1 && value.bytes().all(|byte| byte.is_ascii_uppercase())
+/// The priority a capture token names: one uppercase letter, as in `#A`.
+/// A number stays text, so `Fix #42` keeps its issue number. Whether the
+/// letter is in the file's range is checked when the capture is written.
+fn priority_token(token: &str) -> Option<&str> {
+    let cookie = token.strip_prefix('#')?;
+    (cookie.len() == 1 && cookie.bytes().all(|byte| byte.is_ascii_uppercase())).then_some(cookie)
 }
 
 #[cfg(test)]
@@ -158,6 +144,31 @@ mod tests {
         let draft = parse_capture_line("Plan due:fri 3 talks", today).unwrap();
         assert_eq!(draft.deadline.unwrap().date, "2026-10-16");
         assert_eq!(draft.title, "Plan 3 talks");
+    }
+
+    #[test]
+    fn a_capture_date_takes_its_repeater_and_warning_and_refuses_a_bad_time() {
+        let today = NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
+        let draft =
+            parse_capture_line("Pay rent due:2026-10-30 14:00 +1m -2d +home", today).unwrap();
+        assert_eq!(draft.title, "Pay rent");
+        assert_eq!(draft.tags, ["home"]);
+        let deadline = draft.deadline.unwrap();
+        assert_eq!(
+            (
+                deadline.time.as_deref(),
+                deadline.repeater.as_deref(),
+                deadline.warning.as_deref()
+            ),
+            (Some("14:00"), Some("+1m"), Some("-2d"))
+        );
+        let error = parse_capture_line("Call due:fri 25:00", today).unwrap_err();
+        assert_eq!(error.code(), ErrorCode::InvalidDate);
+        let error = parse_capture_line("Call due:someday", today).unwrap_err();
+        assert!(
+            error.to_string().contains("unsupported date 'someday'"),
+            "{error}"
+        );
     }
 
     #[test]

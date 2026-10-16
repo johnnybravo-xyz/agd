@@ -36,7 +36,7 @@ fn base_dir(
     if cfg!(windows) {
         return windows().ok_or_else(|| {
             AgdError::new(
-                ErrorCode::Config,
+                ErrorCode::InvalidConfig,
                 format!("cannot determine the Windows directory for {variable}"),
             )
         });
@@ -50,7 +50,7 @@ fn base_dir(
     }
     let home = dirs::home_dir().ok_or_else(|| {
         AgdError::new(
-            ErrorCode::Config,
+            ErrorCode::InvalidConfig,
             format!("cannot determine the home directory for ~/{home_relative}; set {variable}"),
         )
     })?;
@@ -79,8 +79,8 @@ impl SkipReason {
     /// The `agd setup check` problem code for this reason.
     pub fn code(&self) -> &'static str {
         match self {
-            Self::OutsideRoots => "outside_roots",
-            Self::Unreadable(_) => "read_error",
+            Self::OutsideRoots => ErrorCode::InvalidPath.as_str(),
+            Self::Unreadable(_) => ErrorCode::WalkFailed.as_str(),
         }
     }
 
@@ -115,14 +115,14 @@ impl RootSet {
             let canonical = PathBuf::from(&expanded).canonicalize().map_err(|error| {
                 AgdError::with_source(
                     ErrorCode::InvalidRoot,
-                    format!("cannot resolve approved root '{configured}': {error}"),
+                    format!("cannot resolve root '{configured}': {error}"),
                     error,
                 )
             })?;
             if !canonical.is_dir() {
                 return Err(AgdError::new(
                     ErrorCode::InvalidRoot,
-                    format!("approved root is not a directory: {configured}"),
+                    format!("root '{configured}' is not a directory"),
                 ));
             }
             roots.push(canonical);
@@ -132,7 +132,7 @@ impl RootSet {
         if roots.is_empty() {
             return Err(AgdError::new(
                 ErrorCode::InvalidRoot,
-                "at least one root is required",
+                "roots must contain at least one directory",
             ));
         }
         Ok(Self {
@@ -195,17 +195,14 @@ impl RootSet {
         }
         match matches.len() {
             0 => Err(AgdError::new(
-                ErrorCode::NotFound,
-                format!(
-                    "file is not present under an approved root: {}",
-                    requested.display()
-                ),
+                ErrorCode::FileNotFound,
+                format!("file is not under a root: {}", requested.display()),
             )),
             1 => Ok(matches.into_iter().next().expect("one path")),
             _ => Err(AgdError::new(
-                ErrorCode::AmbiguousPath,
+                ErrorCode::PathConflict,
                 format!(
-                    "relative path matches multiple approved roots: {}",
+                    "relative path matches more than one root: {}",
                     requested.display()
                 ),
             )),
@@ -229,24 +226,21 @@ impl RootSet {
                 [path] => path.clone(),
                 [] if create => {
                     return Err(AgdError::new(
-                        ErrorCode::AmbiguousPath,
+                        ErrorCode::PathConflict,
                         "capture into multiple roots requires an absolute target",
                     ));
                 }
                 [] => {
                     return Err(AgdError::new(
-                        ErrorCode::NotFound,
-                        format!(
-                            "file is not present under an approved root: {}",
-                            requested.display()
-                        ),
+                        ErrorCode::FileNotFound,
+                        format!("file is not under a root: {}", requested.display()),
                     ));
                 }
                 _ => {
                     return Err(AgdError::new(
-                        ErrorCode::AmbiguousPath,
+                        ErrorCode::PathConflict,
                         format!(
-                            "relative path matches multiple approved roots: {}",
+                            "relative path matches more than one root: {}",
                             requested.display()
                         ),
                     ));
@@ -258,7 +252,7 @@ impl RootSet {
             && metadata.file_type().is_symlink()
         {
             return Err(AgdError::new(
-                ErrorCode::SymlinkWriteRefused,
+                ErrorCode::InvalidPath,
                 format!("writes to symlinks are refused: {}", lexical.display()),
             ));
         }
@@ -278,8 +272,8 @@ impl RootSet {
         })?;
         if !self.contains(&canonical_parent) {
             return Err(AgdError::new(
-                ErrorCode::OutsideRoots,
-                format!("path escapes approved roots: {}", lexical.display()),
+                ErrorCode::InvalidPath,
+                format!("path is outside the roots: {}", lexical.display()),
             ));
         }
         if lexical.exists() && !lexical.is_file() {
@@ -362,7 +356,7 @@ impl RootSet {
                         }
                         None => {
                             return Err(AgdError::new(
-                                ErrorCode::WalkError,
+                                ErrorCode::WalkFailed,
                                 format!("cannot walk {}: {error}", root.display()),
                             ));
                         }
@@ -406,25 +400,25 @@ impl RootSet {
     }
 
     /// Containment is checked before the file itself is resolved, so a path
-    /// outside the roots is `outside_roots` whether or not it exists.
+    /// outside the roots is `invalid_path` whether or not it exists.
     fn validate_existing_read(&self, path: &Path) -> Result<PathBuf, AgdError> {
         if !self.contains(&resolve_existing_prefix(path)?) {
             return Err(AgdError::new(
-                ErrorCode::OutsideRoots,
-                format!("resolved path escapes approved roots: {}", path.display()),
+                ErrorCode::InvalidPath,
+                format!("resolved path is outside the roots: {}", path.display()),
             ));
         }
         let canonical = path.canonicalize().map_err(|error| {
             AgdError::with_source(
-                ErrorCode::NotFound,
+                ErrorCode::FileNotFound,
                 format!("cannot resolve file {}: {error}", path.display()),
                 error,
             )
         })?;
         if !self.contains(&canonical) {
             return Err(AgdError::new(
-                ErrorCode::OutsideRoots,
-                format!("resolved path escapes approved roots: {}", path.display()),
+                ErrorCode::InvalidPath,
+                format!("resolved path is outside the roots: {}", path.display()),
             ));
         }
         if !canonical.is_file() {
@@ -443,7 +437,7 @@ fn reject_parent_segments(path: &Path) -> Result<(), AgdError> {
         .any(|component| component == Component::ParentDir)
     {
         return Err(AgdError::new(
-            ErrorCode::PathTraversal,
+            ErrorCode::InvalidPath,
             format!("'..' is not allowed in paths: {}", path.display()),
         ));
     }
@@ -510,7 +504,7 @@ fn build_globset(patterns: &[String]) -> Result<GlobSet, AgdError> {
         if Path::new(pattern).is_absolute() {
             return Err(AgdError::new(
                 ErrorCode::InvalidAgendaPattern,
-                format!("agenda pattern must be relative to an approved root: {pattern}"),
+                format!("agenda pattern must be relative to a root: {pattern}"),
             ));
         }
         builder.add(Glob::new(pattern).map_err(|error| {
@@ -558,7 +552,7 @@ mod tests {
         let error = roots(&temp)
             .resolve_read(Path::new("../secret.org"))
             .unwrap_err();
-        assert_eq!(error.code(), "path_traversal");
+        assert_eq!(error.code().as_str(), "invalid_path");
     }
 
     #[test]
@@ -609,14 +603,14 @@ mod tests {
         let error = roots
             .resolve_write(Path::new("link.org"), false)
             .unwrap_err();
-        assert_eq!(error.code(), "symlink_write_refused");
+        assert_eq!(error.code().as_str(), "invalid_path");
 
         let outside = tempfile::tempdir().unwrap();
         let outside_file = outside.path().join("outside.org");
         std::fs::write(&outside_file, "* TODO Secret\n").unwrap();
         symlink(&outside_file, temp.path().join("escape.org")).unwrap();
         let error = roots.resolve_read(Path::new("escape.org")).unwrap_err();
-        assert_eq!(error.code(), "outside_roots");
+        assert_eq!(error.code().as_str(), "invalid_path");
     }
 
     #[cfg(unix)]
@@ -655,9 +649,9 @@ mod tests {
             assert_eq!(
                 skipped,
                 [
-                    (Path::new("dangling.org"), "read_error"),
-                    (Path::new("elsewhere"), "outside_roots"),
-                    (Path::new("escape.org"), "outside_roots"),
+                    (Path::new("dangling.org"), "walk_failed"),
+                    (Path::new("elsewhere"), "invalid_path"),
+                    (Path::new("escape.org"), "invalid_path"),
                 ]
             );
         }
@@ -675,11 +669,11 @@ mod tests {
             PathBuf::from("/no/such/file.org"),
         ] {
             let error = roots.resolve_read(&path).unwrap_err();
-            assert_eq!(error.code(), "outside_roots", "{}", path.display());
+            assert_eq!(error.code().as_str(), "invalid_path", "{}", path.display());
         }
         let error = roots
             .resolve_read(&temp.path().join("missing.org"))
             .unwrap_err();
-        assert_eq!(error.code(), "not_found");
+        assert_eq!(error.code().as_str(), "file_not_found");
     }
 }

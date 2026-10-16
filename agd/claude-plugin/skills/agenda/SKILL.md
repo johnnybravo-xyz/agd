@@ -8,9 +8,9 @@ Call `describe` once before writing: it lists the capture templates (and their p
 
 Read with `agenda` (today unless you pass `span`, `from` or a saved `view`) or `query` with org-ql, such as `(and (todo) (deadline :to 7))` for open tasks due within a week, overdue ones included. Reads return at most 100 rows; a second content block says how many were left out, so pass `limit` or narrow the query. Pass `with_body: true` only when you need an item's notes.
 
-Use `agenda` or `query` before changing an item, and keep the returned `ref`; every write revalidates it. A ref without an `:ID:` changes with every write, so use the `item.ref` the write returns. If a write returns `stale_ref`, read its `current` item and decide from that state instead of blindly retrying.
+Use `agenda` or `query` before changing an item, and keep the returned `ref`; every write revalidates it. A ref without an `:ID:` changes with every write, so use the `item.ref` the write returns. If a write returns `ref_conflict`, read its `current` item and decide from that state instead of blindly retrying.
 
-Use `capture` for a new task, with a template key from `describe`. The title and `body` are literal text, and the body is kept under the new heading. When the result carries `notes` (for example, agent captures go to an inbox without dates), tell the person what they say rather than what you asked for. Use `set_state` with one of the file's TODO keywords, `plan` for `scheduled` and `deadline` (`none` removes one), and `edit` for the title, tags, priority, properties or a note.
+Use `capture` for a new task, with a `template_key` from `describe` (left out, the first template). The title and `body` are literal text, and the body is kept under the new heading. When the result carries `notes` (for example, agent captures go to an inbox without dates), tell the person what they say rather than what you asked for. Use `set_state` with `todo` set to one of the file's TODO keywords, `plan` for `scheduled` and `deadline` (`none` removes one), and `edit` for the title, tags, priority, properties or a note.
 
 When a task comes from your work in a repository, pass `properties` such as `REPO`, `BRANCH` and `SOURCE` (an org link like `[[file:/path/to/file::42]]`) so the person can see where it came from.
 

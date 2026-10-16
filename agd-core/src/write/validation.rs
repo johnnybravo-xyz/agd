@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::document::is_org_tag;
 use crate::{AgdError, CaptureDraft, ErrorCode, HeadlineSpan, IndexedDocument, WorkspaceIndex};
 
 use super::edit::{Change, EditIntent};
@@ -47,7 +48,7 @@ pub(super) fn validate_id_change(
     match (&headline.item.id, requested) {
         (Some(current), Some(requested)) if current == requested => Ok(()),
         (Some(current), _) => Err(AgdError::new(
-            ErrorCode::IdImmutable,
+            ErrorCode::InvalidIdChange,
             format!(
                 "IDs are identity: links and refs point at ID '{current}', so it cannot be changed or removed"
             ),
@@ -61,7 +62,7 @@ pub(super) fn validate_id_change(
 pub(super) fn refuse_used_id(id: &str, index: &WorkspaceIndex) -> Result<(), AgdError> {
     if index.id_in_use(id) {
         return Err(AgdError::new(
-            ErrorCode::DuplicateId,
+            ErrorCode::IdConflict,
             format!("ID '{id}' is already used under the roots; IDs must be unique"),
         ));
     }
@@ -159,11 +160,7 @@ fn validate_title_keyword(title: &str, document: &IndexedDocument) -> Result<(),
 
 /// Org's tag characters: letters, digits, `_`, `@`, `#` and `%`.
 fn validate_tag(tag: &str) -> Result<(), AgdError> {
-    if tag.is_empty()
-        || !tag
-            .chars()
-            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%'))
-    {
+    if !is_org_tag(tag) {
         return Err(AgdError::new(
             ErrorCode::InvalidTag,
             format!("invalid tag '{tag}': use letters, digits, _, @, # or %"),
@@ -407,7 +404,7 @@ mod tests {
                 let error = engine
                     .edit(&item_ref, &intent, dry_run, &context())
                     .unwrap_err();
-                assert_eq!(error.code(), code, "{intent:?}");
+                assert_eq!(error.code().as_str(), code, "{intent:?}");
             }
         }
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
@@ -446,11 +443,11 @@ mod tests {
 
         assert_eq!(
             code(engine.edit("known-id", &set_id(Some("other")), false, &context())),
-            "id_immutable"
+            "invalid_id_change"
         );
         assert_eq!(
             code(engine.edit("known-id", &set_id(None), false, &context())),
-            "id_immutable"
+            "invalid_id_change"
         );
         let message = engine
             .edit("known-id", &set_id(None), false, &context())
@@ -460,7 +457,7 @@ mod tests {
         for used in ["known-id", "archived-id"] {
             assert_eq!(
                 code(engine.edit(&fresh, &set_id(Some(used)), false, &context())),
-                "duplicate_id"
+                "id_conflict"
             );
             let draft = CaptureDraft {
                 title: "Copy".to_string(),
@@ -469,7 +466,7 @@ mod tests {
             };
             assert_eq!(
                 code(engine.capture("t", &draft, "", &BTreeMap::new(), false, &context())),
-                "duplicate_id"
+                "id_conflict"
             );
         }
         assert_eq!(fs::read_to_string(&path).unwrap(), original);

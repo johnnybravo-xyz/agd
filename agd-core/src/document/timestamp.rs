@@ -42,12 +42,18 @@ pub fn parse_timestamp(input: &str) -> Option<PlanningTimestamp> {
         .map(str::to_string);
     Some(PlanningTimestamp {
         date: captures.get(1)?.as_str().to_string(),
-        time: captures.get(2).map(|matched| matched.as_str().to_string()),
-        end_time: captures.get(3).map(|matched| matched.as_str().to_string()),
+        time: captures.get(2).map(|matched| clock(matched.as_str())),
+        end_time: captures.get(3).map(|matched| clock(matched.as_str())),
         repeater,
         warning,
         raw: captures.get(0).map(|matched| matched.as_str().to_string()),
     })
+}
+
+/// A timestamp's time as the model gives every time: `HH:MM`, so `9:30` is
+/// `09:30`. The file's own text stays in `raw`.
+fn clock(time: &str) -> String {
+    format!("{time:0>5}")
 }
 
 // Org ignores timestamps in src/example/export/comment blocks, in
@@ -104,4 +110,20 @@ pub(super) fn scan_timestamps(source: &str, start: usize, end: usize) -> Vec<Tim
         }
     }
     found
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn times_read_as_hh_mm_and_raw_keeps_the_text() {
+        let timestamp = parse_timestamp("<2026-10-13 Tue 9:30-10:15 +1w>").unwrap();
+        assert_eq!(timestamp.time.as_deref(), Some("09:30"));
+        assert_eq!(timestamp.end_time.as_deref(), Some("10:15"));
+        assert_eq!(
+            timestamp.raw.as_deref(),
+            Some("<2026-10-13 Tue 9:30-10:15 +1w>")
+        );
+    }
 }

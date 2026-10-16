@@ -1,0 +1,6 @@
+Day-agenda (W42):
+Tuesday    13 October 2026
+  hours:       7:05...... Seven, a plain timestamp 
+  hours:       8:00...... Scheduled:  TODO Eight, two digits
+  hours:       9:30-10:15 Scheduled:  TODO Half past nine, one digit
+  hours:      10:00...... Scheduled:  TODO Ten o'clock

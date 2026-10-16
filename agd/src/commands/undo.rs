@@ -1,18 +1,14 @@
 use std::path::Path;
 
 use agd_core::{
-    AgdError, ErrorCode, JournalRecord, JournalStatus, RootSet, WorkspaceIndex, WriteContext,
-    WriteEngine, load_settings,
+    AgdError, ErrorCode, JournalRecord, JournalStatus, RootSet, WorkspaceIndex, WriteEngine,
+    load_settings,
 };
 use anyhow::Result;
 use clap::Args;
 
-use super::write_stdout;
+use super::{CLI_ACTOR, cli_context, write_stdout};
 use crate::words;
-
-/// The actor of every change the command line makes, `agd capture` and
-/// the Claude Code /capture command among them.
-const CLI: &str = "cli";
 
 #[derive(Args, Debug)]
 pub struct UndoCommand {
@@ -41,37 +37,27 @@ impl UndoCommand {
         // Newest first.
         let journal = engine.journal()?;
         let Some(record) = journal.iter().find(|record| {
-            record.actor == CLI
+            record.actor == CLI_ACTOR
                 && matches!(
                     record.status,
                     JournalStatus::Committed | JournalStatus::Reviewed
                 )
         }) else {
             return Err(AgdError::new(
-                ErrorCode::NothingToUndo,
+                ErrorCode::JournalNotFound,
                 "nothing to undo: no change made from the command line is still in effect",
             )
             .into());
         };
         // Named before the undo, while the file still holds the task.
         let sentence = undone_sentence(record, &settings);
-        let result = engine.undo(&record.id, &context())?;
+        let result = engine.undo(&record.id, &cli_context())?;
         let output = if self.json {
             format!("{}\n", serde_json::to_string_pretty(&result)?)
         } else {
             format!("{sentence}\n")
         };
         Ok(write_stdout(&output)?)
-    }
-}
-
-fn context() -> WriteContext {
-    WriteContext {
-        actor: CLI.to_string(),
-        project: std::env::current_dir()
-            .map(|path| path.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| "unknown".to_string()),
-        now: None,
     }
 }
 
@@ -98,12 +84,7 @@ fn undone_sentence(record: &JournalRecord, settings: &agd_core::Settings) -> Str
             .filter(|line| line.starts_with('*'))
             .collect::<Vec<_>>()
     };
-    // A heading added and none removed is a capture.
-    let change = if !added('+').is_empty() && added('-').is_empty() {
-        "undid capture"
-    } else {
-        "undid change"
-    };
+    let change = format!("undid {}", record.operation_label());
     let (title, location) = match &item {
         Some(item) => (
             item.title.clone(),
@@ -125,5 +106,5 @@ fn undone_sentence(record: &JournalRecord, settings: &agd_core::Settings) -> Str
             )
         }
     };
-    words::change(&location, change, &title)
+    words::change(&location, &change, &title)
 }

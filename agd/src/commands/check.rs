@@ -1,8 +1,7 @@
 use std::path::Path;
 
 use agd_core::{
-    CheckReport, JournalRecord, WriteContext, WriteEngine, check_settings, journal_problems,
-    load_settings,
+    CheckReport, JournalRecord, WriteEngine, check_settings, journal_problems, load_settings,
 };
 use anyhow::Result;
 use clap::Args;
@@ -29,7 +28,7 @@ impl CheckCommand {
         let engine = WriteEngine::with_default_journal(loaded.settings.clone())?;
         let mut output = String::new();
         if self.resolve {
-            let resolved = resolved_lines(&engine.resolve_conflicts(&check_context())?);
+            let resolved = resolved_lines(&engine.resolve_conflicts(&super::cli_context())?);
             // With --json, stdout stays the report.
             if self.json {
                 eprint!("{resolved}");
@@ -46,16 +45,6 @@ impl CheckCommand {
         }
         super::write_stdout(&output)?;
         Ok(report.has_errors())
-    }
-}
-
-fn check_context() -> WriteContext {
-    WriteContext {
-        actor: "cli".to_string(),
-        project: std::env::current_dir()
-            .map(|path| path.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| "unknown".to_string()),
-        now: None,
     }
 }
 

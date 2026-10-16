@@ -1,10 +1,9 @@
 use std::path::Path;
 
 use agd_core::{
-    AgdError, AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, JournalStatus, OccurrenceType,
-    Settings, VIEWS_SCHEMA, ViewSection, ViewSettings, WorkspaceIndex, WriteEngine, agenda_csv,
-    agenda_row, agenda_text, agenda_title, item_row, items_csv, keyword_colors, load_settings,
-    parse_agenda_day,
+    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, OccurrenceType, Settings, VIEWS_SCHEMA,
+    ViewSection, WorkspaceIndex, WriteEngine, agenda_csv, agenda_row, agenda_text, agenda_title,
+    item_row, items_csv, keyword_colors, load_settings, parse_agenda_day,
 };
 use anyhow::Result;
 
@@ -17,7 +16,7 @@ pub struct AgendaCommand {
     /// Days to show: day, week, month or a number of days; defaults to
     /// agenda_span from config.toml
     #[arg(long)]
-    span: Option<AgendaSpan>,
+    span: Option<String>,
     /// First day: a date (2026-10-13) or Org date-prompt syntax (fri, +2d,
     /// -1w, oct 30)
     #[arg(long, allow_hyphen_values = true)]
@@ -88,7 +87,7 @@ impl AgendaCommand {
             return Ok(write_stdout(&views_output(&settings, self.json)?)?);
         }
         let match_expression = match self.profile.as_deref() {
-            Some(name) => apply_profile(&mut settings, name, self.match_expression)?,
+            Some(name) => settings.apply_agent_profile(name, self.match_expression)?,
             None => self.match_expression,
         };
         let index = load_index(settings.clone())?;
@@ -103,7 +102,11 @@ impl AgendaCommand {
         };
         let color = !self.json && !self.csv && super::color_stdout();
         if let Some(key) = self.view.as_deref() {
-            let view = find_view(&settings, key)?;
+            let view = if key.is_empty() {
+                settings.find_start_view()?
+            } else {
+                settings.find_view(key)?
+            };
             let sections = AgendaEngine::new(&index).view(view, start, today, self.log)?;
             let mut output = view_output(&sections, self.json, self.csv, today, &index)?;
             if color {
@@ -112,7 +115,10 @@ impl AgendaCommand {
             }
             return Ok(write_stdout(&output)?);
         }
-        let span = self.span.unwrap_or(settings.agenda_span);
+        let span = match self.span.as_deref() {
+            Some(span) => span.parse::<AgendaSpan>()?,
+            None => settings.agenda_span,
+        };
         let (from, to) = span.bounds(start, settings.week_start);
         let entries = AgendaEngine::new(&index).agenda(&AgendaQuery {
             from,
@@ -151,17 +157,15 @@ struct RowFacts {
 }
 
 fn entry_row(entry: &AgendaEntry) -> RowFacts {
-    let extra = &entry.occurrence.extra;
-    let kind = entry.occurrence.kind;
     RowFacts {
         text: agenda_row(entry),
         done: entry.item.done,
-        late: kind == OccurrenceType::PastScheduled || extra.ends_with("ago:"),
+        late: entry.occurrence.late,
         due: matches!(
-            kind,
+            entry.occurrence.kind,
             OccurrenceType::Deadline | OccurrenceType::UpcomingDeadline
         ),
-        leader: extra.clone(),
+        leader: entry.occurrence.extra.clone(),
     }
 }
 
@@ -271,59 +275,6 @@ fn paint_row(line: &str, row: &RowFacts) -> String {
         after = format!("{}{FAINT}{}{RESET}", &after[..at], &after[at..]);
     }
     format!("{indent}{FAINT}{category}{RESET}{after}")
-}
-
-/// Applies a `[[agent_profile]]`: its files replace agenda_files, and its
-/// match is the match unless --match gives one.
-fn apply_profile(
-    settings: &mut Settings,
-    name: &str,
-    match_expression: Option<String>,
-) -> Result<Option<String>, AgdError> {
-    let profile = settings.agent_profile(name).cloned().ok_or_else(|| {
-        let names: Vec<&str> = settings
-            .agent_profiles
-            .iter()
-            .map(|profile| profile.name.as_str())
-            .collect();
-        AgdError::new(
-            "unknown_profile",
-            format!(
-                "unknown agent profile '{name}'; profiles: {}",
-                names.join(", ")
-            ),
-        )
-    })?;
-    if !profile.files.is_empty() {
-        settings.agenda_files = profile.files;
-    }
-    Ok(match_expression.or(profile.match_expression))
-}
-
-/// The view `--view KEY` names; an empty key is the configured start_view.
-fn find_view<'a>(settings: &'a Settings, key: &str) -> Result<&'a ViewSettings, AgdError> {
-    let key = if key.is_empty() {
-        if settings.start_view.is_empty() {
-            return Err(AgdError::new(
-                "no_start_view",
-                "--view without a key runs start_view, which is not set",
-            ));
-        }
-        settings.start_view.as_str()
-    } else {
-        key
-    };
-    settings.view(key).ok_or_else(|| {
-        let keys: Vec<&str> = settings
-            .all_views()
-            .iter()
-            .map(|view| view.key.as_str())
-            .collect();
-        AgdError::new(
-            "unknown_view",
-            format!("unknown view '{key}'; views: {}", keys.join(", ")),
-        )
-    })
 }
 
 /// A view's output: its sections as JSON, their CSV rows, or the text.
@@ -439,53 +390,11 @@ fn views_output(settings: &Settings, json: bool) -> Result<String> {
         .collect())
 }
 
-/// `3 overdue · 7 today · 4 inbox · 2 agents`, zero counts left out. Today
-/// counts what is scheduled, due or timestamped today; a deadline warning
-/// (`In 4 d.:`) is neither today nor overdue.
+/// The status band, `1 overdue · 3 today · 9 inbox · 2 unreviewed`, as the
+/// TUI's header and pane count it (AgendaEngine::summary).
 fn status_line(index: &WorkspaceIndex, settings: &Settings, today: NaiveDate) -> Result<String> {
-    let engine = AgendaEngine::new(index);
-    let entries = engine.agenda(&AgendaQuery {
-        from: today,
-        to: today,
-        today,
-        match_expression: None,
-        log_mode: false,
-    })?;
-    let overdue_kind = |entry: &AgendaEntry| {
-        entry.occurrence.kind == agd_core::OccurrenceType::PastScheduled
-            || entry.occurrence.extra.ends_with("ago:")
-    };
-    let mut overdue = std::collections::BTreeSet::new();
-    let mut open = std::collections::BTreeSet::new();
-    let counted = entries.iter().filter(|entry| {
-        !entry.item.done && entry.occurrence.kind != agd_core::OccurrenceType::UpcomingDeadline
-    });
-    for entry in counted {
-        if overdue_kind(entry) {
-            overdue.insert(&entry.item.item_ref);
-        } else {
-            open.insert(&entry.item.item_ref);
-        }
-    }
-    let agents = WriteEngine::with_default_journal(settings.clone())?
-        .journal()?
-        .iter()
-        .filter(|record| {
-            record.actor.starts_with("mcp:") && record.status == JournalStatus::Committed
-        })
-        .count();
-    let counts = [
-        (overdue.len(), "overdue"),
-        (open.len(), "today"),
-        (engine.inbox().len(), "inbox"),
-        (agents, "agents"),
-    ];
-    Ok(counts
-        .iter()
-        .filter(|(count, _)| *count > 0)
-        .map(|(count, label)| format!("{count} {label}"))
-        .collect::<Vec<_>>()
-        .join(" · "))
+    let journal = WriteEngine::with_default_journal(settings.clone())?.journal()?;
+    Ok(AgendaEngine::new(index).summary(today, &journal)?.line())
 }
 
 // Reads keep working when one agenda file cannot be indexed; say which file
