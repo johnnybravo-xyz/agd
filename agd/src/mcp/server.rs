@@ -64,7 +64,9 @@ impl ServerHandler for OrgModeRouter {
             Err(error) => serde_json::to_string(error.response()),
         }
         .map_err(|error| McpError::internal_error(error.to_string(), None))?;
-        Ok(ReadResourceResult::new(vec![ResourceContents::text(payload, uri)]).into())
+        // The listing declares application/json; the contents say the same.
+        let contents = ResourceContents::text(payload, uri).with_mime_type("application/json");
+        Ok(ReadResourceResult::new(vec![contents]).into())
     }
 
     // rmcp's own `initialize` records the client's name, which journals each

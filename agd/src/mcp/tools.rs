@@ -184,8 +184,9 @@ const DEFAULT_LIMIT: usize = 100;
 impl OrgModeRouter {
     #[tool(
         name = "agenda",
-        description = "Return native agenda-entry/v1 rows for a date span",
-        input_schema = input_schema::<AgendaRequest>()
+        description = "Return agd.agenda-entry/v1 rows for today, or a span, or a saved view's sections",
+        input_schema = input_schema::<AgendaRequest>(),
+        annotations(read_only_hint = true)
     )]
     async fn agenda(&self, arguments: JsonObject) -> Result<CallToolResult, McpError> {
         rows_result(
@@ -280,8 +281,9 @@ impl OrgModeRouter {
 
     #[tool(
         name = "query",
-        description = "Query items with the supported org-ql subset",
-        input_schema = input_schema::<QueryRequest>()
+        description = "Return agd.item/v1 items matching an org-ql expression",
+        input_schema = input_schema::<QueryRequest>(),
+        annotations(read_only_hint = true)
     )]
     async fn query(&self, arguments: JsonObject) -> Result<CallToolResult, McpError> {
         rows_result(
@@ -293,7 +295,8 @@ impl OrgModeRouter {
     #[tool(
         name = "describe",
         description = "Describe what writes accept: capture templates (key, target, prompts), TODO keyword sequences, priorities, saved views, tags in use, the date grammar, and whether agent captures go to an inbox",
-        input_schema = input_schema::<DescribeRequest>()
+        input_schema = input_schema::<DescribeRequest>(),
+        annotations(read_only_hint = true)
     )]
     async fn describe(&self, arguments: JsonObject) -> Result<CallToolResult, McpError> {
         tool_result(

@@ -149,6 +149,18 @@ async fn exposes_only_the_short_spec_tool_list() -> Result<(), Box<dyn std::erro
         assert!(instructions.contains(needle), "{needle}: {instructions}");
     }
     assert!(instructions.len() < 1000, "{}", instructions.len());
+
+    // Reads say they change nothing; writes do not.
+    for tool in &tools.tools {
+        let read_only = tool
+            .annotations
+            .as_ref()
+            .and_then(|annotations| annotations.read_only_hint);
+        let expected = ["agenda", "query", "describe"]
+            .contains(&tool.name.as_ref())
+            .then_some(true);
+        assert_eq!(read_only, expected, "{}", tool.name);
+    }
     service.cancel().await?;
     Ok(())
 }
@@ -176,8 +188,14 @@ async fn agenda_tool_and_today_resource_return_versioned_rows()
     let resource = service
         .read_resource(ReadResourceRequestParams::new("agenda://today".to_string()))
         .await?;
-    let encoded = content_json(&resource).to_string();
-    assert!(encoded.contains("agd.agenda-entry/v1"));
+    let encoded = content_json(&resource);
+    assert!(encoded.to_string().contains("agd.agenda-entry/v1"));
+    // What it returns is what the listing declares.
+    assert_eq!(
+        encoded["contents"][0]["mimeType"],
+        content_json(&resources.resources[0])["mimeType"]
+    );
+    assert_eq!(encoded["contents"][0]["mimeType"], "application/json");
     service.cancel().await?;
     Ok(())
 }
