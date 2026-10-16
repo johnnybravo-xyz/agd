@@ -904,7 +904,11 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 &mut state,
             );
             frame.render_widget(
-                Paragraph::new(footer(&[("key", "open"), ("⏎", "open"), ("esc", "close")])),
+                Paragraph::new(footer(&[
+                    ("key", "opens its view"),
+                    ("↑↓ ⏎", "choose"),
+                    ("esc q", "close"),
+                ])),
                 parts[2],
             );
         }

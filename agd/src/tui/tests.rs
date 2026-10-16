@@ -1308,6 +1308,40 @@ fn the_pane_truncates_wide_characters_by_display_width() {
 
 #[test]
 #[serial]
+fn the_views_popup_takes_j_and_k_as_view_keys_and_q_closes_it() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(root.join("tasks.org"), TASKS).unwrap();
+        let mut app = test_app(root);
+        app.settings.views = toml::from_str::<ViewsOnly>(
+            r#"[[view]]
+key = "k"
+desc = "Keep going"
+blocks = [{ kind = "alltodo" }]
+
+[[view]]
+key = "j"
+desc = "Journal"
+blocks = [{ kind = "alltodo" }]"#,
+        )
+        .unwrap()
+        .view;
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('a'));
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert_eq!(screen.matches("open").count(), 1, "{screen}");
+        press(&mut app, KeyCode::Char('q'));
+        assert!(matches!(app.overlay, Overlay::None));
+        assert_eq!(app.screen, Screen::Today);
+
+        press(&mut app, KeyCode::Char('a'));
+        press(&mut app, KeyCode::Char('j'));
+        assert_eq!(app.screen, Screen::View("j".to_string()));
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {

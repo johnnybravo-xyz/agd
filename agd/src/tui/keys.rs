@@ -836,10 +836,12 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
                 .iter()
                 .map(|view| view.key.clone())
                 .collect();
+            // Letters are view keys (a view may be `j` or `k`), so only the
+            // arrows move; q closes, as in org-agenda's dispatcher.
             match key.code {
-                KeyCode::Esc => app.overlay = Overlay::None,
-                KeyCode::Up | KeyCode::Char('k') => *selected = selected.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => {
+                KeyCode::Esc | KeyCode::Char('q') => app.overlay = Overlay::None,
+                KeyCode::Up => *selected = selected.saturating_sub(1),
+                KeyCode::Down => {
                     *selected = (*selected + 1).min(keys.len().saturating_sub(1));
                 }
                 KeyCode::Enter => {
