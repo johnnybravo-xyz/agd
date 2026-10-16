@@ -543,9 +543,9 @@ fn run_list(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget
 /// The change keys of the lists, and the keys that leave them.
 fn run_change(app: &mut App, action: Action) -> Result<()> {
     match action {
-        A::State => app.cycle_state()?,
-        A::Done => app.mark_done()?,
-        A::Cancel => app.cancel()?,
+        A::State if has_task(app, "change") => app.cycle_state()?,
+        A::Done if has_task(app, "mark done") => app.mark_done()?,
+        A::Cancel if has_task(app, "cancel") => app.cancel()?,
         A::Schedule => prompt(app, PromptKind::Schedule),
         A::Deadline => prompt(app, PromptKind::Deadline),
         A::Priority => prompt(app, PromptKind::Priority),
@@ -614,6 +614,15 @@ fn cycle_context(app: &mut App) -> Result<()> {
     app.reload_rows()
 }
 
+/// Says so when a change key has no task to act on; true when it has one.
+fn has_task(app: &mut App, what: &str) -> bool {
+    if app.targets().is_empty() {
+        app.set_status(format!("nothing to {what}"));
+        return false;
+    }
+    true
+}
+
 fn prompt(app: &mut App, kind: PromptKind) {
     if app.selected_row().is_some() || !app.marks.is_empty() {
         app.overlay = Overlay::Prompt(Prompt::new(kind, String::new()));
@@ -638,7 +647,8 @@ fn selected_location(app: &App) -> EditorTarget {
 /// as its summary card says.
 fn finished_triage_key(app: &mut App, key: KeyEvent) -> Result<()> {
     match key.code {
-        KeyCode::Char('u') => app.undo(),
+        // Only the pass's own writes: never an older, unrelated one.
+        KeyCode::Char('u') if !app.triage.undo.is_empty() => app.undo(),
         KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => app.switch_screen(Screen::Today),
         KeyCode::Char('?') => {
             app.overlay = Overlay::Help { scroll: 0 };
@@ -724,8 +734,8 @@ fn run_pane(app: &mut App, action: Action) -> Result<EditorTarget> {
     match action {
         A::Next => app.move_selection(1),
         A::Previous => app.move_selection(-1),
-        A::Done => app.mark_done()?,
-        A::Cancel => app.cancel()?,
+        A::Done if has_task(app, "mark done") => app.mark_done()?,
+        A::Cancel if has_task(app, "cancel") => app.cancel()?,
         A::Undo => app.undo()?,
         A::Capture => app.overlay = Overlay::Capture(capture::Draft::default()),
         A::Editor => return Ok(selected_location(app)),

@@ -183,11 +183,22 @@ impl App {
         self.reload_rows()
     }
 
+    /// Sets one TODO state on every target. The status names the change
+    /// from the target's own state, which with marks is not the cursor row's.
     pub(super) fn set_state(&mut self, state: &str) -> Result<()> {
-        let from = self
-            .selected_row()
-            .and_then(|row| row.item.todo.clone())
-            .unwrap_or_else(|| "·".to_string());
+        let targets = self.targets();
+        let change = match targets.as_slice() {
+            [only] => {
+                let from = self
+                    .index
+                    .resolve(only)
+                    .ok()
+                    .and_then(|(_, headline)| headline.item.todo.clone())
+                    .unwrap_or_else(|| "·".to_string());
+                format!("{from} → {state}")
+            }
+            _ => format!("→ {state}"),
+        };
         let outcome = if self.is_done_keyword(state) {
             DONE
         } else {
@@ -199,7 +210,7 @@ impl App {
                 ..EditIntent::default()
             },
             outcome,
-            &format!("{from} → {state}"),
+            &change,
         )
     }
 
@@ -360,8 +371,13 @@ impl App {
     }
 
     /// `+`/`-`: raise or lower priority within the configured range, as
-    /// org-agenda's priority-up and priority-down.
+    /// org-agenda's priority-up and priority-down. Each row would step from
+    /// its own priority, which one shared edit cannot do, so marked rows
+    /// take `,` instead.
     pub(super) fn shift_priority(&mut self, up: bool) -> Result<()> {
+        if !self.marks.is_empty() {
+            bail!("+ and - change one row; , sets a priority on every marked row");
+        }
         let Some(row) = self.selected_row() else {
             return Ok(());
         };
@@ -596,7 +612,11 @@ impl App {
                 accepted += 1;
             }
         }
-        self.set_status(format!("accepted {accepted} agent changes"));
+        self.set_status(match accepted {
+            0 => "no unreviewed agent changes".to_string(),
+            1 => "accepted 1 agent change · nothing written".to_string(),
+            count => format!("accepted {count} agent changes · nothing written"),
+        });
         self.reload_rows()
     }
 

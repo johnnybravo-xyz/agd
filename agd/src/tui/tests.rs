@@ -1045,6 +1045,47 @@ fn today_folds_overdue_behind_a_more_row_with_missed_deadlines_first() {
 
 #[test]
 #[serial]
+fn status_lines_name_what_happened_and_never_blame_the_config() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(root.join("work.org"), "* Notes\n").unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('x'));
+        assert_eq!(app.status.as_ref().unwrap().text, "nothing to mark done");
+        press(&mut app, KeyCode::Char('X'));
+        assert_eq!(app.status.as_ref().unwrap().text, "nothing to cancel");
+
+        // An empty Triage says the inbox is clear and offers no undo.
+        press(&mut app, KeyCode::Char('T'));
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("Nothing to triage"), "{screen}");
+        assert!(screen.contains("inbox empty"), "{screen}");
+        assert!(!screen.contains("undoes"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn a_state_change_on_one_marked_row_names_that_rows_state() {
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* NEXT One\nSCHEDULED: <2026-10-13 Tue>\n* TODO Two\nSCHEDULED: <2026-10-13 Tue>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        type_keys(&mut app, "m");
+        assert_eq!(app.selected_row().unwrap().item.title, "Two");
+        app.set_state("DONE").unwrap();
+        let status = &app.status.as_ref().unwrap().text;
+        assert!(status.contains("NEXT → DONE"), "{status}");
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {

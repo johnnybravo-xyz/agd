@@ -268,7 +268,12 @@ fn summary(app: &App) -> Vec<Line<'static>> {
             parts.push(format!("{} {label}", outcomes[index]));
         }
     }
-    vec![
+    let headline = if total == 0 {
+        Line::from(vec![
+            Span::styled("Nothing to triage", theme.strong(theme.done)),
+            Span::raw(": no overdue items, inbox empty."),
+        ])
+    } else {
         Line::from(vec![
             Span::styled("Triage done", theme.strong(theme.done)),
             Span::raw(format!(
@@ -279,14 +284,13 @@ fn summary(app: &App) -> Vec<Line<'static>> {
                 if parts.is_empty() { "" } else { ": " },
                 parts.join(", ")
             )),
-        ]),
-        Line::default(),
-        Line::from(
-            [
-                app.theme.key_hint("u", "undoes all"),
-                app.theme.key_hint("⏎", "returns to Today"),
-            ]
-            .concat(),
-        ),
-    ]
+        ])
+    };
+    // `u` is offered only when the pass wrote something it can undo.
+    let mut keys = Vec::new();
+    if !app.triage.undo.is_empty() {
+        keys.extend(theme.key_hint("u", "undoes all"));
+    }
+    keys.extend(theme.key_hint("⏎", "returns to Today"));
+    vec![headline, Line::default(), Line::from(keys)]
 }
