@@ -17,7 +17,7 @@ Set Theme { "name": "agd", "background": "#14171c", "foreground": "#dee2e8", "bl
 
 Hide
 Env COLORTERM "truecolor"
-Type `R=$(docs/demo/story/setup.sh) && tmux -L agdstory -f docs/demo/story/tmux.conf new-session -s story -n claude -c ~/code/ingest "env PATH=$R/bin:$PATH claude --model sonnet --allowedTools mcp__plugin_agd_agd__capture" \; new-window -d -n agd -c ~/code/ingest "env PATH=$R/bin:$PATH PS1='~/code/ingest \$ ' bash --norc"`
+Type `R=$(docs/demo/story/setup.sh) && tmux -L agdstory -f docs/demo/story/tmux.conf new-session -s story -n claude -c ~/code/ingest "env PATH=$R/bin:$PATH claude --model sonnet --name ingest --allowedTools mcp__plugin_agd_agd__capture" \; new-window -d -n agd -c ~/code/ingest "env PATH=$R/bin:$PATH PS1='~/code/ingest \$ ' bash --norc"`
 Enter
 Wait+Screen@60s /for agents/
 Sleep 1s
