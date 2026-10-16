@@ -102,7 +102,17 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   byte for byte.
 - `agd agenda --status` prints
   `1 overdue · 3 today · 9 inbox · 2 unreviewed`, leaving out zero counts;
-  a deadline's early warning is not counted as today.
+  a deadline's early warning is not counted as today. `--status --json`
+  prints the same counts and the overdue rows as `agd.status/v1`. The TUI's
+  tabs and both panes count the same way and list overdue rows in the same
+  order, missed deadlines first.
+- `agd capture --json` adds `location`, the entry's file and line relative
+  to its root, which `/capture` in Claude Code shows.
+- Agents cards and undo lines name a change by its operation (capture,
+  state change, schedule, deadline, priority, tags, edit, refile):
+  `undid schedule · Pay rent`.
+- Without `todo_keyword_colors`, WAIT is yellow and CANCELLED dim red;
+  your own map replaces these.
 - `agd agenda --view` without a key runs `start_view`, `--views` lists the
   saved views (the start view first, built-in ones marked), `--from` takes
   any date-prompt answer such as `-1w`, and `--span` takes a number of days.
@@ -166,7 +176,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   earlier write whose file changed since is refused with `journal_conflict`
   until `agd setup check --resolve` settles it, keeping the file exactly as
   it is on disk.
-- `agd setup check` reports with the error codes, and also reports
+- `agd setup check` prints `file:line: message` (its JSON keeps the error
+  codes), and also reports
   interrupted writes and a `#+PRIORITIES` line agd cannot use (that file
   keeps the configured range).
 - Writes refuse a duplicate `:ID:` and a change to an existing `:ID:`, and

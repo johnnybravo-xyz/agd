@@ -51,8 +51,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   relative property times count from. `AgendaEngine::inbox` returns the
   open entries where capture templates file them.
 - `AgendaEngine::summary` returns an `AgendaSummary` (overdue, today, inbox,
-  unreviewed) whose `line` is the status band, and `overdue_entries` lists
-  the overdue rows, missed deadlines first, each item once.
+  unreviewed), and `overdue_entries` lists the overdue rows, missed
+  deadlines first, each item once. `STATUS_SCHEMA` names `agd.status/v1`.
+- `Settings::default()` colors WAIT yellow and CANCELLED dim red in
+  `todo_keyword_colors`.
 - `agenda_text` prints rows as `org-batch-agenda` does; `agenda_csv` takes
   the entries, the day and the index, and `items_csv` the items, the block
   kind and the index, to print Emacs's eleven CSV columns; `agenda_row` and
