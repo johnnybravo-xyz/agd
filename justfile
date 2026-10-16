@@ -1,7 +1,5 @@
 # Development commands for agd. Release tasks live in the Makefile.
 
-coverage_dir := "coverage"
-
 # cargo, with Apple's toolchain on macOS outside `nix develop` (see the script).
 cargo := "scripts/cargo"
 
@@ -75,29 +73,10 @@ demo:
 
 # === Coverage ===
 
-# Generate the HTML coverage report
-coverage-html:
-    {{ cargo }} llvm-cov --workspace --all-features --html --output-dir {{ coverage_dir }}/html
-    @echo "Open {{ coverage_dir }}/html/index.html"
+# Measure test coverage with cargo-llvm-cov; arguments go to it, such as `--html` or `--lcov --output-path lcov.info`
+coverage *args:
+    {{ cargo }} llvm-cov --workspace --all-features {{ args }}
 
-# Show the coverage summary
-coverage-summary:
-    {{ cargo }} llvm-cov --workspace --all-features --summary-only
-
-# Write LCOV coverage for CI
-coverage-ci:
-    mkdir -p {{ coverage_dir }}
-    {{ cargo }} llvm-cov --workspace --all-features --lcov --output-path {{ coverage_dir }}/lcov.info
-
-# Write JSON coverage
-coverage-json:
-    mkdir -p {{ coverage_dir }}
-    {{ cargo }} llvm-cov --workspace --all-features --json --output-path {{ coverage_dir }}/coverage.json
-
-# Generate every coverage format
-coverage: coverage-html coverage-ci coverage-json coverage-summary
-
-# Remove build artifacts and coverage reports
+# Remove build artifacts
 clean:
     {{ cargo }} clean
-    rm -rf {{ coverage_dir }}/

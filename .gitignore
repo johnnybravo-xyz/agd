@@ -16,3 +16,4 @@ result
 !/site/content/posts/_index.md
 /site/content/agd.gif
 /site/public/
+__pycache__/

@@ -11,7 +11,8 @@ import os
 import pathlib
 import subprocess
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+from oracle import ROOT, agd_json, check
+
 READER = ROOT / "agd/readers/nvim.lua"
 
 
@@ -32,33 +33,19 @@ def run(case: pathlib.Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def check(case: pathlib.Path, update: bool) -> bool:
+def check_case(case: pathlib.Path, update: bool) -> bool:
     result = run(case)
     failure = case / "failure.txt"
     if failure.exists():
         actual = result.stderr.strip().splitlines()[0] if result.returncode else "succeeded"
-        if update:
-            failure.write_text(actual + "\n", encoding="utf-8")
-            print(f"updated {failure}")
-            return True
-        return failure.read_text(encoding="utf-8") == actual + "\n"
-    marker = "AGD_JSON:"
-    payload = next(
-        (line[len(marker):] for line in result.stdout.splitlines() if line.startswith(marker)),
-        None,
-    )
+        return check(failure, actual + "\n", update)
+    payload = agd_json(result.stdout)
     if result.returncode != 0 or payload is None:
         raise RuntimeError(f"Neovim reader failed for {case}: {result.stderr}")
-    actual = json.loads(payload)
     # The pinned Neovim in CI and a local one differ only in this field.
-    actual.pop("editor_version")
-    expected = case / "resolved.json"
-    if update:
-        expected.write_text(json.dumps(actual, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        print(f"updated {expected}")
-        return True
-    return expected.is_file() and json.loads(expected.read_text(encoding="utf-8")) == actual
-
+    payload.pop("editor_version")
+    actual = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    return check(case / "resolved.json", actual, update)
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -66,7 +53,7 @@ def main() -> int:
     arguments = parser.parse_args()
     failed = False
     for case in sorted(path for path in (ROOT / "conformance/import/nvim").iterdir() if path.is_dir()):
-        if not check(case, arguments.update):
+        if not check_case(case, arguments.update):
             print(f"Neovim import oracle drift: {case.name}")
             failed = True
     return int(failed)

@@ -3,12 +3,10 @@
 update its expected.org."""
 import argparse
 import pathlib
-import subprocess
 import tomllib
-import uuid
 
-IMAGE = "silex/emacs:30.2-alpine@sha256:2dd43b22af2e2592753ad92c3cb78fc580ce5981fc4d8ad1edee60ec92241ae5"
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+from oracle import ROOT, run_emacs
+
 LOG_SETTINGS = ("log_done", "log_repeat", "log_reschedule", "log_redeadline")
 
 
@@ -23,31 +21,12 @@ def run(case_dir: pathlib.Path, destination: pathlib.Path) -> None:
     }
     for setting in LOG_SETTINGS:
         environment["AGD_" + setting.upper()] = case.get(setting, "nil")
-    name = f"agd-edit-{uuid.uuid4().hex}"
-    command = ["docker", "create", "--user", "0", "--name", name]
-    for key, value in environment.items():
-        command.extend(["--env", f"{key}={value}"])
-    command.extend([IMAGE, "sh", "-c", "exec emacs -Q --batch -l /oracle.el"])
-    try:
-        subprocess.run(command, check=True, stdout=subprocess.DEVNULL)
-        subprocess.run(
-            ["docker", "cp", str(case_dir / "input.org"), f"{name}:/root/input.org"],
-            check=True,
-            stdout=subprocess.DEVNULL,
-        )
-        subprocess.run(
-            ["docker", "cp", str(ROOT / "conformance/emacs-edit-oracle.el"), f"{name}:/oracle.el"],
-            check=True,
-            stdout=subprocess.DEVNULL,
-        )
-        subprocess.run(["docker", "start", "-a", name], check=True, stdout=subprocess.DEVNULL)
-        subprocess.run(
-            ["docker", "cp", f"{name}:/root/input.org", str(destination)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-        )
-    finally:
-        subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    run_emacs(
+        "/oracle.el",
+        environment,
+        [(case_dir / "input.org", "/root/input.org"), (ROOT / "conformance/emacs-edit-oracle.el", "/oracle.el")],
+        copy_out=("/root/input.org", destination),
+    )
 
 
 def main() -> None:
