@@ -74,7 +74,7 @@ fn column_of(buffer: &ratatui::buffer::Buffer, y: u16, needle: &str) -> u16 {
 fn theme_for(colorterm: Option<&str>) -> super::theme::Theme {
     with_vars(
         [("NO_COLOR", None::<&str>), ("COLORTERM", colorterm)],
-        || super::theme::Theme::detect("dark"),
+        || super::theme::Theme::detect("dark", None),
     )
 }
 
@@ -442,7 +442,7 @@ fn nerd_font_rounds_pills_and_the_default_does_not() {
         // with_home sets NO_COLOR, which never rounds; build colour themes.
         let colour = || {
             temp_env::with_var("NO_COLOR", None::<&str>, || {
-                super::theme::Theme::detect("dark")
+                super::theme::Theme::detect("dark", None)
             })
         };
         app.theme = colour();
@@ -1718,7 +1718,7 @@ fn a_full_pane_title_keeps_a_space_before_its_mark() {
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {
-            super::theme::Theme::detect("dark").plain
+            super::theme::Theme::detect("dark", None).plain
         })
     };
     assert!(plain(Some("1")));
@@ -1965,6 +1965,31 @@ fn wait_yellow_and_agent_hues_stay_clear_of_due_and_done() {
     };
     let dark = Theme::dark();
     assert!(hue(dark.named("yellow")) - hue(dark.due) > 18.0);
+}
+
+#[test]
+#[serial]
+fn auto_follows_the_background_the_terminal_reports() {
+    use super::theme::Theme;
+    let theme = |setting: &str, reported: Option<bool>, colorfgbg: Option<&str>| {
+        with_vars(
+            [
+                ("NO_COLOR", None),
+                ("COLORTERM", Some("truecolor")),
+                ("COLORFGBG", colorfgbg),
+            ],
+            || Theme::detect(setting, reported).text,
+        )
+    };
+    let (light, dark) = (Theme::light().text, Theme::dark().text);
+    assert_eq!(theme("auto", Some(true), None), light);
+    // The terminal's own answer wins over COLORFGBG, which wins over dark.
+    assert_eq!(theme("auto", Some(false), Some("0;15")), dark);
+    assert_eq!(theme("auto", None, Some("0;15")), light);
+    assert_eq!(theme("auto", None, None), dark);
+    // An explicit setting is never second-guessed.
+    assert_eq!(theme("dark", Some(true), None), dark);
+    assert_eq!(theme("light", Some(false), None), light);
 }
 
 #[test]

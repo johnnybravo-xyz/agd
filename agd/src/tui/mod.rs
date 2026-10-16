@@ -275,7 +275,7 @@ struct App {
 
 impl App {
     fn new(settings: Settings, index: WorkspaceIndex, today: NaiveDate) -> Self {
-        let theme = Theme::detect(&settings.theme).rounded_pills(settings.nerd_font);
+        let theme = Theme::detect(&settings.theme, None).rounded_pills(settings.nerd_font);
         Self {
             settings,
             index,
@@ -329,6 +329,12 @@ impl App {
         self.pane_requested = false;
         self.reload_rows()?;
         Ok(true)
+    }
+
+    /// The palette for the background the terminal reported.
+    fn set_background(&mut self, light: bool) {
+        self.theme =
+            Theme::detect(&self.settings.theme, Some(light)).rounded_pills(self.settings.nerd_font);
     }
 
     /// A lone `C-c` still quits, a second after it was pressed.
@@ -409,7 +415,11 @@ fn run_mode(
     .settings;
     let index = WorkspaceIndex::load(settings.clone())?;
     let (events, _watcher) = watch_roots(&index)?;
+    let (light, reply, typed) = theme::ask_background(&settings.theme);
     let mut app = App::new(settings, index, Local::now().date_naive());
+    if let Some(light) = light {
+        app.set_background(light);
+    }
     app.pane = pane;
     app.pane_requested = pane;
     app.capture_only = capture_only;
@@ -430,16 +440,23 @@ fn run_mode(
     }
 
     let mut terminal = start_terminal()?;
-    let result = event_loop(&mut terminal, &mut app, &events);
+    let result = event_loop(&mut terminal, &mut app, &events, reply, typed);
     stop_terminal(&mut terminal)?;
     result
 }
 
+/// `reply` is the terminal's background answer if it is still on its way;
+/// `typed` holds what arrived while agd waited for it.
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
     changes: &Receiver<notify::Result<NotifyEvent>>,
+    mut reply: theme::BackgroundReply,
+    typed: Vec<Event>,
 ) -> Result<()> {
+    for event in typed {
+        handle_event(terminal, app, event);
+    }
     while !app.quit {
         let mut changed = false;
         for event in changes.try_iter() {
@@ -487,12 +504,35 @@ fn event_loop(
         }
         // Handle every event already waiting before drawing again, so a
         // pasted line or fast typing costs one redraw, not one per key.
-        handle_event(terminal, app, event::read()?);
+        handle_input(terminal, app, &mut reply, event::read()?);
         while !app.quit && event::poll(StdDuration::ZERO)? {
-            handle_event(terminal, app, event::read()?);
+            handle_input(terminal, app, &mut reply, event::read()?);
         }
     }
     Ok(())
+}
+
+/// A key of a late background answer is dropped, and the whole answer sets
+/// the palette; every other event is handled.
+fn handle_input(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+    reply: &mut theme::BackgroundReply,
+    event: Event,
+) {
+    if let Event::Key(key) = &event {
+        match reply.feed(key) {
+            theme::ReplyKey::Part => return,
+            theme::ReplyKey::End(light) => {
+                if let Some(light) = light {
+                    app.set_background(light);
+                }
+                return;
+            }
+            theme::ReplyKey::Other => {}
+        }
+    }
+    handle_event(terminal, app, event);
 }
 
 fn handle_event(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App, event: Event) {

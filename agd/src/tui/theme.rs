@@ -44,6 +44,11 @@
 //! › breadcrumb and prompt, ↗ link, … truncation. Nerd Font caps only
 //! decorate pills; no width depends on them.
 
+use std::io::{IsTerminal, Write};
+use std::time::{Duration, Instant};
+
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
@@ -83,24 +88,25 @@ pub(super) struct Theme {
 }
 
 impl Theme {
-    /// `setting` is `auto`, `dark` or `light`. Auto reads COLORFGBG, which
-    /// most terminals set; without it, dark is assumed.
-    pub(super) fn detect(setting: &str) -> Self {
-        // no-color.org: only a non-empty NO_COLOR turns colour off.
-        if std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty()) {
+    /// `setting` is `auto`, `dark` or `light`. Auto takes the terminal's
+    /// own answer about its background (`reported_light`, from
+    /// `ask_background`), else COLORFGBG, which many terminals set, else
+    /// dark.
+    pub(super) fn detect(setting: &str, reported_light: Option<bool>) -> Self {
+        if no_color() {
             return Self::plain();
         }
-        let truecolor = std::env::var("COLORTERM")
-            .is_ok_and(|value| value.contains("truecolor") || value.contains("24bit"));
         let light = match setting {
             "light" => true,
             "dark" => false,
-            _ => std::env::var("COLORFGBG")
-                .ok()
-                .and_then(|value| value.rsplit(';').next()?.parse::<u8>().ok())
-                .is_some_and(|background| background == 7 || background >= 9),
+            _ => reported_light.unwrap_or_else(|| {
+                std::env::var("COLORFGBG")
+                    .ok()
+                    .and_then(|value| value.rsplit(';').next()?.parse::<u8>().ok())
+                    .is_some_and(|background| background == 7 || background >= 9)
+            }),
         };
-        match (truecolor, light) {
+        match (truecolor(), light) {
             (true, true) => Self::light(),
             (true, false) => Self::dark(),
             (false, _) => Self::basic(),
@@ -445,6 +451,162 @@ fn color_name(color: Color) -> Option<String> {
     Some(name.to_string())
 }
 
+/// no-color.org: only a non-empty NO_COLOR turns colour off.
+fn no_color() -> bool {
+    std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty())
+}
+
+fn truecolor() -> bool {
+    std::env::var("COLORTERM")
+        .is_ok_and(|value| value.contains("truecolor") || value.contains("24bit"))
+}
+
+/// How long the terminal has to say what its background is.
+const BACKGROUND_WAIT: Duration = Duration::from_millis(100);
+
+/// The terminal's answer to the OSC 11 query `ESC ] 11 ; ? BEL`, as
+/// crossterm reads it: Alt+`]` (ESC ]), the characters of
+/// `11;rgb:RRRR/GGGG/BBBB`, then ctrl-g (BEL) or Alt+`\` (ST). While an
+/// answer is awaited, its keys are taken out of the input, so one that
+/// arrives late or in pieces never reaches a key binding.
+#[derive(Debug, Default)]
+pub(super) struct BackgroundReply {
+    awaiting: bool,
+    /// The answer's text so far, once Alt+`]` started it.
+    text: Option<String>,
+}
+
+/// What one key was to a `BackgroundReply`.
+#[derive(Debug, Eq, PartialEq)]
+pub(super) enum ReplyKey {
+    /// Part of the answer: drop it.
+    Part,
+    /// The answer is complete: whether the background is light, when its
+    /// colour could be read.
+    End(Option<bool>),
+    /// An ordinary key.
+    Other,
+}
+
+impl BackgroundReply {
+    pub(super) fn feed(&mut self, key: &KeyEvent) -> ReplyKey {
+        if !self.awaiting {
+            return ReplyKey::Other;
+        }
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        let Some(text) = &mut self.text else {
+            if alt && key.code == KeyCode::Char(']') {
+                self.text = Some(String::new());
+                return ReplyKey::Part;
+            }
+            return ReplyKey::Other;
+        };
+        match key.code {
+            KeyCode::Char('g') if control => {}
+            KeyCode::Char('\\') if alt => {}
+            KeyCode::Char(character)
+                if !control
+                    && !alt
+                    && text.len() < 64
+                    && (character.is_ascii_hexdigit() || ";:/rgb".contains(character)) =>
+            {
+                text.push(character);
+                return ReplyKey::Part;
+            }
+            _ => {
+                self.text = None;
+                return ReplyKey::Other;
+            }
+        }
+        let light = light_background(text);
+        *self = Self::default();
+        ReplyKey::End(light)
+    }
+}
+
+/// With `theme = "auto"`, asks the terminal for its background before the
+/// alternate screen opens, in raw mode so nothing is echoed, and waits up
+/// to BACKGROUND_WAIT. Returns whether the background is light (None when
+/// not asked or not answered), the reply state for an answer still on its
+/// way, and any events that arrived meanwhile, for the event loop to handle
+/// first. Not asked under NO_COLOR, without truecolor (the 16-colour
+/// palette is the same on light and dark), when stdin or stdout is not a
+/// terminal, or in tests.
+pub(super) fn ask_background(setting: &str) -> (Option<bool>, BackgroundReply, Vec<Event>) {
+    let mut reply = BackgroundReply::default();
+    let terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    if cfg!(test) || setting != "auto" || no_color() || !truecolor() || !terminal {
+        return (None, reply, Vec::new());
+    }
+    let mut typed = Vec::new();
+    // A terminal that cannot be asked leaves COLORFGBG to decide.
+    let light = read_background(&mut reply, &mut typed).unwrap_or_default();
+    let _ = disable_raw_mode();
+    (light, reply, typed)
+}
+
+fn read_background(
+    reply: &mut BackgroundReply,
+    typed: &mut Vec<Event>,
+) -> std::io::Result<Option<bool>> {
+    enable_raw_mode()?;
+    let mut stdout = std::io::stdout();
+    stdout.write_all(b"\x1b]11;?\x07")?;
+    stdout.flush()?;
+    reply.awaiting = true;
+    let deadline = Instant::now() + BACKGROUND_WAIT;
+    while reply.awaiting {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() || !event::poll(left)? {
+            return Ok(None);
+        }
+        let event = event::read()?;
+        if let Event::Key(key) = &event {
+            match reply.feed(key) {
+                ReplyKey::Part => continue,
+                ReplyKey::End(light) => return Ok(light),
+                ReplyKey::Other => {}
+            }
+        }
+        typed.push(event);
+    }
+    Ok(None)
+}
+
+/// Whether `11;rgb:RRRR/GGGG/BBBB` (or `rgba:`, with 1 to 4 hex digits a
+/// component) is a light colour: relative luminance of at least 0.5.
+fn light_background(reply: &str) -> Option<bool> {
+    let color = reply.strip_prefix("11;")?;
+    let components = color
+        .strip_prefix("rgb:")
+        .or_else(|| color.strip_prefix("rgba:"))?;
+    let channels: Vec<f64> = components
+        .split('/')
+        .take(3)
+        .map(|hex| {
+            let value = u32::from_str_radix(hex, 16).ok()?;
+            let digits = u32::try_from(hex.len())
+                .ok()
+                .filter(|n| (1..=4).contains(n))?;
+            Some(f64::from(value) / f64::from(16u32.pow(digits) - 1))
+        })
+        .collect::<Option<_>>()?;
+    let [red, green, blue] = channels[..] else {
+        return None;
+    };
+    // sRGB to linear light, then WCAG's relative luminance.
+    let linear = |channel: f64| {
+        if channel <= 0.04045 {
+            channel / 12.92
+        } else {
+            ((channel + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let luminance = 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue);
+    Some(luminance >= 0.5)
+}
+
 /// `text` cut to `width` terminal columns, ending in "…" when cut. Widths
 /// are display widths, so CJK and emoji count two columns.
 pub(super) fn truncate(text: &str, width: usize) -> String {
@@ -478,4 +640,68 @@ pub(super) fn centered(area: Rect, width: u16, height: u16) -> Rect {
         width,
         height,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn char_key(character: char) -> KeyEvent {
+        KeyEvent::from(KeyCode::Char(character))
+    }
+
+    fn alt(character: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(character), KeyModifiers::ALT)
+    }
+
+    fn awaiting() -> BackgroundReply {
+        BackgroundReply {
+            awaiting: true,
+            text: None,
+        }
+    }
+
+    #[test]
+    fn a_background_reads_light_from_its_luminance() {
+        assert_eq!(light_background("11;rgb:ffff/ffff/ffff"), Some(true));
+        assert_eq!(light_background("11;rgb:1414/1717/1c1c"), Some(false));
+        assert_eq!(light_background("11;rgb:ff/fa/f0"), Some(true));
+        assert_eq!(light_background("11;rgba:0000/0000/0000/ffff"), Some(false));
+        // Mid grey is dark: its relative luminance is about 0.22.
+        assert_eq!(light_background("11;rgb:8080/8080/8080"), Some(false));
+        assert_eq!(light_background("11;rgb:zz/00/00"), None);
+        assert_eq!(light_background("10;rgb:ffff/ffff/ffff"), None);
+    }
+
+    #[test]
+    fn a_late_reply_never_reaches_the_key_bindings() {
+        let mut reply = awaiting();
+        assert_eq!(reply.feed(&alt(']')), ReplyKey::Part);
+        for character in "11;rgb:ffff/ffff/ffff".chars() {
+            assert_eq!(reply.feed(&char_key(character)), ReplyKey::Part);
+        }
+        let bel = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL);
+        assert_eq!(reply.feed(&bel), ReplyKey::End(Some(true)));
+        // Answered: from now on every key is the person's.
+        assert_eq!(reply.feed(&alt(']')), ReplyKey::Other);
+        assert_eq!(reply.feed(&char_key('r')), ReplyKey::Other);
+
+        // ST ends it too, and keys outside the answer's alphabet pass.
+        let mut reply = awaiting();
+        assert_eq!(reply.feed(&char_key('j')), ReplyKey::Other);
+        reply.feed(&alt(']'));
+        for character in "11;rgb:0000/0000/0000".chars() {
+            reply.feed(&char_key(character));
+        }
+        assert_eq!(reply.feed(&alt('\\')), ReplyKey::End(Some(false)));
+    }
+
+    #[test]
+    fn nothing_is_asked_when_nobody_waits_for_an_answer() {
+        assert_eq!(BackgroundReply::default().feed(&alt(']')), ReplyKey::Other);
+        let (light, reply, typed) = ask_background("auto");
+        assert_eq!(light, None);
+        assert!(!reply.awaiting);
+        assert!(typed.is_empty());
+    }
 }
