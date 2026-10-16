@@ -64,7 +64,7 @@ pub(super) fn dispatch(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
 /// Keys shared by every screen; returns true when handled.
 fn common_key(app: &mut App, key: KeyEvent) -> Result<bool> {
     match key.code {
-        KeyCode::Char('j') | KeyCode::Down => app.move_selection(1),
+        KeyCode::Char('n' | 'j') | KeyCode::Down => app.move_selection(1),
         KeyCode::Char('k') | KeyCode::Up => app.move_selection(-1),
         KeyCode::PageDown => app.move_selection(10),
         KeyCode::PageUp => app.move_selection(-10),
@@ -72,7 +72,8 @@ fn common_key(app: &mut App, key: KeyEvent) -> Result<bool> {
         KeyCode::End => app.selected = app.row_count().saturating_sub(1),
         KeyCode::Char('?') => app.overlay = Overlay::Help,
         KeyCode::Char('c') => app.overlay = Overlay::Capture(capture::Draft::default()),
-        KeyCode::Char('g') => {
+        // org-agenda's r and g both redo the agenda.
+        KeyCode::Char('r' | 'g') => {
             app.index = agd_core::WorkspaceIndex::load(app.settings.clone())?;
             app.reload_rows()?;
             app.set_status("refreshed");
@@ -139,12 +140,9 @@ fn list_key(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
                 app.overlay = Overlay::Edit(Box::new(form));
             }
         }
-        KeyCode::Char(' ') => app.toggle_mark(),
-        // Bulk actions on marked rows, as org-agenda's B menu.
-        KeyCode::Char('.') if bulk => app.schedule("today")?,
-        KeyCode::Char('m') if bulk => app.schedule("+1d")?,
-        KeyCode::Char('w') if bulk => app.schedule("+1w")?,
-        KeyCode::Char('s') if bulk => app.someday()?,
+        // Marked rows are what every change key acts on, as after org-agenda's
+        // m; `.` and the other moves never write.
+        KeyCode::Char(' ' | 'm') => app.toggle_mark(),
         KeyCode::Char('x') => app.mark_done()?,
         KeyCode::Char('X') => app.cancel()?,
         KeyCode::Char('t') => app.cycle_state()?,
@@ -154,7 +152,8 @@ fn list_key(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
         KeyCode::Char('+') => app.shift_priority(true)?,
         KeyCode::Char('-') => app.shift_priority(false)?,
         KeyCode::Char(':') => prompt(app, PromptKind::Tags),
-        KeyCode::Char('r') => app.open_refile(),
+        KeyCode::Char('S') => app.someday()?,
+        KeyCode::Char('R') => app.open_refile(),
         KeyCode::Char('u') => app.undo()?,
         KeyCode::Char('y') => app.copy_link()?,
         KeyCode::Char('p') => app.peek = !app.peek,

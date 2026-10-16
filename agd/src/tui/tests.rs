@@ -558,6 +558,13 @@ fn press(app: &mut App, code: crossterm::event::KeyCode) -> super::keys::EditorT
     super::keys::dispatch(app, crossterm::event::KeyEvent::from(code)).unwrap()
 }
 
+/// Presses each character in turn.
+fn type_keys(app: &mut App, keys: &str) {
+    for character in keys.chars() {
+        press(app, crossterm::event::KeyCode::Char(character));
+    }
+}
+
 /// Captures `title` into inbox.org as an MCP agent would.
 fn agent_capture(app: &App, root: &Path, title: &str) {
     let mut settings = app.settings.clone();
@@ -594,6 +601,71 @@ fn shift_a_on_the_agents_tab_accepts_every_change() {
                 .all(|record| record.status == agd_core::JournalStatus::Reviewed)
         );
         assert_eq!(app.counts.agents, 0);
+    });
+}
+
+const THREE_TODAY: &str = "* TODO One\nSCHEDULED: <2026-10-13 Tue>\n\
+* TODO Two\nSCHEDULED: <2026-10-13 Tue>\n\
+* TODO Three\nSCHEDULED: <2026-10-13 Tue>\n";
+
+#[test]
+#[serial]
+fn change_keys_act_on_every_marked_row_and_moves_never_write() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        type_keys(&mut app, "m ");
+        assert_eq!(app.marks.len(), 2);
+        assert_eq!(app.selected_row().unwrap().item.title, "Three");
+
+        app.day = today() + chrono::Duration::days(2);
+        press(&mut app, KeyCode::Char('.'));
+        assert_eq!(app.day, today());
+        assert_eq!(fs::read_to_string(&path).unwrap(), THREE_TODAY);
+        assert_eq!(app.marks.len(), 2);
+
+        press(&mut app, KeyCode::Char('s'));
+        assert!(matches!(app.overlay, Overlay::Prompt { .. }));
+        type_keys(&mut app, "fri");
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "* TODO One\nSCHEDULED: <2026-10-16 Fri>\n\
+* TODO Two\nSCHEDULED: <2026-10-16 Fri>\n\
+* TODO Three\nSCHEDULED: <2026-10-13 Tue>\n"
+        );
+        assert!(app.marks.is_empty());
+    });
+}
+
+#[test]
+#[serial]
+fn list_keys_follow_org_agenda_for_moving_refreshing_and_refiling() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('n'));
+        assert_eq!(app.selected_row().unwrap().item.title, "Two");
+        press(&mut app, KeyCode::Char('k'));
+        assert_eq!(app.selected_row().unwrap().item.title, "One");
+        press(&mut app, KeyCode::Char('r'));
+        assert_eq!(app.status.as_ref().unwrap().text, "refreshed");
+        assert!(matches!(app.overlay, Overlay::None));
+        press(&mut app, KeyCode::Char('R'));
+        assert!(matches!(app.overlay, Overlay::Refile(_)));
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Char('S'));
+        let written = fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = written.lines().collect();
+        assert!(lines[0].starts_with("* TODO One "), "{written}");
+        assert!(lines[0].ends_with(":someday:"), "{written}");
+        assert_eq!(lines[1], "* TODO Two", "{written}");
     });
 }
 

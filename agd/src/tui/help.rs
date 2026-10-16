@@ -14,7 +14,8 @@ const SECTIONS: &[(&str, &[Key])] = &[
     (
         "MOVE",
         &[
-            ("j / k", "move", "n / p"),
+            ("n j ↓", "next row", "n"),
+            ("k ↑", "previous row", "p"),
             ("tab · 1–9", "tabs, left to right", ""),
             ("f / b / .", "next, previous, today", "f / b / ."),
             ("⏎ / e", "edit title, state, dates", ""),
@@ -23,7 +24,7 @@ const SECTIONS: &[(&str, &[Key])] = &[
             ("a", "saved views", "C-c a"),
             ("v", "classic agenda layout", "v"),
             ("l", "log mode (closed items)", "l"),
-            ("g", "refresh", "g"),
+            ("r / g", "refresh", "r / g"),
         ],
     ),
     (
@@ -35,7 +36,8 @@ const SECTIONS: &[(&str, &[Key])] = &[
             ("s / d", "schedule / deadline", "C-c C-s / C-c C-d"),
             (", + -", "priority", ", + -"),
             (":", "tags", ":"),
-            ("r", "refile", "C-c C-w"),
+            ("S", "someday", ""),
+            ("R", "refile", "C-c C-w"),
             ("u", "undo last write", "C-_"),
             ("y", "copy link", ""),
         ],
@@ -46,7 +48,7 @@ const SECTIONS: &[(&str, &[Key])] = &[
             ("c", "capture", "k"),
             ("T", "triage overdue + inbox", ""),
             ("A", "agent review", ""),
-            ("space", "mark, then . m w s", "m · B"),
+            ("m / space", "mark; changes act on marks", "m"),
             ("<", "context filter", "<"),
             ("/", "filter by text or tag", "/"),
             ("esc", "back one level", ""),

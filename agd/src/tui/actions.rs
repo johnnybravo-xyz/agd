@@ -185,15 +185,18 @@ impl App {
 
     /// Someday: add the someday tag and, unless configured otherwise, drop
     /// the date that made it show up (SCHEDULED, or an overdue DEADLINE), so
-    /// the task leaves the agenda without being deleted.
+    /// the task leaves the agenda without being deleted. Marked rows share
+    /// one edit, so they keep their deadlines: only the cursor row is known
+    /// to be overdue.
     pub(super) fn someday(&mut self) -> Result<()> {
         let tag = self.settings.someday_tag.clone();
         let clears = self.settings.someday_clears_scheduled;
-        let overdue_deadline = self.selected_row().is_some_and(|row| {
-            row.occurrence
-                .as_ref()
-                .is_some_and(|occurrence| occurrence.extra.ends_with("ago:"))
-        });
+        let overdue_deadline = self.marks.is_empty()
+            && self.selected_row().is_some_and(|row| {
+                row.occurrence
+                    .as_ref()
+                    .is_some_and(|occurrence| occurrence.extra.ends_with("ago:"))
+            });
         self.edit_targets(
             EditIntent {
                 scheduled: if clears { Change::Clear } else { Change::Keep },

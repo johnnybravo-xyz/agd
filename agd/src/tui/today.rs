@@ -161,11 +161,13 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
             ("esc", "back"),
         ],
         _ if !app.marks.is_empty() => &[
-            (".", "today"),
-            ("m", "tomorrow"),
-            ("w", "next week"),
-            ("s", "someday"),
-            ("space", "unmark"),
+            ("s", "schedule"),
+            ("d", "deadline"),
+            ("S", "someday"),
+            ("x", "done"),
+            ("X", "cancel"),
+            ("m", "unmark"),
+            ("esc", "clear marks"),
         ],
         _ => &[
             ("x", "done"),
