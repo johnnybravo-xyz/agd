@@ -170,7 +170,7 @@ fn peek_on_the_agents_tab_shows_the_task_an_agent_wrote() {
         app.peek = true;
         let screen = render(&mut app, 120, 30).join("\n");
         assert!(screen.contains("Peek"), "{screen}");
-        assert!(screen.contains("p peek"), "{screen}");
+        assert!(screen.contains("SPC peek"), "{screen}");
         // The peek panel names the task and where it lives.
         assert!(screen.matches("Agent task").count() >= 2, "{screen}");
         assert!(screen.contains("inbox.org"), "{screen}");
@@ -619,7 +619,7 @@ fn change_keys_act_on_every_marked_row_and_moves_never_write() {
         fs::write(&path, THREE_TODAY).unwrap();
         let mut app = test_app(root);
         app.reload_rows().unwrap();
-        type_keys(&mut app, "m ");
+        type_keys(&mut app, "mm");
         assert_eq!(app.marks.len(), 2);
         assert_eq!(app.selected_row().unwrap().item.title, "Three");
 
@@ -654,8 +654,15 @@ fn list_keys_follow_org_agenda_for_moving_refreshing_and_refiling() {
         app.reload_rows().unwrap();
         press(&mut app, KeyCode::Char('n'));
         assert_eq!(app.selected_row().unwrap().item.title, "Two");
+        press(&mut app, KeyCode::Char('p'));
+        assert_eq!(app.selected_row().unwrap().item.title, "One");
+        press(&mut app, KeyCode::Char('j'));
         press(&mut app, KeyCode::Char('k'));
         assert_eq!(app.selected_row().unwrap().item.title, "One");
+        press(&mut app, KeyCode::Char(' '));
+        assert!(app.peek);
+        press(&mut app, KeyCode::Char(' '));
+        assert!(!app.peek);
         press(&mut app, KeyCode::Char('r'));
         assert_eq!(app.status.as_ref().unwrap().text, "refreshed");
         assert!(matches!(app.overlay, Overlay::None));
@@ -1081,6 +1088,45 @@ fn a_state_change_on_one_marked_row_names_that_rows_state() {
         app.set_state("DONE").unwrap();
         let status = &app.status.as_ref().unwrap().text;
         assert!(status.contains("NEXT → DONE"), "{status}");
+    });
+}
+
+#[test]
+#[serial]
+fn shift_b_opens_a_bulk_menu_for_the_marked_rows_and_shift_u_unmarks_all() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(&path, THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('B'));
+        assert!(matches!(app.overlay, Overlay::None));
+        assert!(
+            app.status
+                .as_ref()
+                .unwrap()
+                .text
+                .contains("mark rows with m")
+        );
+
+        type_keys(&mut app, "mm");
+        press(&mut app, KeyCode::Char('U'));
+        assert!(app.marks.is_empty());
+
+        app.selected = 0;
+        type_keys(&mut app, "mmB");
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("Bulk · 2 marked rows"), "{screen}");
+        assert!(screen.contains("schedule tomorrow"), "{screen}");
+        press(&mut app, KeyCode::Char('m'));
+        assert!(matches!(app.overlay, Overlay::None));
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "* TODO One\nSCHEDULED: <2026-10-14 Wed>\n\
+* TODO Two\nSCHEDULED: <2026-10-14 Wed>\n\
+* TODO Three\nSCHEDULED: <2026-10-13 Tue>\n"
+        );
     });
 }
 

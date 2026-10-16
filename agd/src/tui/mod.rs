@@ -75,6 +75,8 @@ enum Overlay {
     Edit(Box<edit::EditForm>),
     Prompt(actions::Prompt),
     Refile(actions::RefilePicker),
+    /// `B`: what to do with every marked row (keys::BULK_KEYS).
+    Bulk,
     /// org-agenda's dispatcher: saved views by key.
     Views {
         selected: usize,
@@ -503,7 +505,7 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
         Overlay::Help { .. } => help::draw(frame, app, area),
         Overlay::Capture(_) => capture::draw(frame, app, area),
         Overlay::Edit(_) => edit::draw(frame, app, area),
-        Overlay::Prompt { .. } | Overlay::Refile(_) | Overlay::Views { .. } => {
+        Overlay::Prompt(_) | Overlay::Refile(_) | Overlay::Bulk | Overlay::Views { .. } => {
             today::draw_overlay(frame, app, area)
         }
     }

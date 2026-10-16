@@ -665,6 +665,26 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
     );
 }
 
+/// `B`: the bulk menu, one row per key from keys::BULK_KEYS.
+fn draw_bulk(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let theme = &app.theme;
+    let bindings = keys::BULK_KEYS[0].bindings;
+    let rows: Vec<Line<'static>> = bindings
+        .iter()
+        .map(|binding| {
+            Line::from(vec![
+                Span::styled(format!("{:<9}", binding.label), theme.strong(theme.accent)),
+                Span::raw(binding.help),
+            ])
+        })
+        .collect();
+    // border + top padding, rows, border
+    let popup = centered(area, 52, 2 + rows.len() as u16 + 1);
+    frame.render_widget(Clear, popup);
+    let block = theme.popup(format!("Bulk · {} marked rows", app.marks.len()));
+    frame.render_widget(Paragraph::new(rows).block(block), popup);
+}
+
 /// Prompts, the refile picker and the views dispatcher.
 pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
@@ -731,6 +751,7 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 parts[4],
             );
         }
+        Overlay::Bulk => draw_bulk(frame, app, area),
         Overlay::Views { selected } => {
             let views = &app.settings.views;
             // border + top padding, views, gap, footer, border

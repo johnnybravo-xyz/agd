@@ -21,8 +21,8 @@ Show
 # Today: sections you act on, overdue collapsed, inbox with provenance.
 Sleep 3s
 Down Down Down Down Down Down Down Sleep 700ms
-Type "p" Sleep 3s
-Type "p" Sleep 500ms
+Space Sleep 3s
+Space Sleep 500ms
 
 # Week: every day, classic org-agenda prefixes.
 Tab Sleep 2.5s

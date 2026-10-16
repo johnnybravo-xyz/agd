@@ -84,6 +84,8 @@ pub(super) enum Action {
     Undo,
     CopyLink,
     Mark,
+    UnmarkAll,
+    Bulk,
     Triage,
     Agents,
     Back,
@@ -150,7 +152,7 @@ const MOVE: KeyGroup = KeyGroup {
     title: "Move and switch",
     bindings: &[
         bind("n j ↓", &[Char('n'), Char('j'), Code(KeyCode::Down)], A::Next, "next", "next row", "n"),
-        bind("k ↑", &[Char('k'), Code(KeyCode::Up)], A::Previous, "previous", "previous row", "p"),
+        bind("p k ↑", &[Char('p'), Char('k'), Code(KeyCode::Up)], A::Previous, "previous", "previous row", "p"),
         bind("PgDn", &[Code(KeyCode::PageDown)], A::PageDown, "page", "ten rows down", ""),
         bind("PgUp", &[Code(KeyCode::PageUp)], A::PageUp, "page", "ten rows up", ""),
         bind("Home", &[Code(KeyCode::Home)], A::First, "first", "first row", ""),
@@ -172,7 +174,7 @@ const SHOW: KeyGroup = KeyGroup {
         bind("f", &[Char('f')], A::Later, "later", "next day (week in Week)", "f"),
         bind("b", &[Char('b')], A::Earlier, "earlier", "previous day (week in Week)", "b"),
         bind(".", &[Char('.')], A::GoToday, "today", "back to today", "."),
-        bind("p", &[Char('p')], A::Peek, "peek", "peek at the entry", "SPC"),
+        bind("SPC", &[Char(' ')], A::Peek, "peek", "peek at the entry", "SPC"),
         bind("a", &[Char('a')], A::Views, "views", "saved views", "C-c a"),
         bind("v", &[Char('v')], A::Classic, "classic", "classic org-agenda layout", ""),
         bind("l", &[Char('l')], A::LogMode, "log", "log mode: closed items", "l"),
@@ -202,7 +204,9 @@ const CHANGE: KeyGroup = KeyGroup {
         bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", "C-c C-w"),
         bind("u", &[Char('u')], A::Undo, "undo", "undo the last write", "C-_"),
         bind("y", &[Char('y')], A::CopyLink, "copy link", "copy the entry's link", ""),
-        bind("m space", &[Char('m'), Char(' ')], A::Mark, "mark", "mark or unmark the row", "m"),
+        bind("m", &[Char('m')], A::Mark, "mark", "mark or unmark the row", "m"),
+        bind("U", &[Char('U')], A::UnmarkAll, "unmark all", "unmark every row", "U"),
+        bind("B", &[Char('B')], A::Bulk, "bulk", "act on the marked rows, from a menu", "B"),
     ],
 };
 
@@ -253,7 +257,7 @@ pub(super) const AGENT_KEYS: &[KeyGroup] = &[
             bind("A", &[Char('A')], A::AcceptAll, "accept all", "accept every unreviewed change", ""),
             bind("u", &[Char('u')], A::Undo, "undo", "undo the change if its bytes are unchanged", ""),
             bind("d", &[Char('d')], A::Diff, "diff", "show the raw diff", ""),
-            bind("p", &[Char('p')], A::Peek, "peek", "peek at the changed task", ""),
+            bind("SPC", &[Char(' ')], A::Peek, "peek", "peek at the changed task", ""),
             bind("⏎ ctrl-e", &[Code(KeyCode::Enter), Ctrl('e')], A::Editor, "open", "open the changed heading in $EDITOR", ""),
             bind("f", &[Char('f')], A::FilterAgent, "filter by agent", "show one agent, cycling", ""),
             bind("esc q", &[Code(KeyCode::Esc), Char('q')], A::Back, "back", "close the diff or peek, else go back", ""),
@@ -262,13 +266,30 @@ pub(super) const AGENT_KEYS: &[KeyGroup] = &[
     MOVE,
 ];
 
+/// `B` with rows marked: org-agenda's bulk menu, one key per action.
+#[rustfmt::skip]
+pub(super) const BULK_KEYS: &[KeyGroup] = &[KeyGroup {
+    title: "On every marked row",
+    bindings: &[
+        bind(".", &[Char('.')], A::Today, "today", "schedule today", ""),
+        bind("m", &[Char('m')], A::Tomorrow, "tomorrow", "schedule tomorrow", ""),
+        bind("w", &[Char('w')], A::NextWeek, "next week", "schedule in a week", ""),
+        bind("s", &[Char('s')], A::Schedule, "schedule…", "schedule on a date you type", "s"),
+        bind("d", &[Char('d')], A::Deadline, "deadline…", "deadline on a date you type", "d"),
+        bind("S", &[Char('S')], A::Someday, "someday", "someday: tag it, drop the date", ""),
+        bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
+        bind("X", &[Char('X')], A::Cancel, "cancel", "cancel: the file's last done state", ""),
+        bind("esc q B", &[Code(KeyCode::Esc), Char('q'), Char('B')], A::Back, "close", "close the menu", ""),
+    ],
+}];
+
 /// The narrow pane beside an agent or editor.
 #[rustfmt::skip]
 pub(super) const PANE_KEYS: &[KeyGroup] = &[KeyGroup {
     title: "Glance",
     bindings: &[
-        bind("j ↓", &[Char('j'), Code(KeyCode::Down)], A::Next, "next", "next row", ""),
-        bind("k ↑", &[Char('k'), Code(KeyCode::Up)], A::Previous, "previous", "previous row", ""),
+        bind("n j ↓", &[Char('n'), Char('j'), Code(KeyCode::Down)], A::Next, "next", "next row", ""),
+        bind("p k ↑", &[Char('p'), Char('k'), Code(KeyCode::Up)], A::Previous, "previous", "previous row", ""),
         bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
         bind("X", &[Char('X')], A::Cancel, "cancel", "cancel", ""),
         bind("u", &[Char('u')], A::Undo, "undo", "undo the last write", ""),
@@ -282,8 +303,9 @@ pub(super) const PANE_KEYS: &[KeyGroup] = &[KeyGroup {
 }];
 
 /// Help's sections, one per screen: (title, keys).
-pub(super) const SCREENS: [(&str, &[KeyGroup]); 4] = [
+pub(super) const SCREENS: [(&str, &[KeyGroup]); 5] = [
     ("Today · Week · Inbox · views", LIST_KEYS),
+    ("Bulk menu · B with rows marked", BULK_KEYS),
     ("Triage", TRIAGE_KEYS),
     ("Agents", AGENT_KEYS),
     ("Pane", PANE_KEYS),
@@ -302,15 +324,8 @@ pub(super) const LIST_FOOTER: &[Action] = &[
     A::Peek,
 ];
 /// The footer while rows are marked: what acts on all of them.
-pub(super) const MARKED_FOOTER: &[Action] = &[
-    A::Schedule,
-    A::Deadline,
-    A::Someday,
-    A::Done,
-    A::Cancel,
-    A::Mark,
-    A::Back,
-];
+pub(super) const MARKED_FOOTER: &[Action] =
+    &[A::Bulk, A::Done, A::Schedule, A::Deadline, A::UnmarkAll];
 pub(super) const TRIAGE_FOOTER: &[Action] = &[A::Next, A::Previous, A::Back];
 /// Triage's two rows of decision chips under the card.
 pub(super) const TRIAGE_CHIPS: [&[Action]; 2] = [
@@ -331,11 +346,11 @@ pub(super) const AGENT_FOOTER: &[Action] = &[
 /// Index into SCREENS of what is on view.
 pub(super) fn current_screen(app: &App) -> usize {
     if app.pane {
-        return 3;
+        return 4;
     }
     match app.screen {
-        Screen::Triage => 1,
-        Screen::Review => 2,
+        Screen::Triage => 2,
+        Screen::Review => 3,
         _ => 0,
     }
 }
@@ -557,6 +572,9 @@ fn run_change(app: &mut App, action: Action) -> Result<()> {
         A::Undo => app.undo()?,
         A::CopyLink => app.copy_link()?,
         A::Mark => app.toggle_mark(),
+        A::UnmarkAll => app.marks.clear(),
+        A::Bulk if app.marks.is_empty() => app.set_status("mark rows with m first; B acts on them"),
+        A::Bulk => app.overlay = Overlay::Bulk,
         A::Triage => start_triage(app)?,
         A::Agents => {
             app.review_diff = false;
@@ -612,6 +630,22 @@ fn cycle_context(app: &mut App) -> Result<()> {
         Some(index) => categories.get(index + 1).cloned(),
     };
     app.reload_rows()
+}
+
+/// One choice from the bulk menu, on every marked row.
+fn run_bulk(app: &mut App, action: Action) -> Result<()> {
+    match action {
+        A::Today => app.schedule("today")?,
+        A::Tomorrow => app.schedule("+1d")?,
+        A::NextWeek => app.schedule("+1w")?,
+        A::Schedule => prompt(app, PromptKind::Schedule),
+        A::Deadline => prompt(app, PromptKind::Deadline),
+        A::Someday => app.someday()?,
+        A::Done => app.mark_done()?,
+        A::Cancel => app.cancel()?,
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Says so when a change key has no task to act on; true when it has one.
@@ -794,6 +828,12 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
             }
             _ => {}
         },
+        Overlay::Bulk => {
+            if let Some(action) = action_for(BULK_KEYS, key) {
+                app.overlay = Overlay::None;
+                run_bulk(app, action)?;
+            }
+        }
         Overlay::Views { selected } => {
             let keys: Vec<String> = app
                 .settings
