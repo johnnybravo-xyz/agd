@@ -44,6 +44,22 @@ pub fn agent_name(actor: &str) -> Option<&str> {
     actor.strip_prefix(AGENT_ACTOR_PREFIX)
 }
 
+/// Who an actor is as agd names them: the agent (`codex`), or `you`.
+pub fn actor_name(actor: &str) -> &str {
+    agent_name(actor).unwrap_or("you")
+}
+
+/// The actor an MCP client's writes are journaled under: `mcp:<client>`,
+/// without the `-mcp-client` suffix Codex sends (`codex-mcp-client` is
+/// `mcp:codex`); other names are kept as sent.
+pub fn agent_actor(client_name: &str) -> String {
+    let name = client_name
+        .strip_suffix("-mcp-client")
+        .filter(|name| !name.is_empty())
+        .unwrap_or(client_name);
+    format!("{AGENT_ACTOR_PREFIX}{name}")
+}
+
 #[derive(Debug)]
 pub struct WriteEngine {
     pub(super) settings: Settings,

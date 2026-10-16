@@ -165,6 +165,7 @@ mod tests {
             file: "agenda.org".to_string(),
             item_ref: None,
             transaction: None,
+            operation: Some(crate::JournalOperation::Capture),
             pre_hash: String::new(),
             post_hash: String::new(),
             patches: Vec::new(),

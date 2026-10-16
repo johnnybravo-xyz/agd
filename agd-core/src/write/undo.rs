@@ -160,7 +160,7 @@ impl WriteEngine {
             .unwrap_or(path)
             .display()
             .to_string();
-        let author = record.actor.strip_prefix("mcp:").unwrap_or("you");
+        let author = record.actor_name();
         let message = match touched_heading(path, current, record, &self.settings) {
             Some((title, line)) => format!(
                 "can't undo: {title} changed after {author} edited it ({location}:{line}); edit it by hand"

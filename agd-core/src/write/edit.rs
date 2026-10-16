@@ -22,7 +22,7 @@ use super::engine::{
     parse_text, parse_updated_item,
 };
 use super::file::refuse_emacs_lock;
-use super::journal::JournalRecord;
+use super::journal::{JournalOperation, JournalRecord};
 use super::org_edit::build_edit_patches;
 use super::patch::{Patch, apply_patches};
 use super::validation::{validate_id_change, validate_intent, validate_intent_for_file};
@@ -46,6 +46,49 @@ pub struct EditIntent {
     pub deadline: Change<PlanningTimestamp>,
     pub properties: BTreeMap<String, Option<String>>,
     pub note: Option<String>,
+}
+
+impl EditIntent {
+    /// What the journal calls this edit: the one kind of change it makes,
+    /// with or without a note, else `Edit`.
+    pub fn operation(&self) -> JournalOperation {
+        let tags = !self.tags_add.is_empty() || !self.tags_remove.is_empty();
+        let changes = [
+            (!matches!(self.state, Change::Keep), JournalOperation::State),
+            (
+                !matches!(self.scheduled, Change::Keep),
+                JournalOperation::Schedule,
+            ),
+            (
+                !matches!(self.deadline, Change::Keep),
+                JournalOperation::Deadline,
+            ),
+            (
+                !matches!(self.priority, Change::Keep),
+                JournalOperation::Priority,
+            ),
+            (tags, JournalOperation::Tags),
+            (!matches!(self.title, Change::Keep), JournalOperation::Edit),
+            (!self.properties.is_empty(), JournalOperation::Edit),
+        ];
+        let mut made = changes.iter().filter(|(changed, _)| *changed);
+        match (made.next(), made.next()) {
+            (Some((_, operation)), None) => *operation,
+            _ => JournalOperation::Edit,
+        }
+    }
+}
+
+/// A batch's operation: the one its edits share, else `Edit`.
+fn batch_operation(edits: &[ItemEdit]) -> JournalOperation {
+    let first = edits
+        .first()
+        .map_or(JournalOperation::Edit, |edit| edit.intent.operation());
+    if edits.iter().all(|edit| edit.intent.operation() == first) {
+        first
+    } else {
+        JournalOperation::Edit
+    }
 }
 
 /// One item and the edit to apply to it, for [`WriteEngine::edit_batch`].
@@ -167,7 +210,11 @@ impl WriteEngine {
                 "item resolved to a different file while acquiring the write lock",
             ));
         }
-        let record = self.commit_image(prepared.journal_image(Some(item_ref)), context)?;
+        let record = self.commit_image(
+            prepared.journal_image(Some(item_ref)),
+            intent.operation(),
+            context,
+        )?;
         Ok(item.into_mutation(prepared.diff, &record.id))
     }
 
@@ -245,7 +292,7 @@ impl WriteEngine {
             .zip(&prepared.file_refs)
             .map(|(file, item_ref)| file.journal_image(Some(item_ref)))
             .collect();
-        let records = self.commit_transaction(&images, context)?;
+        let records = self.commit_transaction(&images, batch_operation(edits), context)?;
         let transaction = records
             .first()
             .and_then(|record| record.transaction.clone())
@@ -410,6 +457,36 @@ mod tests {
     use crate::write::test_support::{context, refs_by_title, scheduled, settings};
 
     #[test]
+    fn an_edit_is_journaled_as_the_one_kind_of_change_it_makes() {
+        let state = EditIntent {
+            state: Change::Set("DONE".to_string()),
+            note: Some("shipped".to_string()),
+            ..EditIntent::default()
+        };
+        assert_eq!(state.operation(), JournalOperation::State);
+        assert_eq!(
+            scheduled("2026-10-19").operation(),
+            JournalOperation::Schedule
+        );
+        let cleared = EditIntent {
+            deadline: Change::Clear,
+            ..EditIntent::default()
+        };
+        assert_eq!(cleared.operation(), JournalOperation::Deadline);
+        let tags = EditIntent {
+            tags_add: BTreeSet::from(["work".to_string()]),
+            ..EditIntent::default()
+        };
+        assert_eq!(tags.operation(), JournalOperation::Tags);
+        let both = EditIntent {
+            deadline: Change::Clear,
+            ..scheduled("2026-10-19")
+        };
+        assert_eq!(both.operation(), JournalOperation::Edit);
+        assert_eq!(JournalOperation::State.label(), "state change");
+    }
+
+    #[test]
     fn a_batch_writes_every_file_or_none_and_one_undo_reverts_it() {
         let temp = tempfile::tempdir().unwrap();
         let work = temp.path().join("work.org");
@@ -483,6 +560,13 @@ mod tests {
             ]
         );
         assert_eq!(engine.journal().unwrap().len(), 2);
+        assert!(
+            engine
+                .journal()
+                .unwrap()
+                .iter()
+                .all(|record| record.operation == Some(JournalOperation::Schedule))
+        );
 
         let undone = engine
             .undo(&written.mutations[0].journal_id, &context())

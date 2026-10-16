@@ -10,7 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use agd_core::{
     AgdError, AgendaEngine, AgendaQuery, AgendaSpan, CaptureDraft, Change, EditIntent, ITEM_SCHEMA,
-    PlanningTimestamp, ViewSection, WorkspaceIndex, WriteContext, WriteEngine, parse_date_input,
+    PlanningTimestamp, ViewSection, WorkspaceIndex, WriteContext, WriteEngine, agent_actor,
+    parse_date_input,
 };
 use chrono::{Local, NaiveDate};
 use rmcp::{
@@ -798,19 +799,9 @@ fn write_context(context: &RequestContext<RoleServer>, project: &str) -> WriteCo
     WriteContext {
         actor: context
             .client_info()
-            .map(|info| actor(&info.name))
-            .unwrap_or_else(|| "mcp:unknown".to_string()),
+            .map(|info| agent_actor(&info.name))
+            .unwrap_or_else(|| agent_actor("unknown")),
         project: project.to_string(),
         now: None,
     }
-}
-
-/// `mcp:<client name>`, without the "-mcp-client" suffix Codex sends
-/// (`codex-mcp-client` is `mcp:codex`); other names are kept as sent.
-fn actor(client_name: &str) -> String {
-    let name = client_name
-        .strip_suffix("-mcp-client")
-        .filter(|name| !name.is_empty())
-        .unwrap_or(client_name);
-    format!("mcp:{name}")
 }

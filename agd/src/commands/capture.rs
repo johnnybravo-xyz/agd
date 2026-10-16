@@ -3,8 +3,8 @@ use std::io::IsTerminal;
 use std::path::Path;
 
 use agd_core::{
-    AgdError, CaptureTemplate, RootSet, Settings, WriteContext, WriteEngine, capture_prompts,
-    load_settings, parse_capture_line,
+    AgdError, CaptureTemplate, RootSet, Settings, WriteEngine, capture_prompts, load_settings,
+    parse_capture_line,
 };
 use anyhow::Result;
 use chrono::Local;
@@ -77,13 +77,7 @@ impl CaptureCommand {
             &self.body,
             &prompts,
             self.dry_run,
-            &WriteContext {
-                actor: "cli".to_string(),
-                project: std::env::current_dir()
-                    .map(|path| path.to_string_lossy().into_owned())
-                    .unwrap_or_else(|_| "unknown".to_string()),
-                now: None,
-            },
+            &super::cli_context(),
         )?;
         let output = if self.json {
             format!("{}\n", serde_json::to_string_pretty(&mutation)?)

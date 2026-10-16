@@ -25,8 +25,8 @@ mod undo;
 mod validation;
 
 pub use edit::{BatchMutation, Change, EditIntent, ItemEdit};
-pub use engine::{WriteContext, WriteEngine, agent_name};
-pub use journal::{JournalRecord, JournalStatus};
+pub use engine::{WriteContext, WriteEngine, actor_name, agent_actor, agent_name};
+pub use journal::{JournalOperation, JournalRecord, JournalStatus};
 pub use patch::{Patch, StoredPatch, apply_patches};
 pub(crate) use placement::{CaptureTarget, find_outline_path, heading_titled};
 pub use refile::RefileResult;

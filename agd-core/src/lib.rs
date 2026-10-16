@@ -119,6 +119,7 @@ pub use model::{
 };
 pub use path::{OrgFiles, RootSet, SkipReason};
 pub use write::{
-    BatchMutation, Change, EditIntent, ItemEdit, JournalRecord, JournalStatus, Patch, RefileResult,
-    StoredPatch, UndoResult, WriteContext, WriteEngine, agent_name, apply_patches,
+    BatchMutation, Change, EditIntent, ItemEdit, JournalOperation, JournalRecord, JournalStatus,
+    Patch, RefileResult, StoredPatch, UndoResult, WriteContext, WriteEngine, actor_name,
+    agent_actor, agent_name, apply_patches,
 };

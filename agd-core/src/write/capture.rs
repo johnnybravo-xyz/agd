@@ -23,6 +23,7 @@ use super::engine::{
     parse_updated_item,
 };
 use super::file::{read_org_file, refuse_emacs_lock};
+use super::journal::JournalOperation;
 use super::org_edit::align_tags;
 use super::patch::{apply_patches, changed_lines_patch, line_ending};
 use super::placement::{heading_line_starts, insert_capture_entry, place_capture};
@@ -104,6 +105,7 @@ impl WriteEngine {
         let prepared = self.prepare_capture(&path, &input)?;
         let record = self.commit_image(
             prepared.file.journal_image(Some(&prepared.item.item_ref)),
+            JournalOperation::Capture,
             context,
         )?;
         Ok(mutation(prepared.item, prepared.file.diff, &record.id))
@@ -308,6 +310,8 @@ mod tests {
             record.item_ref.as_deref(),
             Some(mutation.item.item_ref.as_str())
         );
+        assert_eq!(record.operation, Some(JournalOperation::Capture));
+        assert_eq!(record.operation_label(), "capture");
         assert_eq!(
             Path::new(&record.file),
             fs::canonicalize(temp.path().join("inbox.org")).unwrap()

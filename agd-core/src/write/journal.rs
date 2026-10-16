@@ -39,6 +39,42 @@ pub enum JournalStatus {
     Resolved,
 }
 
+/// What a journaled write did, so every surface names a change the same
+/// way without reading its diff. A review, undo or resolve keeps the
+/// operation of the change it settles.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JournalOperation {
+    Capture,
+    /// A TODO state change.
+    State,
+    /// SCHEDULED set or removed.
+    Schedule,
+    /// DEADLINE set or removed.
+    Deadline,
+    Priority,
+    Tags,
+    /// Any other edit, or one that changes several of the above.
+    Edit,
+    Refile,
+}
+
+impl JournalOperation {
+    /// The change in words, as `undid capture` or an Agents card says it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Capture => "capture",
+            Self::State => "state change",
+            Self::Schedule => "schedule",
+            Self::Deadline => "deadline",
+            Self::Priority => "priority",
+            Self::Tags => "tags",
+            Self::Edit => "edit",
+            Self::Refile => "refile",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct JournalRecord {
     pub schema: String,
@@ -51,6 +87,10 @@ pub struct JournalRecord {
     pub item_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transaction: Option<String>,
+    /// What the write did; absent from records agd wrote before it
+    /// journaled operations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<JournalOperation>,
     pub pre_hash: String,
     pub post_hash: String,
     pub patches: Vec<StoredPatch>,
@@ -62,6 +102,18 @@ impl JournalRecord {
     /// person's change from the CLI or TUI.
     pub fn agent(&self) -> Option<&str> {
         super::engine::agent_name(&self.actor)
+    }
+
+    /// Who made the change as agd names them: the agent (`codex`), or
+    /// `you` for the CLI and TUI.
+    pub fn actor_name(&self) -> &str {
+        super::engine::actor_name(&self.actor)
+    }
+
+    /// What the change did in words (JournalOperation::label); `change`
+    /// for a record without an operation.
+    pub fn operation_label(&self) -> &'static str {
+        self.operation.map_or("change", JournalOperation::label)
     }
 }
 
@@ -98,6 +150,7 @@ impl WriteEngine {
     pub(super) fn commit_transaction(
         &self,
         images: &[JournalImage<'_>],
+        operation: JournalOperation,
         context: &WriteContext,
     ) -> Result<Vec<JournalRecord>, AgdError> {
         let transaction = journal_id();
@@ -109,6 +162,7 @@ impl WriteEngine {
                     format!("{transaction}:{position}"),
                     Some(transaction.clone()),
                     image,
+                    operation,
                     context,
                 )
             })
@@ -129,9 +183,10 @@ impl WriteEngine {
     pub(super) fn commit_image(
         &self,
         image: JournalImage<'_>,
+        operation: JournalOperation,
         context: &WriteContext,
     ) -> Result<JournalRecord, AgdError> {
-        let mut record = pending_record(journal_id(), None, &image, context);
+        let mut record = pending_record(journal_id(), None, &image, operation, context);
         self.append_record(&record)?;
         atomic_replace(image.path, image.post_image.as_bytes())?;
         record.status = JournalStatus::Committed;
@@ -293,6 +348,7 @@ fn pending_record(
     id: String,
     transaction: Option<String>,
     image: &JournalImage<'_>,
+    operation: JournalOperation,
     context: &WriteContext,
 ) -> JournalRecord {
     JournalRecord {
@@ -305,6 +361,7 @@ fn pending_record(
         file: image.path.to_string_lossy().into_owned(),
         item_ref: image.item_ref.map(str::to_string),
         transaction,
+        operation: Some(operation),
         pre_hash: content_hash(image.pre_image),
         post_hash: content_hash(image.post_image),
         patches: image.patches.to_vec(),
@@ -353,6 +410,7 @@ mod tests {
                 .into_owned(),
             item_ref: None,
             transaction: None,
+            operation: Some(JournalOperation::State),
             pre_hash: content_hash(pre),
             post_hash: content_hash(post),
             patches: Vec::new(),

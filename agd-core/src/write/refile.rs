@@ -15,6 +15,7 @@ use crate::{
 
 use super::engine::{DRY_RUN_JOURNAL_ID, PreparedFile, WriteContext, WriteEngine};
 use super::file::refuse_emacs_lock;
+use super::journal::JournalOperation;
 use super::patch::{Patch, apply_patches, line_ending};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -83,8 +84,12 @@ impl WriteEngine {
         }
         let journal_ids = match prepared.files.as_slice() {
             [same_file] => vec![
-                self.commit_image(same_file.journal_image(Some(item_ref)), context)?
-                    .id,
+                self.commit_image(
+                    same_file.journal_image(Some(item_ref)),
+                    JournalOperation::Refile,
+                    context,
+                )?
+                .id,
             ],
             [source, target] => {
                 let records = self.commit_transaction(
@@ -92,6 +97,7 @@ impl WriteEngine {
                         target.journal_image(Some(target_ref)),
                         source.journal_image(Some(item_ref)),
                     ],
+                    JournalOperation::Refile,
                     context,
                 )?;
                 vec![records[1].id.clone(), records[0].id.clone()]
