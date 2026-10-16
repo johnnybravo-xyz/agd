@@ -123,7 +123,7 @@ fn template(template: &CaptureTemplate) -> TemplateDescription {
     target.extend(template.file.clone());
     target.extend(template.id.as_ref().map(|id| format!("id:{id}")));
     target.extend(template.heading.clone());
-    target.extend(template.outline_path.clone().unwrap_or_default());
+    target.extend(template.olpath.clone().unwrap_or_default());
     let mut target = target.join(" > ");
     if template.datetree {
         target.push_str(" (datetree)");

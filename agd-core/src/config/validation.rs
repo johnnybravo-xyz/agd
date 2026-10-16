@@ -305,16 +305,16 @@ fn validate_capture_shape(template: &CaptureTemplate) -> Result<(), &'static str
         _ => {}
     }
     let heading = template.heading.is_some();
-    let outline = template.outline_path.is_some();
+    let outline = template.olpath.is_some();
     match (template.file.is_some(), template.id.is_some()) {
         (false, false) => Err("needs a target: file or id"),
         (true, true) => Err("targets a file or an id, not both"),
         (false, true) if heading || outline || template.datetree => {
-            Err("targets an id, which takes no heading, outline_path or datetree")
+            Err("targets an id, which takes no heading, olpath or datetree")
         }
-        (true, false) if heading && outline => Err("takes heading or outline_path, not both"),
+        (true, false) if heading && outline => Err("takes heading or olpath, not both"),
         (true, false) if heading && template.datetree => Err(
-            "puts a datetree under the file or an outline_path, not a heading, as Org's file+datetree and file+olp+datetree do",
+            "puts a datetree under the file or an olpath, not a heading, as Org's file+datetree and file+olp+datetree do",
         ),
         _ => Ok(()),
     }
@@ -360,9 +360,9 @@ mod tests {
             "id = \"abc\"\ntemplate = \"* %?\"\n",
             "file = \"j.org\"\ntemplate = \"* %?\"\n",
             "file = \"j.org\"\nheading = \"Log\"\ntemplate = \"* %?\"\n",
-            "file = \"j.org\"\noutline_path = [\"A\", \"B\"]\ntemplate = \"* %?\"\n",
+            "file = \"j.org\"\nolpath = [\"A\", \"B\"]\ntemplate = \"* %?\"\n",
             "file = \"j.org\"\ndatetree = true\ntemplate = \"* %?\"\n",
-            "file = \"j.org\"\noutline_path = [\"A\"]\ndatetree = true\ntemplate = \"* %?\"\n",
+            "file = \"j.org\"\nolpath = [\"A\"]\ndatetree = true\ntemplate = \"* %?\"\n",
         ] {
             let body = format!("[[capture]]\nkey = \"j\"\ndesc = \"Journal\"\n{fields}");
             assert!(load_body(&body).is_ok(), "{fields}");
@@ -380,15 +380,15 @@ mod tests {
             ),
             (
                 "id = \"abc\"\nheading = \"Log\"\ntemplate = \"* %?\"\n",
-                "targets an id, which takes no heading, outline_path or datetree",
+                "targets an id, which takes no heading, olpath or datetree",
             ),
             (
-                "file = \"j.org\"\nheading = \"Log\"\noutline_path = [\"Log\"]\ntemplate = \"* %?\"\n",
-                "takes heading or outline_path, not both",
+                "file = \"j.org\"\nheading = \"Log\"\nolpath = [\"Log\"]\ntemplate = \"* %?\"\n",
+                "takes heading or olpath, not both",
             ),
             (
                 "file = \"j.org\"\nheading = \"Log\"\ndatetree = true\ntemplate = \"* %?\"\n",
-                "puts a datetree under the file or an outline_path, not a heading, as Org's file+datetree and file+olp+datetree do",
+                "puts a datetree under the file or an olpath, not a heading, as Org's file+datetree and file+olp+datetree do",
             ),
         ];
         for (fields, detail) in cases {

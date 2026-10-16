@@ -73,7 +73,7 @@ impl Fixture {
                 "clientInfo": {"name": "codex-mcp-client", "version": "1.0"}}}),
             json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
             json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
-                "name": "capture", "arguments": {"template": "t", "title": title}}}),
+                "name": "capture", "arguments": {"template_key": "t", "title": title}}}),
         ];
         let mut stdin = child.stdin.take().expect("stdin");
         for message in messages {

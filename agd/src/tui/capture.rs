@@ -576,7 +576,7 @@ fn destination(template: &agd_core::CaptureTemplate) -> String {
     let heading = template
         .heading
         .clone()
-        .or_else(|| template.outline_path.as_ref().map(|path| path.join(" › ")))
+        .or_else(|| template.olpath.as_ref().map(|path| path.join(" › ")))
         .unwrap_or_default();
     if heading.is_empty() {
         format!("→ {file}")

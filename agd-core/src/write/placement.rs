@@ -37,7 +37,7 @@ impl CaptureTarget {
     pub(crate) fn of(template: &CaptureTemplate) -> Self {
         if let Some(id) = &template.id {
             Self::Id(id.clone())
-        } else if let Some(outline) = &template.outline_path {
+        } else if let Some(outline) = &template.olpath {
             Self::OutlinePath(outline.clone())
         } else if let Some(heading) = &template.heading {
             Self::Heading(heading.clone())
@@ -75,7 +75,7 @@ pub(super) fn place_capture(
             Some(headline) => headline.line_span.start,
             None => append_top_heading(&mut text, &title, newline),
         }),
-        CaptureTarget::OutlinePath(outline) => Some(find_outline_path(&document, &outline)?),
+        CaptureTarget::OutlinePath(outline) => Some(find_olpath(&document, &outline)?),
         CaptureTarget::Id(id) => Some(
             document
                 .headlines()
@@ -137,7 +137,7 @@ fn append_top_heading(text: &mut String, title: &str, newline: &str) -> usize {
 
 /// org-find-olp: each title must name exactly one heading on its level,
 /// the first at the top level and each next one a direct child.
-pub(crate) fn find_outline_path(
+pub(crate) fn find_olpath(
     document: &IndexedDocument,
     outline: &[String],
 ) -> Result<usize, AgdError> {
@@ -462,7 +462,7 @@ mod tests {
             key: "t".to_string(),
             file: Some("input.org".to_string()),
             heading: heading.map(str::to_string),
-            outline_path: outline.map(|path| path.iter().map(|title| title.to_string()).collect()),
+            olpath: outline.map(|path| path.iter().map(|title| title.to_string()).collect()),
             datetree,
             template: "* TODO Entry".to_string(),
             ..CaptureTemplate::default()

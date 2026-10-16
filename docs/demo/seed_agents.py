@@ -50,7 +50,7 @@ def session(client, calls):
 
 
 session("claude-code", [("capture", {
-    "template": "t", "title": "Benchmark the agenda on a 5k-heading file", "tags": ["perf"],
+    "template_key": "t", "title": "Benchmark the agenda on a 5k-heading file", "tags": ["perf"],
     "properties": {"REPO": "agd", "SOURCE": "[[file:agd-core/src/agenda/engine.rs::41]]"}})])
 # Codex's own client name; agd journals it as mcp:codex.
-session("codex-mcp-client", [("set_state", {"ref": "Rotate staging certs", "state": "DONE"})])
+session("codex-mcp-client", [("set_state", {"ref": "Rotate staging certs", "todo": "DONE"})])

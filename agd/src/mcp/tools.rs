@@ -74,7 +74,7 @@ struct AgendaRequest {
 struct CaptureRequest {
     /// Capture template key from the configuration; left out, the first
     /// template. `describe` lists the templates.
-    template: Option<String>,
+    template_key: Option<String>,
     /// Heading text, taken literally.
     title: String,
     /// SCHEDULED date: today, tomorrow, a weekday (fri), +2d (also +1w,
@@ -111,7 +111,7 @@ struct SetStateRequest {
     item_ref: String,
     /// A TODO keyword of the item's file (its #+TODO line, else the
     /// configured todo_keywords), such as DONE; `describe` lists them.
-    state: String,
+    todo: String,
     /// Note logged with the state change.
     note: Option<String>,
 }
@@ -235,7 +235,7 @@ impl OrgModeRouter {
         tool_result(
             parse_arguments::<SetStateRequest>(arguments).and_then(|request| {
                 let intent = EditIntent {
-                    state: Change::Set(request.state),
+                    state: Change::Set(request.todo),
                     note: request.note,
                     ..EditIntent::default()
                 };
@@ -517,7 +517,7 @@ fn capture(
         priority: request.priority,
         properties: request.properties,
     };
-    let template = match request.template.as_deref() {
+    let template = match request.template_key.as_deref() {
         Some(key) => settings.find_capture_template(key)?,
         None => settings.default_capture_template()?,
     };

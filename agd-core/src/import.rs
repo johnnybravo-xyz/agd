@@ -42,7 +42,7 @@ pub struct ImportedCapture {
     pub desc: String,
     pub file: Option<String>,
     pub heading: Option<String>,
-    pub outline_path: Option<Vec<String>>,
+    pub olpath: Option<Vec<String>>,
     pub id: Option<String>,
     #[serde(default)]
     pub datetree: bool,
@@ -608,7 +608,7 @@ fn imported_captures(
             desc: capture.desc.clone(),
             file,
             heading: capture.heading.clone(),
-            outline_path: capture.outline_path.clone(),
+            olpath: capture.olpath.clone(),
             id: capture.id.clone(),
             datetree: capture.datetree,
             template: capture.template.clone(),

@@ -490,7 +490,7 @@ impl App {
     /// to be overdue.
     pub(super) fn someday(&mut self) -> Result<()> {
         let tag = self.settings.someday_tag.clone();
-        let clears = self.settings.someday_clears_scheduled;
+        let clears = self.settings.someday_clears_dates;
         let overdue_deadline = self.marks.is_empty()
             && self.selected_row().is_some_and(|row| {
                 row.occurrence

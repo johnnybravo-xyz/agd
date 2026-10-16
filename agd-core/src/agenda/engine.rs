@@ -12,7 +12,7 @@ use std::path::Path;
 
 use chrono::{Duration, NaiveDate};
 
-use crate::write::{CaptureTarget, find_outline_path, heading_titled};
+use crate::write::{CaptureTarget, find_olpath, heading_titled};
 use crate::{
     AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, CaptureTemplate, ErrorCode, HeadlineSpan,
     IndexedDocument, Item, Occurrence, OccurrenceType, WorkspaceIndex,
@@ -129,7 +129,7 @@ impl<'a> AgendaEngine<'a> {
     /// The inbox: unfinished entries where captures land, in file and
     /// buffer order. For each `[[capture]]` template (`agent_inbox` is one
     /// of them) that is the direct children of its target heading
-    /// (`heading`, `outline_path` or `id`), or the top-level entries of a
+    /// (`heading`, `olpath` or `id`), or the top-level entries of a
     /// file it targets as a whole. A `datetree` target files entries by
     /// date, a log rather than an inbox, so it is left out.
     pub fn inbox(&self) -> Vec<Item> {
@@ -177,7 +177,7 @@ impl<'a> AgendaEngine<'a> {
             CaptureTarget::File | CaptureTarget::Id(_) => None,
             CaptureTarget::Heading(title) => Some(heading_titled(document, &title)?),
             CaptureTarget::OutlinePath(outline) => {
-                let start = find_outline_path(document, &outline).ok()?;
+                let start = find_olpath(document, &outline).ok()?;
                 Some(
                     document
                         .headlines()
@@ -480,7 +480,7 @@ mod tests {
                     ..template("t", "refile.org")
                 },
                 CaptureTemplate {
-                    outline_path: Some(vec!["Agd".to_string(), "Ideas".to_string()]),
+                    olpath: Some(vec!["Agd".to_string(), "Ideas".to_string()]),
                     ..template("i", "projects.org")
                 },
                 template("n", "notes.org"),

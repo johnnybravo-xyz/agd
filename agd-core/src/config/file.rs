@@ -194,7 +194,7 @@ const CONFIG_GROUPS: [(&str, &[&str]); 6] = [
         &[
             "agent_inbox",
             "someday_tag",
-            "someday_clears_scheduled",
+            "someday_clears_dates",
             "reschedule_nudge",
         ],
     ),
@@ -405,7 +405,7 @@ mod tests {
                 desc: "Journal".to_string(),
                 file: Some("journal.org".to_string()),
                 heading: None,
-                outline_path: None,
+                olpath: None,
                 id: None,
                 datetree: true,
                 template: "* %?".to_string(),

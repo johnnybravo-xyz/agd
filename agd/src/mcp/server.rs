@@ -84,7 +84,7 @@ fn instructions(settings: &Settings) -> String {
             "Every capture goes through the inbox template `{inbox}`, undated, for the person to triage."
         ),
         (None, Some(_)) => {
-            "Capture with the first template (leave template out) unless the person names another."
+            "Capture with the first template (leave template_key out) unless the person names another."
                 .to_string()
         }
         (None, None) => "No capture templates are configured.".to_string(),

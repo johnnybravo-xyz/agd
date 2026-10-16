@@ -275,7 +275,7 @@ async fn writes_return_mutations_and_failures_return_error_schemas()
 -> Result<(), Box<dyn std::error::Error>> {
     let directory = fixture();
     let service = service(&directory).await?;
-    let arguments: Map<String, Value> = json!({"ref": "today-task", "state": "DONE"})
+    let arguments: Map<String, Value> = json!({"ref": "today-task", "todo": "DONE"})
         .as_object()
         .expect("arguments")
         .clone();
@@ -298,7 +298,7 @@ async fn writes_return_mutations_and_failures_return_error_schemas()
         );
     }
 
-    let arguments: Map<String, Value> = json!({"ref": "missing", "state": "DONE"})
+    let arguments: Map<String, Value> = json!({"ref": "missing", "todo": "DONE"})
         .as_object()
         .expect("arguments")
         .clone();
@@ -320,7 +320,7 @@ async fn bad_arguments_are_error_schemas_naming_the_argument()
     let directory = fixture();
     let service = service(&directory).await?;
 
-    let result = call(&service, "set_state", json!({"ref": 3, "state": "DONE"})).await?;
+    let result = call(&service, "set_state", json!({"ref": 3, "todo": "DONE"})).await?;
     assert_eq!(result.is_error, Some(true));
     let error = first_block(&result);
     assert_eq!(error["schema"], "agd.error/v1");
@@ -332,11 +332,11 @@ async fn bad_arguments_are_error_schemas_naming_the_argument()
     );
     // In the request's own order, required ones first.
     assert!(
-        message.ends_with("accepted arguments: ref (required), state (required), note"),
+        message.ends_with("accepted arguments: ref (required), todo (required), note"),
         "{message}"
     );
 
-    let result = call(&service, "capture", json!({"template": "t"})).await?;
+    let result = call(&service, "capture", json!({"template_key": "t"})).await?;
     assert_eq!(result.is_error, Some(true));
     let message = first_block(&result)["message"].to_string();
     assert!(message.contains("missing field `title`"), "{message}");
@@ -365,7 +365,7 @@ async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn 
     let result = call(
         &service,
         "capture",
-        json!({"template": "t", "title": "Buy milk", "due": "fri"}),
+        json!({"template_key": "t", "title": "Buy milk", "due": "fri"}),
     )
     .await?;
     assert_eq!(result.is_error, Some(true));
@@ -374,7 +374,7 @@ async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn 
     let message = error["message"].as_str().expect("message");
     assert_eq!(
         message,
-        "unknown argument `due`; accepted arguments: template, title (required), \
+        "unknown argument `due`; accepted arguments: template_key, title (required), \
          scheduled, deadline, tags, priority, body, prompts, properties"
     );
     assert_eq!(org_files(&directory), 1);
@@ -382,7 +382,7 @@ async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn 
     let result = call(
         &service,
         "edit",
-        json!({"ref": "today-task", "state": "DONE"}),
+        json!({"ref": "today-task", "todo": "DONE"}),
     )
     .await?;
     assert_eq!(first_block(&result)["code"], "invalid_arguments");
@@ -542,7 +542,7 @@ template = "* TODO %?"
     let result = call(
         &service,
         "capture",
-        json!({"template": "w", "title": "Ship it", "deadline": "2026-10-30", "scheduled": "2026-10-28T09:00"}),
+        json!({"template_key": "w", "title": "Ship it", "deadline": "2026-10-30", "scheduled": "2026-10-28T09:00"}),
     )
     .await?;
     assert_eq!(result.is_error, Some(false), "{:?}", result.content);
@@ -568,7 +568,7 @@ template = "* TODO %?"
     let result = call(
         &service,
         "capture",
-        json!({"template": "i", "title": "Plain"}),
+        json!({"template_key": "i", "title": "Plain"}),
     )
     .await?;
     assert_eq!(first_block(&result).get("notes"), None);
@@ -609,7 +609,7 @@ template = "* TODO %?"
 key = "m"
 desc = "Meeting"
 file = "meetings.org"
-outline_path = ["Work", "Meetings"]
+olpath = ["Work", "Meetings"]
 template = "* MEET %^{Who} about %?\nSCHEDULED: %^{When}t"
 
 [[view]]
@@ -733,7 +733,7 @@ fn session_actor(messages: &[Value]) -> Result<(Vec<String>, Value), Box<dyn std
 fn set_state_call(id: u64, meta: Option<&Value>) -> Value {
     let mut params = json!({
         "name": "set_state",
-        "arguments": {"ref": "today-task", "state": "DONE"},
+        "arguments": {"ref": "today-task", "todo": "DONE"},
     });
     if let Some(meta) = meta {
         params["_meta"] = meta.clone();

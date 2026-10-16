@@ -86,8 +86,9 @@ pub struct Settings {
     /// Absent, agents choose a template.
     pub agent_inbox: Option<String>,
     pub someday_tag: String,
-    /// Someday also removes SCHEDULED, so the task leaves the agenda.
-    pub someday_clears_scheduled: bool,
+    /// Someday also removes the dates that put the task on the agenda
+    /// (SCHEDULED, and an overdue DEADLINE), so it leaves the agenda.
+    pub someday_clears_dates: bool,
     /// Triage suggests Someday after this many reschedules.
     pub reschedule_nudge: usize,
 
@@ -177,15 +178,15 @@ pub struct CaptureTemplate {
     pub key: String,
     pub desc: String,
     /// The target, as org-capture's: `id` alone, or `file` alone
-    /// (file), with `heading` (file+headline) or with `outline_path`
+    /// (file), with `heading` (file+headline) or with `olpath`
     /// (file+olp). `datetree` goes with `file` alone (file+datetree) or with
-    /// `outline_path` (file+olp+datetree).
+    /// `olpath` (file+olp+datetree).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heading: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub outline_path: Option<Vec<String>>,
+    pub olpath: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -304,7 +305,7 @@ impl Default for Settings {
             start_view: String::new(),
             agent_inbox: None,
             someday_tag: "someday".to_string(),
-            someday_clears_scheduled: true,
+            someday_clears_dates: true,
             reschedule_nudge: 3,
             captures: vec![CaptureTemplate::default()],
             views: Vec::new(),
@@ -341,7 +342,7 @@ impl Default for CaptureTemplate {
             desc: "Todo".to_string(),
             file: Some("inbox.org".to_string()),
             heading: Some("Inbox".to_string()),
-            outline_path: None,
+            olpath: None,
             id: None,
             datetree: false,
             template: "* TODO %?\n:PROPERTIES:\n:CREATED: %U\n:END:".to_string(),

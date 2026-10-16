@@ -12,7 +12,7 @@
       "enabled": true,
       "file": "/fixture/tasks.org",
       "key": "j",
-      "outline_path": [
+      "olpath": [
         "Journal"
       ],
       "template": "* %?"
