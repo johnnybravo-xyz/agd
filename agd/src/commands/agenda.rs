@@ -142,7 +142,18 @@ fn apply_profile(
     match_expression: Option<String>,
 ) -> Result<Option<String>, AgdError> {
     let profile = settings.agent_profile(name).cloned().ok_or_else(|| {
-        AgdError::new("unknown_profile", format!("unknown agent profile '{name}'"))
+        let names: Vec<&str> = settings
+            .agent_profiles
+            .iter()
+            .map(|profile| profile.name.as_str())
+            .collect();
+        AgdError::new(
+            "unknown_profile",
+            format!(
+                "unknown agent profile '{name}'; profiles: {}",
+                names.join(", ")
+            ),
+        )
     })?;
     if !profile.files.is_empty() {
         settings.agenda_files = profile.files;

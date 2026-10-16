@@ -162,6 +162,42 @@ fn json_mode_reports_every_error_as_agd_error() {
 }
 
 #[test]
+fn errors_name_the_valid_choices() {
+    let fixture = Fixture::new();
+    let config = fs::read_to_string(&fixture.config).unwrap();
+    fs::write(
+        &fixture.config,
+        format!(
+            concat!(
+                "{config}",
+                "[[capture]]\n",
+                "key = \"m\"\n",
+                "desc = \"Meeting\"\n",
+                "file = \"tasks.org\"\n",
+                "template = \"* Meet %^{{Who}} about %?\"\n",
+                "[[agent_profile]]\n",
+                "name = \"coding\"\n",
+            ),
+            config = config,
+        ),
+    )
+    .unwrap();
+    let failures: [(&[&str], &str); 3] = [
+        (&["capture", "x", "Buy milk"], "templates: t, m"),
+        (&["agenda", "--profile", "nope"], "profiles: coding"),
+        (&["capture", "m", "Budget"], "--prompt 'Who=...'"),
+    ];
+    for (arguments, hint) in failures {
+        fixture
+            .command()
+            .args(arguments)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(hint));
+    }
+}
+
+#[test]
 fn flags_a_command_would_ignore_are_usage_errors() {
     let fixture = Fixture::new();
     let refused: [&[&str]; 11] = [

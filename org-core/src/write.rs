@@ -240,9 +240,18 @@ impl WriteEngine {
             .settings
             .capture_template(template_key)
             .ok_or_else(|| {
+                let keys: Vec<&str> = self
+                    .settings
+                    .captures
+                    .iter()
+                    .map(|t| t.key.as_str())
+                    .collect();
                 AgdError::new(
                     "unknown_template",
-                    format!("capture template '{template_key}' is not configured"),
+                    format!(
+                        "capture template '{template_key}' is not configured; templates: {}",
+                        keys.join(", ")
+                    ),
                 )
             })?;
         let (template, draft) = apply_agent_capture_gate(template, draft, &self.settings, context);

@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use agd_core::{AgdError, WriteContext, WriteEngine, load_settings, parse_capture_line};
+use agd_core::{
+    AgdError, CaptureTemplate, WriteContext, WriteEngine, capture_prompts, load_settings,
+    parse_capture_line,
+};
 use anyhow::Result;
 use chrono::Local;
 use clap::Args;
@@ -57,6 +60,9 @@ impl CaptureCommand {
         .settings;
         let draft = parse_capture_line(&text, Local::now().date_naive())?;
         let prompts = parse_prompts(self.prompts)?;
+        if let Some(capture) = settings.capture_template(&template) {
+            check_prompts(&template, capture, &prompts)?;
+        }
         let mutation = WriteEngine::with_default_journal(settings)?.capture(
             &template,
             &draft,
@@ -79,6 +85,28 @@ impl CaptureCommand {
             println!("{}", mutation.item.item_ref);
         }
         Ok(())
+    }
+}
+
+/// Names the `--prompt` a template's `%^{...}` field still needs; a date
+/// prompt may stay empty.
+fn check_prompts(
+    key: &str,
+    template: &CaptureTemplate,
+    prompts: &BTreeMap<String, String>,
+) -> Result<(), AgdError> {
+    let missing = capture_prompts(template)
+        .into_iter()
+        .find(|prompt| !prompt.date && !prompts.contains_key(&prompt.name));
+    match missing {
+        Some(prompt) => Err(AgdError::new(
+            "missing_prompt",
+            format!(
+                "capture template '{key}' asks for {name}; answer with --prompt '{name}=...'",
+                name = prompt.name
+            ),
+        )),
+        None => Ok(()),
     }
 }
 
