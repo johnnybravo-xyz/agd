@@ -118,10 +118,12 @@ fn prompt_day(day: &str, today: NaiveDate) -> Result<Option<NaiveDate>, AgdError
     if let Ok(date) = NaiveDate::parse_from_str(day, "%Y-%m-%d") {
         return Ok(Some(date));
     }
+    // As org-read-date: the next such weekday, a week ahead when today is one.
     if let Some(weekday) = parse_weekday(day) {
         let distance = (weekday.num_days_from_monday() as i64
             - today.weekday().num_days_from_monday() as i64)
             .rem_euclid(7);
+        let distance = if distance == 0 { 7 } else { distance };
         return Ok(Some(today + Duration::days(distance)));
     }
     if let Some(captures) = RELATIVE_RE.captures(day) {
@@ -764,8 +766,8 @@ mod tests {
     }
 
     /// Each answer is what pinned Emacs's org-read-date gives on Friday
-    /// 2026-10-16, except where agd deliberately differs: a bare `fri` is
-    /// today (Org: next Friday), and `tomorrow` is a date (Org ignores it).
+    /// 2026-10-16, except `tomorrow`, which agd reads as a date (Org ignores
+    /// the word).
     #[test]
     fn reads_dates_as_org_read_date_does() {
         let friday = NaiveDate::from_ymd_opt(2026, 10, 16).unwrap();
@@ -782,7 +784,7 @@ mod tests {
             ("+2tue", "2026-10-27", None),
             ("sat", "2026-10-17", None),
             ("thu", "2026-10-22", None),
-            ("fri", "2026-10-16", None),
+            ("fri", "2026-10-23", None),
             ("16", "2026-10-16", None),
             ("14", "2026-11-14", None),
             ("oct 30", "2026-10-30", None),
