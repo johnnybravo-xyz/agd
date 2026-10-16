@@ -136,7 +136,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     let subject = if app.screen == Screen::Review {
         app.journals
             .get(app.selected)
-            .and_then(|record| super::review::touched_item(app, record))
+            .and_then(|record| super::review::subject(app, record))
             .map(|item| (item, None))
     } else {
         app.selected_row()

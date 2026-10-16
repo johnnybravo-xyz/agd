@@ -780,8 +780,13 @@ impl App {
         if record.status != JournalStatus::Committed {
             return Ok(());
         }
+        let location = super::review::subject_location(self, record);
+        let title = super::review::subject_title(self, record);
         WriteEngine::with_default_journal(self.settings.clone())?.review(&record.id)?;
-        self.set_status("accepted · nothing written");
+        self.set_status(format!(
+            "{} · nothing written",
+            words::change(&location, "accepted", &title)
+        ));
         self.reload_rows()
     }
 
@@ -796,8 +801,10 @@ impl App {
         }
         self.set_status(match accepted {
             0 => "no unreviewed agent changes".to_string(),
-            1 => "accepted 1 agent change · nothing written".to_string(),
-            count => format!("accepted {count} agent changes · nothing written"),
+            count => format!(
+                "{}  accepted · nothing written",
+                crate::commands::counted(count, "change", "changes")
+            ),
         });
         self.reload_rows()
     }
@@ -805,13 +812,13 @@ impl App {
     /// Undo applies the journal's reverse patch only where those bytes are
     /// unchanged; otherwise the conflict is reported and nothing is written.
     pub(super) fn undo_selected_change(&mut self) -> Result<()> {
-        let Some(id) = self
-            .journals
-            .get(self.selected)
-            .map(|record| record.id.clone())
-        else {
+        let Some(record) = self.journals.get(self.selected) else {
             return Ok(());
         };
+        let id = record.id.clone();
+        let location = super::review::subject_location(self, record);
+        let title = super::review::subject_title(self, record);
+        let change = format!("undid {}'s change", super::review::agent_name(record));
         let result = WriteEngine::with_default_journal(self.settings.clone())?
             .undo(&id, &write_context())
             .map_err(|error| {
@@ -825,7 +832,7 @@ impl App {
                 }
             })?;
         self.refresh_files(&result.file)?;
-        self.set_status("undid the agent change");
+        self.set_status(words::change(&location, &change, &title));
         self.reload_rows()
     }
 
