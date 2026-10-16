@@ -1512,6 +1512,34 @@ fn prompts_and_the_refile_picker_take_minibuffer_keys() {
 
 #[test]
 #[serial]
+fn the_filter_narrows_rows_as_you_type_and_esc_restores_them() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(root.join("work.org"), THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('/'));
+        type_keys(&mut app, "tw");
+        assert_eq!(app.rows.len(), 1);
+        assert_eq!(app.rows[0].item.title, "Two");
+        let screen = render(&mut app, 100, 20);
+        assert!(screen.last().unwrap().starts_with("/tw"), "{screen:?}");
+        assert!(screen.join("\n").contains("Two"), "{screen:?}");
+        press(&mut app, KeyCode::Esc);
+        assert!(app.filter.is_empty());
+        assert_eq!(app.rows.len(), 3);
+
+        press(&mut app, KeyCode::Char('/'));
+        type_keys(&mut app, "one");
+        press(&mut app, KeyCode::Enter);
+        assert!(matches!(app.overlay, Overlay::None));
+        assert_eq!(app.filter, "one");
+        assert_eq!(app.rows.len(), 1);
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {

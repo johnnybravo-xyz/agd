@@ -541,9 +541,7 @@ fn run_list(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget
             app.reload_rows()?;
         }
         A::Context => cycle_context(app)?,
-        A::Filter => {
-            app.overlay = Overlay::Prompt(Prompt::new(PromptKind::Filter, app.filter.clone()))
-        }
+        A::Filter => app.overlay = Overlay::Prompt(Prompt::filter(&app.filter)),
         A::Edit => {
             if !app.expand_overdue()?
                 && let Some(form) = super::edit::EditForm::open(app)
@@ -784,6 +782,38 @@ fn run_pane(app: &mut App, action: Action) -> Result<EditorTarget> {
     Ok(None)
 }
 
+/// A prompt's keys. The filter is live: rows narrow as you type, and esc
+/// or ctrl-g puts back the filter it started with.
+fn prompt_key(app: &mut App, key: KeyEvent) -> Result<()> {
+    let Overlay::Prompt(prompt) = &mut app.overlay else {
+        return Ok(());
+    };
+    let filter = prompt.kind == PromptKind::Filter;
+    let edit = match key.code {
+        KeyCode::Esc => Edit::Cancel,
+        KeyCode::Enter => return app.commit_prompt(),
+        _ => prompt.input.handle(key),
+    };
+    let typed = prompt.input.text().to_string();
+    let restore = prompt.restore.clone();
+    match edit {
+        Edit::Cancel => {
+            app.overlay = Overlay::None;
+            if filter {
+                app.filter = restore;
+                app.reload_rows()?;
+            }
+        }
+        Edit::Changed if filter => {
+            app.filter = typed.trim().to_string();
+            app.reload_rows()?;
+        }
+        Edit::Changed => prompt.stale = true,
+        Edit::Other => {}
+    }
+    Ok(())
+}
+
 fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
     match &mut app.overlay {
         Overlay::Help { scroll } => match key.code {
@@ -793,15 +823,7 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
             KeyCode::PageUp => *scroll = scroll.saturating_sub(10),
             _ => app.overlay = Overlay::None,
         },
-        Overlay::Prompt(prompt) => match key.code {
-            KeyCode::Esc => app.overlay = Overlay::None,
-            KeyCode::Enter => app.commit_prompt()?,
-            _ => match prompt.input.handle(key) {
-                Edit::Cancel => app.overlay = Overlay::None,
-                Edit::Changed => prompt.stale = true,
-                Edit::Other => {}
-            },
-        },
+        Overlay::Prompt(_) => prompt_key(app, key)?,
         Overlay::Refile(picker) => match key.code {
             KeyCode::Esc => app.overlay = Overlay::None,
             KeyCode::Enter => app.commit_refile()?,

@@ -832,6 +832,27 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
     );
 }
 
+/// `/` as a minibuffer on the bottom row: the text, a count of what
+/// matches, and its keys.
+fn draw_filter_line(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area: Rect) {
+    let theme = &app.theme;
+    let row = Rect {
+        y: area.y + area.height.saturating_sub(1),
+        height: 1,
+        ..area
+    };
+    let mut spans = vec![Span::styled("/", theme.strong(theme.accent))];
+    spans.extend(prompt.input.spans(theme, true));
+    spans.push(Span::styled(
+        format!("  {} rows  ", app.rows.len()),
+        theme.muted(),
+    ));
+    spans.extend(theme.key_hint("⏎", "keep"));
+    spans.extend(theme.key_hint("esc", "restore"));
+    frame.render_widget(Clear, row);
+    frame.render_widget(Paragraph::new(Line::from(spans)), row);
+}
+
 /// A focused one-line input after its `›` marker.
 fn input_line(theme: &Theme, input: &TextInput) -> Line<'static> {
     let mut spans = vec![Span::styled("› ", theme.strong(theme.accent))];
@@ -862,6 +883,13 @@ fn draw_bulk(frame: &mut Frame<'_>, app: &App, area: Rect) {
 /// Prompts, the refile picker and the views dispatcher.
 pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
+    // The filter applies as you type, so it stays out of the list's way:
+    // a minibuffer on the footer row, nothing dimmed.
+    if let Overlay::Prompt(prompt) = &app.overlay
+        && prompt.kind == PromptKind::Filter
+    {
+        return draw_filter_line(frame, app, prompt, area);
+    }
     frame
         .buffer_mut()
         .set_style(area, Style::default().add_modifier(Modifier::DIM));

@@ -28,6 +28,8 @@ pub(super) struct Prompt {
     pub input: TextInput,
     /// For a Note prompt, the TODO state the note goes with.
     pub state: String,
+    /// For the filter, which applies as you type: what esc puts back.
+    pub restore: String,
     /// The changed lines Enter would write (and a count for marked rows),
     /// or why it would write nothing, as a sentence.
     pub preview: Result<Vec<String>, String>,
@@ -44,8 +46,17 @@ impl Prompt {
             kind,
             input,
             state: String::new(),
+            restore: String::new(),
             preview: Ok(Vec::new()),
             stale: true,
+        }
+    }
+
+    /// `/`: the filter as it stands, which esc restores.
+    pub(super) fn filter(current: &str) -> Self {
+        Self {
+            restore: current.to_string(),
+            ..Self::new(PromptKind::Filter, current.to_string())
         }
     }
 
