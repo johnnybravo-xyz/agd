@@ -8,6 +8,7 @@ use agd_core::{
 use anyhow::{Result, bail};
 use chrono::{Datelike, Duration, NaiveDate};
 
+use super::input::TextInput;
 use super::{App, Overlay, PromptKind, Screen, write_context};
 
 /// Triage outcomes, counted for the summary line.
@@ -24,7 +25,7 @@ pub(super) const OTHER: usize = 6;
 #[derive(Debug)]
 pub(super) struct Prompt {
     pub kind: PromptKind,
-    pub input: String,
+    pub input: TextInput,
     /// For a Note prompt, the TODO state the note goes with.
     pub state: String,
     /// The changed lines Enter would write (and a count for marked rows),
@@ -35,7 +36,10 @@ pub(super) struct Prompt {
 }
 
 impl Prompt {
+    /// A prompt holding `input`, selected so typing replaces it.
     pub(super) fn new(kind: PromptKind, input: String) -> Self {
+        let mut input = TextInput::new(input);
+        input.select_all();
         Self {
             kind,
             input,
@@ -150,7 +154,7 @@ pub(super) fn example_date(today: NaiveDate) -> String {
 /// Fuzzy refile target picker over every heading, recent targets first.
 #[derive(Debug)]
 pub(super) struct RefilePicker {
-    pub input: String,
+    pub input: TextInput,
     pub selected: usize,
     targets: Vec<(String, String)>,
 }
@@ -160,7 +164,7 @@ impl RefilePicker {
     pub(super) fn matches(&self) -> Vec<&(String, String)> {
         self.targets
             .iter()
-            .filter(|(_, label)| fuzzy_match(label, &self.input))
+            .filter(|(_, label)| fuzzy_match(label, self.input.text()))
             .collect()
     }
 }
@@ -485,7 +489,7 @@ impl App {
     /// The edit a prompt's text asks for; None while there is nothing to
     /// write (no date or tag typed yet, or the filter).
     fn prompt_edit(&self, prompt: &Prompt) -> Result<Option<PromptEdit>, String> {
-        let input = prompt.input.trim();
+        let input = prompt.input.text().trim();
         match prompt.kind {
             PromptKind::Filter => Ok(None),
             PromptKind::Schedule | PromptKind::Deadline if input.is_empty() => Ok(None),
@@ -583,7 +587,7 @@ impl App {
             return Ok(());
         };
         if prompt.kind == PromptKind::Filter {
-            self.filter = prompt.input.trim().to_string();
+            self.filter = prompt.input.text().trim().to_string();
             self.overlay = Overlay::None;
             return self.reload_rows();
         }
@@ -753,7 +757,7 @@ impl App {
             )
         });
         self.overlay = Overlay::Refile(RefilePicker {
-            input: String::new(),
+            input: TextInput::default(),
             selected: 0,
             targets,
         });

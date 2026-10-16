@@ -10,6 +10,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
 use super::actions::Prompt;
+use super::input::Edit;
 use super::{App, Overlay, PromptKind, Screen, TriageState, capture, open_in_editor};
 
 type Term = Terminal<CrosstermBackend<Stdout>>;
@@ -794,16 +795,12 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
         },
         Overlay::Prompt(prompt) => match key.code {
             KeyCode::Esc => app.overlay = Overlay::None,
-            KeyCode::Backspace => {
-                prompt.input.pop();
-                prompt.stale = true;
-            }
             KeyCode::Enter => app.commit_prompt()?,
-            KeyCode::Char(character) => {
-                prompt.input.push(character);
-                prompt.stale = true;
-            }
-            _ => {}
+            _ => match prompt.input.handle(key) {
+                Edit::Cancel => app.overlay = Overlay::None,
+                Edit::Changed => prompt.stale = true,
+                Edit::Other => {}
+            },
         },
         Overlay::Refile(picker) => match key.code {
             KeyCode::Esc => app.overlay = Overlay::None,
@@ -813,15 +810,11 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
                 let count = picker.matches().len();
                 picker.selected = (picker.selected + 1).min(count.saturating_sub(1));
             }
-            KeyCode::Backspace => {
-                picker.input.pop();
-                picker.selected = 0;
-            }
-            KeyCode::Char(character) => {
-                picker.input.push(character);
-                picker.selected = 0;
-            }
-            _ => {}
+            _ => match picker.input.handle(key) {
+                Edit::Cancel => app.overlay = Overlay::None,
+                Edit::Changed => picker.selected = 0,
+                Edit::Other => {}
+            },
         },
         Overlay::Bulk => {
             if let Some(action) = action_for(BULK_KEYS, key) {

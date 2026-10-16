@@ -8,6 +8,7 @@ use ratatui::widgets::{
 
 use agd_core::{OccurrenceType, keyword_color};
 
+use super::input::TextInput;
 use super::rows::days_since;
 use super::theme::{Theme, centered, truncate};
 use super::{
@@ -813,12 +814,10 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
         .direction(Direction::Vertical)
         .constraints([3, preview_rows, gap, 1, 1, 1].map(Constraint::Length))
         .split(inner);
-    let input = Line::from(vec![
-        Span::styled("› ", theme.strong(theme.accent)),
-        Span::raw(prompt.input.clone()),
-        Span::styled("▏", theme.fg(theme.accent)),
-    ]);
-    frame.render_widget(Paragraph::new(input).block(theme.input(true)), parts[0]);
+    frame.render_widget(
+        Paragraph::new(input_line(theme, &prompt.input)).block(theme.input(true)),
+        parts[0],
+    );
     frame.render_widget(Paragraph::new(preview), parts[1]);
     frame.render_widget(Paragraph::new(Span::styled(hint, theme.muted())), parts[3]);
     frame.render_widget(
@@ -831,6 +830,13 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
         )),
         parts[5],
     );
+}
+
+/// A focused one-line input after its `›` marker.
+fn input_line(theme: &Theme, input: &TextInput) -> Line<'static> {
+    let mut spans = vec![Span::styled("› ", theme.strong(theme.accent))];
+    spans.extend(input.spans(theme, true));
+    Line::from(spans)
 }
 
 /// `B`: the bulk menu, one row per key from keys::BULK_KEYS.
@@ -859,13 +865,6 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame
         .buffer_mut()
         .set_style(area, Style::default().add_modifier(Modifier::DIM));
-    let input_line = |text: &str| {
-        Line::from(vec![
-            Span::styled("› ", theme.strong(theme.accent)),
-            Span::raw(text.to_string()),
-            Span::styled("▏", theme.fg(theme.accent)),
-        ])
-    };
     let footer = |hints: &[(&str, &str)]| {
         Line::from(
             hints
@@ -893,7 +892,7 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 ])
                 .split(inner);
             frame.render_widget(
-                Paragraph::new(input_line(&picker.input)).block(theme.input(true)),
+                Paragraph::new(input_line(theme, &picker.input)).block(theme.input(true)),
                 parts[0],
             );
             let items: Vec<ListItem<'_>> = picker

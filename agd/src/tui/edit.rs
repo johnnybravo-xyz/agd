@@ -237,13 +237,14 @@ pub(super) fn changed_lines(diff: &str) -> String {
         .join("\n")
 }
 
-/// Returns true when the caller should open the entry in $EDITOR (ctrl-e),
-/// which closes the popup without writing.
+/// Returns true when the caller should open the entry in $EDITOR (ctrl-o;
+/// in a field ctrl-e is end of line), which closes the popup without
+/// writing.
 pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<bool> {
     let Overlay::Edit(mut form) = std::mem::replace(&mut app.overlay, Overlay::None) else {
         return Ok(false);
     };
-    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('e') {
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('o') {
         return Ok(true);
     }
     match key.code {
@@ -397,7 +398,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 theme.key_hint("⏎", "save"),
                 theme.key_hint("tab", "next field"),
                 theme.key_hint("esc", "cancel"),
-                theme.key_hint("ctrl-e", "open in $EDITOR"),
+                theme.key_hint("ctrl-o", "open in $EDITOR"),
             ]
             .concat(),
         )),

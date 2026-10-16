@@ -18,6 +18,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Wrap};
 
+use super::input::{self, TextInput};
 use super::theme::{Theme, centered};
 use super::{App, Overlay, stop_terminal, write_context};
 
@@ -26,8 +27,8 @@ use super::{App, Overlay, stop_terminal, write_context};
 #[derive(Debug)]
 pub(super) struct Draft {
     template: Option<String>,
-    input: String,
-    prompts: Vec<(CapturePrompt, String)>,
+    input: TextInput,
+    prompts: Vec<(CapturePrompt, TextInput)>,
     field: usize,
     body: String,
     preview: Result<String, String>,
@@ -41,7 +42,7 @@ impl Default for Draft {
     fn default() -> Self {
         Self {
             template: None,
-            input: String::new(),
+            input: TextInput::default(),
             prompts: Vec::new(),
             field: 0,
             selected: 0,
@@ -60,12 +61,12 @@ impl Draft {
         self.template = Some(key.to_string());
         self.prompts = capture_prompts(template)
             .into_iter()
-            .map(|prompt| (prompt, String::new()))
+            .map(|prompt| (prompt, TextInput::default()))
             .collect();
         self.field = 0;
     }
 
-    fn current(&mut self) -> &mut String {
+    fn current(&mut self) -> &mut TextInput {
         match self.field {
             0 => &mut self.input,
             index => &mut self.prompts[index - 1].1,
@@ -102,7 +103,7 @@ impl Draft {
     }
 
     fn parsed(&self, app: &App) -> Result<CaptureDraft, String> {
-        parse_capture_line(&self.input, app.today).map_err(|error| error.to_string())
+        parse_capture_line(self.input.text(), app.today).map_err(|error| error.to_string())
     }
 
     /// The exact text that will be written, from a dry-run capture through
@@ -112,7 +113,7 @@ impl Draft {
             self.preview = Ok(String::new());
             return;
         };
-        if self.input.trim().is_empty() {
+        if self.input.text().trim().is_empty() {
             self.preview = Ok(String::new());
             return;
         }
@@ -149,10 +150,10 @@ pub(super) fn refresh_stale(app: &mut App) {
     };
 }
 
-fn prompt_answers(prompts: &[(CapturePrompt, String)]) -> BTreeMap<String, String> {
+fn prompt_answers(prompts: &[(CapturePrompt, TextInput)]) -> BTreeMap<String, String> {
     prompts
         .iter()
-        .map(|(prompt, value)| (prompt.name.clone(), value.clone()))
+        .map(|(prompt, value)| (prompt.name.clone(), value.text().to_string()))
         .collect()
 }
 
@@ -173,7 +174,9 @@ pub(super) fn type_key(app: &mut App, character: char) {
     if draft.template.is_none() {
         draft.choose(app, &character.to_string());
     } else {
-        draft.current().push(character);
+        draft
+            .current()
+            .handle(KeyEvent::from(KeyCode::Char(character)));
     }
     draft.refresh(app);
     app.overlay = Overlay::Capture(draft);
@@ -188,14 +191,10 @@ pub(super) fn handle_key(
         return Ok(());
     };
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    // In the text fields ctrl-e is end of line, so the body editor is ctrl-o.
     match key.code {
-        KeyCode::Esc => {
-            if app.capture_only {
-                app.quit = true;
-            }
-            return Ok(());
-        }
-        KeyCode::Char('e') if control => edit_body(terminal, app, &mut draft)?,
+        KeyCode::Esc => return close(app),
+        KeyCode::Char('o') if control => edit_body(terminal, app, &mut draft)?,
         KeyCode::Tab => {
             let keys: Vec<String> = app
                 .settings
@@ -232,44 +231,51 @@ pub(super) fn handle_key(
             }
         }
         KeyCode::Up => draft.field = draft.previous_field(app),
-        KeyCode::Backspace => {
-            if draft.field == 0 && draft.input.is_empty() {
-                draft.template = None;
-                draft.prompts.clear();
-            } else {
-                draft.current().pop();
-            }
+        // Backspace on an empty line goes back to the template list.
+        KeyCode::Backspace if draft.field == 0 && draft.input.text().is_empty() => {
+            draft.template = None;
+            draft.prompts.clear();
         }
         KeyCode::Enter => {
-            if draft.template.is_some() && !draft.input.trim().is_empty() {
+            if draft.template.is_some() && !draft.input.text().trim().is_empty() {
                 match draft.next_field(app) {
                     Some(field) => draft.field = field,
                     None => return commit(app, draft),
                 }
             }
         }
-        KeyCode::Char(character) => {
-            // On an empty line the first letter picks a template, like
-            // C-c c t in Emacs.
+        // Before a template is chosen, a letter picks one, like C-c c t in
+        // Emacs.
+        KeyCode::Char(character) if draft.template.is_none() && !control => {
+            draft.choose(app, &character.to_string());
             if draft.template.is_none() {
-                draft.choose(app, &character.to_string());
-                if draft.template.is_none() {
-                    app.set_status(format!("no capture template '{character}'"));
-                }
-            } else {
-                draft.current().push(character);
+                app.set_status(format!("no capture template '{character}'"));
             }
         }
-        _ => {}
+        KeyCode::Char('g') if draft.template.is_none() && control => return close(app),
+        _ if draft.template.is_none() => {}
+        _ => {
+            if draft.current().handle(key) == input::Edit::Cancel {
+                return close(app);
+            }
+        }
     }
     draft.stale = true;
     app.overlay = Overlay::Capture(draft);
     Ok(())
 }
 
+/// Leaves the popup without writing; `agd capture -i` then quits.
+fn close(app: &mut App) -> Result<()> {
+    if app.capture_only {
+        app.quit = true;
+    }
+    Ok(())
+}
+
 fn commit(app: &mut App, draft: Draft) -> Result<()> {
     let template = draft.template.clone().unwrap_or_default();
-    let parsed = parse_capture_line(&draft.input, app.today)?;
+    let parsed = parse_capture_line(draft.input.text(), app.today)?;
     let prompts = prompt_answers(&draft.prompts);
     let mutation = WriteEngine::with_default_journal(app.settings.clone())?.capture(
         &template,
@@ -291,7 +297,7 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
     app.reload_rows()
 }
 
-/// ctrl-e: the body goes through $EDITOR as a temporary file.
+/// ctrl-o: the body goes through $EDITOR as a temporary file.
 fn edit_body(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
@@ -378,19 +384,14 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             Span::raw("")
         }
     };
-    let input_line = if draft.input.is_empty() {
-        Line::from(vec![
-            Span::styled("› ", theme.strong(theme.accent)),
-            cursor(draft.field == 0),
-            Span::styled(placeholder(), theme.muted()),
-        ])
+    let mut input_spans = vec![Span::styled("› ", theme.strong(theme.accent))];
+    if draft.input.text().is_empty() {
+        input_spans.push(cursor(draft.field == 0));
+        input_spans.push(Span::styled(placeholder(), theme.muted()));
     } else {
-        Line::from(vec![
-            Span::styled("› ", theme.strong(theme.accent)),
-            Span::raw(draft.input.clone()),
-            cursor(draft.field == 0),
-        ])
-    };
+        input_spans.extend(draft.input.spans(theme, draft.field == 0));
+    }
+    let input_line = Line::from(input_spans);
     frame.render_widget(
         Paragraph::new(input_line).block(theme.input(draft.field == 0)),
         parts[0],
@@ -415,10 +416,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
                     theme.muted()
                 },
             ),
-            Span::raw(value.clone()),
-            cursor(focused),
         ];
-        if value.is_empty() && prompt.date {
+        spans.extend(value.spans(theme, focused));
+        if value.text().is_empty() && prompt.date {
             let examples = format!("fri · +2d · {}", super::actions::example_date(app.today));
             let token = match prompt.planning.as_deref() {
                 Some("DEADLINE") => format!("{examples}, or due: above"),
@@ -454,7 +454,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Paragraph::new(Line::from(
             [
                 theme.key_hint("⏎", "save"),
-                theme.key_hint("ctrl-e", "editor"),
+                theme.key_hint("ctrl-o", "body in $EDITOR"),
                 theme.key_hint("esc", "cancel"),
             ]
             .concat(),

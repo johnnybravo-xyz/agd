@@ -402,7 +402,7 @@ fn an_invalid_date_keeps_the_popup_open_with_the_reason() {
 
 #[test]
 #[serial]
-fn ctrl_e_in_the_edit_popup_hands_over_to_the_editor_without_writing() {
+fn ctrl_o_in_the_edit_popup_hands_over_to_the_editor_without_writing() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     with_home(|root| {
         let path = root.join("work.org");
@@ -412,11 +412,11 @@ fn ctrl_e_in_the_edit_popup_hands_over_to_the_editor_without_writing() {
         app.reload_rows().unwrap();
         app.overlay = Overlay::Edit(Box::new(super::edit::EditForm::open(&app).unwrap()));
         key(&mut app, KeyCode::Char('x'));
-        let open_editor = super::edit::handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL),
-        )
-        .unwrap();
+        // In a field ctrl-e is end of line, as in the minibuffer.
+        let control = |character| KeyEvent::new(KeyCode::Char(character), KeyModifiers::CONTROL);
+        assert!(!super::edit::handle_key(&mut app, control('e')).unwrap());
+        assert!(matches!(app.overlay, Overlay::Edit(_)));
+        let open_editor = super::edit::handle_key(&mut app, control('o')).unwrap();
         assert!(open_editor);
         assert!(matches!(app.overlay, Overlay::None));
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
@@ -1470,6 +1470,43 @@ fn typing_into_a_focused_edit_field_replaces_it_and_end_keeps_it() {
         let screen = render(&mut app, 100, 30).join("\n");
         assert!(screen.contains("+* TODO Draft report v2"), "{screen}");
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    });
+}
+
+#[test]
+#[serial]
+fn prompts_and_the_refile_picker_take_minibuffer_keys() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    with_home(|root| {
+        fs::write(root.join("work.org"), THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let control = |app: &mut App, character| {
+            let key = KeyEvent::new(KeyCode::Char(character), KeyModifiers::CONTROL);
+            super::keys::dispatch(app, key).unwrap();
+        };
+        press(&mut app, KeyCode::Char('s'));
+        type_keys(&mut app, "next fri");
+        control(&mut app, 'w');
+        control(&mut app, 'a');
+        type_keys(&mut app, "+2d");
+        control(&mut app, 'e');
+        let Overlay::Prompt(prompt) = &app.overlay else {
+            panic!("the prompt closed");
+        };
+        assert_eq!(prompt.input.text(), "+2dnext ");
+        control(&mut app, 'u');
+        control(&mut app, 'g');
+        assert!(matches!(app.overlay, Overlay::None));
+
+        press(&mut app, KeyCode::Char('R'));
+        type_keys(&mut app, "two");
+        control(&mut app, 'g');
+        assert!(matches!(app.overlay, Overlay::None));
+        assert_eq!(
+            fs::read_to_string(root.join("work.org")).unwrap(),
+            THREE_TODAY
+        );
     });
 }
 
