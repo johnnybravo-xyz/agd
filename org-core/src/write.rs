@@ -388,6 +388,7 @@ impl WriteEngine {
             &self.settings,
         )?;
         let entry = capture_entry(&rendered, placement.level, newline)?;
+        let entry = align_first_line_tags(&entry, self.settings.tags_column);
         let (post_image, entry_start) =
             insert_capture_entry(&placement.text, placement.offset, &entry, newline);
         let patch = changed_lines_patch(&pre_image, &post_image);
@@ -2141,6 +2142,20 @@ fn template_inserts_body(template: &str) -> bool {
     false
 }
 
+/// The entry's headline with its tags aligned to `tags_column`, as an edit
+/// writes a headline.
+fn align_first_line_tags(entry: &str, column: i64) -> String {
+    let line_end = entry.find(['\r', '\n']).unwrap_or(entry.len());
+    let (headline, rest) = entry.split_at(line_end);
+    let Some((head, tags)) = crate::document::split_trailing_tags(headline) else {
+        return entry.to_string();
+    };
+    format!(
+        "{}{rest}",
+        align_tags(format!("{head} {tags}"), true, column)
+    )
+}
+
 /// The rendered template as an entry at `level`: every heading in it moved
 /// by the same number of levels (org-paste-subtree), a template without a
 /// leading heading made one (`* `), ending in a newline.
@@ -3106,6 +3121,30 @@ mod tests {
         assert_eq!(
             fs::read_to_string(temp.path().join("inbox.org")).unwrap(),
             "* TODO Follow up\n:PROPERTIES:\n:SOURCE: agent\n:END:\nLine one\nLine two\n* TODO Follow up\nContext: inline\nLiteral 100%i\n"
+        );
+    }
+
+    #[test]
+    fn captured_tags_align_to_the_tags_column_like_edits() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut settings = settings(temp.path());
+        settings.tags_column = -30;
+        settings.captures[0].file = Some("inbox.org".to_string());
+        settings.captures[0].heading = None;
+        settings.captures[0].template = "* TODO %?".to_string();
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        let draft = CaptureDraft {
+            title: "Renew".to_string(),
+            tags: vec!["admin".to_string()],
+            ..CaptureDraft::default()
+        };
+        engine
+            .capture("t", &draft, "", &BTreeMap::new(), false, &context())
+            .unwrap();
+        let written = fs::read_to_string(temp.path().join("inbox.org")).unwrap();
+        assert_eq!(
+            written,
+            format!("* TODO Renew{}:admin:\n", " ".repeat(30 - 12 - 7))
         );
     }
 

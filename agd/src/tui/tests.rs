@@ -239,10 +239,9 @@ fn capture_preview_is_the_exact_text_that_will_be_written() {
             .iter()
             .map(|cell| cell.symbol())
             .collect();
-        assert!(
-            screen.contains("TODO [#A] Renew passport :personal:"),
-            "{screen}"
-        );
+        // Tags align to tags_column, as an edit writes them.
+        assert!(screen.contains("TODO [#A] Renew passport"), "{screen}");
+        assert!(screen.contains(":personal:"), "{screen}");
         assert!(screen.contains("DEADLINE: <2026-10-16 Fri>"), "{screen}");
         // Chips name the month, and the year when it is not this one.
         assert!(screen.contains("deadline Fri 16 Oct"), "{screen}");

@@ -857,6 +857,13 @@ fn scan_headlines(
     Ok(result)
 }
 
+/// Splits a headline's trailing tag group (`:a:b:`) off as the parser reads
+/// it: the text before it, trailing blanks removed, and the group.
+pub(crate) fn split_trailing_tags(line: &str) -> Option<(&str, &str)> {
+    let group = TAGS_RE.captures(line)?.get(1)?;
+    Some((line[..group.start()].trim_end(), group.as_str()))
+}
+
 fn parse_headline_content(
     input: &str,
     todo_active: &[String],
