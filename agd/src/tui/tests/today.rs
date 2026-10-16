@@ -1024,7 +1024,7 @@ fn u_undoes_only_this_sessions_changes_and_names_them() {
         app.undo().unwrap();
         assert_eq!(
             app.status.as_ref().unwrap().text,
-            "tasks.org:1  undid scheduled Tue 20 Oct · Pay rent"
+            "tasks.org:1  undid schedule · Pay rent"
         );
         assert!(
             fs::read_to_string(&tasks)
@@ -1065,7 +1065,7 @@ fn x_on_a_repeating_task_says_it_repeated_and_when_it_is_next() {
         app.undo().unwrap();
         assert_eq!(
             app.status.as_ref().unwrap().text,
-            "home.org:1  undid repeated → Tue 20 Oct · Water plants"
+            "home.org:1  undid state change · Water plants"
         );
     });
 }

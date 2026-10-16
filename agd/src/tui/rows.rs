@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use std::time::Instant;
 
 use agd_core::{
-    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalRecord, JournalStatus,
-    OccurrenceType, WorkspaceIndex, WriteEngine, overdue_entries,
+    AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalOperation, JournalRecord,
+    JournalStatus, OccurrenceType, WorkspaceIndex, WriteEngine, overdue_entries,
 };
 use anyhow::Result;
 use chrono::{Datelike, Duration, NaiveDate};
@@ -220,17 +220,12 @@ impl App {
         let journals = WriteEngine::with_default_journal(self.settings.clone())?.journal()?;
         self.provenance.clear();
         for record in &journals {
-            if is_capture(record)
+            if record.operation == Some(JournalOperation::Capture)
                 && let Some(item_ref) = &record.item_ref
             {
-                let actor = record
-                    .actor
-                    .strip_prefix("mcp:")
-                    .unwrap_or("you")
-                    .to_string();
                 self.provenance.insert(
                     super::stable_ref(item_ref),
-                    (actor, record.timestamp.clone()),
+                    (record.actor_name().to_string(), record.timestamp.clone()),
                 );
             }
         }
@@ -694,36 +689,17 @@ fn is_in_progress(item: &Item, index: &WorkspaceIndex) -> bool {
     !item.done && head.is_some_and(|head| head.name != todo)
 }
 
-/// A journal entry that added a heading and removed none: a capture. A
-/// state change rewrites its heading line (`-*` then `+*`), and an undo or
-/// a refile moves one, so none of those name who captured the task.
-fn is_capture(record: &JournalRecord) -> bool {
-    let changed = || {
-        record
-            .diff
-            .lines()
-            .filter(|line| !line.starts_with("+++") && !line.starts_with("---"))
-    };
-    record.transaction.is_none()
-        && changed().any(|line| line.starts_with("+*"))
-        && !changed().any(|line| line.starts_with("-*"))
-}
-
-fn is_agent(record: &JournalRecord) -> bool {
-    record.actor.starts_with("mcp:")
-}
-
 /// Recent agent changes, unreviewed first, newest first within each group.
 fn review_records(journals: Vec<JournalRecord>, agent: Option<&str>) -> Vec<JournalRecord> {
     let mut records: Vec<JournalRecord> = journals
         .into_iter()
         .filter(|record| {
-            is_agent(record)
+            record.agent().is_some()
                 && matches!(
                     record.status,
                     JournalStatus::Committed | JournalStatus::Reviewed
                 )
-                && agent.is_none_or(|agent| record.actor.strip_prefix("mcp:") == Some(agent))
+                && agent.is_none_or(|agent| record.agent() == Some(agent))
         })
         .collect();
     records.sort_by(|left, right| {

@@ -229,7 +229,7 @@ fn every_agent_card_has_the_same_two_line_shape() {
             .unwrap_or_else(|| panic!("{text}"));
         assert!(!text.contains("+ * Inbox"), "{text}");
         assert!(!text.contains(":perf:"), "{text}");
-        assert!(screen[task].contains("captured  "), "{text}");
+        assert!(screen[task].contains("capture  "), "{text}");
         assert!(screen[task].contains("inbox.org:"), "{text}");
         assert!(screen[task - 1].contains("● test-agent"), "{text}");
         // A long name is cut to 13 characters and "…".
@@ -238,8 +238,8 @@ fn every_agent_card_has_the_same_two_line_shape() {
         let when = crate::words::moment(&app.journals[0].timestamp, today());
         assert!(text.contains(&format!(" · {when}")), "{text}");
         assert!(text.contains("TODO → DONE  Rotate staging certs"), "{text}");
-        // Each kind is a past-tense verb, as change lines are.
-        assert!(text.contains("changed state"), "{text}");
+        // Each kind is the journal's word for the change, as undo says it.
+        assert!(text.contains("state change"), "{text}");
         // No raw planning lines; peek has the diff.
         assert!(!text.contains("CLOSED:"), "{text}");
         // The bar runs down the selected card; the blank row between cards
@@ -349,5 +349,21 @@ fn on_the_agents_tab_esc_steps_back_and_q_quits() {
         press(&mut app, KeyCode::Char('A'));
         press(&mut app, KeyCode::Char('q'));
         assert!(app.quit);
+    });
+}
+
+#[test]
+#[serial]
+fn undoing_an_agent_change_says_it_as_agd_undo_does() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        agent_capture(&app, root, "Agent task");
+        app.index.refresh_path(&root.join("inbox.org")).unwrap();
+        app.switch_screen(Screen::Review).unwrap();
+        press(&mut app, KeyCode::Char('u'));
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert_eq!(status, "inbox.org:2  undid capture · Agent task");
     });
 }

@@ -291,11 +291,7 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
     )?;
     app.index.refresh_path(Path::new(&mutation.item.file))?;
     let location = app.short_location(&mutation.item);
-    app.remember_undo(
-        &mutation.journal_id,
-        &location,
-        format!("captured · {}", mutation.item.title),
-    );
+    app.remember_undo(&mutation.journal_id, &location, &mutation.item.title);
     app.set_done(format!(
         "{} · u undo",
         crate::words::captured(&mutation.item, &location, app.today)

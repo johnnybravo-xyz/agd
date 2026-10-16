@@ -1,13 +1,14 @@
 //! The Agents tab: one card per agent write, every card the same shape:
 //!
 //! ```text
-//! ▌  ● codex          ~/src/app · 15:01               changed state
+//! ▌  ● codex          ~/src/app · 15:01                state change
 //! ▌    TODO → DONE  Rotate staging certs                work.org:42
 //! ```
 //!
 //! the marker cell (`*` when marked, as on a list row), who, where from and
-//! when, and what kind of change; then the change in the fewest words, the
-//! task, and where it is. SPC peeks at the change's diff and its task.
+//! when, and the change as the journal names it (`JournalRecord::
+//! operation_label`, as undo says it); then the change in the fewest words,
+//! the task, and where it is. SPC peeks at the change's diff and its task.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -16,7 +17,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
-use agd_core::{Item, JournalRecord, JournalStatus};
+use agd_core::{Item, JournalOperation, JournalRecord, JournalStatus};
 
 use super::App;
 use super::theme::{Theme, truncate};
@@ -28,98 +29,52 @@ const CHANGE_MAX: usize = 24;
 /// The right column (kind, file:line), as on Today.
 const RIGHT: usize = 14;
 
-/// What an agent change did, in the fewest words that let you judge it.
-enum Change {
-    Captured {
-        heading: String,
-    },
-    State {
-        heading: String,
-        from: String,
-        to: String,
-    },
-    Dates {
-        from: String,
-        to: String,
-    },
-    Refiled {
-        heading: String,
-    },
-    Edited,
-}
-
-impl Change {
-    /// The kind, as the card's first line names it.
-    fn kind(&self) -> &'static str {
-        match self {
-            Change::Captured { .. } => "captured",
-            Change::State { .. } => "changed state",
-            Change::Dates { .. } => "changed date",
-            Change::Refiled { .. } => "refiled",
-            Change::Edited => "edited",
-        }
-    }
-
-    /// The headline the diff names, for when the task is gone.
-    fn heading(&self) -> Option<&str> {
-        match self {
-            Change::Captured { heading }
-            | Change::State { heading, .. }
-            | Change::Refiled { heading } => Some(heading),
-            Change::Dates { .. } | Change::Edited => None,
-        }
-    }
-}
-
-fn classify(record: &JournalRecord, today: chrono::NaiveDate) -> Change {
+/// The change in the fewest words that let you judge it: the keyword
+/// before and after a state change, the date before and after a schedule
+/// or deadline (— for none), else the journal's word for it.
+fn change_parts(record: &JournalRecord, today: chrono::NaiveDate) -> Vec<(String, ChangeRole)> {
     let removed = changed(record, '-');
     let added = changed(record, '+');
+    let arrow = |from: Option<String>, to: Option<String>| {
+        vec![
+            (from.unwrap_or_else(|| "—".to_string()), ChangeRole::Was),
+            (" → ".to_string(), ChangeRole::Plain),
+            (to.unwrap_or_else(|| "—".to_string()), ChangeRole::Now),
+        ]
+    };
     let headline = |lines: &[(usize, &str)]| {
         lines
             .iter()
             .find(|(_, line)| line.starts_with('*'))
-            .map(|(_, line)| line.to_string())
+            .map(|(_, line)| keyword(line))
     };
-    if record.transaction.is_some() {
-        return Change::Refiled {
-            heading: headline(&added)
-                .or_else(|| headline(&removed))
-                .unwrap_or_default(),
-        };
-    }
-    match (headline(&removed), captured_headline(record, &added)) {
-        (None, Some(heading)) => Change::Captured { heading },
-        (Some(old), Some(new)) => {
-            let (from, to) = (second_word(&old), second_word(&new));
-            if from == to {
-                Change::Edited
-            } else {
-                Change::State {
-                    heading: new,
-                    from,
-                    to,
-                }
-            }
+    let date = |lines: &[(usize, &str)], keyword: &str| {
+        lines
+            .iter()
+            .find_map(|(_, line)| planning_date(line, keyword, today))
+    };
+    match record.operation {
+        // A repeating task marked done keeps its headline; it is named.
+        Some(JournalOperation::State) => match (headline(&removed), headline(&added)) {
+            (Some(from), Some(to)) => arrow(from, to),
+            _ => vec![(record.operation_label().to_string(), ChangeRole::Now)],
+        },
+        Some(JournalOperation::Schedule) => {
+            arrow(date(&removed, "SCHEDULED:"), date(&added, "SCHEDULED:"))
         }
-        _ => {
-            let date = |lines: &[(usize, &str)]| {
-                lines.iter().find_map(|(_, line)| compact_date(line, today))
-            };
-            match (date(&removed), date(&added)) {
-                (from, Some(to)) => Change::Dates {
-                    from: from.unwrap_or_else(|| "—".to_string()),
-                    to,
-                },
-                _ => Change::Edited,
-            }
+        Some(JournalOperation::Deadline) => {
+            arrow(date(&removed, "DEADLINE:"), date(&added, "DEADLINE:"))
         }
+        _ => vec![(record.operation_label().to_string(), ChangeRole::Now)],
     }
 }
 
-/// The headline a capture added. A capture that also created its parent
-/// (`* Inbox`) adds two; the task is the one on the line its ref names,
-/// else the last.
-fn captured_headline(record: &JournalRecord, added: &[(usize, &str)]) -> Option<String> {
+/// The headline the diff names, for a task no file holds any more: the one
+/// a change added, else the one it removed. A capture that also created
+/// its parent (`* Inbox`) adds two; the task is the one on the line its ref
+/// names, else the last.
+fn diff_headline(record: &JournalRecord) -> Option<String> {
+    let added = changed(record, '+');
     let line = record
         .item_ref
         .as_deref()
@@ -135,11 +90,19 @@ fn captured_headline(record: &JournalRecord, added: &[(usize, &str)]) -> Option<
         .find(|(number, _)| Some(*number) == line)
         .or(headlines.last())
         .map(|(_, text)| text.to_string())
+        .or_else(|| {
+            changed(record, '-')
+                .iter()
+                .find(|(_, text)| text.starts_with('*'))
+                .map(|(_, text)| text.to_string())
+        })
 }
 
+/// The date after `keyword` on a planning line, as words::when says it:
 /// `SCHEDULED: <2026-10-15 Thu 15:00>` reads as `Thu 15 Oct 15:00`.
-fn compact_date(line: &str, today: chrono::NaiveDate) -> Option<String> {
-    let inner = line.split_once('<')?.1.split_once('>')?.0;
+fn planning_date(line: &str, keyword: &str, today: chrono::NaiveDate) -> Option<String> {
+    let after = line.split_once(keyword)?.1;
+    let inner = after.split_once('<')?.1.split_once('>')?.0;
     let mut parts = inner.split_whitespace();
     let date = parts.next()?;
     date.parse::<chrono::NaiveDate>().ok()?;
@@ -177,13 +140,13 @@ fn changed(record: &JournalRecord, sign: char) -> Vec<(usize, &str)> {
     lines
 }
 
-fn second_word(headline: &str) -> String {
+/// A headline's TODO keyword, its second word when that is uppercase.
+fn keyword(headline: &str) -> Option<String> {
     headline
         .split_whitespace()
         .nth(1)
         .filter(|word| word.chars().all(|c| c.is_ascii_uppercase()))
-        .unwrap_or("")
-        .to_string()
+        .map(str::to_string)
 }
 
 /// The task a change touched, as the file reads now: the heading whose
@@ -263,19 +226,13 @@ fn first_changed_line(record: &JournalRecord) -> usize {
     line.unwrap_or(1).max(1)
 }
 
-/// The agent's normalized client name (`mcp:codex` is `codex`).
-pub(super) fn agent_name(record: &JournalRecord) -> &str {
-    record.actor.strip_prefix("mcp:").unwrap_or(&record.actor)
-}
-
 /// What a card and the status line call a change's task: its title as the
 /// agenda shows it, else the headline the diff names.
 pub(super) fn subject_title(app: &App, record: &JournalRecord) -> String {
     match subject(app, record) {
         Some(item) => super::peek::display_title(&item),
-        None => classify(record, app.today)
-            .heading()
-            .map(crate::words::headline_title)
+        None => diff_headline(record)
+            .map(|headline| crate::words::headline_title(&headline))
             .unwrap_or_default(),
     }
 }
@@ -372,8 +329,10 @@ struct Card {
     agent: String,
     project: String,
     time: String,
+    operation: Option<JournalOperation>,
+    /// The journal's word for the change: `state change`, `capture`.
     kind: &'static str,
-    /// `TODO → DONE`, `captured`, `Thu 15 Oct → Fri 16 Oct`.
+    /// `TODO → DONE`, `capture`, `Thu 15 Oct → Fri 16 Oct`.
     change: String,
     /// The change's colour roles: before and after the arrow, if any.
     change_parts: Vec<(String, ChangeRole)>,
@@ -390,26 +349,15 @@ enum ChangeRole {
 
 impl Card {
     fn new(app: &App, record: &JournalRecord) -> Self {
-        let change = classify(record, app.today);
-        let arrow = |from: &str, to: &str| {
-            vec![
-                (from.to_string(), ChangeRole::Was),
-                (" → ".to_string(), ChangeRole::Plain),
-                (to.to_string(), ChangeRole::Now),
-            ]
-        };
-        let change_parts = match &change {
-            Change::State { from, to, .. } => arrow(from, to),
-            Change::Dates { from, to } => arrow(from, to),
-            other => vec![(other.kind().to_string(), ChangeRole::Now)],
-        };
+        let change_parts = change_parts(record, app.today);
         Self {
             marked: app.marks.contains(&record.id),
             reviewed: record.status != JournalStatus::Committed,
-            agent: agent_name(record).to_string(),
+            agent: record.actor_name().to_string(),
             project: shorten_project(&record.project),
             time: crate::words::moment(&record.timestamp, app.today),
-            kind: change.kind(),
+            operation: record.operation,
+            kind: record.operation_label(),
             change: change_parts.iter().map(|(text, _)| text.as_str()).collect(),
             change_parts,
             title: subject_title(app, record),
@@ -425,13 +373,16 @@ impl Card {
             if self.reviewed {
                 return muted;
             }
-            match (role, self.kind) {
+            match (role, self.operation) {
                 (ChangeRole::Plain, _) => muted,
-                (ChangeRole::Was, "changed state") => theme.fg(theme.due),
-                (ChangeRole::Now, "changed state") => theme.strong(theme.done),
+                (ChangeRole::Was, Some(JournalOperation::State)) => theme.fg(theme.due),
+                (ChangeRole::Now, Some(JournalOperation::State)) => theme.strong(theme.done),
                 (ChangeRole::Was, _) => muted,
-                (ChangeRole::Now, "captured") => theme.fg(theme.done),
-                (ChangeRole::Now, "changed date") => theme.fg(theme.accent),
+                (ChangeRole::Now, Some(JournalOperation::Capture)) => theme.fg(theme.done),
+                (
+                    ChangeRole::Now,
+                    Some(JournalOperation::Schedule | JournalOperation::Deadline),
+                ) => theme.fg(theme.accent),
                 (ChangeRole::Now, _) => theme.fg(theme.text),
             }
         };

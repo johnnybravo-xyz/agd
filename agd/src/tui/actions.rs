@@ -29,13 +29,12 @@ pub(super) const REFILED: usize = 5;
 pub(super) const OTHER: usize = 6;
 
 /// A write this TUI made, undone as a unit by `u`: a journal entry or
-/// transaction, where it was, and what to call it on the status line
-/// (`scheduled Tue 20 Oct · Pay rent`).
+/// transaction, and where it was and which task, for the status line.
 #[derive(Debug)]
 pub(super) struct UndoStep {
     journal_id: String,
     location: String,
-    label: String,
+    title: String,
 }
 
 /// One triage decision, undone as a unit: its journal entry or transaction
@@ -272,11 +271,7 @@ impl App {
             "{} · u undo",
             words::change(&location, &change, &summary)
         ));
-        self.remember_undo(
-            &batch.transaction,
-            &location,
-            format!("{change} · {summary}"),
-        );
+        self.remember_undo(&batch.transaction, &location, &summary);
         self.reload_rows()
     }
 
@@ -728,15 +723,32 @@ impl App {
         }
     }
 
-    /// Keeps a write this TUI made, so `u` can undo it later; `label`
-    /// names it on the status line, such as `scheduled Mon 19 Oct · Pay
-    /// rent`, after where it was.
-    pub(super) fn remember_undo(&mut self, journal_id: &str, location: &str, label: String) {
+    /// Keeps a write this TUI made, so `u` can undo it later and say so as
+    /// the CLI does: `tasks.org:1  undid schedule · Pay rent`.
+    pub(super) fn remember_undo(&mut self, journal_id: &str, location: &str, title: &str) {
         self.undo_steps.push(UndoStep {
             journal_id: journal_id.to_string(),
             location: location.to_string(),
-            label,
+            title: title.to_string(),
         });
+    }
+
+    /// `<location>  undid <operation> · <title>`: what an undo took back,
+    /// named by the journal (JournalRecord::operation_label).
+    fn undone(&self, engine: &WriteEngine, step: &UndoStep) -> Result<String> {
+        let operation = engine
+            .journal()?
+            .iter()
+            .find(|record| {
+                record.id == step.journal_id
+                    || record.transaction.as_deref() == Some(step.journal_id.as_str())
+            })
+            .map_or("change", agd_core::JournalRecord::operation_label);
+        Ok(words::change(
+            &step.location,
+            &format!("undid {operation}"),
+            &step.title,
+        ))
     }
 
     /// `u` in the lists and Triage undoes the latest change this TUI made,
@@ -750,11 +762,12 @@ impl App {
             self.set_status("nothing to undo from this session");
             return Ok(());
         };
-        let result = WriteEngine::with_default_journal(self.settings.clone())?
-            .undo(&step.journal_id, &write_context())?;
+        let engine = WriteEngine::with_default_journal(self.settings.clone())?;
+        let result = engine.undo(&step.journal_id, &write_context())?;
         let step = self.undo_steps.pop().expect("the step just undone");
         self.refresh_files(&result.file)?;
-        self.set_done(format!("{}  undid {}", step.location, step.label));
+        let undone = self.undone(&engine, &step)?;
+        self.set_done(undone);
         self.reload_rows()
     }
 
@@ -785,7 +798,8 @@ impl App {
         }
         match undone {
             Some(step) if !undo_all => {
-                self.set_done(format!("{}  undid {}", step.location, step.label))
+                let undone = self.undone(&engine, &step)?;
+                self.set_done(undone);
             }
             _ => self.set_done(format!(
                 "{}  undid the whole triage pass",
@@ -852,7 +866,7 @@ impl App {
         let id = record.id.clone();
         let location = super::review::subject_location(self, record);
         let title = super::review::subject_title(self, record);
-        let change = format!("undid {}'s change", super::review::agent_name(record));
+        let change = format!("undid {}", record.operation_label());
         let result = WriteEngine::with_default_journal(self.settings.clone())?
             .undo(&id, &write_context())
             .map_err(|error| {
@@ -875,7 +889,7 @@ impl App {
         let journal = WriteEngine::with_default_journal(self.settings.clone())?.journal()?;
         let mut agents: Vec<String> = journal
             .iter()
-            .filter_map(|record| record.actor.strip_prefix("mcp:").map(str::to_string))
+            .filter_map(|record| record.agent().map(str::to_string))
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
@@ -964,11 +978,7 @@ impl App {
         let change = format!("refiled → {label}");
         if let Some(journal_id) = result.journal_ids.first() {
             self.record_triage(journal_id, REFILED);
-            self.remember_undo(
-                journal_id,
-                &location,
-                format!("{change} · {}", result.item.title),
-            );
+            self.remember_undo(journal_id, &location, &result.item.title);
         }
         self.set_done(format!(
             "{} · u undo",
