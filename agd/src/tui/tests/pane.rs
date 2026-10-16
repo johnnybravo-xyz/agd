@@ -89,9 +89,9 @@ fn a_full_pane_title_keeps_a_space_before_its_mark() {
         app.pane = true;
         app.reload_rows().unwrap();
         let screen = render(&mut app, 34, 10).join("\n");
-        // The countdown leads, as on Today; the priority keeps a space
-        // before it however long the title.
+        // The countdown leads, as on Today; the priority is the pill rows
+        // show, a space after the title however long it is.
         assert!(screen.contains("in 9d  Submit"), "{screen}");
-        assert!(screen.contains("… A│"), "{screen}");
+        assert!(screen.contains("…  A │"), "{screen}");
     });
 }

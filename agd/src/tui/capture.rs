@@ -632,8 +632,9 @@ fn chips(theme: &Theme, draft: Option<CaptureDraft>, today: NaiveDate) -> Vec<Sp
         spans.extend(theme.pill(crate::words::tag(tag), theme.muted));
         spans.push(Span::raw("  "));
     }
+    // `#A` is typed; the chip is the priority pill every row shows.
     if let Some(priority) = &draft.priority {
-        spans.extend(theme.pill(format!("#{priority}"), theme.due));
+        spans.extend(theme.pill(priority.clone(), theme.due));
     }
     spans
 }

@@ -34,6 +34,9 @@ fn capture_preview_is_the_exact_text_that_will_be_written() {
             .unwrap_or_else(|| panic!("{screen}"));
         assert!(chips.contains(" #personal "), "{chips}");
         assert!(!chips.contains("+personal"), "{chips}");
+        // `#A` is typed; its chip is the priority pill rows show.
+        assert!(chips.contains("    A "), "{chips}");
+        assert!(!chips.contains("#A"), "{chips}");
         assert!(screen.contains("DEADLINE: <2026-10-16 Fri>"), "{screen}");
         // Chips name the month, and the year when it is not this one.
         assert!(screen.contains("deadline Fri 16 Oct"), "{screen}");

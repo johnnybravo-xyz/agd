@@ -246,10 +246,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
         ]));
     }
     if let Some(priority) = &item.priority {
-        lines.push(Line::from(vec![
-            label("Priority"),
-            Span::styled(priority.clone(), theme.strong(theme.due)),
-        ]));
+        let mut spans = vec![label("Priority")];
+        spans.extend(theme.pill(priority.clone(), theme.due));
+        lines.push(Line::from(spans));
     }
     // The heading's own tags, then those it inherits, muted.
     if !item.tags.is_empty() || !item.inherited_tags.is_empty() {

@@ -1099,7 +1099,7 @@ fn peek_shows_the_headings_own_tags_then_the_inherited_ones_muted() {
     with_home(|root| {
         fs::write(
             root.join("work.org"),
-            "* Project :infra:\n** TODO Rotate certs :ops:\nSCHEDULED: <2026-10-13 Tue>\n",
+            "* Project :infra:\n** TODO [#B] Rotate certs :ops:\nSCHEDULED: <2026-10-13 Tue>\n",
         )
         .unwrap();
         let mut app = test_app(root);
@@ -1119,6 +1119,10 @@ fn peek_shows_the_headings_own_tags_then_the_inherited_ones_muted() {
             buffer[(column_of(&buffer, y, "#infra"), y)].fg,
             app.theme.muted
         );
+        // Priority is the pill, as on the row.
+        let y = row_of(&buffer, "Priority");
+        let cell = &buffer[(column_of(&buffer, y, " B ") + 1, y)];
+        assert_eq!((cell.fg, cell.bg), (app.theme.due, app.theme.surface));
         // The row names the heading's own tags, as words::tags writes them.
         let y = row_of(&buffer, "TODO Rotate certs");
         let row: String = (0..120).map(|x| buffer[(x, y)].symbol()).collect();
