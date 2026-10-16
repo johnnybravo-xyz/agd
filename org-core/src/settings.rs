@@ -55,11 +55,12 @@ pub struct Settings {
     pub sorting_strategy: Vec<String>,
 
     /// org-log-done, org-log-repeat, org-log-reschedule, org-log-redeadline:
-    /// nil, time or note. `#+STARTUP` options win per file.
-    pub log_done: String,
-    pub log_repeat: String,
-    pub log_reschedule: String,
-    pub log_redeadline: String,
+    /// "off" (Emacs's nil), "time" or "note". `#+STARTUP` options win per
+    /// file.
+    pub log_done: LogMode,
+    pub log_repeat: LogMode,
+    pub log_reschedule: LogMode,
+    pub log_redeadline: LogMode,
     pub log_into_drawer: bool,
 
     /// Program and arguments to open a file; `{file}`, `{line}` and `{col}`
@@ -209,6 +210,16 @@ pub enum WeekStart {
     Sunday,
 }
 
+/// What a state or planning change records, as an org-log-* variable: no
+/// log, a timestamp, or a timestamp and a note.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogMode {
+    Off,
+    Time,
+    Note,
+}
+
 /// Agenda sorting keys agd implements; habit-* and category-keep keep
 /// collection order.
 pub const SORTING_KEYS: [&str; 15] = [
@@ -267,10 +278,10 @@ impl Default for Settings {
             skip_timestamp_if_done: false,
             // Emacs's default for agenda days (Org 9.7+ names).
             sorting_strategy: strings(&["habit-down", "time-up", "urgency-down", "category-keep"]),
-            log_done: "time".to_string(),
-            log_repeat: "time".to_string(),
-            log_reschedule: "nil".to_string(),
-            log_redeadline: "nil".to_string(),
+            log_done: LogMode::Time,
+            log_repeat: LogMode::Time,
+            log_reschedule: LogMode::Off,
+            log_redeadline: LogMode::Off,
             log_into_drawer: false,
             editor: vec![
                 std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string()),
@@ -1006,6 +1017,29 @@ mod tests {
                 "  |              ^^^^^^^^\n",
                 "unknown variant `friday`, expected `monday` or `sunday`\n",
             )
+        );
+    }
+
+    #[test]
+    fn log_settings_are_off_time_or_note() {
+        let settings = load_body("log_done = \"note\"\nlog_repeat = \"off\"\n").unwrap();
+        assert_eq!(
+            (settings.log_done, settings.log_repeat),
+            (LogMode::Note, LogMode::Off)
+        );
+        assert_eq!(
+            load_error("log_reschedule = \"yes\"\n"),
+            concat!(
+                "cannot parse CONFIG: TOML parse error at line 2, column 18\n",
+                "  |\n",
+                "2 | log_reschedule = \"yes\"\n",
+                "  |                  ^^^^^\n",
+                "unknown variant `yes`, expected one of `off`, `time`, `note`\n",
+            )
+        );
+        assert!(
+            load_error("log_done = \"nil\"\n")
+                .ends_with("unknown variant `nil`, expected one of `off`, `time`, `note`\n")
         );
     }
 

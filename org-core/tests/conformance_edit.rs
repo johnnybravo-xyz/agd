@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::Path;
 
-use agd_core::{Change, EditIntent, PlanningTimestamp, Settings, WriteContext, WriteEngine};
+use agd_core::{
+    Change, EditIntent, LogMode, PlanningTimestamp, Settings, WriteContext, WriteEngine,
+};
 use chrono::NaiveDateTime;
 use serde::Deserialize;
 
@@ -26,6 +28,16 @@ struct Case {
 
 fn nil() -> String {
     "nil".to_string()
+}
+
+/// A case's org-log-* value, written for Emacs (nil, time or note).
+fn log_mode(value: &str) -> LogMode {
+    match value {
+        "nil" => LogMode::Off,
+        "time" => LogMode::Time,
+        "note" => LogMode::Note,
+        other => panic!("case log value {other} is not nil, time or note"),
+    }
 }
 
 fn date(value: &str) -> PlanningTimestamp {
@@ -92,10 +104,10 @@ fn native_edits_match_pinned_emacs_results_byte_for_byte() {
             agenda_files: vec!["*.org".to_string()],
             ..Settings::default()
         };
-        settings.log_done = case.log_done.clone();
-        settings.log_repeat = case.log_repeat.clone();
-        settings.log_reschedule = case.log_reschedule.clone();
-        settings.log_redeadline = case.log_redeadline.clone();
+        settings.log_done = log_mode(&case.log_done);
+        settings.log_repeat = log_mode(&case.log_repeat);
+        settings.log_reschedule = log_mode(&case.log_reschedule);
+        settings.log_redeadline = log_mode(&case.log_redeadline);
         settings.log_into_drawer = case.log_into_drawer;
         let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl"))
             .expect("create write engine");

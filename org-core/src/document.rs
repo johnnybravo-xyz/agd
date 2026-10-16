@@ -6,7 +6,7 @@ use orgize::ParseConfig;
 use regex::Regex;
 use sha2::{Digest, Sha256};
 
-use crate::{AgdError, ITEM_SCHEMA, Item, Planning, PlanningTimestamp, RootSet, Settings};
+use crate::{AgdError, ITEM_SCHEMA, Item, LogMode, Planning, PlanningTimestamp, RootSet, Settings};
 
 static HEADLINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\*+)[ \t]+(.*)$").expect("headline regex"));
@@ -976,11 +976,11 @@ fn log_marker(marker: &str) -> Option<LogKind> {
     }
 }
 
-fn log_value(value: &str) -> Option<LogKind> {
-    match value {
-        "time" | "t" => Some(LogKind::Time),
-        "note" => Some(LogKind::Note),
-        _ => None,
+fn log_value(mode: LogMode) -> Option<LogKind> {
+    match mode {
+        LogMode::Off => None,
+        LogMode::Time => Some(LogKind::Time),
+        LogMode::Note => Some(LogKind::Note),
     }
 }
 
@@ -989,10 +989,10 @@ fn log_value(value: &str) -> Option<LogKind> {
 fn log_settings(source: &str, settings: &Settings) -> LogSettings {
     let agenda = settings;
     let mut logging = LogSettings {
-        done: log_value(&agenda.log_done),
-        repeat: log_value(&agenda.log_repeat),
-        reschedule: log_value(&agenda.log_reschedule),
-        redeadline: log_value(&agenda.log_redeadline),
+        done: log_value(agenda.log_done),
+        repeat: log_value(agenda.log_repeat),
+        reschedule: log_value(agenda.log_reschedule),
+        redeadline: log_value(agenda.log_redeadline),
         into_drawer: agenda.log_into_drawer,
     };
     for option in directives(source, &["STARTUP"]).flat_map(str::split_whitespace) {

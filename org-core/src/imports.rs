@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AgdError, AgendaSpan, CaptureTemplate, SORTING_KEYS, Settings, ViewBlock, ViewSettings,
-    WeekStart,
+    AgdError, AgendaSpan, CaptureTemplate, LogMode, SORTING_KEYS, Settings, ViewBlock,
+    ViewSettings, WeekStart,
 };
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -370,10 +370,33 @@ pub fn apply_import(
     settings.lowest_priority = resolved.lowest_priority.clone();
     settings.default_priority = resolved.default_priority.clone();
     settings.tag_inheritance_exclusions = resolved.tag_inheritance_exclusions.clone();
-    settings.log_done = resolved.log_done.clone();
-    settings.log_repeat = resolved.log_repeat.clone();
-    settings.log_reschedule = resolved.log_reschedule.clone();
-    settings.log_redeadline = resolved.log_redeadline.clone();
+    for (variable, value, mode) in [
+        ("org-log-done", &resolved.log_done, &mut settings.log_done),
+        (
+            "org-log-repeat",
+            &resolved.log_repeat,
+            &mut settings.log_repeat,
+        ),
+        (
+            "org-log-reschedule",
+            &resolved.log_reschedule,
+            &mut settings.log_reschedule,
+        ),
+        (
+            "org-log-redeadline",
+            &resolved.log_redeadline,
+            &mut settings.log_redeadline,
+        ),
+    ] {
+        match imported_log_mode(value) {
+            Some(imported) => *mode = imported,
+            None => diagnostics.push(ImportDiagnostic {
+                status: ImportStatus::Unsupported,
+                key: variable.to_string(),
+                message: format!("{value} is not nil, time or note; left out"),
+            }),
+        }
+    }
     settings.log_into_drawer = resolved.log_into_drawer;
 
     settings.captures.clear();
@@ -527,6 +550,16 @@ fn agenda_pattern(entry: &Path, roots: &[String]) -> Option<String> {
     }
 }
 
+/// An org-log-* value as agd writes it: Emacs's nil is off and t is time.
+fn imported_log_mode(value: &str) -> Option<LogMode> {
+    match value {
+        "nil" => Some(LogMode::Off),
+        "t" | "time" => Some(LogMode::Time),
+        "note" => Some(LogMode::Note),
+        _ => None,
+    }
+}
+
 /// org-agenda-span as agd writes it: Org's `fortnight` is 14 days; None for
 /// a span agd has no form for, such as `year`.
 fn imported_span(value: &str) -> Option<AgendaSpan> {
@@ -656,5 +689,76 @@ mod tests {
                 .any(|diagnostic| diagnostic.key == "/elsewhere/private.org")
         );
         assert_eq!(result.settings.captures, base.captures);
+    }
+
+    /// A reader payload with Org's defaults, `fields` replacing its keys.
+    fn resolved_with(fields: serde_json::Value) -> ResolvedEditorConfig {
+        let mut payload = serde_json::json!({
+            "editor": "emacs",
+            "agenda_files": [],
+            "todo_sequences": [["TODO", "|", "DONE"]],
+            "tag_alist": [], "persistent_tags": [], "tags_column": -77,
+            "tag_inheritance_exclusions": [],
+            "highest_priority": "A", "lowest_priority": "C", "default_priority": "B",
+            "deadline_warning_days": 14, "agenda_span": "week", "agenda_start_day": null,
+            "week_start": "monday", "skip_scheduled_if_done": false,
+            "skip_deadline_if_done": false, "skip_timestamp_if_done": false,
+            "sorting_strategy": [], "log_done": "nil", "log_repeat": "time",
+            "log_reschedule": "nil", "log_redeadline": "nil", "log_into_drawer": false
+        });
+        for (key, value) in fields.as_object().unwrap() {
+            payload[key] = value.clone();
+        }
+        serde_json::from_value(payload).unwrap()
+    }
+
+    fn diagnostic<'a>(result: &'a ImportResult, key: &str) -> Option<&'a str> {
+        result
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.key == key)
+            .map(|diagnostic| diagnostic.message.as_str())
+    }
+
+    #[test]
+    fn emacs_log_values_import_as_off_time_or_note() {
+        let resolved = resolved_with(serde_json::json!({
+            "log_done": "nil", "log_repeat": "t", "log_reschedule": "note", "log_redeadline": "yes"
+        }));
+        let result = apply_import(&resolved, &Settings::default(), false).unwrap();
+        let settings = &result.settings;
+        assert_eq!(
+            [
+                settings.log_done,
+                settings.log_repeat,
+                settings.log_reschedule,
+                settings.log_redeadline
+            ],
+            [LogMode::Off, LogMode::Time, LogMode::Note, LogMode::Off]
+        );
+        assert_eq!(
+            diagnostic(&result, "org-log-redeadline"),
+            Some("yes is not nil, time or note; left out")
+        );
+        let rendered = crate::render_config(settings, "logs").unwrap();
+        assert!(rendered.contains("log_done = \"off\"\n"), "{rendered}");
+        assert!(!rendered.contains("nil"), "{rendered}");
+    }
+
+    #[test]
+    fn emacs_spans_import_as_names_or_days() {
+        let span = |value: &str| {
+            let resolved = resolved_with(serde_json::json!({ "agenda_span": value }));
+            apply_import(&resolved, &Settings::default(), false).unwrap()
+        };
+        assert_eq!(span("10").settings.agenda_span, AgendaSpan::Days(10));
+        assert_eq!(span("fortnight").settings.agenda_span, AgendaSpan::Days(14));
+        assert_eq!(span("day").settings.agenda_span, AgendaSpan::Day);
+        let year = span("year");
+        assert_eq!(year.settings.agenda_span, AgendaSpan::Week);
+        assert_eq!(
+            diagnostic(&year, "org-agenda-span"),
+            Some("year is not supported; agenda_span stays week")
+        );
     }
 }

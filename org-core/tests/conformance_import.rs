@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::Path;
 
-use agd_core::{AgendaSpan, ImportResult, ResolvedEditorConfig, Settings, WeekStart, apply_import};
+use agd_core::{
+    AgendaSpan, ImportResult, LogMode, ResolvedEditorConfig, Settings, WeekStart, apply_import,
+};
 
 /// Applies a case's resolved.json (the editor reader's output, with its
 /// files under /fixture) as a first import into a fresh directory.
@@ -140,7 +142,7 @@ fn emacs_deferred_settings_win_over_top_level_ones() {
     // to tasks.org in with-eval-after-load 'org.
     let (_temp, result) = import_fixture("emacs/use-package");
     assert_eq!(result.settings.agenda_files, vec!["tasks.org"]);
-    assert_eq!(result.settings.log_done, "note");
+    assert_eq!(result.settings.log_done, LogMode::Note);
 }
 
 #[test]
