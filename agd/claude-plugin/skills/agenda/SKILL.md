@@ -12,6 +12,6 @@ Use `agenda` or `query` before changing an item, and keep the returned `ref`; ev
 
 Use `capture` for a new task, with a `template_key` from `describe` (left out, the first template). The title and `body` are literal text, and the body is kept under the new heading. When the result carries `notes` (for example, agent captures go to an inbox without dates), tell the person what they say rather than what you asked for. Use `set_state` with `todo` set to one of the file's TODO keywords, `plan` for `scheduled` and `deadline` (`none` removes one), and `edit` for the title, tags, priority, properties or a note.
 
-When a task comes from your work in a repository, pass `properties` such as `REPO`, `BRANCH` and `SOURCE` (an org link like `[[file:/path/to/file::42]]`) so the person can see where it came from.
+When a task comes from your work in a repository, pass `properties` such as `REPO` (the repository's name), `BRANCH` and `SOURCE` (an org link like `[[file:~/src/app/main.rs::42]]`, with `~` for the home directory) so the person can see where it came from.
 
 A failed call sets `isError` and answers `agd.error/v1` with a `code` and `message`; `invalid_arguments` lists the arguments the tool accepts. Never expose agenda data outside the local MCP session.
