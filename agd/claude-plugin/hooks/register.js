@@ -55,10 +55,16 @@ const PALETTES = {
   },
 }
 
+// agd's tools that change Org files; a call to one refreshes the band and
+// the pane. Reads (agenda, query, describe) change nothing to show.
+const WRITE_TOOL = /^mcp__(plugin_agd_)?agd__(capture|edit|plan|set_state)$/
+
 // What the band and the pane draw; refresh() replaces them. `views` and
 // `display` come from `agd agenda --views --json`, which reads config.toml:
 // the saved views, and the TUI's theme, nerd_font and keyword colors.
 // `current` is the open tab, a view's key or TODAY, starting on start_view.
+// `refreshes` counts refresh() calls, so only the latest one started may
+// replace what is drawn.
 let status = ''
 let sections = []
 let problem = ''
@@ -67,6 +73,7 @@ let views = []
 let display = { theme: 'auto', nerd_font: false, keyword_colors: {} }
 let palette = PALETTES.dark
 let current = null
+let refreshes = 0
 
 // Runs agd with an argument list (no shell). Resolves { stdout } or { error }.
 async function agd($, args) {
@@ -102,51 +109,89 @@ function parsed(stdout, toSections) {
   }
 }
 
+// { views, display } from `agd agenda --views --json`; what is drawn now
+// when agd fails, and no views when its JSON does not parse.
 async function readDisplay($) {
   const listed = await agd($, ['agenda', '--views', '--json'])
-  if (listed.error) return
+  if (listed.error) return { views, display }
   try {
     const payload = JSON.parse(listed.stdout)
-    views = payload.views || []
-    display = {
-      theme: payload.theme || 'auto',
-      nerd_font: payload.nerd_font === true,
-      keyword_colors: payload.keyword_colors || {},
+    return {
+      views: payload.views || [],
+      display: {
+        theme: payload.theme || 'auto',
+        nerd_font: payload.nerd_font === true,
+        keyword_colors: payload.keyword_colors || {},
+      },
     }
   } catch {
-    views = []
+    return { views: [], display }
   }
 }
 
 // agd's theme setting picks the palette; with `auto`, Claude Code's own theme
 // does, since a pane has no terminal background to read.
-async function readPalette($) {
-  if (display.theme === 'dark' || display.theme === 'light') return PALETTES[display.theme]
+async function readPalette($, theme) {
+  if (theme === 'dark' || theme === 'light') return PALETTES[theme]
   try {
     const row = (await $.config.list()).find((config) => config.key === 'theme')
-    const theme = String(row?.value ?? '')
-    if (theme.includes('ansi')) return PALETTES.ansi
-    return theme.includes('light') ? PALETTES.light : PALETTES.dark
+    const claudeTheme = String(row?.value ?? '')
+    if (claudeTheme.includes('ansi')) return PALETTES.ansi
+    return claudeTheme.includes('light') ? PALETTES.light : PALETTES.dark
   } catch {
     return PALETTES.dark
   }
 }
 
+// The open tab: `tab` while it still exists, else start_view, else Today.
+function openTab(tab, views) {
+  if (tab === TODAY || views.some((view) => view.key === tab)) return tab
+  const start = views.find((view) => view.start)
+  return start ? start.key : TODAY
+}
+
+// Reads agd again and redraws. Refreshes overlap (a timer, a write, a tab
+// press), so each reads into its own values and applies them only when no
+// later refresh has started: a slower, older one never draws over a newer.
 async function refresh($) {
+  refreshes += 1
+  const mine = refreshes
   const counts = await agd($, ['agenda', '--status'])
+  const pane = paneOpen ? await readPane($) : null
+  if (mine !== refreshes) return
   status = counts.error ? '' : counts.stdout.trim()
-  if (paneOpen) {
-    await readDisplay($)
-    palette = await readPalette($)
-    if (current === null || (current !== TODAY && !views.some((view) => view.key === current))) {
-      const start = views.find((view) => view.start)
-      current = start ? start.key : TODAY
-    }
-    const read = await readSections($, current)
-    problem = read.error || ''
-    sections = read.sections || []
+  if (pane) {
+    views = pane.views
+    display = pane.display
+    palette = pane.palette
+    current = pane.current
+    problem = pane.problem
+    sections = pane.sections
   }
   $.ui.invalidate('ui.render')
+}
+
+// Everything the pane draws, read fresh: the views and display settings,
+// the palette, the open tab and its sections.
+async function readPane($) {
+  const shown = await readDisplay($)
+  const tab = openTab(current, shown.views)
+  const opened = await readSections($, tab)
+  return {
+    views: shown.views,
+    display: shown.display,
+    palette: await readPalette($, shown.display.theme),
+    current: tab,
+    problem: opened.error || '',
+    sections: opened.sections || [],
+  }
+}
+
+// A refresh that runs once this dispatch has answered, so no hook waits on agd.
+function refreshSoon($) {
+  $.clock.after(0, () => {
+    refresh($)
+  })
 }
 
 async function showView($, key) {
@@ -390,10 +435,11 @@ async function registerCommands($) {
 }
 
 export function register(on) {
+  // The session waits on this hook, so agd is read after it answers.
   on('session.start', async ($, e, next) => {
-    await refresh($)
-    $.clock.every(60000, () => refresh($))
     await registerCommands($)
+    $.clock.every(60000, () => refresh($))
+    refreshSoon($)
     return next(e)
   })
 
@@ -418,10 +464,11 @@ export function register(on) {
     return next(e)
   }).catch((_, e, next) => next(e))
 
-  // After Claude uses an agd tool, show what it changed.
+  // After Claude changes an agd item, show what it changed: the result goes
+  // back to Claude at once, and the band and pane catch up after.
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
-    if (/^mcp__(plugin_agd_)?agd__/.test(e.tool)) await refresh($)
+    if (WRITE_TOOL.test(e.tool) && !result.deny && !result.isError) refreshSoon($)
     return result
   }).catch((_, e, next) => next(e))
 

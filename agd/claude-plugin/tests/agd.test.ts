@@ -1,4 +1,5 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 // What the agd binary prints, keyed by its arguments. A test answers the
@@ -354,4 +355,104 @@ test('a missing agd is said in the pane', async ($, on) => {
   const ui = await $.ui.mount({ plugin: 'agd', surface: 'terminal', component: 'Pane', requestId: 'agd', props: PANE })
   expect(await ui.find({ type: 'Text', text: /^cannot run agd/ })).toBeDefined()
   await ui.unmount()
+})
+
+const BAND = { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 80, scroll: { offset: 0, bodyRows: 3 }, view: {} }
+
+// The band's agd line as drawn now, or undefined when the band shows none.
+async function bandLine($: Engine) {
+  const ui = await $.ui.mount({ plugin: 'agd', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const line = await ui.find({ type: 'Text', text: /^agd · / })
+  await ui.unmount()
+  return line?.text
+}
+
+// Claude Code's side of a session start: it takes the commands and answers.
+function sessionStart(on: On, registered: string[]) {
+  on('session.start', async (_, e) => ({ cwd: e.cwd }))
+  on('command.register', async (_, e) => {
+    registered.push(e.name)
+    return { value: { command: e.name } }
+  })
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e) => $.ui.resolve(e).Box({ children: [] }))
+}
+
+// A process.run answer held until the test lets it go.
+function held() {
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return { gate, release: () => release() }
+}
+
+test('the session starts without waiting for agd and reads it after', async ($, on) => {
+  const clock = mock.clock(on)
+  const registered: string[] = []
+  sessionStart(on, registered)
+  const status = held()
+  const calls: string[] = []
+  on('process.run', async (_, e) => {
+    calls.push(e.argv.slice(1).join(' '))
+    await status.gate
+    return { value: result(0, '2 today · 5 inbox\n', '') }
+  })
+  // agd has not answered, yet the session has started with the commands.
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  expect(registered).toEqual(['agd', 'capture'])
+  expect(calls).toEqual([])
+
+  await clock.settle()
+  expect(calls).toEqual(['agenda --status'])
+  status.release()
+  await clock.settle()
+  expect(await bandLine($)).toBe('agd · 2 today · 5 inbox')
+})
+
+test('a write tool answers at once and the band catches up; reads refresh nothing', async ($, on) => {
+  const clock = mock.clock(on)
+  const calls: string[] = []
+  agd(on, { 'agenda --status': { stdout: '1 today · 1 inbox\n' } }, calls)
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e) => $.ui.resolve(e).Box({ children: [] }))
+  on('tool.call', async () => ({ result: { content: [{ type: 'text', text: '{"schema":"agd.mutation/v1"}' }] } }))
+
+  const answered = await $.tool.call({ tool: 'mcp__plugin_agd_agd__capture', template: 't', title: 'Buy milk' })
+  expect(answered.result).toEqual({ content: [{ type: 'text', text: '{"schema":"agd.mutation/v1"}' }] })
+  expect(calls).toEqual([])
+  await clock.settle()
+  expect(calls).toEqual(['agenda --status'])
+  expect(await bandLine($)).toBe('agd · 1 today · 1 inbox')
+
+  for (const read of ['agenda', 'query', 'describe']) {
+    await $.tool.call({ tool: 'mcp__plugin_agd_agd__' + read })
+  }
+  await clock.settle()
+  expect(calls).toEqual(['agenda --status'])
+})
+
+test('a slower, older refresh never draws over a newer one', async ($, on) => {
+  const clock = mock.clock(on)
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e) => $.ui.resolve(e).Box({ children: [] }))
+  on('tool.call', async () => ({ result: { content: [] } }))
+  const first = held()
+  let runs = 0
+  on('process.run', async () => {
+    runs += 1
+    if (runs === 1) {
+      await first.gate
+      return { value: result(0, '1 today\n', '') }
+    }
+    return { value: result(0, '2 today\n', '') }
+  })
+  await $.tool.call({ tool: 'mcp__plugin_agd_agd__set_state', ref: 'a', state: 'DONE' })
+  await clock.settle()
+  await $.tool.call({ tool: 'mcp__plugin_agd_agd__plan', ref: 'a', deadline: 'fri' })
+  await clock.settle()
+  expect(await bandLine($)).toBe('agd · 2 today')
+
+  // The first refresh's answer arrives last, older than what is drawn.
+  first.release()
+  await clock.settle()
+  expect(runs).toBe(2)
+  expect(await bandLine($)).toBe('agd · 2 today')
 })
