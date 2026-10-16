@@ -2,6 +2,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
 use ratatui::widgets::{Block, BorderType, Borders, Padding};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// The few colour roles the design allows: accent for focus and keys, red
 /// for overdue, amber for due and priority, green for done, one hue per
@@ -304,6 +305,29 @@ impl Theme {
             % self.agents.len();
         self.agents[index]
     }
+}
+
+/// `text` cut to `width` terminal columns, ending in "…" when cut. Widths
+/// are display widths, so CJK and emoji count two columns.
+pub(super) fn truncate(text: &str, width: usize) -> String {
+    if text.width() <= width {
+        return text.to_string();
+    }
+    if width == 0 {
+        return String::new();
+    }
+    let mut cut = String::new();
+    let mut used = 0;
+    for character in text.chars() {
+        let columns = character.width().unwrap_or(0);
+        if used + columns + 1 > width {
+            break;
+        }
+        cut.push(character);
+        used += columns;
+    }
+    cut.push('…');
+    cut
 }
 
 /// A centred rectangle of at most `width` by `height`, for popups.

@@ -4,6 +4,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 
+use super::theme::truncate;
 use super::{App, DisplayRow, FULL_WIDTH};
 
 /// The 2-second glance for a herdr or tmux split: overdue collapses to a
@@ -205,16 +206,13 @@ fn pane_line(app: &App, row: &DisplayRow, next: bool, width: usize) -> Line<'sta
     } else {
         theme.muted()
     };
-    let mut title = super::peek::display_title(item);
-    let available = width.saturating_sub(8 + right.width());
-    if title.chars().count() > available {
-        title = title
-            .chars()
-            .take(available.saturating_sub(1))
-            .collect::<String>()
-            + "…";
-    }
-    let used = 2 + 6 + title.chars().count();
+    // Display width, not characters: a CJK or emoji title takes two
+    // columns a character.
+    let title = truncate(
+        &super::peek::display_title(item),
+        width.saturating_sub(8 + right.width()),
+    );
+    let used = 2 + 6 + Span::raw(title.as_str()).width();
     Line::from(vec![
         Span::styled(format!("{marker} "), theme.fg(theme.accent)),
         Span::styled(format!("{time:<6}"), time_style),

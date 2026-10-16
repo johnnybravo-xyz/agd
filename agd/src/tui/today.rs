@@ -9,7 +9,7 @@ use ratatui::widgets::{
 use agd_core::{OccurrenceType, keyword_color};
 
 use super::rows::days_since;
-use super::theme::{Theme, centered};
+use super::theme::{Theme, centered, truncate};
 use super::{
     App, DOING, DUE, DisplayRow, Header, INBOX, OVERDUE, Overlay, PromptKind, SCHEDULE, Screen,
     actions, keys, peek, review, triage,
@@ -498,30 +498,66 @@ fn row_line(app: &App, row: &DisplayRow, width: usize, wide: bool) -> Line<'stat
     } else {
         theme.fg(theme.text)
     };
-    spans.push(Span::styled(peek::display_title(item), title_style));
-    if let Some(priority) = &item.priority {
-        spans.push(Span::raw(" "));
-        spans.extend(theme.pill(priority.clone(), theme.due));
+    let mut priority = Vec::new();
+    if let Some(letter) = &item.priority {
+        priority.push(Span::raw(" "));
+        priority.extend(theme.pill(letter.clone(), theme.due));
     }
-    if wide && !item.tags.is_empty() {
-        spans.push(Span::styled(
+    let tags = (wide && !item.tags.is_empty()).then(|| {
+        Span::styled(
             format!("  #{}", item.tags.join(" #")),
             theme.fg(theme.accent),
-        ));
-    }
-    let right = right_cell(app, row);
-    let used: usize = spans.iter().map(Span::width).sum();
-    let right_width = right.width();
-    if used + right_width + 2 <= width {
-        spans.push(Span::raw(" ".repeat(width - used - right_width)));
-        spans.push(right);
-    }
+        )
+    });
+    let used = span_width(&spans);
+    spans.extend(fit_row(
+        width,
+        used,
+        Span::styled(peek::display_title(item), title_style),
+        priority,
+        tags,
+        right_cell(app, row),
+    ));
     let line = Line::from(spans);
     if item.done {
         line.style(Style::default().add_modifier(Modifier::DIM))
     } else {
         line
     }
+}
+
+/// The title, priority, tags and right column in the `width - used`
+/// columns left: the right column gives way first, then the tags (when
+/// they would leave the title under MIN_TITLE columns), and only then is
+/// the title cut, ending in "…".
+fn fit_row(
+    width: usize,
+    used: usize,
+    title: Span<'static>,
+    priority: Vec<Span<'static>>,
+    tags: Option<Span<'static>>,
+    right: Span<'static>,
+) -> Vec<Span<'static>> {
+    const MIN_TITLE: usize = 12;
+    let title_width = title.width();
+    let tags_width = tags.as_ref().map_or(0, Span::width);
+    let base = used + span_width(&priority);
+    let keep_right = base + title_width + tags_width + right.width() + 2 <= width;
+    let keep_tags = keep_right || base + title_width.min(MIN_TITLE) + tags_width <= width;
+    let room = width.saturating_sub(base + if keep_tags { tags_width } else { 0 });
+    let mut spans = vec![Span::styled(truncate(&title.content, room), title.style)];
+    spans.extend(priority);
+    if keep_tags {
+        spans.extend(tags);
+    }
+    if keep_right {
+        let filled = span_width(&spans) + used;
+        spans.push(Span::raw(
+            " ".repeat(width.saturating_sub(filled + right.width())),
+        ));
+        spans.push(right);
+    }
+    spans
 }
 
 /// Six-character lead: overdue days as a red badge, clock time, a

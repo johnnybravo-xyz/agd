@@ -1261,6 +1261,53 @@ SCHEDULED: <2026-10-13 Tue>\n{long}\n{long}\n{long}\n"
 
 #[test]
 #[serial]
+fn long_titles_end_in_an_ellipsis_and_keep_their_tags() {
+    with_home(|root| {
+        let title = "Prepare the quarterly infrastructure capacity review with every team lead \
+                     and the finance partners before the planning offsite";
+        fs::write(
+            root.join("work.org"),
+            format!("* TODO {title} :ops:\nSCHEDULED: <2026-10-13 Tue>\n"),
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let screen = render(&mut app, 100, 12);
+        let row = screen
+            .iter()
+            .find(|line| line.contains("Prepare the"))
+            .unwrap_or_else(|| panic!("{screen:?}"));
+        assert!(row.contains('…'), "{row}");
+        assert!(row.contains("#ops"), "{row}");
+        assert!(!row.contains(title), "{row}");
+    });
+}
+
+#[test]
+#[serial]
+fn the_pane_truncates_wide_characters_by_display_width() {
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* TODO 四半期のインフラ容量レビューを準備する 🚀🚀\nSCHEDULED: <2026-10-13 Tue 09:00>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.pane = true;
+        app.reload_rows().unwrap();
+        let buffer = render_buffer(&mut app, 34, 10);
+        let y = (0..10)
+            .find(|y| buffer[(10, *y)].symbol() == "四" || buffer[(11, *y)].symbol() == "四")
+            .expect("the title row");
+        let row: String = (0..34).map(|x| buffer[(x, y)].symbol()).collect();
+        assert!(row.contains('…'), "{row}");
+        // The border stays in the last column: nothing spilled past it.
+        assert_eq!(buffer[(33, y)].symbol(), "│", "{row}");
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {
