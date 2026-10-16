@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::string::FromUtf8Error;
 
-use crate::{AgdError, RootSet, Settings};
+use crate::{AgdError, JournalRecord, RootSet, Settings};
 use ignore::WalkBuilder;
 use orgize::{Org, ParseConfig, ast::Headline as OrgHeadline, rowan::ast::AstNode};
 use serde::Serialize;
@@ -96,6 +96,29 @@ impl CheckReport {
     pub fn has_errors(&self) -> bool {
         self.summary.errors != 0
     }
+
+    /// Adds problems found outside the files, such as journal conflicts.
+    pub fn add_problems(&mut self, problems: Vec<CheckProblem>) {
+        self.summary.errors += problems.len();
+        self.problems.extend(problems);
+    }
+}
+
+/// One problem per interrupted write whose file changed since (see
+/// `WriteEngine::journal_conflicts`), naming the command that settles it.
+pub fn journal_problems(conflicts: &[JournalRecord]) -> Vec<CheckProblem> {
+    conflicts
+        .iter()
+        .map(|record| CheckProblem {
+            file: record.file.clone(),
+            line: None,
+            code: "journal_conflict",
+            message: format!(
+                "an agd write was interrupted (journal entry {}) and the file changed since; writes to it are refused until `agd setup check --resolve` keeps it as it is",
+                record.id
+            ),
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

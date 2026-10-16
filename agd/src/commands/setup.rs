@@ -16,7 +16,7 @@ enum SetupAction {
     Import(ImportCommand),
     /// Add the agd MCP server and skill to Codex or OpenCode (Claude Code: the plugin)
     Install(InstallCommand),
-    /// Check org files for parse drift, invalid UTF-8 and duplicate IDs
+    /// Check org files for parse drift, invalid UTF-8, duplicate IDs and interrupted writes
     Check(CheckCommand),
 }
 

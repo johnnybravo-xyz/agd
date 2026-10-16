@@ -91,6 +91,29 @@ pub struct ErrorResponse {
     pub current: Option<Item>,
 }
 
+/// Error codes added with the write safety checks. Each is the
+/// agd.error/v1 `code` its `as_str` names; older codes are still string
+/// literals where they are raised.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ErrorCode {
+    /// A write met an interrupted earlier write whose file changed since.
+    JournalConflict,
+}
+
+impl ErrorCode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::JournalConflict => "journal_conflict",
+        }
+    }
+}
+
+impl From<ErrorCode> for String {
+    fn from(code: ErrorCode) -> Self {
+        code.as_str().to_string()
+    }
+}
+
 #[derive(Debug)]
 pub struct AgdError {
     response: Box<ErrorResponse>,

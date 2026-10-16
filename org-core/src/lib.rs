@@ -14,7 +14,7 @@ pub use agenda_engine::{
 };
 pub use check::{
     CHECK_SCHEMA, CheckFileReport, CheckProblem, CheckReport, CheckSummary, DocumentParseError,
-    IndexedHeadline, OrgDocument, SourceSpan, check_paths, check_settings,
+    IndexedHeadline, OrgDocument, SourceSpan, check_paths, check_settings, journal_problems,
 };
 pub use date::{
     CaptureDraft, CapturePrompt, capture_prompts, format_active_timestamp, now_local_naive,
@@ -29,8 +29,9 @@ pub use imports::{
     ImportedCommand, ResolvedEditorConfig, apply_import, find_config_sources,
 };
 pub use model::{
-    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ERROR_SCHEMA, ErrorResponse, ITEM_SCHEMA, Item,
-    MUTATION_SCHEMA, Mutation, Occurrence, OccurrenceType, Planning, PlanningTimestamp,
+    AGENDA_ENTRY_SCHEMA, AgdError, AgendaEntry, ERROR_SCHEMA, ErrorCode, ErrorResponse,
+    ITEM_SCHEMA, Item, MUTATION_SCHEMA, Mutation, Occurrence, OccurrenceType, Planning,
+    PlanningTimestamp,
 };
 pub use paths::{OrgFiles, RootSet, SkipReason};
 pub use settings::{
