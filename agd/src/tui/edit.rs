@@ -10,6 +10,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Wrap};
 
+use super::input::{self, TextInput};
 use super::theme::centered;
 use super::{App, Overlay, write_context};
 
@@ -40,7 +41,9 @@ pub(super) struct EditForm {
     keywords: Vec<String>,
     priorities: Vec<String>,
     original: [String; 6],
-    values: [String; 6],
+    /// The fields as typed; the focused one starts selected, so typing
+    /// replaces it and an arrow or End keeps it for editing.
+    values: [TextInput; 6],
     field: usize,
     preview: Result<String, String>,
     /// The preview is out of date; it is rebuilt once before the next draw.
@@ -74,21 +77,29 @@ impl EditForm {
         );
         let mut priorities = vec![String::new()];
         priorities.extend((highest..=lowest).map(|letter| letter.to_string()));
-        Some(Self {
+        let mut form = Self {
             item_ref: item.item_ref.clone(),
             location: app.short_location(item),
             keywords,
             priorities,
-            values: original.clone(),
+            values: original.clone().map(TextInput::new),
             original,
             field: TITLE,
             preview: Ok(String::new()),
             stale: false,
-        })
+        };
+        form.focus(TITLE);
+        Some(form)
+    }
+
+    /// Moves to `field` with its text selected.
+    fn focus(&mut self, field: usize) {
+        self.field = field;
+        self.values[field].select_all();
     }
 
     fn changed(&self, field: usize) -> Option<&str> {
-        let value = self.values[field].trim();
+        let value = self.values[field].text().trim();
         (value != self.original[field].trim()).then_some(value)
     }
 
@@ -108,6 +119,7 @@ impl EditForm {
         };
         let words = |field: usize| -> BTreeSet<String> {
             self.values[field]
+                .text()
                 .split([' ', ':', ','])
                 .filter(|tag| !tag.is_empty())
                 .map(str::to_string)
@@ -164,10 +176,41 @@ impl EditForm {
         };
         let current = choices
             .iter()
-            .position(|choice| *choice == self.values[self.field])
+            .position(|choice| choice == self.values[self.field].text())
             .unwrap_or(0) as isize;
         let next = (current + step).rem_euclid(choices.len() as isize) as usize;
-        self.values[self.field] = choices[next].clone();
+        let choice = choices[next].clone();
+        self.values[self.field].set(choice);
+    }
+
+    /// State and Priority are choices: ←/→ step, a letter picks the first
+    /// choice starting with it, Backspace picks none. Returns false for
+    /// ctrl-g, which closes the popup.
+    fn choose(&mut self, key: KeyEvent) -> bool {
+        let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        match key.code {
+            KeyCode::Char('g') if control => return false,
+            KeyCode::Left => self.cycle(-1),
+            KeyCode::Right => self.cycle(1),
+            KeyCode::Backspace => self.values[self.field].set(""),
+            KeyCode::Char(character) if !control => {
+                let choices = if self.field == STATE {
+                    &self.keywords
+                } else {
+                    &self.priorities
+                };
+                let typed = character.to_lowercase().to_string();
+                if let Some(choice) = choices
+                    .iter()
+                    .find(|choice| choice.to_lowercase().starts_with(&typed))
+                    .cloned()
+                {
+                    self.values[self.field].set(choice);
+                }
+            }
+            _ => {}
+        }
+        true
     }
 }
 
@@ -211,36 +254,21 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<bool> {
             }
             return Ok(false);
         }
-        KeyCode::Tab | KeyCode::Down => form.field = (form.field + 1) % LABELS.len(),
+        KeyCode::Tab | KeyCode::Down => form.focus((form.field + 1) % LABELS.len()),
         KeyCode::BackTab | KeyCode::Up => {
-            form.field = (form.field + LABELS.len() - 1) % LABELS.len()
+            form.focus((form.field + LABELS.len() - 1) % LABELS.len())
         }
-        KeyCode::Left => form.cycle(-1),
-        KeyCode::Right => form.cycle(1),
-        KeyCode::Backspace => {
-            form.values[form.field].pop();
-        }
-        KeyCode::Char(character) => {
-            let field = form.field;
-            if field == STATE || field == PRIORITY {
-                // Typing picks the first choice starting with that letter.
-                let choices = if field == STATE {
-                    &form.keywords
-                } else {
-                    &form.priorities
-                };
-                if let Some(choice) = choices.iter().find(|choice| {
-                    choice
-                        .to_lowercase()
-                        .starts_with(&character.to_lowercase().to_string())
-                }) {
-                    form.values[field] = choice.clone();
-                }
-            } else {
-                form.values[field].push(character);
+        _ if form.field == STATE || form.field == PRIORITY => {
+            if !form.choose(key) {
+                return Ok(false);
             }
         }
-        _ => {}
+        _ => {
+            let field = form.field;
+            if form.values[field].handle(key) == input::Edit::Cancel {
+                return Ok(false);
+            }
+        }
     }
     form.stale = true;
     app.overlay = Overlay::Edit(form);
@@ -328,13 +356,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     for (field, label) in LABELS.iter().enumerate() {
         let focused = field == form.field;
         let value = &form.values[field];
-        let shown = if value.is_empty() && !focused {
-            Span::styled("—", theme.muted())
-        } else if focused {
-            Span::styled(value.clone(), theme.strong(theme.text))
-        } else {
-            Span::raw(value.clone())
-        };
+        let choice = field == STATE || field == PRIORITY;
         let mut spans = vec![
             Span::styled(if focused { "› " } else { "  " }, theme.fg(theme.accent)),
             Span::styled(
@@ -345,12 +367,17 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
                     theme.muted()
                 },
             ),
-            shown,
         ];
-        if focused && (field == STATE || field == PRIORITY) {
+        if value.text().is_empty() && !focused {
+            spans.push(Span::styled("—", theme.muted()));
+        } else if focused && choice {
+            spans.push(Span::styled(
+                value.text().to_string(),
+                theme.strong(theme.text),
+            ));
             spans.push(Span::styled("  ←/→", theme.muted()));
-        } else if focused {
-            spans.push(Span::styled("▏", theme.fg(theme.accent)));
+        } else {
+            spans.extend(value.spans(theme, focused));
         }
         if form.changed(field).is_some() {
             spans.push(Span::styled("  •", theme.fg(theme.due)));

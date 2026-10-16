@@ -1440,6 +1440,41 @@ fn a_state_that_logs_a_note_asks_for_it_before_writing() {
 
 #[test]
 #[serial]
+fn typing_into_a_focused_edit_field_replaces_it_and_end_keeps_it() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        let original = "* TODO Draft report\nSCHEDULED: <2026-10-13 Tue 10:00>\n";
+        fs::write(&path, original).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.overlay = Overlay::Edit(Box::new(super::edit::EditForm::open(&app).unwrap()));
+        for _ in 0..4 {
+            key(&mut app, KeyCode::Tab);
+        }
+        for character in "fri".chars() {
+            key(&mut app, KeyCode::Char(character));
+        }
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("+SCHEDULED: <2026-10-16 Fri>"), "{screen}");
+        assert!(!screen.contains("10:00fri"), "{screen}");
+
+        // Back on Title, End keeps the text and typing appends.
+        for _ in 0..2 {
+            key(&mut app, KeyCode::Tab);
+        }
+        key(&mut app, KeyCode::End);
+        for character in " v2".chars() {
+            key(&mut app, KeyCode::Char(character));
+        }
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("+* TODO Draft report v2"), "{screen}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    });
+}
+
+#[test]
+#[serial]
 fn an_empty_no_color_keeps_colour() {
     let plain = |value: Option<&str>| {
         temp_env::with_var("NO_COLOR", value, || {

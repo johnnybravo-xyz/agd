@@ -7,6 +7,7 @@ mod actions;
 mod capture;
 mod edit;
 mod help;
+mod input;
 mod keys;
 mod pane;
 mod peek;
