@@ -26,9 +26,10 @@ pub fn load_settings(
     path: Option<&Path>,
     root_override: Option<&Path>,
 ) -> Result<Settings, AgdError> {
-    let config_path = path
-        .map(Path::to_path_buf)
-        .unwrap_or(default_config_path()?);
+    let config_path = match path {
+        Some(path) => path.to_path_buf(),
+        None => default_config_path()?,
+    };
     let mut settings = if config_path.exists() {
         parse_config_file(&config_path)?
     } else if path.is_some() {
