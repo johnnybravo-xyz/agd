@@ -487,8 +487,16 @@ fn section_header(app: &App, header: &Header, rows: &[usize], width: usize) -> L
         (None, DOING) => theme.done,
         (None, _) => theme.accent,
     };
-    // A "+N more" row stands for N rows.
-    let count: usize = rows.iter().map(|index| app.rows[*index].more.max(1)).sum();
+    // Today's sections count what is left to do, as the status band and the
+    // panes do: their done rows are shown but not counted. A saved view's
+    // section counts every row it shows. A "+N more" row stands for N rows.
+    let todays = [OVERDUE, SCHEDULE, DUE, DOING, INBOX].contains(&section);
+    let count: usize = rows
+        .iter()
+        .map(|index| &app.rows[*index])
+        .filter(|row| !(todays && row.item.done))
+        .map(|row| row.more.max(1))
+        .sum();
     let style = if count == 0 {
         theme.muted().add_modifier(Modifier::BOLD)
     } else {

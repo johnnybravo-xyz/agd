@@ -110,7 +110,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to its root, which `/capture` in Claude Code shows.
 - Agents cards and undo lines name a change by its operation (capture,
   state change, schedule, deadline, priority, tags, edit, refile):
-  `undid schedule · Pay rent`.
+  `undid schedule · Pay rent`. A capture's card names the task once, and
+  peek shows the captured task without repeating it as a diff.
+- Today's sections count what is left to do: done rows are shown but not
+  counted, as the status band and both panes count. A saved view's section
+  counts every row it shows.
 - Without `todo_keyword_colors`, WAIT is yellow and CANCELLED dim red;
   your own map replaces these.
 - `agd agenda --view` without a key runs `start_view`, `--views` lists the

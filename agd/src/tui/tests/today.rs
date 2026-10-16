@@ -1329,3 +1329,23 @@ fn an_inbox_item_names_its_agent_after_the_agents_dot() {
         assert_eq!(buffer[(dot + 13, y)].symbol(), "│");
     });
 }
+
+#[test]
+#[serial]
+fn todays_sections_count_what_is_left_to_do() {
+    with_home(|root| {
+        write_tasks(root);
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        let in_schedule = |app: &App, done: bool| {
+            app.rows
+                .iter()
+                .filter(|row| row.section == "SCHEDULE" && row.item.done == done)
+                .count()
+        };
+        assert!(in_schedule(&app, true) > 0);
+        let open = in_schedule(&app, false);
+        let screen = render(&mut app, 120, 40).join("\n");
+        assert!(screen.contains(&format!("SCHEDULE  {open}")), "{screen}");
+    });
+}

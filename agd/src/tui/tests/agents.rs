@@ -42,16 +42,15 @@ fn peek_on_the_agents_tab_shows_the_task_an_agent_wrote() {
         let screen = lines.join("\n");
         assert!(screen.contains("Peek"), "{screen}");
         assert!(screen.contains("a accept"), "{screen}");
-        // The change's diff comes first, then the task and where it lives.
-        let added = lines
-            .iter()
-            .position(|line| line.contains("+** TODO [#A] Agent task"))
-            .unwrap_or_else(|| panic!("{screen}"));
-        let task = lines
-            .iter()
-            .rposition(|line| line.contains("Agent task") && !line.contains('+'))
-            .unwrap_or_else(|| panic!("{screen}"));
-        assert!(added < task, "{screen}");
+        // A capture's diff is the whole entry, so peek shows the task alone
+        // and where it lives, not the same text twice.
+        assert!(!screen.contains("+** TODO [#A] Agent task"), "{screen}");
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Agent task") && !line.contains('+')),
+            "{screen}"
+        );
         assert!(screen.contains("inbox.org"), "{screen}");
     });
 }
@@ -230,7 +229,9 @@ fn every_agent_card_has_the_same_two_line_shape() {
             .unwrap_or_else(|| panic!("{text}"));
         assert!(!text.contains("+ * Inbox"), "{text}");
         assert!(!text.contains(":perf:"), "{text}");
-        assert!(screen[task].contains("capture  "), "{text}");
+        // The kind says capture once, on the card's first line.
+        assert!(!screen[task].contains("capture"), "{text}");
+        assert!(screen[task - 1].contains("capture"), "{text}");
         assert!(screen[task].contains("inbox.org:"), "{text}");
         assert!(screen[task - 1].contains("● test-agent"), "{text}");
         // A long name is cut to 13 characters and "…".
@@ -262,6 +263,19 @@ fn every_agent_card_has_the_same_two_line_shape() {
             .map(|(row, _)| row)
             .collect();
         assert_eq!(moved[0], selected[1] + 2, "{}", screen.join("\n"));
+        // A state change's peek shows its diff above the task.
+        app.selected = app
+            .journals
+            .iter()
+            .position(|record| record.operation == Some(agd_core::JournalOperation::State))
+            .unwrap();
+        press(&mut app, KeyCode::Char(' '));
+        let peek = render(&mut app, 120, 30).join("\n");
+        assert!(
+            peek.contains("+** DONE Rotate staging certs")
+                || peek.contains("+* DONE Rotate staging certs"),
+            "{peek}"
+        );
     });
 }
 

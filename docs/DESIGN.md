@@ -35,6 +35,8 @@ Counts use one plural rule (`1 marked row`, `2 marked rows`). The status
 line reads `1 overdue · 3 today · 9 inbox · 2 unreviewed`, and every
 surface counts the same way: overdue first, then what is scheduled or due
 today (a deadline's early warning is DUE SOON, not today), each task once.
+Today's sections count what is left to do; done rows are shown but not
+counted.
 An undo line names the operation it undid: `undid schedule · Pay rent`.
 
 ## Formats

@@ -10,7 +10,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Wrap};
 
-use agd_core::{Item, Occurrence, OccurrenceType, WorkspaceIndex, next_repeat};
+use agd_core::{Item, JournalOperation, Occurrence, OccurrenceType, WorkspaceIndex, next_repeat};
 
 use super::actions::when;
 use super::keys::{self, Action};
@@ -141,14 +141,19 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     // task it touched.
     let (diff, subject) = if app.screen == Screen::Review {
         let record = app.journals.get(app.selected);
-        (
-            record
-                .map(|record| diff_lines(app, &record.diff))
-                .unwrap_or_default(),
-            record
-                .and_then(|record| super::review::subject(app, record))
-                .map(|item| (item, None)),
-        )
+        let subject = record
+            .and_then(|record| super::review::subject(app, record))
+            .map(|item| (item, None));
+        // A capture's diff is the whole new entry, which the task below
+        // shows; it is drawn only when no heading holds the entry now.
+        let whole_entry = record
+            .is_some_and(|record| record.operation == Some(JournalOperation::Capture))
+            && subject.is_some();
+        let diff = match record {
+            Some(record) if !whole_entry => diff_lines(app, &record.diff),
+            _ => Vec::new(),
+        };
+        (diff, subject)
     } else {
         (
             Vec::new(),

@@ -55,6 +55,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   deadlines first, each item once. `STATUS_SCHEMA` names `agd.status/v1`.
 - `Settings::default()` colors WAIT yellow and CANCELLED dim red in
   `todo_keyword_colors`.
+- `load_settings` returns `Settings`. `next_repeat` gives a repeating
+  timestamp's next date. `IndexedDocument` has no `lines`, `file_tags` or
+  `file_category`, `PropertySpan` no `value_span`, and `LoadedSettings`,
+  `Settings::agent_profile`, `WriteEngine::settings` and the `SourceLine`
+  export are gone.
 - `agenda_text` prints rows as `org-batch-agenda` does; `agenda_csv` takes
   the entries, the day and the index, and `items_csv` the items, the block
   kind and the index, to print Emacs's eleven CSV columns; `agenda_row` and

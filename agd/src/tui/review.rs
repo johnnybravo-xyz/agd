@@ -65,6 +65,8 @@ fn change_parts(record: &JournalRecord, today: chrono::NaiveDate) -> Vec<(String
         Some(JournalOperation::Deadline) => {
             arrow(date(&removed, "DEADLINE:"), date(&added, "DEADLINE:"))
         }
+        // The card's kind already says capture; the task line follows.
+        Some(JournalOperation::Capture) => Vec::new(),
         _ => vec![(record.operation_label().to_string(), ChangeRole::Now)],
     }
 }
