@@ -14,7 +14,7 @@ pub struct SetupCommand {
 enum SetupAction {
     /// Import your Emacs or Neovim org settings into config.toml
     Import(ImportCommand),
-    /// Add the agd skill for every agent harness, and its MCP server to Codex, OpenCode, Pi or oh-my-pi (Claude Code: the plugin)
+    /// Install agent support; --detected finds existing Codex, OpenCode, Pi, and oh-my-pi configs (Claude Code uses the plugin; Paseo reuses its provider)
     Install(InstallCommand),
     /// Check org files for parse drift, invalid UTF-8, duplicate IDs and interrupted writes
     Check(CheckCommand),

@@ -1,24 +1,33 @@
-# Security
+# Security policy
 
-agd reads and writes your Org files and lets coding agents do the same over
-a local stdio MCP server. It never opens a network port. A bug that lets
-input escape the configured roots, write Org structure it was not asked to
-write, change bytes it was not asked to change, or run as someone else's
-agent is a security bug.
+`agd` reads and writes Org files and exposes the same operations to local coding
+agents over stdio MCP. It does not open a network port.
 
-## Reporting a vulnerability
+Treat an issue as a security vulnerability when it could allow `agd` to:
 
-Report it privately through GitHub:
-[Report a vulnerability](https://github.com/johnnybravo-xyz/agd/security/advisories/new).
-Please don't open a public issue for it.
+- read or write outside configured roots;
+- change Org structure or unrelated bytes without authorization;
+- select an ambiguous target, including a duplicated `:ID:`;
+- bypass write ownership or act as a different MCP client;
+- disclose agenda data outside the local MCP session.
 
-Include the agd version (`agd --version`), what you ran (the command, or
-the MCP request), what happened and what you expected. A small Org file and
-config that reproduce it help most; leave out your own tasks.
+## Report a vulnerability
 
-You'll get a reply within a week. Fixes ship in the next release, with
-credit in the changelog unless you'd rather not be named.
+Use GitHub's private
+[security advisory form](https://github.com/johnnybravo-xyz/agd/security/advisories/new).
+Do not open a public issue.
+
+Include:
+
+- the output of `agd --version`;
+- the CLI command or MCP request;
+- the observed and expected behavior;
+- a minimal Org file and configuration that reproduce the issue.
+
+Remove personal task content before attaching files. You should receive an
+initial response within one week. Confirmed fixes ship in the next release,
+with credit in the changelog unless you prefer to remain anonymous.
 
 ## Supported versions
 
-Security fixes go into the latest release only.
+Security fixes are provided for the latest released version only.

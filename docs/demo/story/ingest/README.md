@@ -1,3 +1,11 @@
-# ingest
+# Ingest service
 
-Pulls vendor records into the warehouse. `python3 -m unittest` runs the tests.
+Imports vendor records into the warehouse.
+
+## Test
+
+```bash
+python3 -m unittest
+```
+
+Run the command from this directory.

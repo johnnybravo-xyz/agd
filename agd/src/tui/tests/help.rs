@@ -212,8 +212,9 @@ fn popups_take_c_o_for_editor_because_c_e_ends_the_line_there() {
     });
 }
 
-/// docs/KEYS.md as the key tables say it: every screen's groups in help's
-/// order, a group shared with an earlier screen named once.
+/// docs/KEYS.md as the key tables say it, one bullet per binding: every
+/// screen's groups in help's order, a group shared with an earlier screen
+/// named once.
 fn keys_markdown() -> String {
     use crate::tui::keys::{MOVING, SCREENS};
     // A label's keys, each in its own code span; `C-c` starts a chord
@@ -235,15 +236,15 @@ fn keys_markdown() -> String {
             .join(" ")
     };
     let mut text = String::from(
-        "# Keys\n\n\
-         <!-- Generated from agd/src/tui/keys.rs, which drives agd's dispatch, \
-         footers and `?` help. Edit the tables there, then run \
+        "# Keyboard reference\n\n\
+         <!-- Generated from agd/src/tui/keys.rs, which drives dispatch, \
+         footers, and `?` help. Edit the tables there, then run \
          `AGD_UPDATE_DOCS=1 cargo test -p agd keys_md`. -->\n\n\
-         Every key of the terminal UI, screen by screen, beside org-agenda's \
-         key for the same thing where it has one. Press `?` in agd for the \
-         same list, filtered as you type.\n\n",
+         This is the complete TUI key reference, organized by screen. \
+         Org-agenda equivalents appear where they exist. Press `?` in `agd` \
+         to search the actions available on the current screen.\n\n",
     );
-    text.push_str(&format!("Moving: {MOVING}.\n"));
+    text.push_str(&format!("Navigation: {MOVING}.\n"));
     let mut shown: Vec<(&str, &str)> = Vec::new();
     for (screen, groups) in SCREENS {
         text.push_str(&format!("\n## {screen}\n"));
@@ -253,18 +254,23 @@ fn keys_markdown() -> String {
                 continue;
             }
             shown.push((group.title, screen));
-            text.push_str(&format!(
-                "\n### {}\n\n| Keys | Does | org-agenda |\n| --- | --- | --- |\n",
-                group.title
-            ));
+            text.push_str(&format!("\n### {}\n\n", group.title));
+            // `- keys: does (org-agenda key)`, the org-agenda key only where
+            // it has one; `r / g` names two org-agenda keys.
             for binding in group.bindings {
                 let org = if binding.org.is_empty() {
                     String::new()
                 } else {
-                    format!("`{}`", binding.org)
+                    let org = binding
+                        .org
+                        .split(" / ")
+                        .map(|key| format!("`{key}`"))
+                        .collect::<Vec<_>>()
+                        .join(" or ");
+                    format!(" (org-agenda {org})")
                 };
                 text.push_str(&format!(
-                    "| {} | {} | {org} |\n",
+                    "- {}: {}{org}\n",
                     keys(binding.label),
                     binding.help
                 ));

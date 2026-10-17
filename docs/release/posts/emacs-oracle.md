@@ -1,52 +1,73 @@
 # Treating Emacs as an executable Org specification
 
-"Supports Org mode" can mean anything from recognizing stars to reproducing a
-decade of agenda semantics. agd avoids that claim. It names a supported
-subset and asks Emacs for the expected result every time the subset grows.
+“Supports Org mode” can describe anything from recognizing heading stars to
+reproducing years of agenda semantics. `agd` makes a narrower claim: it defines
+a supported subset and asks pinned Emacs for the expected result whenever that
+subset changes.
 
-The oracle is Emacs's own batch output: `org-batch-agenda-csv` and
-`org-batch-agenda`. The CSV gives one structured row per occurrence:
-category, heading, occurrence type, TODO state, inherited tags, date, time,
-extra text and priority. That is enough to tell a scheduled task from a
-deadline warning, a carried-over task from a date stamp, and a range from
-either. The text is what a person reads, down to the column widths and
-the `Sched.12x:` leaders.
+## The oracle
 
-Each fixture directory holds an Org file, a fixed today and date range, and
-the CSV and text produced by a pinned Emacs 30.2. agd parses the same file
-and must print the same bytes: `agd agenda --csv` and the text agenda are
-compared with Emacs's output byte for byte, rows, order and spacing
-included. A mismatch prints the full diff.
+The agenda oracle uses Emacs's own batch interfaces:
 
-The first cases were chosen where plausible implementations go wrong: past
-scheduled items that carry into today; a deadline warning that starts before
-the deadline; `+`, `++` and `.+` repeaters; active timestamp ranges;
-inherited file and ancestor tags; and the three done-item skip settings. A
-seeded generator adds a case that mixes dates, states, repeaters and
-ranges. Tags/TODO matches with property terms, such as
-`TODO="DONE"+CLOSED>="<-3w>"`, have their own cases. A weekly CI run asks
-the pinned Emacs again for every case, so a fixture can never drift from
-what Emacs prints.
+- `org-batch-agenda-csv` produces one structured row per occurrence, including
+  category, heading, occurrence type, TODO state, inherited tags, date, time,
+  extra text, and priority.
+- `org-batch-agenda` produces the text people read, including column widths and
+  leaders such as `Sched.12x:`.
 
-Emacs is also the edit oracle, but byte preservation stays a separate
-contract. Emacs confirms workflow semantics (custom TODO sequences, repeat
-completion, logging), while agd also proves that unrelated bytes did not
-move. Matching Emacs does not grant permission to reproduce an editor's
-incidental reformatting.
+Together they distinguish a scheduled task from a deadline warning, a
+carried-over item from a plain timestamp, and a range from either.
 
-The table of what is not supported matters as much as the passing cases.
-Diary sexps, habit consistency, arbitrary skip functions, executable custom
-commands and clock reports are unsupported. They stay Org text and are
-never interpreted. The org-ql subset is a native feature with an explicit
-grammar, not a claim of full package compatibility.
+Each fixture directory contains an Org file, a fixed “today,” a date range, and
+the CSV and text produced by pinned Emacs 30.2. `agd` parses the same source and
+must emit the same bytes. Rows, ordering, spacing, and labels all participate in
+the comparison; a failure prints the complete diff.
 
-This changes feature work. A bug report becomes the smallest Org fixture
-that differs from Emacs, with the editor version recorded. The fix is done
-when agd prints what Emacs prints for it. If two Org releases disagree, agd
-documents the version boundary rather than choosing whatever a maintainer
-remembers.
+## Choosing fixtures
 
-An executable oracle is slower than intuition and much faster than
-debugging a user's calendar after release. It turns compatibility from
-branding into a repeatable artifact that reviewers can inspect without
-reading the Rust implementation.
+The first cases target behavior that plausible implementations often get
+wrong:
+
+- past scheduled items that carry into today;
+- deadline warnings that begin before the due date;
+- `+`, `++`, and `.+` repeaters;
+- active timestamp ranges;
+- inherited file and ancestor tags;
+- completed-item skip settings.
+
+A seeded generator adds mixed dates, states, repeaters, and ranges. Separate
+cases cover tags/TODO property expressions such as
+`TODO="DONE"+CLOSED>="<-3w>"`.
+
+A weekly CI job reruns every fixture through the pinned Emacs, preventing a
+recording from drifting away from the editor output it claims to represent.
+
+## Writes need two contracts
+
+Emacs also acts as the semantic oracle for edits: custom TODO sequences,
+repeater completion, logging, planning placement, and related behavior. Byte
+preservation remains an independent contract.
+
+Matching Emacs does not permit `agd` to reproduce incidental reformatting. A
+write fixture compares the resulting file with Emacs and also proves that every
+byte outside the planned patches remained untouched.
+
+## Unsupported behavior remains explicit
+
+The compatibility table is as important for exclusions as for passing cases.
+`agd` does not evaluate diary sexps, arbitrary skip functions, executable custom
+commands, clock reports, or habit consistency graphs. The org-ql integration is
+a documented subset with an explicit grammar, not a claim of complete package
+compatibility.
+
+## What this changes in development
+
+A compatibility bug becomes the smallest Org fixture that differs from Emacs,
+with the editor version recorded. The fix is complete when `agd` reproduces the
+oracle for that case without weakening source preservation.
+
+If Org releases disagree, `agd` records the version boundary instead of relying
+on maintainer memory. The executable oracle costs more than intuition and much
+less than debugging a user's calendar after release. It turns compatibility
+from branding into a repeatable artifact reviewers can inspect without reading
+the Rust implementation.

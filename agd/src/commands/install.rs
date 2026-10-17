@@ -1,12 +1,14 @@
-//! `agd setup install [codex] [opencode] [pi] [omp]`: installs agd for coding
-//! agents, user-wide. The `agenda` skill goes to `~/.agents/skills`, the
-//! Agent Skills location that Codex, OpenCode, Pi, oh-my-pi and Gemini CLI
-//! all read; each named harness also gets agd's MCP server in its user
-//! config. Pi and oh-my-pi also get `/capture` from agd's Pi extension.
-//! Each person-owned config file is edited, not rewritten: Codex's
-//! TOML through toml_edit (comments and order survive), the JSON configs with
-//! their keys in their order. An existing agd entry that differs, or a file
-//! agd cannot edit safely, is refused before anything is written.
+//! `agd setup install [--detected] [codex] [opencode] [pi] [omp]`: installs
+//! agd for coding agents, user-wide. The `agenda` skill goes to
+//! `~/.agents/skills`, the Agent Skills location that Codex, OpenCode, Pi,
+//! oh-my-pi and Gemini CLI all read; each named or detected harness also gets
+//! agd's MCP server in its user config. Pi and oh-my-pi also get `/capture`
+//! from agd's Pi extension. Claude Code uses agd's plugin, while Paseo reuses
+//! the setup of the provider it launches. Each person-owned config file is
+//! edited, not rewritten: Codex's TOML through toml_edit (comments and order
+//! survive), the JSON configs with their keys in their order. An existing agd
+//! entry that differs, or a file agd cannot edit safely, is refused before
+//! anything is written.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -34,6 +36,9 @@ pub struct InstallCommand {
     /// Print what would change as a diff and write nothing.
     #[arg(long)]
     dry_run: bool,
+    /// Select clients whose user config directories already exist.
+    #[arg(long)]
+    detected: bool,
     /// Harnesses that also get agd's MCP server in their user config. The
     /// skill alone goes to ~/.agents/skills for every harness.
     #[arg(value_enum)]
@@ -102,6 +107,27 @@ impl Places {
     }
 }
 
+/// Harnesses whose user config directory or file already exists. Detection is
+/// deliberately filesystem-only and does not inspect config contents.
+fn detected_harnesses(places: &Places) -> Vec<Harness> {
+    let file_or_parent_exists =
+        |path: &Path| path.exists() || path.parent().is_some_and(Path::exists);
+    let mut harnesses = Vec::new();
+    if file_or_parent_exists(&places.codex) {
+        harnesses.push(Harness::Codex);
+    }
+    if places.opencode.exists() {
+        harnesses.push(Harness::Opencode);
+    }
+    if file_or_parent_exists(&places.pi) {
+        harnesses.push(Harness::Pi);
+    }
+    if file_or_parent_exists(&places.omp) {
+        harnesses.push(Harness::Omp);
+    }
+    harnesses
+}
+
 /// An environment variable naming a directory, ignored when it is relative,
 /// as the XDG Base Directory spec says.
 fn absolute_variable(name: &str) -> Option<PathBuf> {
@@ -122,11 +148,29 @@ struct FileChange {
 impl InstallCommand {
     pub fn execute(self) -> Result<()> {
         let places = Places::from_env()?;
-        for line in install(&places, &self.harnesses, self.dry_run)? {
+        for line in install_selected(&places, &self.harnesses, self.detected, self.dry_run)? {
             println!("{line}");
         }
         Ok(())
     }
+}
+
+fn install_selected(
+    places: &Places,
+    harnesses: &[Harness],
+    detected: bool,
+    dry_run: bool,
+) -> Result<Vec<String>> {
+    let mut selected = harnesses.to_vec();
+    if detected {
+        selected.extend(detected_harnesses(places));
+        if selected.is_empty() {
+            bail!(
+                "no supported agent config directories found; pass one or more of: codex, opencode, pi, omp"
+            );
+        }
+    }
+    install(places, &selected, dry_run)
 }
 
 /// Writes the skill and each harness's entry, unless `dry_run`, and returns
@@ -434,13 +478,20 @@ mod tests {
     }
 
     #[test]
-    fn harnesses_are_optional_and_dry_run_goes_anywhere() {
+    fn harnesses_are_optional_and_flags_go_anywhere() {
         let none = parse(&["install"]);
         assert!(none.harnesses.is_empty());
         assert!(!none.dry_run);
-        let some = parse(&["install", "codex", "--dry-run", "pi"]);
+        assert!(!none.detected);
+
+        let detected = parse(&["install", "--detected"]);
+        assert!(detected.harnesses.is_empty());
+        assert!(detected.detected);
+
+        let some = parse(&["install", "codex", "--detected", "--dry-run", "pi"]);
         assert_eq!(some.harnesses, [Harness::Codex, Harness::Pi]);
         assert!(some.dry_run);
+        assert!(some.detected);
     }
 
     #[test]
@@ -474,6 +525,93 @@ mod tests {
         assert_eq!(moved.opencode, Path::new("/srv/config/opencode"));
         assert_eq!(moved.pi, Path::new("/srv/pi/mcp.json"));
         assert_eq!(moved.pi_extension, Path::new("/srv/pi/extensions/agd.ts"));
+    }
+
+    #[test]
+    fn detection_follows_each_harness_config_directory() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let codex = places(codex_home.path());
+        fs::create_dir_all(codex.codex.parent().unwrap()).unwrap();
+        assert_eq!(detected_harnesses(&codex), [Harness::Codex]);
+
+        let opencode_home = tempfile::tempdir().unwrap();
+        let opencode = places(opencode_home.path());
+        fs::create_dir_all(&opencode.opencode).unwrap();
+        assert_eq!(detected_harnesses(&opencode), [Harness::Opencode]);
+
+        let pi_home = tempfile::tempdir().unwrap();
+        let pi = places(pi_home.path());
+        fs::create_dir_all(pi.pi.parent().unwrap()).unwrap();
+        assert_eq!(detected_harnesses(&pi), [Harness::Pi]);
+
+        let omp_home = tempfile::tempdir().unwrap();
+        let omp = places(omp_home.path());
+        fs::create_dir_all(omp.omp.parent().unwrap()).unwrap();
+        assert_eq!(detected_harnesses(&omp), [Harness::Omp]);
+    }
+
+    #[test]
+    fn detected_and_explicit_harnesses_form_one_deduplicated_install() {
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(places.codex.parent().unwrap()).unwrap();
+        fs::create_dir_all(places.pi.parent().unwrap()).unwrap();
+
+        let lines =
+            install_selected(&places, &[Harness::Codex, Harness::Codex], true, true).unwrap();
+        assert_eq!(lines.len(), 4, "{lines:?}");
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line.contains("config.toml"))
+                .count(),
+            1,
+            "{lines:?}"
+        );
+        assert!(
+            lines.iter().any(|line| line.contains("mcp.json")),
+            "{lines:?}"
+        );
+        assert!(!places.skill.exists());
+    }
+
+    #[test]
+    fn detected_install_without_a_config_directory_writes_nothing() {
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+
+        let error = install_selected(&places, &[], true, false)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "no supported agent config directories found; pass one or more of: codex, opencode, pi, omp"
+        );
+        assert!(fs::read_dir(home.path()).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn a_detected_conflict_leaves_every_candidate_unchanged() {
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(places.codex.parent().unwrap()).unwrap();
+        fs::create_dir_all(places.omp.parent().unwrap()).unwrap();
+        let codex_before = "# person's Codex config\nmodel = \"o3\"\n";
+        let omp_before = "{\"mcpServers\":{\"agd\":{\"command\":\"other\"}}}\n";
+        fs::write(&places.codex, codex_before).unwrap();
+        fs::write(&places.omp, omp_before).unwrap();
+
+        let error = install_selected(&places, &[], true, false)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("already has a different agd server"),
+            "{error}"
+        );
+        assert_eq!(fs::read_to_string(&places.codex).unwrap(), codex_before);
+        assert_eq!(fs::read_to_string(&places.omp).unwrap(), omp_before);
+        assert!(!places.skill.exists());
+        assert!(!places.omp_extension.exists());
     }
 
     #[test]

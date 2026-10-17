@@ -1,15 +1,22 @@
 #!/bin/sh
-# Copies the repository's docs into the site so each has one source:
-#   docs/{IMPORTING,COMPATIBILITY,SAFETY}.md -> site/content/docs/<name>.md
-#   docs/release/posts/*.md                  -> site/content/posts/*.md
-#   docs/release/agd.gif                     -> site/content/agd.gif
-# A file's leading "# Title" becomes its front matter title; docs also get
-# the one-line description listed below. Posts are dated by the commit that
-# added them, so this needs full git history. The copies are gitignored; run
-# this before `zola build` in site/.
+# Copies the repository's canonical guide and generated key reference into the
+# site, alongside the existing release posts and demo GIF:
+#   docs/getting-started.md -> site/content/docs/getting-started.md
+#   docs/KEYS.md            -> site/content/docs/keys.md
+#   docs/release/posts/*.md -> site/content/posts/*.md
+#   docs/release/agd.gif    -> site/content/agd.gif
+# A file's leading "# Title" becomes its front matter title; docs also get the
+# one-line description listed below. Posts are dated by the commit that added
+# them, so this needs full git history. The copies are gitignored; run this
+# before `zola build` in site/.
 set -eu
 cd "$(dirname "$0")/.."
 content=site/content
+
+rm -f \
+  "$content/docs/importing.md" \
+  "$content/docs/compatibility.md" \
+  "$content/docs/safety.md"
 
 page() { # page <source> <target> <extra front matter line>
   title=$(sed -n '1s/^# //p' "$1" | sed 's/"/\\"/g')
@@ -21,17 +28,15 @@ page() { # page <source> <target> <extra front matter line>
   echo "collect.sh: $1 -> $2"
 }
 
-# name|description, in the order the site lists them
+# source|target|description, in the order the site lists them
 weight=0
-while IFS='|' read -r name description; do
+while IFS='|' read -r source target description; do
   weight=$((weight + 1))
-  lower=$(echo "$name" | tr '[:upper:]' '[:lower:]')
-  page "docs/$name.md" "$content/docs/$lower.md" "weight = $weight
+  page "docs/$source" "$content/docs/$target" "weight = $weight
 description = \"$description\""
 done <<'EOF'
-IMPORTING|Bring settings over from an Emacs or nvim-orgmode configuration, and verify them
-COMPATIBILITY|What matches Emacs exactly, and what is reported instead
-SAFETY|Roots, locks, the journal, atomic writes and undo
+getting-started.md|getting-started.md|Install, configure, import, connect agents, and understand compatibility and safety
+KEYS.md|keys.md|Generated keyboard reference for the full TUI, pane, Triage, Agents, and popups
 EOF
 
 for post in docs/release/posts/*.md; do

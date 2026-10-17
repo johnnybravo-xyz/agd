@@ -1,98 +1,95 @@
-# Contributing
+# Contributing to agd
 
-Start with [ARCHITECTURE.md](ARCHITECTURE.md) for where things live and
-[docs/DESIGN.md](docs/DESIGN.md) for how agd looks, reads and behaves.
-[AGENTS.md](AGENTS.md) lists the product rules; they apply to people too.
+Org files are user data: preserve untouched bytes exactly or refuse the write.
+Read [ARCHITECTURE.md](ARCHITECTURE.md), [AGENTS.md](AGENTS.md), and the relevant
+implementation, tests, configuration, and public guide before changing code.
 
-## Set up
+## Environment
 
-You need Rust 1.89 or later. Either use the Nix shell:
+Rust 1.89 or later is required. The Nix shell contains the standard toolchain:
 
 ```bash
 nix develop
 ```
 
-or rustup and [just](https://github.com/casey/just). On macOS outside the
-Nix shell, `scripts/cargo` links with Apple's clang and SDK; the justfile and
-the Makefile use it for you.
+Without Nix, install Rust with rustup and
+[`just`](https://github.com/casey/just). On macOS, use `scripts/cargo`; it selects
+Apple's clang and SDK, and the justfile and Makefile already call it.
 
-Optional, for the checks that compare agd with the real editors: Docker (the
-Emacs and Neovim oracles), the `claude` CLI (the Claude Code plugin's tests)
-and [vhs](https://github.com/charmbracelet/vhs) (the demo GIFs).
-
-## Develop
+Optional tools: Docker for pinned editor oracles, the `claude` CLI for plugin
+checks, and `vhs` for recordings.
 
 ```bash
-just              # list the commands
-just run agenda --status
-just build
-just install      # a release build in ~/.local/bin, which the plugin runs
-just plugin-dev   # Claude Code with the plugin from this checkout
+just                       # list commands
+just build                 # build workspace targets
+just run agenda --status   # run from this checkout
+just install               # install under ~/.local/bin
+just plugin-dev            # launch Claude Code with the local plugin
 ```
 
-To try agd without your own files, run the demo. It renders sample org
-files into a temporary directory and points HOME and XDG there:
+Use `docs/demo/demo.sh` or temporary `HOME`, `XDG_CONFIG_HOME`, and
+`XDG_DATA_HOME` values. Do not point unfinished write code at personal Org files.
+
+## Ownership and workflow
+
+| Change | Primary location | Required follow-through |
+| --- | --- | --- |
+| Domain behavior | `agd-core/` | Public records, validation, safety tests, conformance when Org owns behavior |
+| CLI command | `agd/src/commands/`, dispatched from `main.rs` | Stable output and real-command smoke run |
+| TUI interaction | `agd/src/tui/` | Shared key meaning, rendered surface, resulting write |
+| Configuration | `agd-core/src/config/` | Validation, rendering order, importer support, user guide |
+| MCP tool | `agd/src/mcp/` | Strict fields, server instructions, stdio scenario |
+| Error/schema | `agd-core/src/model.rs` | Stable snake_case code/schema and actionable prose |
+| Keys/theme/words | `agd/src/tui/keys.rs`, `theme.rs`, `agd/src/words.rs` | Regenerate keys or keep every surface aligned |
+| Agent adapter | `agd/claude-plugin/`, `agd/pi/`, setup installer | Package validation and actual provider/client smoke run |
+
+Check references before changing an exported Rust symbol. Keep adapters thin and
+state explicit. Test consumer-visible behavior and safety boundaries, then run
+the changed CLI, TUI, or stdio path against isolated data. For writes, compare
+the complete before/after bytes and prove refusal causes no partial mutation.
+Remove temporary fixtures and generated output before committing.
+
+## Required checks
 
 ```bash
-AGD=target/release/agd docs/demo/demo.sh          # the TUI
-AGD=target/release/agd docs/demo/demo.sh --pane   # the narrow pane
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets --all-features
+nix flake check
 ```
 
-Never point a work-in-progress agd at your real org files. Tests and manual
-runs use a temporary root, with `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and
-`HOME` set inside it, or `--config`.
-
-## Check
+Run focused checks while iterating. Additional scope checks:
 
 ```bash
-just check        # fmt, clippy, tests, the plugin, nix flake check
-just oracles      # agenda, edit and import against pinned Emacs and Neovim
+just plugin    # agd/claude-plugin changes
+just oracles   # agenda, writes, or editor-import semantics
 ```
 
-CI runs the format, clippy and test steps on Linux, macOS and Windows; run
-`just plugin` yourself when you change `agd/claude-plugin/`, and
-`just oracles` when you change agenda output, an edit or the importer (it
-needs Docker).
+`just oracles` requires Docker. CI covers Linux, macOS, Windows, and pinned
+editor conformance.
 
-## Change things
+## Documentation, releases, and commits
 
-Put behavior in `agd-core`, then expose it through the thinnest CLI, TUI or
-MCP code that needs it.
+- Update `README.md` when installation or the public command surface changes.
+- Keep detailed user behavior in `docs/getting-started.md`; keep retained
+  landing and maintainer documents concise.
+- Update the affected crate changelog for consumer-visible changes.
+- Keep examples runnable, generic, and free of workstation paths or personal
+  data.
+- Keep the Claude Code plugin version equal to the `agd` crate version.
+- Keep `orgize` exactly pinned until source-preserving conformance proves an
+  upgrade safe.
+- Use the Makefile's ordered release commands; run `make help` for details.
+- Sign reviewable commits with `git commit -S`; use a concise subject without
+  emoji or attribution trailers.
 
-- **A command**: a file in `agd/src/commands/`, registered in `main.rs`.
-  Text output says things through `words.rs`; `--json` prints a schema from
-  `agd-core/src/model.rs`; errors print through `main.rs`.
-- **A key**: one entry in a table in `agd/src/tui/keys.rs`. Footers, Triage's
-  chips and `?` read the same table. Check that the key means the same
-  thing on every screen.
-- **A config key**: the field in `agd-core/src/config/model.rs`, its check in
-  `config/validation.rs` (name the key and the accepted values in the
-  error), its place in `CONFIG_GROUPS` in `config/file.rs`, and the import
-  if the editors have an equivalent.
-- **An MCP tool**: a section in `agd/src/mcp/tools.rs` with a request struct
-  that refuses unknown fields and describes every argument; add it to the
-  server instructions if an agent needs to know about it.
-- **An error**: a variant in `ErrorCode` (`agd-core/src/model.rs`), snake_case,
-  with a message that says what happened and what to do.
-- **A color or glyph**: `agd/src/tui/theme.rs`. The Claude Code pane and the
-  CLI's terminal colors read from it.
+`agd` began as a product fork of `szaffarano/org-mcp-server`. Only generic
+conformance or safety fixes may be offered upstream as small MIT-licensed
+changes without GPL-only code. `agd` branding, product configuration, MCP/tool
+selection, TUI workflows, imports, journal format, agent provenance, packaging,
+and release work remain in this repository.
 
-Writes must keep untouched bytes exactly as they were. Test that with the
-file's bytes before and after, including a refusal that leaves nothing
-behind. Behavior that Org also has should match Org: add a case under
-`conformance/` and record Emacs's answer with the oracle (`--update`).
+## Security reports
 
-## Commit
-
-- One behavior per commit, with its tests, so each commit can be reviewed
-  and reverted on its own.
-- Sign commits (`git commit -S`); keep messages short and plain.
-- Update the crate's `CHANGELOG.md` for anything a user or a library
-  consumer would notice, and `README.md` when commands or installation
-  change.
-
-Releases use the Makefile (`make help`); see its header for the order.
-
-## Report a security problem
-
-See [SECURITY.md](SECURITY.md). Please don't open a public issue for it.
+Do not open a public issue for a suspected vulnerability. Follow the private
+process in [SECURITY.md](SECURITY.md).

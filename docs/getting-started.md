@@ -1,28 +1,10 @@
 # Getting started with agd
 
-`agd` is an org-agenda for the terminal and for coding agents. It reads plain
-Org files, either the ones you already keep for Emacs or nvim-orgmode or a new
-`~/org`, and shows what is due, scheduled and open in a keyboard-first TUI.
-Agents such as Claude Code, Codex and OpenCode read and change the same tasks
-over MCP. agd writes only the bytes it means to change, journals every write,
-and can undo it.
+`agd` is a local-first Org agenda for terminals and coding agents. The full TUI,
+narrow pane, CLI, and stdio MCP server all read the same Org files and use the
+same source-preserving write engine.
 
-One binary covers four uses:
-
-| Use  | Command                     | For                                                    |
-| ---- | --------------------------- | ------------------------------------------------------ |
-| TUI  | `agd`                       | planning the day, triage, capture, the Agents tab      |
-| Pane | `agd --pane`                | a narrow glance in a tmux or herdr split               |
-| CLI  | `agd agenda`, `agd capture` | scripts, status bars, one-line capture                 |
-| MCP  | `agd mcp`                   | coding agents, over stdio                              |
-
-If you know Emacs: agd is `org-agenda` and `org-capture` outside Emacs, driven
-by your `org-agenda-files`, `org-todo-keywords`, `org-capture-templates` and
-`org-agenda-custom-commands`, with org-agenda's keys. If Org is new to you: a
-task is a heading in a text file, such as `* TODO Renew passport`, optionally
-with a date under it. agd finds those headings and arranges them by day.
-
-## Install
+## Install and try the demo
 
 ```bash
 cargo install agd --locked                 # Rust 1.89+
@@ -31,105 +13,79 @@ nix run github:johnnybravo-xyz/agd
 agd --version
 ```
 
-Release binaries, the Arch recipe and checksums are in the
-[README](../README.md#install), with the lines that install shell completions
-from `agd completions bash`, `zsh` or `fish`.
+Release binaries, signed checksums, and the Arch recipe are listed in the
+[README](../README.md#install). Generate shell completions with
+`agd completions bash|zsh|fish|elvish|powershell`.
 
-To look around on sample data first, run
-`AGD=target/release/agd docs/demo/demo.sh` from a built checkout (it needs
-`python3`). It works in a temporary directory and leaves your files and
-config alone.
-
-## Start fresh
-
-### Make an Org directory
+To explore sample data without touching your files:
 
 ```bash
-mkdir ~/org
+git clone https://github.com/johnnybravo-xyz/agd.git
+cd agd
+cargo build --release
+AGD=target/release/agd docs/demo/demo.sh
 ```
 
-`~/org` is the default root, the only directory agd reads or writes. Every
-`.org` file under it is part of the agenda. A task file looks like this:
+The demo requires `python3` and isolates `HOME`, configuration, application
+data, and Org files in a temporary directory.
 
-```org
-* TODO Renew passport                                              :personal:
-DEADLINE: <2026-10-30 Fri>
-* NEXT Review the release notes                                        :work:
-SCHEDULED: <2026-10-19 Mon 10:00>
-```
+## Start from existing settings or new Org files
 
-### Capture a task
+### Import an existing Emacs or Neovim setup
 
 ```bash
-agd capture "Renew passport due:fri #personal !A" --dry-run
-agd capture "Renew passport due:fri #personal !A"
-agd capture "Call the plumber on:+2d"
-```
-
-`--dry-run` prints the exact change and writes nothing:
-
-```diff
-+* Inbox
-+** TODO [#A] Renew passport                                        :personal:
-+DEADLINE: <2026-10-23 Fri>
-+:PROPERTIES:
-+:CREATED: [2026-10-16 Fri 13:30]
-+:END:
-```
-
-The default template, `t`, files new entries under `* Inbox` in
-`~/org/inbox.org`, and creates the file and the heading the first time. That
-is your inbox: where your capture templates file new entries.
-
-| Token      | Becomes                                         |
-| ---------- | ----------------------------------------------- |
-| `due:DATE` | `DEADLINE:`                                     |
-| `on:DATE`  | `SCHEDULED:`                                    |
-| `#tag`     | a tag (`:tag:` with `notation = "org"`)         |
-| `!A`       | a priority cookie (`#A` with `notation = "org"`) |
-
-All other words form the title, and `#` followed by digits stays text
-(`Fix #42`). A `DATE` reads as Org's date prompt reads it: `today`,
-`tomorrow`, a weekday, `+3d`, `+2w`, `oct 30`, `2026-10-30`, then an optional
-time, repeater and warning: `due:fri 14:00`, `due:2026-11-01 +1m -3d`. A
-weekday is the next one, so `fri` on a Friday is a week ahead, as in Org.
-
-When the first word names a template, the line goes through that template
-(`agd capture t …`); otherwise through the first one. Put `--` before text
-that starts with `-`. Without `--dry-run`, the command says where the task
-went (`inbox.org:2  captured · Renew passport · deadline Fri 23 Oct`); piped,
-it prints the new heading's `ref` for scripts. `agd undo` takes back your
-latest command-line change, and running it again the one before.
-
-### Work in the TUI
-
-```bash
+agd setup import ~/.emacs.d --stdout
+agd setup import ~/.emacs.d
+agd setup check
 agd
 ```
 
-Today lists overdue tasks first, then the day's schedule, deadlines coming up,
-tasks in progress and the inbox. Move with `j`/`k` (or `n`/`p`). `x` marks the
-selected task `DONE` and adds `CLOSED:`. `s` schedules it: type `mon`, `+2d`
-or `2026-10-30 14:00`, see the change in the prompt, then press `⏎`. `d` sets
-a deadline the same way, and `2026-10-30 -3d` adds a warning period. `u`
-undoes the last write, `?` lists every key, and `q` quits.
+The input may be an editor directory such as `~/.doom.d`, `~/.config/emacs`,
+`~/.emacs.d`, or `~/.config/nvim`, or one or more configuration files. The
+importer runs `emacs -Q` or `nvim --clean`; the selected editor must be on
+`PATH`, but normal startup, daemons, and plugin managers do not run.
 
-### Write a config
+Review the report before using the generated configuration. See
+[Import reference](#import-reference) for discovery, supported settings, and
+re-import behavior.
 
-agd runs without a config file. Its defaults are: root `~/org`, every `.org`
-file under it, the keywords `TODO NEXT WAIT | DONE CANCELLED`, a week agenda, a
-`CLOSED:` timestamp when you finish a task, and the capture template `t`.
+### Start with new Org files
 
-To change any of that, create `~/.config/agd/config.toml`. The path is the same
-on Linux and macOS. If `XDG_CONFIG_HOME` is set, agd reads
-`$XDG_CONFIG_HOME/agd/config.toml` instead, and `agd --config FILE` points one
-run at another file.
+Org stores notes and tasks in plain text. A heading with a TODO keyword is a
+task; a heading without one is a note:
+
+```org
+* TODO Renew passport
+```
+
+A **scheduled date** says when you plan to work on a task. A **deadline** says
+when it must be complete and becomes visible during its warning period. Most
+tasks need neither; some need one; few need both.
+
+Create the default root and capture a first task:
+
+```bash
+mkdir -p ~/org
+agd capture "Renew passport due:fri #personal !A"
+agd
+```
+
+Without a configuration file, `agd` uses `~/org`, reads every `.org` file under
+it, uses `TODO NEXT WAIT | DONE CANCELLED`, adds a `CLOSED:` timestamp on
+completion, shows a week agenda, and captures TODO headings under Inbox with
+template `t`.
+
+## Configure roots, capture, and views
+
+The default configuration is `~/.config/agd/config.toml`, or
+`$XDG_CONFIG_HOME/agd/config.toml`. `agd --config FILE` selects another file for
+one invocation.
 
 ```toml
 roots = ["~/org"]
-
 todo_keywords = ["TODO(t) NEXT(n) WAIT(w@/!) | DONE(d!) CANCELLED(c@)"]
 log_into_drawer = true
+start_view = "d"
 
 [[capture]]
 key = "t"
@@ -137,354 +93,526 @@ desc = "Todo"
 file = "inbox.org"
 heading = "Inbox"
 template = "* TODO %?\n:PROPERTIES:\n:CREATED: %U\n:END:"
-```
 
-- `roots` lists the directories agd may read and write. It touches nothing
-  outside them.
-- `todo_keywords` holds one `#+TODO:` line per sequence, as
-  `org-todo-keywords` does: the states before `|` are open, the ones after it
-  done. `!` logs the change with a timestamp and `@` asks for a note. A file's
-  own `#+TODO:` lines take precedence for that file.
-- `log_into_drawer = true` puts those log lines in a `:LOGBOOK:` drawer, as
-  `org-log-into-drawer` does.
-- `[[capture]]` is an `org-capture-templates` entry. `file` is relative to the
-  root and `heading` names the heading to file under (Org's `file+headline`).
-  In `template`, `%?` is where the captured text goes and `%U` the current
-  inactive timestamp. To file under a nested heading (Org's `file+olp`), use
-  `olpath = ["Projects", "Website"]` instead of `heading`; those headings must
-  exist, as in Org.
+[[capture]]
+key = "n"
+desc = "Note"
+file = "notes.org"
+heading = "Notes"
+template = "* %?\n%U\n%i"
 
-The `t` template above is the one agd uses when the config has none; once you
-add a `[[capture]]`, only the templates you list exist. Every other key is top
-level, and a key you leave out takes its default. To write tags and
-priorities as Org does, `:work:` and `#A`, add `notation = "org"`.
-`agd setup check` loads the config, reads your files, and says how many it
-checked and what is wrong, if anything.
+[[capture]]
+key = "m"
+desc = "Meeting"
+file = "calendar.org"
+heading = "Meetings"
+template = "* %?"
 
-## Bring your Emacs or Neovim setup
-
-```bash
-agd setup import ~/.emacs.d --stdout   # print the config; the report goes to stderr
-agd setup import ~/.emacs.d            # write ~/.config/agd/config.toml
-agd setup check
-```
-
-The path can be a config directory (`~/.doom.d`, `~/.config/emacs`,
-`~/.emacs.d`, `~/.config/nvim`) or individual files. agd starts a clean
-`emacs -Q` or `nvim --clean` with its own reader, so your init never runs; the
-editor still has to be on your `PATH`.
-
-From Emacs it reads `org-directory` (the root on a first import), the agenda
-files, TODO keywords, priorities, tags column, logging and agenda options,
-`org-capture-templates` and `org-agenda-custom-commands`, including
-`org-super-agenda-groups` set on a block. From nvim-orgmode it reads the
-options passed to `require("orgmode").setup()`, called directly or through a
-lazy.nvim spec. The report gives the source line of each imported setting
-and the reason for each one it left out:
-
-```
-read 1 Emacs file:
-  /home/you/.emacs.d/init.el
-imported  roots ~/org, 3 agenda entries, 1 capture template, 1 view
-  ✓ org-agenda-files  init.el:2
-  ✓ org-agenda-custom-commands  init.el:12
-  ~ org-tag-alist  init.el:6: not used by agd
-  ✗ capture x  a computed capture target is unsupported
-  ✗ view r  regexp matches ({...}) are not supported in '+{^@}'
-```
-
-`✓` means imported, `~` imported with a difference or not used by agd, and `✗`
-left out. Values computed by your own functions, assignments inside `let`,
-hooks or `defun`s, and defaults that Doom modules or packages set are not
-visible to the reader. [IMPORTING.md](IMPORTING.md) lists every case.
-
-The file holds only the settings that differ from agd's defaults. Compare
-`agd agenda --view KEY` with `C-c a KEY` in Emacs, or import with `--verify`,
-which checks each imported view's rows against Emacs's own
-`org-batch-agenda-csv`. Once `config.toml` exists, the import prints the diff
-and stops; `--force` replaces the file, keeping the keys the import does not
-set (`roots`, `editor`, `theme`, `agent_inbox`) but not your comments.
-
-Agenda files outside the roots are left out (`✗ ... agenda entry left out:
-outside the roots`). Add their directories to `roots`, such as
-`roots = ["~/org", "~/work/notes"]`, and import again with `--force`.
-
-Imported or not, each file's own `#+TODO`, `#+SEQ_TODO`, `#+CATEGORY`,
-`#+FILETAGS`, `#+PRIORITIES` and `#+STARTUP` logging options apply to it.
-
-## Daily use
-
-### Tabs and sections
-
-`agd` opens on Today, or on the saved view named by `start_view`, which then
-becomes the first tab. The tabs are Today, Week, Inbox and Agents; `tab` and
-`S-tab` switch, and `1` to `9` pick one by position. `a` opens any saved view,
-as `C-c a` does, `esc` goes back, and `q` quits.
-
-| Today section | Holds                                                                                     |
-| ------------- | ----------------------------------------------------------------------------------------- |
-| OVERDUE       | missed deadlines, then old scheduled items; the first three, the rest behind `+N more`   |
-| SCHEDULE      | today's scheduled and timed items, by clock time                                          |
-| DUE SOON      | deadlines within their warning period (`deadline_warning_days`, 14 by default)            |
-| DOING         | open tasks past their sequence's first keyword, such as NEXT or WAIT, with no date today  |
-| INBOX         | the open entries your capture templates filed, with who captured each                     |
-
-`v` swaps in the classic org-agenda day list. Week is the org-agenda week
-view; `f`, `b` and `.` move by week and back to today. `l` toggles log mode,
-which adds closed items.
-
-### Keys
-
-| Key               | Action                                          | org-agenda            |
-| ----------------- | ----------------------------------------------- | --------------------- |
-| `n` `j` / `p` `k` | next / previous row                             | `n` / `p`             |
-| `SPC`             | peek at the entry                               | `SPC`                 |
-| `t` / `x` / `X`   | next state / done / cancel                      | `t`                   |
-| `s` / `d`         | schedule / deadline                             | `C-c C-s` / `C-c C-d` |
-| `,` `+` `-` / `:` | priority / tags                                 | `,` `+` `-` / `:`     |
-| `R` `C-c C-w`     | refile                                          | `C-c C-w`             |
-| `S`               | someday: tag it and drop its dates              |                       |
-| `m` `*` `U` `B`   | mark, mark all, unmark all, act on marked rows  | `m` `*` `U` `B`       |
-| `<` / `/`         | filter by category / by text or tag             | `<` / `/`             |
-| `r` `g`           | re-read every file                              | `r` `g`               |
-| `y`               | copy an Org link to the heading (OSC 52)        | `C-c l`               |
-| `u`               | undo the last write                             | `C-_`                 |
-
-`?` lists every key; type to filter it, and `⏎` runs the one you pick.
-[KEYS.md](KEYS.md) has the same list. `⏎` or `e` opens the edit popup, with
-fields for title, state, priority, tags, scheduled and deadline. `tab` moves
-between fields, the preview shows the exact change, and `⏎` saves it. `C-e`
-opens the heading in your editor from the lists, Triage, the Agents tab and
-the pane; in a popup, where `C-e` ends the line, it is `C-o`:
-
-```toml
-editor = ["emacsclient", "-n", "+{line}:{col}", "{file}"]   # default: $EDITOR +{line} {file}, else vi
-```
-
-agd runs the editor command directly, without a shell.
-
-### Capture and Triage
-
-`c` opens the capture popup, and `agd capture -i` opens it on its own. Press a
-template's key, or pick one with `↑`/`↓` and `⏎`, then type the same line as
-on the command line. The preview is the exact Org text that will be written,
-`tab` changes the template, and `C-o` writes the body in `$EDITOR`.
-
-For subtasks, `M-⏎` (alt-return) adds a checklist line under the task, and
-each line is written as `- [ ] line`. `S-⏎` does the same in terminals that
-report shift-return apart from return (kitty, WezTerm, Ghostty, foot, or
-after Claude Code's `/terminal-setup`). `⌫` on an empty line removes it.
-To check the lines off later, press `⏎` on the task: the edit popup lists
-them under the dates, and `x` on a line checks it, as `x` marks a task
-done. Lists show the progress after the title, `1/3`, and a `[/]` or `[%]`
-cookie on the heading is counted as Org counts it.
-
-```text
-› Plan the offsite due:fri #work
-  - [ ] book venue
-  - [ ] send invites
-```
-
-`T` starts Triage: overdue items, then the inbox, one card at a time. The keys
-are `.` today, `>` tomorrow, `w` in a week, `s` a date you type, `d` move a
-missed deadline, `x` done, `N` make it NEXT, `S` someday (adds the `someday`
-tag and removes the dates that put it on the agenda), `X` cancel, `R` refile,
-`n`/`p` skip forward and back, and `u` to undo a step. After nine
-reschedules a card suggests someday; `reschedule_nudge = 5` in `config.toml`
-suggests it sooner.
-
-### Saved views and a dashboard
-
-A `[[view]]` is an `org-agenda-custom-commands` entry. Each block has a `kind`
-(`agenda`, `todo`, `alltodo`, `tags` or `tags-todo`) and an optional Emacs
-tags/TODO `match`, property terms included, such as
-`TODO="DONE"+CLOSED>="<-1w>"`. `groups` work like org-super-agenda groups: a
-row goes to the first group it matches, and rows no group takes appear under
-"Other items".
-
-```toml
-start_view = "d"   # top-level keys go above the first [[capture]] or [[view]]
+[[capture]]
+key = "j"
+desc = "Journal"
+file = "journal.org"
+datetree = true
+template = "* %U %?\n%i"
 
 [[view]]
 key = "d"
 desc = "Dashboard"
 blocks = [
   { kind = "agenda", span = "day" },
-  { kind = "tags-todo", match = "work", header = "Work", groups = [
-    { name = "Next", match = "/NEXT" },
-    { name = "Quick wins", effort_max = "0:15" },
-    { name = "Waiting", match = "/WAIT" },
-  ] },
+  { kind = "todo", match = "NEXT", header = "Next" },
+  { kind = "todo", match = "WAIT", header = "Waiting" },
 ]
 ```
 
-Groups also take `discard = true` to drop their rows, `by` (`category`,
-`parent`, `todo` or `priority`) to make one group per value, `effort_min`, and
-`order`. Org's built-in `n` view ("Agenda and all TODOs") stays beside yours;
-a `[[view]]` with key `n` replaces it.
+Important rules:
 
-On the command line, `agd agenda --views` lists the views, `agd agenda --view d`
-prints one in the org-agenda layout, and `agd agenda --view` alone prints
-`start_view`.
+- `roots` is the authorization boundary for reads and writes.
+- Every ordinary setting is top-level. Put it before the first `[[capture]]` or
+  `[[view]]`; TOML assigns later keys to the current array record.
+- A file's `#+TODO`, `#+SEQ_TODO`, `#+CATEGORY`, `#+FILETAGS`, `#+PRIORITIES`,
+  and `#+STARTUP` directives override configured defaults for that file.
+- Keywords before `|` are open; keywords after it are complete. `!` logs a
+  timestamp and `@` requests a note.
+- A capture target's `file` is relative to a root. `heading` can be created;
+  every component of `olpath` must already exist; `datetree = true` creates
+  year, month, and day headings.
+- `%?` receives captured text, `%U` inserts the current inactive timestamp,
+  `%i` receives body text, and `%^{name}` defines a prompt.
+- Defining any `[[capture]]` record replaces the default template set.
+- Saved-view blocks may be `agenda`, `todo`, `alltodo`, `tags`, or `tags-todo`.
+  Match expressions use Emacs tags/TODO syntax, including property comparisons.
+- Groups use first-match-wins ordering and support `discard`, `order`, effort
+  bounds, and `by = "category"|"parent"|"todo"|"priority"`. Unmatched rows
+  appear under “Other items.”
+- `notation = "org"` displays tags and priorities as `:work:` and `#A` instead
+  of the default `#work` and `!A`.
+- Unknown keys and invalid values fail at load time and list accepted values.
 
-### A pane and a status bar
+Check configuration and Org files with `agd setup check`.
+
+## Daily workflow
+
+### Capture
+
+The CLI, TUI, and direct agent commands share one-line capture syntax:
+
+```bash
+agd capture "Renew passport due:fri #personal !A" --dry-run
+agd capture "Renew passport due:fri #personal !A"
+agd capture n "Wifi password is on the router"
+agd capture m "Dentist on:fri 14:00"
+agd capture j "Shipped the release"
+```
+
+A leading template key selects that template when more text follows. `due:DATE`
+sets `DEADLINE:`, `on:DATE` sets `SCHEDULED:`, `#tag` adds a tag, and `!A` adds
+a priority. Date forms include `today`, `tomorrow`, weekdays, `+3d`, `+2w`,
+`oct 30`, ISO dates, optional times, repeaters, and warning periods. Put `--`
+before text beginning with `-`; use `--body TEXT` for `%i` and
+`--prompt KEY=VALUE` for template prompts.
+
+`--dry-run` prints the exact proposed change and creates nothing. Normal
+terminal output is a concise summary; piped output is the new heading's stable
+ref. `agd undo` reverses the latest CLI change when the written bytes are still
+identifiable.
+
+### Today, Week, Inbox, Agents, and Triage
+
+Run `agd`. It opens Today or the view named by `start_view`:
+
+- **Today** separates OVERDUE, SCHEDULE, DUE SOON, DOING, and INBOX.
+- **Week** provides the Org-compatible weekly agenda.
+- **Inbox** collects open entries filed by capture templates.
+- **Agents** groups unreviewed MCP writes by client for inspection, acceptance,
+  editing, or safe undo.
+- **Triage** (`T`) reviews overdue work and inbox items one card at a time.
+
+Common keys:
+
+| Action | Keys |
+| --- | --- |
+| Next / previous row | `n` `j` / `p` `k` |
+| Change tab / select tab | `Tab` `S-Tab` / number |
+| Preview / edit / open in editor | `SPC` / `Enter` `e` / `C-e` |
+| Advance state / done / cancel | `t` / `x` / `X` |
+| Schedule / deadline | `s` / `d` |
+| Capture / Triage / saved views | `c` / `T` / `a` |
+| Mark / mark all / unmark / bulk | `m` / `*` / `U` / `B` |
+| Reload / undo / contextual help | `r` `g` / `u` / `?` |
+
+The complete generated reference is [KEYS.md](KEYS.md). Entry and capture
+popups preview exact Org diffs before saving. `C-o` opens `$EDITOR` from a text
+field; `C-e` opens it from list screens. Configure an argument array, not a
+shell command:
+
+```toml
+editor = ["emacsclient", "-n", "+{line}:{col}", "{file}"]
+```
+
+If unset, `agd` uses `$EDITOR +{line} {file}`, then `vi`.
+
+### Pane and status line
 
 ```bash
 tmux split-window -h -l 36 'agd --pane'
 
 # ~/.tmux.conf
-bind T display-popup -E -w 80 -h 22 'agd capture -i'   # prefix T: capture from anywhere
-set -g status-right '#(agd agenda --status)'           # 1 overdue · 3 today · 9 inbox · 2 unreviewed
-set -g set-clipboard on                                # lets y reach your clipboard
+bind T display-popup -E -w 80 -h 22 'agd capture -i'
+set -g status-right '#(agd agenda --status)'
+set -g set-clipboard on
 ```
 
-The pane shows today's timed items by clock, with overdue items as a count and
-done items dimmed. Its keys are `x` done, `X` cancel, `u` undo, `c` capture and
-`C-e` to edit; at 60 columns or more, `T` triages and `⏎` opens the full TUI. A
-terminal narrower than 60 columns switches to the pane by itself. Click a row
-to select it, and click it again to open the full TUI there.
-[herdr](https://herdr.dev), a terminal workspace manager for AI coding
-agents, runs `agd --pane` in a pane the same way. The TUI and the pane watch
-your files, so edits from Emacs, nvim or an agent appear as they happen.
+The pane shows upcoming timed work, overdue counts, completion, capture, undo,
+and editor actions. Narrow terminals select it automatically; at 60 columns or
+wider it can open Triage and the full view. `herdr` can run `agd --pane` in the
+same way. The TUI and pane watch source files for external edits.
 
-`agd agenda --status` prints one line of counts and leaves out the zeros.
+## Connect coding agents and desktop clients
 
-## Work with agents
+All integrations run the local `agd mcp` stdio server. The server can reach only
+the Org files available on the same machine under configured roots.
 
-### Claude Code
+### Detect supported local clients
 
-Install agd first. The plugin runs the `agd` on your `PATH`, which reads your
-`config.toml`.
+Preview, then configure supported clients whose user config directories already
+exist:
+
+```bash
+agd setup install --dry-run --detected
+agd setup install --detected
+```
+
+Detection is filesystem-only. It recognizes Codex, OpenCode, Pi, and oh-my-pi
+config directories; it does not launch clients, read private config contents,
+or use the network. Name a newly installed client explicitly if its directory
+does not exist yet. Positional names and `--detected` may be combined.
+
+The installer writes the shared skill to
+`~/.agents/skills/agenda/SKILL.md`, preserves unrelated configuration and
+comments, and calculates every candidate change before writing. A conflicting
+`agd` server, unsupported JSONC edit, or another skill named `agenda` refuses
+the whole operation.
+
+### Codex CLI, ChatGPT desktop Codex, and the Codex IDE extension
+
+```bash
+agd setup install codex
+codex mcp get agd
+```
+
+These Codex surfaces share `~/.codex/config.toml`, or
+`$CODEX_HOME/config.toml`. Start a new session after installation. In an
+interactive Codex session, `/mcp` also shows connected servers.
+
+### Claude Code terminal, desktop local sessions, and VS Code
+
+Install `agd`, then install the repository's Claude Code plugin:
 
 ```bash
 claude plugin marketplace add johnnybravo-xyz/agd
 claude plugin install agd@johnnybravo-xyz
+claude plugin list
+claude mcp list
 ```
 
-The plugin brings:
+The user-installed plugin is shared by Claude Code terminal, Claude Code
+desktop local sessions, and its VS Code integration. It provides the MCP tools,
+the `agenda` skill, `/agd`, `/capture`, and a status band. Claude Code 2.1.296
+or later is required. Claude Desktop chat is a different client; configure it
+as a generic MCP client below.
 
-- the MCP server, with the tools `agenda`, `query`, `describe`, `capture`,
-  `edit`, `plan` and `set_state`, plus an `agenda://today` resource;
-- the `agenda` skill, which tells Claude to call `describe` before writing,
-  to read an item before changing it, to decide from the current state after
-  a `ref_conflict` error instead of retrying, and to record `REPO`, `BRANCH`
-  and `SOURCE` properties on tasks it files from your code;
-- a mod, which needs Claude Code 2.1.296 or later:
-  - `/agd` opens or closes a pane beside the transcript on your `start_view`,
-    or today's agenda, with a tab per saved view. It uses your `theme`,
-    `todo_keyword_colors` and `nerd_font`.
-  - `/capture t text`, such as `/capture t Review the deploy checklist due:fri`,
-    files the task at once through `agd capture`, without a Claude turn.
-  - a line above the prompt with the day's counts, which refreshes every
-    minute and after Claude changes a task. The plugin's `show_band` option
-    hides it.
+### Paseo
 
-Then ask in plain words: "what is due this week?", "add a task to fix the flaky
-login test, scheduled tomorrow, tagged work", or "mark the release-notes task
-done". Your agenda reaches the model only when it calls a tool.
+Paseo launches an installed provider CLI and preserves that provider's config,
+skills, and MCP servers. Configure the provider Paseo will run—`codex`, the
+Claude Code plugin, `opencode`, `pi`, or `omp`—then start a new Paseo agent.
+There is no `agd setup install paseo` because Paseo does not own a separate MCP
+configuration.
 
-### Codex, OpenCode, Pi and oh-my-pi
-
-Install agd once for every harness:
+### OpenCode, Pi, and oh-my-pi
 
 ```bash
-agd setup install --dry-run codex pi   # show the diff first
-agd setup install codex opencode pi omp
+agd setup install opencode
+agd setup install pi
+agd setup install omp
 ```
 
-The `agenda` skill goes to `~/.agents/skills/agenda/SKILL.md`, the Agent
-Skills location that Codex, OpenCode, Pi, oh-my-pi and Gemini CLI all read
-in every project. Each harness you name also gets agd's MCP server in its
-user config:
+| Harness | User configuration |
+| --- | --- |
+| OpenCode | `~/.config/opencode/opencode.json`, or under `$XDG_CONFIG_HOME` |
+| Pi | `~/.pi/agent/mcp.json`, or under `$PI_CODING_AGENT_DIR` |
+| oh-my-pi | `~/.omp/agent/mcp.json` |
 
-| Harness  | MCP config                                                       |
-| -------- | ---------------------------------------------------------------- |
-| codex    | `~/.codex/config.toml` (`$CODEX_HOME`)                           |
-| opencode | `~/.config/opencode/opencode.json` (`$XDG_CONFIG_HOME/opencode`) |
-| pi       | `~/.pi/agent/mcp.json` (Pi 1.0 or later; `$PI_CODING_AGENT_DIR`) |
-| omp      | `~/.omp/agent/mcp.json`                                          |
+Pi and oh-my-pi also receive an `agd.ts` extension that implements `/capture`
+without a model turn. Start a new session, or run `/reload` in Pi.
 
-The command adds an `agd` server entry to each file and keeps everything else
-in it, comments included. If a file already has a different `agd` entry, or
-another skill named `agenda` exists, it stops before writing anything. Any
-other harness that reads `~/.agents/skills` and takes a stdio MCP server
-works the same way: point it at `agd mcp`.
+Running `agd setup install` without a harness installs only the shared skill.
+Gemini CLI and another Agent Skills-compatible harness may read that skill, but
+still need an MCP entry that starts `agd mcp`.
 
-Pi and oh-my-pi also get `/capture` from agd's extension, in
-`~/.pi/agent/extensions/agd.ts` or `~/.omp/agent/extensions/agd.ts`:
-`/capture t Review the deploy checklist due:fri` files the task at once
-through `agd capture`, without a model turn, as in Claude Code. Start a new
-session, or run `/reload` in Pi, to load it.
+### Claude Desktop and other stdio MCP clients
 
-### Review what agents changed
+Add a local stdio server using the configuration shape your client expects:
 
-agd journals every write in `~/.local/share/agd/journal.jsonl` (or under
-`$XDG_DATA_HOME/agd`), with who made it and from which project directory.
-The Agents tab lists the agents' changes, each under its client's name, such
-as `claude-code` or `codex`, and its label counts the unreviewed ones
-(`Agents ● 2`). `a` accepts the marked changes, else the selected one;
-accepting writes nothing. `m`, `*` and `U` mark, `u` undoes a change if the
-bytes it wrote are still there, `SPC` shows its diff and then the task, `<`
-shows one agent's changes at a time, `⏎` edits the task, and `C-e` opens it
-in `$EDITOR`.
+```json
+{
+  "mcpServers": {
+    "agd": {
+      "command": "agd",
+      "args": ["mcp"]
+    }
+  }
+}
+```
 
-To let agents add work without planning your day, send every agent capture
-through one template, with its dates removed:
+GUI applications often do not inherit the shell's `PATH`. If the client reports
+that `agd` is missing, replace `"agd"` with the absolute path printed by
+`command -v agd`, then restart the client. The exact settings file and reload
+operation belong to that client.
+
+### Review agent changes
+
+The journal records each write under
+`$XDG_DATA_HOME/agd/journal.jsonl`, or `~/.local/share/agd/journal.jsonl`, with
+its actor and project directory. The Agents tab can inspect a diff, accept the
+record without changing Org, edit its task, or safely undo it.
+
+To let agents capture work without scheduling your day:
 
 ```toml
 agent_inbox = "t"
 ```
 
-## What agd does to your files
+Agent captures then use template `t` with requested schedules and deadlines
+removed; the tool result reports that behavior.
 
-- It reads and writes only under `roots`. Symlinks that lead outside the
-  roots are skipped and reported, and writes never go through a symlink.
-- A write takes a lock in agd's data directory (`~/.local/share/agd/locks`),
-  never beside your files, re-reads the file, patches only its own bytes,
-  keeps the file's mode and line endings, journals the inverse patch, and
-  renames the result into place. `--dry-run` creates nothing.
-- When it cannot be sure, it refuses and writes nothing: `ref_conflict` (the
-  heading changed since it was read), `id_conflict` (the same `:ID:` occurs
-  twice), `editor_conflict` (Emacs holds unsaved changes to the file), or
-  `invalid_path` (a symlink, or a path outside the roots).
-- Undo applies the inverse patch only where the bytes it wrote are unchanged;
-  anything else is reported as a conflict. `u` in the TUI undoes this
-  session's own changes, `agd undo` your command-line changes, and the Agents
-  tab an agent's.
-- If a write is interrupted and the file changes before the next one, writes
-  to that file stop with `journal_conflict` until `agd setup check --resolve`
-  keeps the file as it is.
-- It makes no network requests. MCP runs over stdio, and import runs your
-  local editor in batch mode.
+## Import reference
 
-`agd setup check` reports parse drift, invalid UTF-8, duplicate IDs and
-interrupted writes with file and line, and exits with status 1 when it finds
-errors. See [SAFETY.md](SAFETY.md) and [COMPATIBILITY.md](COMPATIBILITY.md)
-for details.
+Import is an explicit conversion, not synchronization. After the first run,
+`config.toml` belongs to you; editor settings are read again only when you rerun
+`agd setup import`.
+
+### Discovery and report
+
+A supplied file is read directly. For a directory, discovery considers editor
+entry points first:
+
+- Emacs: `early-init.el`, `init.el`, `config.el`, `.emacs`, `.spacemacs`;
+- Neovim: `init.lua`;
+- literate configuration: `config.org`.
+
+It then considers `.el` files containing `org-`, `.lua` files containing
+`orgmode`, and likely literate Org files containing Emacs Lisp blocks.
+Discovery respects `.gitignore`, skips common package/cache directories, and
+stops at four directory levels, 300 files, 1 MiB per file, or 120 seconds for an
+editor reader. The report names any limit reached.
+
+Every relevant setting receives a mark and source location:
+
+| Mark | Meaning |
+| --- | --- |
+| `✓` | Imported |
+| `~` | Imported with a stated difference, or intentionally unused |
+| `✗` | Omitted with the reason |
+
+Nothing is silently guessed or dropped.
+
+### Emacs setting map
+
+The reader recognizes `setq`, `setq-default`, `setq!`, `setopt`, Customize
+forms, `add-to-list`, `push`, `defvar`, and `defconst` at top level and in common
+`progn`, Doom, use-package, after-load, and Spacemacs configuration contexts.
+Emacs parses files without loading them. Only imported values and referenced
+top-level variables are evaluated; later assignments win.
+
+| Emacs settings | `agd` result |
+| --- | --- |
+| `org-directory`, `org-agenda-files` | roots and `agenda_files` |
+| `org-todo-keywords` | `todo_keywords` sequences |
+| priority, tag-column, inheritance settings | priority range/default, `tags_column`, exclusions |
+| deadline, span, start, skipping, sorting settings | corresponding agenda settings |
+| `org-log-*`, `org-log-into-drawer` | corresponding logging settings |
+| `org-capture-templates` | `[[capture]]` records |
+| `org-agenda-custom-commands` | `[[view]]` records |
+
+### Neovim setting map
+
+The reader finds `require("orgmode").setup()` in direct configuration and
+lazy.nvim `opts` or `config`. Files mentioning orgmode run under `nvim --clean`;
+stand-ins prevent unrelated missing plugins from failing the read.
+
+| nvim-orgmode options | `agd` result |
+| --- | --- |
+| `org_agenda_files`, `org_default_notes_file` | `agenda_files` and default capture target |
+| TODO, priority, tags, deadline, span, start, skipping, sorting options | corresponding `agd` settings |
+| `org_log_done`, `org_log_repeat`, `org_log_into_drawer` | corresponding logging settings |
+| `org_capture_templates` | `[[capture]]`, sorted by key |
+| `org_agenda_custom_commands` | `[[view]]` records |
+
+Options not supplied use nvim-orgmode defaults. Neovim has no stable exported
+agenda rows, so `--verify` is Emacs-only.
+
+### Templates, views, and groups
+
+Emacs entry capture targets may use `file`, `file+headline`, `file+olp`,
+`file+datetree`, `file+olp+datetree`, or `id`; literal bodies and template files
+are supported. Neovim datetree and function targets are not. Non-entry
+templates, computed targets or bodies, functions, lambdas, and `%(sexp)` are
+reported and omitted.
+
+Custom views import supported `agenda`, `todo`, `alltodo`, `tags`, and
+`tags-todo` blocks, literal spans and headers, and property comparisons. A view
+using a lambda, `search`, `stuck`, or a regexp term is omitted with a reason.
+
+Block-local literal org-super-agenda groups import supported TODO, tag,
+category, priority, planning, property, Boolean, effort, discard, order, and
+automatic grouping selectors. Tags remain case-sensitive; property selectors
+read only a heading's own drawer; matching the default priority also includes a
+heading without a priority cookie. Unsupported predicates, time grids, logs,
+habits, global groups, faces, and transformers are reported; the affected block
+remains ungrouped where safe.
+
+Executable Lisp is never imported as behavior. Computed package values, hidden
+hook/function assignments, numeric priorities, Emacs agenda-file indirection,
+plugin-derived Lua values, and missing Neovim `setup()` calls are reported
+rather than inferred.
+
+### Roots, verification, and re-importing
+
+On first import, roots come from `org-directory`; otherwise they are derived
+from agenda-entry directories. `-r DIR` overrides that choice. Files remain
+files, directories become non-recursive `dir/*.org` entries, and globs retain
+their pattern. In an existing config, roots remain unchanged and agenda entries
+outside them are reported.
+
+```bash
+agd setup import ~/.emacs.d --verify
+agd setup import ~/.emacs.d --dry-run
+agd setup import ~/.emacs.d --force
+```
+
+`--verify` compares each imported Emacs view with `org-batch-agenda-csv` before
+grouping. If a config already exists, import shows a diff and stops; `--force`
+applies it. Re-import preserves `agd`-owned settings such as roots, IDs, theme,
+editor, start view, agent inbox, Triage settings, and agent profiles. Existing
+capture templates or views remain when the editor defines none. Rendering does
+not preserve handwritten TOML comments, so review with `--dry-run` or
+`--stdout`.
+
+## Compatibility
+
+Compatibility evidence uses pinned Emacs 30.2 with Org 9.7 and pinned Neovim
+0.12.6 for import fixtures.
+
+| Classification | Supported behavior |
+| --- | --- |
+| **Exact** | Agenda text/CSV, dates and repeaters, inherited tags, warnings, spans, skipping, sorting, tags/TODO/property matches, in-file workflows, state/logging/planning edits, checklists, capture placement, refile, and byte-exact round trips match pinned Emacs fixtures. |
+| **Native** | TUI workflows, saved-view grouping, letter `#+PRIORITIES`, MCP org-ql subset, journal/undo, agent review, and import reporting are implemented and tested by `agd` without claiming identical Emacs presentation. |
+| **Unsupported** | Regex match terms, time grids, clocking/tables, habit graphs, diary sexps, executable Lisp, skip functions, calendar grids, and numeric priorities are not evaluated; source text remains untouched and unsupported configuration is reported. |
+
+The MCP `query` subset supports Boolean forms; TODO/done, tags, priority,
+category, and text predicates; and deadline/scheduled `:to` ranges. Unknown
+forms return `invalid_query`.
+
+Agenda and edit fixtures compare recorded behavior with pinned Emacs; write
+fixtures require identical resulting Org bytes. Import fixtures compare clean
+editor readers with recorded settings. CI reruns the pinned oracles, and weekly
+checks round-trip pinned Org and Worg corpora. This establishes the documented
+subset, not compatibility with every historical Org version.
+
+User-visible limits:
+
+- only letter priorities are supported;
+- agenda output does not draw time grids, calendar grids, clock tables, or habit
+  consistency graphs;
+- nested checklist cookies in body/item text are left to the editor;
+- imported dynamic or executable forms are reported, never run as behavior;
+- reads return bounded result sets; narrow the query or increase an exposed
+  limit when a response reports omitted rows.
+
+## Safety, transactions, and privacy
+
+Org files are user-owned source documents. A successful write changes only the
+intended byte ranges; uncertainty refuses the operation before replacement.
+
+### Roots and identity
+
+- Configured `roots` authorize every read and write. `..` paths are rejected.
+- A symlink may be read only when it resolves inside a root; writes through any
+  symlink are refused.
+- Files must be UTF-8. Invalid files are reported and never rewritten.
+- A unique `:ID:` is stable identity. A heading without one uses a ref containing
+  its path, line hint, and heading digest; the line is only a lookup hint.
+- A changed or missing heading is `ref_conflict`. Any duplicated `:ID:` under
+  roots is `id_conflict`, including duplicates outside agenda files.
+
+### Write protocol
+
+Every CLI, TUI, pane, capture, and MCP write follows one sequence:
+
+1. Load a fresh workspace, resolve identity, validate intent, and build sorted,
+   non-overlapping byte patches.
+2. Reject unauthorized paths, symlink writes, and Emacs `.#file` locks that
+   indicate unsaved changes.
+3. For `--dry-run`, return the exact diff without creating files, directories,
+   locks, or journal records.
+4. Acquire per-file advisory locks in deterministic order and settle pending
+   journal state.
+5. Re-read under lock and resolve refs again.
+6. Append and fsync a pending journal record with hashes and inverse patches.
+7. Write a same-directory temporary file, preserve mode, fsync, rename
+   atomically, and fsync the directory.
+8. Append and fsync the committed record.
+
+Cross-file refile and bulk edit are one transaction. If any replacement fails,
+already replaced files are restored. An interrupted write is reconciled from
+old/new hashes; unrelated current bytes produce `journal_conflict` until the
+file is reviewed and `agd setup check --resolve` accepts its current contents.
+
+Undo applies inverse patches only where written bytes still match or relocate
+uniquely with context. Modified or ambiguous bytes produce `undo_conflict` and
+write nothing. A transaction undoes all files or none. The TUI, CLI, and Agents
+tab select only changes from their own histories.
+
+### Refusal codes
+
+| Code | Condition |
+| --- | --- |
+| `id_conflict` | More than one heading has the target `:ID:` |
+| `invalid_id_change` | A request changes or removes an existing `:ID:` |
+| `ref_conflict` | The ref's heading changed or disappeared |
+| `invalid_path` | A path escapes roots, contains `..`, or is a prohibited symlink |
+| `editor_conflict` | Emacs has unsaved changes for the file |
+| `invalid_utf8` | A source file is not UTF-8 |
+| `invalid_patch` | Patches overlap or exceed the file |
+| `invalid_refile` | A heading would move into its own subtree |
+| `journal_conflict` | Interrupted-write bytes match neither journal hash |
+| `undo_conflict` | Undo bytes changed or became ambiguous |
+
+Each refusal leaves Org files unchanged.
+
+### Privacy and operational limits
+
+`agd` makes no network requests and starts no background service. MCP uses only
+stdin/stdout and logs to stderr. The data directory is mode `0700`; the journal
+is mode `0600`. Explicit editor/import subprocesses run as argument arrays,
+never through a shell.
+
+Advisory locks cannot make an unrelated writer that ignores both agd and Emacs
+locks transactional. Atomic replacement assumes ordinary same-directory rename
+and fsync semantics; weaker network filesystems are outside the tested
+boundary. The journal provides undo and interrupted-write recovery, not backup,
+encryption, synchronization, or version history.
 
 ## Troubleshooting
 
-**``start_view` is a top-level setting; move it above the first [[capture]] ...``**
-or **``unknown field `tui` ``**: every setting is a top-level key, and TOML
-gives keys written after a `[[capture]]` or `[[view]]` line to that record.
-Move them above the first `[[...]]` line; the error lists the valid keys.
+### A client says `agd` is not found
 
-**`no config at ... and no ~/org to read`**: create `~/org`, import your
-editor's settings, or run `agd -r DIR` to read another directory once.
+Run `command -v agd` in a terminal. If it succeeds but a GUI client cannot start
+the MCP server, use that absolute path in the client's command field and
+restart it. This is an executable/PATH failure, not an MCP protocol failure.
 
-**`capture heading not found on level 1: Projects`**: an `olpath` template
-needs its headings in the file. Add them, or use `heading`, which agd creates.
+### The MCP server exists but is disconnected
 
-**`unsupported date '...'`**: the error lists every form agd reads, such as
-`fri`, `+2d`, `oct 30`, `2026-10-30 14:00` and `fri +1w -3d`.
+Run `agd mcp` in a terminal: it should remain waiting for stdio input rather
+than exit with a configuration error. Then inspect the client entry for command
+`agd`, argument `mcp`, and valid local roots. For installed integrations, use
+`codex mcp get agd`, `claude mcp list`, or the provider's MCP listing.
 
-**Priorities**: agd uses letters (`highest_priority = "A"`,
-`lowest_priority = "C"`); numeric priorities are not supported, and
-`agd setup check` reports a `#+PRIORITIES` line it cannot use.
+### Local and cloud sessions differ
 
-**No colors, or the wrong ones**: a non-empty `NO_COLOR` turns color off,
-and state shows with bold, dim, reverse and strikethrough. `theme = "auto"`
-asks the terminal for its background; `theme = "dark"` or `"light"` sets it.
-Without truecolor (`COLORTERM=truecolor`) agd uses 16 colors. Boxes around
-priority chips mean `nerd_font = true` without a Nerd Font in the terminal;
-the default is `false`.
+Local stdio works only on the machine—or provider host—that can execute `agd`
+and reach the configured Org files. Local configuration does not make ChatGPT
+web, Claude cloud sessions, or a remote provider able to access those files.
+Install and configure `agd` on the actual provider host, or use a local session.
+
+### Top-level TOML settings appear unknown
+
+An error such as ``unknown field `tui` `` or a direction to move `start_view`
+usually means the key appears after `[[capture]]` or `[[view]]`. Move all
+ordinary settings above the first array record.
+
+### No configuration or Org root exists
+
+For `no config at ... and no ~/org to read`, create `~/org`, import editor
+settings, or pass `agd -r DIR`.
+
+### A capture outline path is missing
+
+`capture heading not found on level 1: Projects` means an `olpath` target does
+not exist. Create the path first or use `heading`, which `agd` can create.
+
+### A date or priority is rejected
+
+`unsupported date '...'` lists accepted forms; common values are `fri`, `+2d`,
+`oct 30`, `2026-10-30 14:00`, and `fri +1w -3d`. Priorities must be letters;
+configure `highest_priority = "A"` and `lowest_priority = "C"` as needed.
+
+### Colors are absent or incorrect
+
+A non-empty `NO_COLOR` disables color while retaining bold, dim, reverse, and
+strikethrough meaning. `theme = "auto"` queries the terminal background;
+`"dark"` and `"light"` select explicitly. Without `COLORTERM=truecolor`, `agd`
+uses its 16-color palette. Leave `nerd_font = false` unless the terminal font
+contains the required glyphs.
