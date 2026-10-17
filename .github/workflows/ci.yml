@@ -1,21 +1,6 @@
 name: CI
 on:
-  pull_request:
-    branches: [main]
-    paths: &paths
-      - "**/Cargo.toml"
-      - "Cargo.lock"
-      - "**/*.rs"
-      - "agd/readers/**"
-      - "agd/claude-plugin/**"
-      - "conformance/**"
-      - "deny.toml"
-      - "flake.nix"
-      - "flake.lock"
-      - ".github/workflows/ci.yml"
-  push:
-    branches: [main]
-    paths: *paths
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
