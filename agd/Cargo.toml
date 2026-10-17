@@ -5,6 +5,7 @@ clap = { workspace = true, features = ["derive"] }
 clap_complete.workspace = true
 crossterm.workspace = true
 csv.workspace = true
+dirs.workspace = true
 notify.workspace = true
 agd-core = { version = "0.2.0", path = "../agd-core" }
 rmcp.workspace = true

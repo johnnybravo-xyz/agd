@@ -383,20 +383,38 @@ Then ask in plain words: "what is due this week?", "add a task to fix the flaky
 login test, scheduled tomorrow, tagged work", or "mark the release-notes task
 done". Your agenda reaches the model only when it calls a tool.
 
-### Codex and OpenCode
+### Codex, OpenCode, Pi and oh-my-pi
 
-Run this in the project where you use the agent:
+Install agd once for every harness:
 
 ```bash
-agd setup install --directory . codex --dry-run   # show the diff first
-agd setup install --directory . codex             # .codex/config.toml and .agents/skills/agenda/SKILL.md
-agd setup install --directory . opencode          # opencode.json and the same skill
+agd setup install --dry-run codex pi   # show the diff first
+agd setup install codex opencode pi omp
 ```
 
-The command adds an `agd` server entry to the file and keeps everything else
-in it, comments included. If the file already has a different `agd` entry, or
-another skill named `agenda` exists, it stops before writing anything. Codex
-reads a project's `.codex/config.toml` once you trust the project.
+The `agenda` skill goes to `~/.agents/skills/agenda/SKILL.md`, the Agent
+Skills location that Codex, OpenCode, Pi, oh-my-pi and Gemini CLI all read
+in every project. Each harness you name also gets agd's MCP server in its
+user config:
+
+| Harness  | MCP config                                                       |
+| -------- | ---------------------------------------------------------------- |
+| codex    | `~/.codex/config.toml` (`$CODEX_HOME`)                           |
+| opencode | `~/.config/opencode/opencode.json` (`$XDG_CONFIG_HOME/opencode`) |
+| pi       | `~/.pi/agent/mcp.json` (Pi 1.0 or later; `$PI_CODING_AGENT_DIR`) |
+| omp      | `~/.omp/agent/mcp.json`                                          |
+
+The command adds an `agd` server entry to each file and keeps everything else
+in it, comments included. If a file already has a different `agd` entry, or
+another skill named `agenda` exists, it stops before writing anything. Any
+other harness that reads `~/.agents/skills` and takes a stdio MCP server
+works the same way: point it at `agd mcp`.
+
+Pi and oh-my-pi also get `/capture` from agd's extension, in
+`~/.pi/agent/extensions/agd.ts` or `~/.omp/agent/extensions/agd.ts`:
+`/capture t Review the deploy checklist due:fri` files the task at once
+through `agd capture`, without a model turn, as in Claude Code. Start a new
+session, or run `/reload` in Pi, to load it.
 
 ### Review what agents changed
 

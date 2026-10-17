@@ -6,6 +6,22 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Pi and oh-my-pi get `/capture`, as Claude Code has: `agd setup install
+  pi` (or `omp`) adds an extension that files the task through
+  `agd capture` without a model turn.
+- `agd capture --json` carries `summary`, the line a terminal shows.
+
+### Changed
+
+- `agd setup install` installs agd once, user-wide, for every harness: the
+  `agenda` skill goes to `~/.agents/skills`, which Codex, OpenCode, Pi,
+  oh-my-pi and Gemini CLI all read, and `codex`, `opencode`, `pi` and `omp`
+  each add the MCP server to that harness's user config. `--directory` and
+  the per-project files are gone; delete a project's
+  `.agents/skills/agenda` and agd entry if you no longer want them there.
+
 ## [0.2.0] - 2026-10-16
 
 ### Added

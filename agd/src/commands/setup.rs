@@ -14,7 +14,7 @@ pub struct SetupCommand {
 enum SetupAction {
     /// Import your Emacs or Neovim org settings into config.toml
     Import(ImportCommand),
-    /// Add the agd MCP server and skill to Codex or OpenCode (Claude Code: the plugin)
+    /// Add the agd skill for every agent harness, and its MCP server to Codex, OpenCode, Pi or oh-my-pi (Claude Code: the plugin)
     Install(InstallCommand),
     /// Check org files for parse drift, invalid UTF-8, duplicate IDs and interrupted writes
     Check(CheckCommand),

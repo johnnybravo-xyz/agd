@@ -527,7 +527,8 @@ fn capture_takes_a_key_and_unquoted_words_or_the_text_alone() {
     ] {
         assert!(written.contains(heading), "{heading}: {written}");
     }
-    // --json adds where the item is as people read it, under its root.
+    // --json adds where the item is as people read it, under its root, and
+    // the line a terminal shows.
     let output = fixture
         .command()
         .args(["capture", "t", "Call the bank", "--json"])
@@ -538,6 +539,10 @@ fn capture_takes_a_key_and_unquoted_words_or_the_text_alone() {
     assert_eq!(mutation["schema"], "agd.mutation/v1");
     let line = mutation["item"]["line"].as_u64().unwrap();
     assert_eq!(mutation["location"], format!("tasks.org:{line}"));
+    assert_eq!(
+        mutation["summary"],
+        format!("tasks.org:{line}  captured · Call the bank")
+    );
 }
 
 #[cfg(unix)]

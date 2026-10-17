@@ -135,7 +135,7 @@ resource. No HTTP and no telemetry.
 ```sh
 claude plugin marketplace add johnnybravo-xyz/agd   # Claude Code: the plugin
 claude plugin install agd@johnnybravo-xyz
-agd setup install --directory . codex               # or opencode
+agd setup install codex opencode pi omp              # every other harness
 ```
 
 - Every agent write is journaled with the client and project, and waits on

@@ -1,47 +1,113 @@
-//! `agd setup install codex|opencode`: adds the agd MCP server entry and the
-//! `agenda` skill to a project. Each person-owned config file is edited, not
-//! rewritten: Codex's TOML through toml_edit (comments and order survive),
-//! OpenCode's JSON with its keys in their order. An existing agd entry that
-//! differs, or a file agd cannot edit safely, is refused before anything is
-//! written.
+//! `agd setup install [codex] [opencode] [pi] [omp]`: installs agd for coding
+//! agents, user-wide. The `agenda` skill goes to `~/.agents/skills`, the
+//! Agent Skills location that Codex, OpenCode, Pi, oh-my-pi and Gemini CLI
+//! all read; each named harness also gets agd's MCP server in its user
+//! config. Pi and oh-my-pi also get `/capture` from agd's Pi extension.
+//! Each person-owned config file is edited, not rewritten: Codex's
+//! TOML through toml_edit (comments and order survive), the JSON configs with
+//! their keys in their order. An existing agd entry that differs, or a file
+//! agd cannot edit safely, is refused before anything is written.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
-use clap::{Args, Subcommand};
+use clap::{Args, ValueEnum};
 use serde_json::{Map, Value, json};
 use similar::TextDiff;
 use toml_edit::{Array, DocumentMut, Item, Table, value};
 
+use crate::words;
+
 /// The one copy of the skill, shared with the Claude Code plugin.
 const SKILL: &str = include_str!("../../claude-plugin/skills/agenda/SKILL.md");
 
-/// Where Codex and OpenCode both read the skill.
-const SKILL_PATH: &str = ".agents/skills/agenda/SKILL.md";
-
-#[derive(Args, Debug)]
-pub struct InstallCommand {
-    /// Project directory that receives the integration files; it must
-    /// already exist. Given before or after the target.
-    #[arg(long, default_value = ".", global = true)]
-    directory: PathBuf,
-    /// Print what would change as a diff and write nothing.
-    #[arg(long, global = true)]
-    dry_run: bool,
-    #[command(subcommand)]
-    target: InstallTarget,
-}
+/// Pi's and oh-my-pi's `/capture`, which runs `agd capture` without a
+/// model turn.
+const PI_EXTENSION: &str = include_str!("../../pi/agd.ts");
 
 /// Claude Code gets agd from its plugin (`claude plugin install
-/// agd@johnnybravo-xyz`), so there is no Claude target here.
-#[derive(Subcommand, Debug)]
-enum InstallTarget {
-    /// Install the Codex MCP server and skill.
+/// agd@johnnybravo-xyz`), so it is not a harness here.
+#[derive(Args, Debug)]
+pub struct InstallCommand {
+    /// Print what would change as a diff and write nothing.
+    #[arg(long)]
+    dry_run: bool,
+    /// Harnesses that also get agd's MCP server in their user config. The
+    /// skill alone goes to ~/.agents/skills for every harness.
+    #[arg(value_enum)]
+    harnesses: Vec<Harness>,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Harness {
+    /// Codex: ~/.codex/config.toml, or $CODEX_HOME/config.toml
     Codex,
-    /// Install the OpenCode MCP server and skill.
+    /// OpenCode: ~/.config/opencode/opencode.json, or under $XDG_CONFIG_HOME
     Opencode,
+    /// Pi: ~/.pi/agent/mcp.json and the /capture extension, or under $PI_CODING_AGENT_DIR
+    Pi,
+    /// oh-my-pi: ~/.omp/agent/mcp.json and the /capture extension
+    Omp,
+}
+
+/// Where the user-wide files live, read from the environment once so tests
+/// can pass their own.
+#[derive(Debug)]
+struct Places {
+    skill: PathBuf,
+    codex: PathBuf,
+    /// OpenCode's config directory; its file is opencode.json, or
+    /// opencode.jsonc, which agd refuses to rewrite.
+    opencode: PathBuf,
+    pi: PathBuf,
+    pi_extension: PathBuf,
+    omp: PathBuf,
+    omp_extension: PathBuf,
+}
+
+impl Places {
+    fn new(
+        home: &Path,
+        codex_home: Option<PathBuf>,
+        xdg_config_home: Option<PathBuf>,
+        pi_agent_dir: Option<PathBuf>,
+    ) -> Self {
+        let pi = pi_agent_dir.unwrap_or_else(|| home.join(".pi/agent"));
+        Self {
+            skill: home.join(".agents/skills/agenda/SKILL.md"),
+            codex: codex_home
+                .unwrap_or_else(|| home.join(".codex"))
+                .join("config.toml"),
+            opencode: xdg_config_home
+                .unwrap_or_else(|| home.join(".config"))
+                .join("opencode"),
+            pi: pi.join("mcp.json"),
+            pi_extension: pi.join("extensions/agd.ts"),
+            omp: home.join(".omp/agent/mcp.json"),
+            omp_extension: home.join(".omp/agent/extensions/agd.ts"),
+        }
+    }
+
+    fn from_env() -> Result<Self> {
+        let home =
+            dirs::home_dir().ok_or_else(|| anyhow!("cannot determine the home directory"))?;
+        Ok(Self::new(
+            &home,
+            absolute_variable("CODEX_HOME"),
+            absolute_variable("XDG_CONFIG_HOME"),
+            absolute_variable("PI_CODING_AGENT_DIR"),
+        ))
+    }
+}
+
+/// An environment variable naming a directory, ignored when it is relative,
+/// as the XDG Base Directory spec says.
+fn absolute_variable(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name)
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
 }
 
 /// One file the install writes: what it holds now (empty when missing) and
@@ -55,93 +121,57 @@ struct FileChange {
 
 impl InstallCommand {
     pub fn execute(self) -> Result<()> {
-        let directory = existing_directory(&self.directory)?;
-        let name = match self.target {
-            InstallTarget::Codex => "Codex",
-            InstallTarget::Opencode => "OpenCode",
-        };
-        let changes = changes(&directory, &self.target)?;
-        if self.dry_run {
-            for change in &changes {
-                print!("{}", diff(change));
-            }
-            if changes.is_empty() {
-                println!(
-                    "{name} integration in {} is up to date",
-                    directory.display()
-                );
-            }
-        } else if changes.is_empty() {
-            println!(
-                "{name} integration already installed in {}",
-                directory.display()
-            );
-        } else {
-            for change in &changes {
-                atomic_write(&change.path, change.after.as_bytes())?;
-            }
-            println!("installed {name} integration in {}", directory.display());
-        }
-        if let InstallTarget::Codex = self.target {
-            println!(
-                "note: Codex reads a project's .codex/config.toml only when it trusts the project; trust {} in Codex to load agd",
-                directory.display()
-            );
+        let places = Places::from_env()?;
+        for line in install(&places, &self.harnesses, self.dry_run)? {
+            println!("{line}");
         }
         Ok(())
     }
 }
 
-/// The project directory as an absolute path; a missing one is an error
-/// rather than created, so a typo does not install into a new directory.
-fn existing_directory(directory: &Path) -> Result<PathBuf> {
-    let path = if directory.is_absolute() {
-        directory.to_path_buf()
-    } else {
-        std::env::current_dir()?.join(directory)
-    };
-    if !path.is_dir() {
-        bail!(
-            "integration directory {} does not exist; create it, or pass --directory with an existing project",
-            path.display()
+/// Writes the skill and each harness's entry, unless `dry_run`, and returns
+/// what to print. Every change is computed before the first write, so a
+/// refusal leaves every file as it was.
+fn install(places: &Places, harnesses: &[Harness], dry_run: bool) -> Result<Vec<String>> {
+    let mut harnesses = harnesses.to_vec();
+    harnesses.sort();
+    harnesses.dedup();
+    let mut changes = vec![skill_change(&places.skill)?];
+    for harness in &harnesses {
+        changes.push(server_change(places, *harness)?);
+        let extension = match harness {
+            Harness::Pi => Some(&places.pi_extension),
+            Harness::Omp => Some(&places.omp_extension),
+            Harness::Codex | Harness::Opencode => None,
+        };
+        if let Some(path) = extension {
+            changes.push(owned_file_change(
+                path,
+                PI_EXTENSION,
+                "agd's Pi extension",
+                "another extension named agd.ts",
+            )?);
+        }
+    }
+    let mut lines = Vec::new();
+    for change in &changes {
+        let shown = words::home_path(&change.path.display().to_string());
+        if change.before == change.after {
+            lines.push(format!("{shown} is up to date"));
+        } else if dry_run {
+            lines.push(diff(change).trim_end().to_string());
+        } else {
+            atomic_write(&change.path, change.after.as_bytes())?;
+            lines.push(format!("wrote {shown}"));
+        }
+    }
+    if harnesses.is_empty() {
+        lines.push(
+            "the skill needs agd's MCP server: add it to a harness with `agd setup install codex` (or opencode, pi, omp)"
+                .to_string(),
         );
     }
-    path.canonicalize()
-        .with_context(|| format!("cannot resolve integration directory {}", path.display()))
-}
-
-/// The skill and the target's config file with agd's entry, each only when
-/// it changes.
-fn changes(directory: &Path, target: &InstallTarget) -> Result<Vec<FileChange>> {
-    let path = match target {
-        InstallTarget::Codex => directory.join(".codex/config.toml"),
-        InstallTarget::Opencode => {
-            let jsonc = directory.join("opencode.jsonc");
-            if jsonc.exists() {
-                bail!(
-                    "{} exists, and agd does not rewrite JSONC (its comments would be lost); add this to its \"mcp\" object by hand:\n\"agd\": {}",
-                    jsonc.display(),
-                    opencode_entry()
-                );
-            }
-            directory.join("opencode.json")
-        }
-    };
-    let skill = skill_change(directory)?;
-    let before = read_text(&path)?;
-    let after = match target {
-        InstallTarget::Codex => add_codex_server(&before, &path)?,
-        InstallTarget::Opencode => add_opencode_server(&before, &path)?,
-    };
-    let config = FileChange {
-        path,
-        before,
-        after,
-    };
-    Ok([skill, config]
-        .into_iter()
-        .filter(|change| change.before != change.after)
-        .collect())
+    Ok(lines)
 }
 
 /// A file's text, empty when it does not exist. Any other read failure,
@@ -154,6 +184,68 @@ fn read_text(path: &Path) -> Result<String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
         Err(error) => Err(error).with_context(|| format!("cannot read {}", path.display())),
     }
+}
+
+/// `agenda` is a common name, so a skill already there is replaced only when
+/// it is agd's own (any version says it works through "the agd MCP server").
+fn skill_change(path: &Path) -> Result<FileChange> {
+    owned_file_change(
+        path,
+        SKILL,
+        "the agd MCP server",
+        "another skill named agenda",
+    )
+}
+
+/// A file agd owns whole, such as the skill: one already there is replaced
+/// only when it contains `marker`, so it is agd's own; anyone else's is
+/// refused, before anything is written.
+fn owned_file_change(path: &Path, content: &str, marker: &str, other: &str) -> Result<FileChange> {
+    let before = read_text(path)?;
+    if !before.is_empty() && !before.contains(marker) {
+        bail!(
+            "{} is {other}; move it aside, then install again",
+            path.display()
+        );
+    }
+    Ok(FileChange {
+        path: path.to_path_buf(),
+        before,
+        after: content.to_string(),
+    })
+}
+
+/// The harness's user config with agd's server entry.
+fn server_change(places: &Places, harness: Harness) -> Result<FileChange> {
+    let path = match harness {
+        Harness::Codex => places.codex.clone(),
+        Harness::Opencode => {
+            let jsonc = places.opencode.join("opencode.jsonc");
+            if jsonc.exists() {
+                bail!(
+                    "{} exists, and agd does not rewrite JSONC (its comments would be lost); add this to its \"mcp\" object by hand:\n\"agd\": {}",
+                    jsonc.display(),
+                    opencode_entry()
+                );
+            }
+            places.opencode.join("opencode.json")
+        }
+        Harness::Pi => places.pi.clone(),
+        Harness::Omp => places.omp.clone(),
+    };
+    let before = read_text(&path)?;
+    let after = match harness {
+        Harness::Codex => add_codex_server(&before, &path)?,
+        Harness::Opencode => add_json_server(&before, &path, "mcp", opencode_entry())?,
+        Harness::Pi | Harness::Omp => {
+            add_json_server(&before, &path, "mcpServers", mcp_servers_entry())?
+        }
+    };
+    Ok(FileChange {
+        path,
+        before,
+        after,
+    })
 }
 
 /// The entry `add_codex_server` writes, as the file then shows it.
@@ -231,13 +323,20 @@ fn add_codex_server(source: &str, path: &Path) -> Result<String> {
     Ok(document.to_string())
 }
 
+/// OpenCode's shape for a local server.
 fn opencode_entry() -> Value {
     json!({"type": "local", "command": ["agd", "mcp"], "enabled": true})
 }
 
-/// `source` with `mcp.agd` added and its keys kept in order; the same text
-/// when agd's entry is already there; an error when an `agd` entry differs.
-fn add_opencode_server(source: &str, path: &Path) -> Result<String> {
+/// The `mcpServers` shape that Pi, oh-my-pi and most MCP clients share.
+fn mcp_servers_entry() -> Value {
+    json!({"command": "agd", "args": ["mcp"]})
+}
+
+/// `source` with `<servers>.agd` added and its keys kept in order; the same
+/// text when agd's entry is already there; an error when an `agd` entry
+/// differs.
+fn add_json_server(source: &str, path: &Path, servers: &str, wanted: Value) -> Result<String> {
     let mut root: Map<String, Value> = if source.trim().is_empty() {
         Map::new()
     } else {
@@ -247,8 +346,7 @@ fn add_opencode_server(source: &str, path: &Path) -> Result<String> {
             .cloned()
             .ok_or_else(|| anyhow!("{} must contain a JSON object", path.display()))?
     };
-    let wanted = opencode_entry();
-    match root.get("mcp").and_then(|servers| servers.get("agd")) {
+    match root.get(servers).and_then(|servers| servers.get("agd")) {
         Some(existing) if *existing == wanted => return Ok(source.to_string()),
         Some(existing) => bail!(
             "{} already has a different agd server; fix or remove it by hand, then install again.\nit has:\n\"agd\": {existing}\nagd would add:\n\"agd\": {wanted}",
@@ -256,31 +354,12 @@ fn add_opencode_server(source: &str, path: &Path) -> Result<String> {
         ),
         None => {}
     }
-    root.entry("mcp".to_string())
+    root.entry(servers.to_string())
         .or_insert_with(|| Value::Object(Map::new()))
         .as_object_mut()
-        .ok_or_else(|| anyhow!("{}: mcp must be a JSON object", path.display()))?
+        .ok_or_else(|| anyhow!("{}: {servers} must be a JSON object", path.display()))?
         .insert("agd".to_string(), wanted);
     Ok(format!("{}\n", serde_json::to_string_pretty(&root)?))
-}
-
-/// `agenda` is a common name, so a skill already there is replaced only when
-/// it is agd's own (any version says it works through "the agd MCP server");
-/// anyone else's is refused, before anything is written.
-fn skill_change(directory: &Path) -> Result<FileChange> {
-    let path = directory.join(SKILL_PATH);
-    let before = read_text(&path)?;
-    if !before.is_empty() && !before.contains("the agd MCP server") {
-        bail!(
-            "{} is another skill named agenda; move it aside, then install again",
-            path.display()
-        );
-    }
-    Ok(FileChange {
-        path,
-        before,
-        after: SKILL.to_string(),
-    })
 }
 
 /// A unified diff of one change, `/dev/null` standing for a new file.
@@ -338,17 +417,6 @@ mod tests {
 
     use super::*;
 
-    /// Runs `agd setup install` as the command line would, minus printing.
-    fn install(directory: &Path, target: &str) -> Result<()> {
-        let command = parse(&[
-            "install",
-            target,
-            "--directory",
-            directory.to_str().unwrap(),
-        ]);
-        command.execute()
-    }
-
     fn parse(arguments: &[&str]) -> InstallCommand {
         #[derive(Parser)]
         struct Cli {
@@ -361,102 +429,157 @@ mod tests {
         InstallCommand::from_arg_matches(&matches).unwrap()
     }
 
-    #[test]
-    fn directory_and_dry_run_go_before_or_after_the_target() {
-        let after = parse(&["install", "codex", "--directory", "proj", "--dry-run"]);
-        assert_eq!(after.directory, PathBuf::from("proj"));
-        assert!(after.dry_run);
-        assert!(matches!(after.target, InstallTarget::Codex));
-        let before = parse(&["install", "--directory", "proj", "opencode"]);
-        assert_eq!(before.directory, PathBuf::from("proj"));
-        assert!(!before.dry_run);
+    fn places(home: &Path) -> Places {
+        Places::new(home, None, None, None)
     }
 
     #[test]
-    fn a_missing_directory_is_refused_not_created() {
-        let directory = tempfile::tempdir().unwrap();
-        let missing = directory.path().join("proj");
-        let error = install(&missing, "codex").unwrap_err().to_string();
-        assert!(error.contains("does not exist"), "{error}");
-        assert!(!missing.exists());
+    fn harnesses_are_optional_and_dry_run_goes_anywhere() {
+        let none = parse(&["install"]);
+        assert!(none.harnesses.is_empty());
+        assert!(!none.dry_run);
+        let some = parse(&["install", "codex", "--dry-run", "pi"]);
+        assert_eq!(some.harnesses, [Harness::Codex, Harness::Pi]);
+        assert!(some.dry_run);
     }
 
     #[test]
-    fn installs_the_skill_and_replaces_only_agds_own() {
-        let directory = tempfile::tempdir().unwrap();
-        install(directory.path(), "codex").unwrap();
-        let skill = directory.path().join(SKILL_PATH);
-        assert_eq!(fs::read_to_string(&skill).unwrap(), SKILL);
+    fn places_follow_each_harness_directory_variable() {
+        let home = Path::new("/home/a");
+        let default = places(home);
+        assert_eq!(
+            default.skill,
+            Path::new("/home/a/.agents/skills/agenda/SKILL.md")
+        );
+        assert_eq!(default.codex, Path::new("/home/a/.codex/config.toml"));
+        assert_eq!(default.opencode, Path::new("/home/a/.config/opencode"));
+        assert_eq!(default.pi, Path::new("/home/a/.pi/agent/mcp.json"));
+        assert_eq!(
+            default.pi_extension,
+            Path::new("/home/a/.pi/agent/extensions/agd.ts")
+        );
+        assert_eq!(default.omp, Path::new("/home/a/.omp/agent/mcp.json"));
+        assert_eq!(
+            default.omp_extension,
+            Path::new("/home/a/.omp/agent/extensions/agd.ts")
+        );
 
-        // An older agd skill is replaced.
+        let moved = Places::new(
+            home,
+            Some(PathBuf::from("/srv/codex")),
+            Some(PathBuf::from("/srv/config")),
+            Some(PathBuf::from("/srv/pi")),
+        );
+        assert_eq!(moved.codex, Path::new("/srv/codex/config.toml"));
+        assert_eq!(moved.opencode, Path::new("/srv/config/opencode"));
+        assert_eq!(moved.pi, Path::new("/srv/pi/mcp.json"));
+        assert_eq!(moved.pi_extension, Path::new("/srv/pi/extensions/agd.ts"));
+    }
+
+    #[test]
+    fn the_skill_alone_serves_every_harness_and_says_what_is_missing() {
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        let lines = install(&places, &[], false).unwrap();
+        assert_eq!(fs::read_to_string(&places.skill).unwrap(), SKILL);
+        assert!(lines[0].starts_with("wrote "), "{lines:?}");
+        assert!(lines[1].contains("agd setup install codex"), "{lines:?}");
+        assert!(!places.codex.exists());
+
+        let again = install(&places, &[], false).unwrap();
+        assert!(again[0].ends_with("SKILL.md is up to date"), "{again:?}");
+    }
+
+    #[test]
+    fn replaces_only_agds_own_skill() {
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(places.skill.parent().unwrap()).unwrap();
         fs::write(
-            &skill,
+            &places.skill,
             "---\nname: agenda\ndescription: through the agd MCP server.\n---\n",
         )
         .unwrap();
-        install(directory.path(), "opencode").unwrap();
-        assert_eq!(fs::read_to_string(&skill).unwrap(), SKILL);
+        install(&places, &[Harness::Codex], false).unwrap();
+        assert_eq!(fs::read_to_string(&places.skill).unwrap(), SKILL);
     }
 
     #[test]
     fn refuses_someone_elses_agenda_skill_before_writing_anything() {
-        let directory = tempfile::tempdir().unwrap();
-        let skill = directory.path().join(SKILL_PATH);
-        fs::create_dir_all(skill.parent().unwrap()).unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(places.skill.parent().unwrap()).unwrap();
         let theirs = "---\nname: agenda\ndescription: My meeting agendas.\n---\n";
-        fs::write(&skill, theirs).unwrap();
+        fs::write(&places.skill, theirs).unwrap();
 
-        let error = install(directory.path(), "codex").unwrap_err().to_string();
+        let error = install(&places, &[Harness::Codex, Harness::Pi], false)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("is another skill named agenda"), "{error}");
-        assert_eq!(fs::read_to_string(&skill).unwrap(), theirs);
-        assert!(!directory.path().join(".codex/config.toml").exists());
+        assert_eq!(fs::read_to_string(&places.skill).unwrap(), theirs);
+        assert!(!places.codex.exists());
+        assert!(!places.pi.exists());
+    }
 
-        assert!(install(directory.path(), "opencode").is_err());
-        assert!(!directory.path().join("opencode.json").exists());
+    #[test]
+    fn a_refused_harness_leaves_the_skill_and_the_others_unwritten() {
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(places.omp.parent().unwrap()).unwrap();
+        fs::write(&places.omp, "not json").unwrap();
+
+        let error = install(&places, &[Harness::Codex, Harness::Omp], false)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("cannot parse"), "{error}");
+        assert!(!places.skill.exists());
+        assert!(!places.codex.exists());
     }
 
     #[test]
     fn codex_config_keeps_comments_and_order_and_gains_only_agd() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join(".codex/config.toml");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(places.codex.parent().unwrap()).unwrap();
         let theirs = "# my Codex settings\nmodel = \"o3\"  # the good one\n\n[mcp_servers.other]\ncommand = \"other\"\n";
-        fs::write(&path, theirs).unwrap();
+        fs::write(&places.codex, theirs).unwrap();
 
-        install(directory.path(), "codex").unwrap();
-        let installed = fs::read_to_string(&path).unwrap();
-        assert_eq!(
-            installed,
-            format!("{theirs}\n[mcp_servers.agd]\ncommand = \"agd\"\nargs = [\"mcp\"]\n")
-        );
+        install(&places, &[Harness::Codex], false).unwrap();
+        let installed = fs::read_to_string(&places.codex).unwrap();
+        assert_eq!(installed, format!("{theirs}\n{CODEX_ENTRY}"));
 
         // Again: nothing changes.
-        install(directory.path(), "codex").unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), installed);
+        let lines = install(&places, &[Harness::Codex], false).unwrap();
+        assert!(lines[1].ends_with("config.toml is up to date"), "{lines:?}");
+        assert_eq!(fs::read_to_string(&places.codex).unwrap(), installed);
     }
 
     #[test]
-    fn codex_config_that_is_not_utf8_is_left_alone() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join(".codex/config.toml");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fn a_config_that_is_not_utf8_is_left_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(places.codex.parent().unwrap()).unwrap();
         let theirs = b"model = \"o3\"\n# caf\xe9\n".to_vec();
-        fs::write(&path, &theirs).unwrap();
+        fs::write(&places.codex, &theirs).unwrap();
 
-        let error = install(directory.path(), "codex").unwrap_err().to_string();
+        let error = install(&places, &[Harness::Codex], false)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("is not UTF-8"), "{error}");
-        assert_eq!(fs::read(&path).unwrap(), theirs);
-        assert!(!directory.path().join(SKILL_PATH).exists());
+        assert_eq!(fs::read(&places.codex).unwrap(), theirs);
+        assert!(!places.skill.exists());
     }
 
     #[test]
     fn a_different_agd_entry_is_refused_with_both_entries() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join(".codex/config.toml");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(places.codex.parent().unwrap()).unwrap();
         let theirs = "[mcp_servers.agd]\ncommand = \"/opt/agd\"\nargs = [\"mcp\"]\n";
-        fs::write(&path, theirs).unwrap();
-        let error = install(directory.path(), "codex").unwrap_err().to_string();
+        fs::write(&places.codex, theirs).unwrap();
+        let error = install(&places, &[Harness::Codex], false)
+            .unwrap_err()
+            .to_string();
         assert!(
             error.contains("it has:\n[mcp_servers.agd]\ncommand = \"/opt/agd\""),
             "{error}"
@@ -465,50 +588,55 @@ mod tests {
             error.contains("agd would add:\n[mcp_servers.agd]\ncommand = \"agd\""),
             "{error}"
         );
-        assert_eq!(fs::read_to_string(&path).unwrap(), theirs);
+        assert_eq!(fs::read_to_string(&places.codex).unwrap(), theirs);
 
-        let path = directory.path().join("opencode.json");
-        let theirs = "{\"mcp\": {\"agd\": {\"type\": \"local\", \"command\": [\"agd\"]}}}\n";
-        fs::write(&path, theirs).unwrap();
-        let error = install(directory.path(), "opencode")
+        fs::create_dir_all(places.pi.parent().unwrap()).unwrap();
+        let theirs = "{\"mcpServers\": {\"agd\": {\"command\": \"agd\"}}}\n";
+        fs::write(&places.pi, theirs).unwrap();
+        let error = install(&places, &[Harness::Pi], false)
             .unwrap_err()
             .to_string();
         assert!(
-            error.contains("it has:\n\"agd\": {\"type\":\"local\""),
+            error.contains("it has:\n\"agd\": {\"command\":\"agd\"}\nagd would add:\n\"agd\": {\"command\":\"agd\",\"args\":[\"mcp\"]}"),
             "{error}"
         );
-        assert_eq!(fs::read_to_string(&path).unwrap(), theirs);
+        assert_eq!(fs::read_to_string(&places.pi).unwrap(), theirs);
     }
 
     #[test]
     fn opencode_config_keeps_its_key_order_and_installs_once() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("opencode.json");
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(&places.opencode).unwrap();
+        let path = places.opencode.join("opencode.json");
         fs::write(
             &path,
             "{\"theme\": \"tokyonight\", \"$schema\": \"https://opencode.ai/config.json\", \"mcp\": {\"zeta\": {\"type\": \"local\"}}}",
         )
         .unwrap();
-        install(directory.path(), "opencode").unwrap();
+        install(&places, &[Harness::Opencode], false).unwrap();
         let installed = fs::read_to_string(&path).unwrap();
-        let keys: Vec<&str> = ["\"theme\"", "\"$schema\"", "\"mcp\"", "\"zeta\"", "\"agd\""]
-            .into_iter()
-            .collect();
-        let positions: Vec<usize> = keys
+        let positions: Vec<usize> = ["\"theme\"", "\"$schema\"", "\"mcp\"", "\"zeta\"", "\"agd\""]
             .iter()
             .map(|key| installed.find(key).unwrap())
             .collect();
         assert!(positions.is_sorted(), "{installed}");
+        assert!(
+            installed.contains("\"command\": [\n        \"agd\",\n        \"mcp\"\n      ]"),
+            "{installed}"
+        );
 
-        install(directory.path(), "opencode").unwrap();
+        install(&places, &[Harness::Opencode], false).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), installed);
     }
 
     #[test]
     fn opencode_jsonc_is_refused_with_the_entry_to_add() {
-        let directory = tempfile::tempdir().unwrap();
-        fs::write(directory.path().join("opencode.jsonc"), "{ // mine\n}\n").unwrap();
-        let error = install(directory.path(), "opencode")
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(&places.opencode).unwrap();
+        fs::write(places.opencode.join("opencode.jsonc"), "{ // mine\n}\n").unwrap();
+        let error = install(&places, &[Harness::Opencode], false)
             .unwrap_err()
             .to_string();
         assert!(
@@ -517,27 +645,71 @@ mod tests {
             ),
             "{error}"
         );
-        assert!(!directory.path().join("opencode.json").exists());
-        assert!(!directory.path().join(SKILL_PATH).exists());
+        assert!(!places.opencode.join("opencode.json").exists());
+        assert!(!places.skill.exists());
     }
 
     #[test]
-    fn dry_run_writes_nothing() {
-        let directory = tempfile::tempdir().unwrap();
-        let command = parse(&[
-            "install",
-            "codex",
-            "--dry-run",
-            "--directory",
-            directory.path().to_str().unwrap(),
-        ]);
-        command.execute().unwrap();
-        assert!(!directory.path().join(".codex").exists());
-        assert!(!directory.path().join(".agents").exists());
+    fn pi_and_omp_get_the_shared_mcp_servers_entry_and_capture() {
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(places.omp.parent().unwrap()).unwrap();
+        fs::write(
+            &places.omp,
+            "{\"mcpServers\": {\"other\": {\"command\": \"other\"}}}\n",
+        )
+        .unwrap();
 
-        let changes = changes(directory.path(), &InstallTarget::Codex).unwrap();
-        let config = diff(&changes[1]);
-        assert!(config.starts_with("--- /dev/null\n+++ "), "{config}");
-        assert!(config.contains("+[mcp_servers.agd]\n"), "{config}");
+        install(&places, &[Harness::Omp, Harness::Pi, Harness::Pi], false).unwrap();
+        let expected_pi = "{\n  \"mcpServers\": {\n    \"agd\": {\n      \"command\": \"agd\",\n      \"args\": [\n        \"mcp\"\n      ]\n    }\n  }\n}\n";
+        assert_eq!(fs::read_to_string(&places.pi).unwrap(), expected_pi);
+        assert_eq!(
+            fs::read_to_string(&places.pi_extension).unwrap(),
+            PI_EXTENSION
+        );
+        assert_eq!(
+            fs::read_to_string(&places.omp_extension).unwrap(),
+            PI_EXTENSION
+        );
+        let omp = fs::read_to_string(&places.omp).unwrap();
+        assert!(
+            omp.find("\"other\"").unwrap() < omp.find("\"agd\"").unwrap(),
+            "{omp}"
+        );
+    }
+
+    #[test]
+    fn replaces_only_agds_own_pi_extension() {
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(places.pi_extension.parent().unwrap()).unwrap();
+        fs::write(&places.pi_extension, "// agd's Pi extension, older\n").unwrap();
+        install(&places, &[Harness::Pi], false).unwrap();
+        assert_eq!(
+            fs::read_to_string(&places.pi_extension).unwrap(),
+            PI_EXTENSION
+        );
+
+        let theirs = "export default function () {}\n";
+        fs::write(&places.pi_extension, theirs).unwrap();
+        let error = install(&places, &[Harness::Pi], false)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("is another extension named agd.ts"),
+            "{error}"
+        );
+        assert_eq!(fs::read_to_string(&places.pi_extension).unwrap(), theirs);
+    }
+
+    #[test]
+    fn dry_run_shows_diffs_and_writes_nothing() {
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        let lines = install(&places, &[Harness::Codex], true).unwrap();
+        assert!(!home.path().join(".agents").exists());
+        assert!(!home.path().join(".codex").exists());
+        assert!(lines[0].starts_with("--- /dev/null\n+++ "), "{lines:?}");
+        assert!(lines[1].contains("+[mcp_servers.agd]\n"), "{lines:?}");
     }
 }

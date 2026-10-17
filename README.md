@@ -133,11 +133,14 @@ claude plugin install agd@johnnybravo-xyz
 It brings the MCP server, the `agenda` skill and a mod (Claude Code 2.1.296
 or later): `/agd` opens a pane beside the transcript with your start view
 and saved views, `/capture t text` files a task without a Claude turn, and a
-line above the prompt shows the day's counts. For Codex and OpenCode,
-install the MCP server and skill in a project (`--dry-run` shows the diff):
+line above the prompt shows the day's counts. Other harnesses share one
+install: the skill goes to `~/.agents/skills`, which Codex, OpenCode, Pi,
+oh-my-pi and Gemini CLI all read, each harness you name gets the MCP
+server in its user config, and Pi and oh-my-pi get `/capture` too
+(`--dry-run` shows the diff):
 
 ```bash
-agd setup install --directory . codex      # or opencode
+agd setup install codex opencode pi omp
 ```
 
 `agd mcp` is a stdio MCP server with seven tools: `agenda`, `query`,
@@ -176,7 +179,7 @@ agd capture            one line through a template, or the popup with -i
 agd undo               undo your latest command-line change
 agd mcp                the stdio MCP server for coding agents
 agd setup import       your Emacs or Neovim org settings into config.toml
-agd setup install      the MCP server and skill for Codex or OpenCode
+agd setup install      the skill and MCP server for Codex, OpenCode, Pi or omp
 agd setup check        parse drift, invalid UTF-8, duplicate IDs, interrupted writes
 agd completions SHELL  shell completions
 ```

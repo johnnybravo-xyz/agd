@@ -41,7 +41,7 @@ pub struct CaptureCommand {
     #[arg(long)]
     dry_run: bool,
     /// Print the agd.mutation/v1 result, with the item's file:line under
-    /// its root as `location`
+    /// its root as `location` and the terminal's line as `summary`
     #[arg(long)]
     pub json: bool,
 }
@@ -49,7 +49,8 @@ pub struct CaptureCommand {
 impl CaptureCommand {
     /// Prints the diff with --dry-run, the mutation with --json (and its
     /// `location` as people read it, `projects/alpha.org:3`, which the
-    /// Claude Code mod's /capture says), a sentence on a terminal, and
+    /// Claude Code mod's /capture says, and the terminal's sentence as
+    /// `summary`, which Pi's and oh-my-pi's /capture says), a sentence on a terminal, and
     /// otherwise the new item's ref alone, which scripts read.
     pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<()> {
         if self.interactive {
@@ -80,17 +81,16 @@ impl CaptureCommand {
             .unwrap_or_default();
         let item = &mutation.item;
         let location = words::location(&item.file, item.line, &roots);
+        let summary = words::captured(item, &location, Local::now().date_naive());
         let output = if self.json {
             let mut json = serde_json::to_value(&mutation)?;
             json["location"] = location.into();
+            json["summary"] = summary.into();
             format!("{}\n", serde_json::to_string_pretty(&json)?)
         } else if self.dry_run {
             mutation.diff
         } else if std::io::stdout().is_terminal() {
-            format!(
-                "{}\n",
-                words::captured(item, &location, Local::now().date_naive())
-            )
+            format!("{summary}\n")
         } else {
             format!("{}\n", mutation.item.item_ref)
         };
