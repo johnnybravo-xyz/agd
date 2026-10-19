@@ -915,13 +915,16 @@ fn prompt_text(app: &App, kind: PromptKind) -> (&'static str, String) {
 fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area: Rect) {
     let theme = &app.theme;
     let (title, hint) = prompt_text(app, prompt.kind);
+    // The task the prompt changes, by its title as lists show it; marked
+    // rows by their count.
     let target = if app.marks.is_empty() {
         app.selected_row()
-            .map(|row| app.short_location(&row.item))
+            .map(|row| peek::display_title(&row.item))
             .unwrap_or_default()
     } else {
         marked_rows(app)
     };
+    let width = area.width.saturating_sub(4).clamp(60, 84);
     let title = if prompt.kind == PromptKind::Filter || target.is_empty() {
         title.to_string()
     } else if prompt.kind == PromptKind::Note {
@@ -929,6 +932,8 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
     } else {
         format!("{title} · {target}")
     };
+    // The border, its padding and the title's own spaces take ten columns.
+    let title = truncate(&title, usize::from(width).saturating_sub(10));
     let preview: Vec<Line<'static>> = match &prompt.preview {
         Ok(lines) => lines
             .iter()
@@ -962,7 +967,7 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
     let input_rows = 2 + input_lines.len() as u16;
     // border + top padding, input, preview, gap, hint, gap, footer, border
     let height = 2 + input_rows + preview_rows + gap + 1 + 1 + 1 + 1;
-    let popup = centered(area, area.width.saturating_sub(4).clamp(60, 84), height);
+    let popup = centered(area, width, height);
     frame.render_widget(Clear, popup);
     let block = theme.popup(title);
     let inner = block.inner(popup);

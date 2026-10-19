@@ -449,6 +449,8 @@ fn z_adds_a_timestamped_note_of_several_lines_without_changing_state() {
             panic!("z did not open a prompt");
         };
         assert_eq!(prompt.kind, PromptKind::LogNote);
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("Note · Review proposal"), "{screen}");
         type_keys(&mut app, "Waiting for legal");
         // S-⏎ adds a line, as in capture.
         crate::tui::keys::dispatch(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT))

@@ -99,7 +99,7 @@ key = "n"
 desc = "Note"
 file = "notes.org"
 heading = "Notes"
-template = "* %?\n%U\n%i"
+template = "* %?\n:PROPERTIES:\n:CREATED: %U\n:END:\n%i"
 
 [[capture]]
 key = "m"

@@ -14,7 +14,8 @@ fn the_schedule_prompt_previews_the_exact_change_before_writing() {
         app.reload_rows().unwrap();
         press(&mut app, KeyCode::Char('s'));
         let screen = render(&mut app, 100, 30).join("\n");
-        assert!(screen.contains("Schedule · work.org:1"), "{screen}");
+        // The title names the task the prompt changes.
+        assert!(screen.contains("Schedule · One"), "{screen}");
         // Examples come from today (13 Oct), two weeks out.
         assert!(screen.contains("2026-10-27 14:00"), "{screen}");
         assert!(!screen.contains("2026-10-30"), "{screen}");
