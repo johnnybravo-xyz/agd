@@ -315,6 +315,68 @@ async fn writes_return_mutations_and_failures_return_error_schemas()
 }
 
 #[tokio::test]
+async fn a_description_is_the_text_under_the_heading_and_notes_span_lines()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = fixture();
+    let service = service(&directory).await?;
+
+    let result = call(
+        &service,
+        "capture",
+        json!({"title": "Explain decision", "body": "First constraint\nSecond constraint"}),
+    )
+    .await?;
+    assert_eq!(result.is_error, Some(false), "{:?}", result.content);
+    let captured = first_block(&result);
+    assert_eq!(
+        captured["item"]["description"],
+        "First constraint\nSecond constraint"
+    );
+    let path = captured["item"]["file"].as_str().expect("capture file");
+    let item_ref = captured["item"]["ref"].as_str().expect("capture ref");
+
+    let result = call(
+        &service,
+        "edit",
+        json!({"ref": item_ref, "description": "Only constraint", "note": "Asked legal.\nWaiting."}),
+    )
+    .await?;
+    assert_eq!(result.is_error, Some(false), "{:?}", result.content);
+    let edited = first_block(&result);
+    assert_eq!(edited["item"]["description"], "Only constraint");
+    let written = fs::read_to_string(path)?;
+    assert!(written.contains("Only constraint\n"), "{written}");
+    assert!(!written.contains("Second constraint"), "{written}");
+    assert!(
+        written.contains("] \\\\\n  Asked legal.\n  Waiting.\n"),
+        "{written}"
+    );
+
+    let next_ref = edited["item"]["ref"].as_str().expect("edited ref");
+    let result = call(
+        &service,
+        "edit",
+        json!({"ref": next_ref, "description": "Steps:\n- [ ] one"}),
+    )
+    .await?;
+    assert_eq!(result.is_error, Some(true));
+    assert_eq!(first_block(&result)["code"], "invalid_edit");
+
+    let result = call(
+        &service,
+        "edit",
+        json!({"ref": next_ref, "description": ""}),
+    )
+    .await?;
+    assert_eq!(result.is_error, Some(false), "{:?}", result.content);
+    assert!(first_block(&result)["item"]["description"].is_null());
+    assert!(!fs::read_to_string(path)?.contains("Only constraint"));
+
+    service.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn bad_arguments_are_error_schemas_naming_the_argument()
 -> Result<(), Box<dyn std::error::Error>> {
     let directory = fixture();

@@ -88,8 +88,8 @@ struct CaptureRequest {
     tags: Vec<String>,
     /// Priority letter within the configured range, such as A.
     priority: Option<String>,
-    /// Literal text kept under the heading: at the template's %i, else
-    /// after the heading's own lines.
+    /// Literal text kept under the heading, such as a description: at the
+    /// template's %i, else after the heading's own lines.
     #[serde(default)]
     body: String,
     /// Answers to the template's %^{name} prompts, keyed by name;
@@ -142,6 +142,10 @@ struct EditRequest {
     item_ref: String,
     /// New heading title, taken literally.
     title: Option<String>,
+    /// New description: the plain text under the heading, before its
+    /// lists; an empty string removes it. It may span lines, but a list,
+    /// drawer, table or #+ line is refused.
+    description: Option<String>,
     /// Tags to add, without colons.
     #[serde(default)]
     tags_add: Vec<String>,
@@ -153,7 +157,8 @@ struct EditRequest {
     /// :PROPERTIES: to set, by name; a null value removes that property.
     #[serde(default)]
     properties: BTreeMap<String, Option<String>>,
-    /// Note logged under the heading.
+    /// A timestamped note, as Org's C-c C-z adds: in the LOGBOOK when
+    /// log_into_drawer is on, else under the heading. It may span lines.
     note: Option<String>,
 }
 
@@ -263,7 +268,7 @@ impl OrgModeRouter {
 
     #[tool(
         name = "edit",
-        description = "Edit item title, tags, priority, properties, or note",
+        description = "Edit item title, description, tags, priority, properties, or note",
         input_schema = input_schema::<EditRequest>()
     )]
     async fn edit(
@@ -276,6 +281,13 @@ impl OrgModeRouter {
             parse_arguments::<EditRequest>(arguments).and_then(|request| {
                 let intent = EditIntent {
                     title: request.title.map(Change::Set).unwrap_or_default(),
+                    description: request.description.map_or(Change::Keep, |description| {
+                        if description.is_empty() {
+                            Change::Clear
+                        } else {
+                            Change::Set(description)
+                        }
+                    }),
                     priority: request.priority.map(Change::Set).unwrap_or_default(),
                     tags_add: request.tags_add.into_iter().collect::<BTreeSet<_>>(),
                     tags_remove: request.tags_remove.into_iter().collect::<BTreeSet<_>>(),

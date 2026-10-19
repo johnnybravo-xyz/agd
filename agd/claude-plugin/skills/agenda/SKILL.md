@@ -32,11 +32,14 @@ from that state. Do not retry blindly.
 ## Choose the narrowest write tool
 
 - `capture`: create a task through a `template_key` returned by `describe`.
-  Omitting the key uses the first template. `title` and `body` are literal text;
-  the body remains below the new heading.
+  Omitting the key uses the first template. `title` and `body` are literal
+  text; the body remains below the new heading, and its first plain text is
+  the item's `description`.
 - `set_state`: set `todo` to one of that file's declared TODO keywords.
 - `plan`: set `scheduled` or `deadline`; pass `none` to remove one.
-- `edit`: change title, tags, priority, properties, or notes.
+- `edit`: change title, description (the plain text under the heading), tags,
+  priority, or properties. Its `note` adds a timestamped note, which may span
+  lines, without changing TODO state.
 
 When a result includes `notes`, report those notes to the person. They describe
 the applied behavior, such as an agent inbox removing requested dates, and take
