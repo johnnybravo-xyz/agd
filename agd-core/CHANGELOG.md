@@ -12,6 +12,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
   text in an entry's body. A new one goes after the leading drawers; text Org
   would read as a list, heading, drawer, block, table, comment or keyword is
   refused.
+- `deadline_before_scheduled` says when a deadline falls before the
+  scheduled date and, for a deadline a weekday word gives, which `+2tue`
+  input reads the same weekday after it.
 - `EditIntent::note` alone adds a timestamped note without a state change,
   journaled as `JournalOperation::Note`. Notes may span lines and are written
   as Org's `org-store-log-note` writes them, in the `LOGBOOK` only with

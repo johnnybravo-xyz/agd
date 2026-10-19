@@ -172,6 +172,14 @@ a priority. Date forms include `today`, `tomorrow`, weekdays, `+3d`, `+2w`,
 before text beginning with `-`; use `--body TEXT` for `%i` and
 `--prompt KEY=VALUE` for template prompts.
 
+Each date counts from today, as Org's date prompt does, so `on:fri due:tue`
+on a Monday puts the deadline on the coming Tuesday, before Friday. agd writes
+that as typed, as Org does, and says so under the chips:
+`scheduled 3 days after the deadline · due:+2tue for Tue 27 Oct`, the second
+part naming the token for the Tuesday after. The edit popup, the `s` and `d`
+prompts, `agd capture` (on stderr) and MCP `capture` and `plan` results (in
+`notes`) say the same.
+
 In the TUI capture popup, the optional Description panel stays collapsed until
 `S-Enter` from the task line reveals and focuses it. Paste a paragraph there to
 preserve all of its lines and blank lines. `S-Enter` adds a description line

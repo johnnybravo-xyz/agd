@@ -475,7 +475,14 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             theme.fg(theme.overdue),
         ))],
     };
-    let rows = form.field_count() as u16;
+    // A deadline before the scheduled date gets a line under Deadline.
+    let date = |field: usize| parse_date_input(form.values[field].text().trim(), app.today).ok();
+    let clash = date(SCHEDULED)
+        .zip(date(DEADLINE))
+        .and_then(|(scheduled, deadline)| {
+            agd_core::deadline_before_scheduled(&scheduled, &deadline, app.today)
+        });
+    let rows = form.field_count() as u16 + u16::from(clash.is_some());
     // border + top padding, fields, gap, preview inset, gap, footer, border
     let height = 2 + rows + 1 + preview.len() as u16 + 2 + 1 + 1 + 1;
     // Wide enough for a headline with tags aligned at org-tags-column plus
@@ -544,6 +551,18 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             spans.push(Span::styled("  •", theme.fg(theme.due)));
         }
         fields.push(Line::from(spans));
+        if field == DEADLINE
+            && let Some(clash) = &clash
+        {
+            fields.push(Line::from(Span::styled(
+                format!(
+                    "{:14}{}",
+                    "",
+                    crate::words::deadline_before_scheduled(clash, "", app.today)
+                ),
+                theme.muted(),
+            )));
+        }
     }
     // The description: one row per line, labelled once.
     let changed = form.changed_description().is_some();

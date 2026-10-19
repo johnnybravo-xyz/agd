@@ -377,6 +377,46 @@ async fn a_description_is_the_text_under_the_heading_and_notes_span_lines()
 }
 
 #[tokio::test]
+async fn a_deadline_before_the_scheduled_date_is_written_and_noted()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = fixture();
+    let service = service(&directory).await?;
+
+    let result = call(
+        &service,
+        "capture",
+        json!({"title": "Book the venue", "scheduled": "+20d", "deadline": "+10d"}),
+    )
+    .await?;
+    assert_eq!(result.is_error, Some(false), "{:?}", result.content);
+    let captured = first_block(&result);
+    assert_eq!(
+        captured["notes"],
+        json!(["scheduled 10 days after the deadline"])
+    );
+
+    // A deadline a weekday word could give says which one reads after.
+    let item_ref = captured["item"]["ref"].as_str().expect("capture ref");
+    let result = call(
+        &service,
+        "plan",
+        json!({"ref": item_ref, "deadline": "+1d"}),
+    )
+    .await?;
+    assert_eq!(result.is_error, Some(false), "{:?}", result.content);
+    let note = first_block(&result)["notes"][0]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        note.starts_with("scheduled 19 days after the deadline · deadline +"),
+        "{note}"
+    );
+    service.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn bad_arguments_are_error_schemas_naming_the_argument()
 -> Result<(), Box<dyn std::error::Error>> {
     let directory = fixture();

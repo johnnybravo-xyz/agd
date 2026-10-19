@@ -353,6 +353,44 @@ fn parse_month(name: &str) -> Option<u32> {
     Some(month)
 }
 
+/// A deadline before the scheduled date. Org allows it, and org-schedule
+/// and org-deadline write it without a word; agd writes it too, and says so.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeadlineBeforeScheduled {
+    /// Days from the deadline to the scheduled date, at least one.
+    pub days: u64,
+    /// For a deadline a weekday word gives (within a week of today, as
+    /// `tue` reads): the same weekday on or after the scheduled date, as the
+    /// input that reads it (`+2tue`), and that date.
+    pub instead: Option<(String, NaiveDate)>,
+}
+
+/// Whether `scheduled` falls after `deadline`, by date alone.
+pub fn deadline_before_scheduled(
+    scheduled: &PlanningTimestamp,
+    deadline: &PlanningTimestamp,
+    today: NaiveDate,
+) -> Option<DeadlineBeforeScheduled> {
+    let scheduled = scheduled.date.parse::<NaiveDate>().ok()?;
+    let deadline = deadline.date.parse::<NaiveDate>().ok()?;
+    let days = u64::try_from((scheduled - deadline).num_days()).ok()?;
+    if days == 0 {
+        return None;
+    }
+    let weekday_word = deadline > today && deadline - today <= Duration::days(7);
+    let weekday = deadline.weekday().to_string().to_lowercase();
+    let instead = weekday_word
+        .then(|| {
+            (2..=60).find_map(|count| {
+                let input = format!("+{count}{weekday}");
+                let date = parse_date_input(&input, today).ok()?.date.parse().ok()?;
+                (date >= scheduled).then_some((input, date))
+            })
+        })
+        .flatten();
+    Some(DeadlineBeforeScheduled { days, instead })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,5 +506,41 @@ mod tests {
                 "{input}"
             );
         }
+    }
+
+    #[test]
+    fn a_deadline_before_the_scheduled_date_says_which_weekday_reads_after_it() {
+        let day = |date: &str| date.parse::<NaiveDate>().unwrap();
+        let today = day("2026-10-19");
+        let timestamp = |date: &str| PlanningTimestamp {
+            date: date.to_string(),
+            time: None,
+            end_time: None,
+            repeater: None,
+            warning: None,
+            raw: None,
+        };
+        // on:fri due:tue on a Monday: Tue 20 Oct, three days before Fri 23.
+        assert_eq!(
+            deadline_before_scheduled(&timestamp("2026-10-23"), &timestamp("2026-10-20"), today),
+            Some(DeadlineBeforeScheduled {
+                days: 3,
+                instead: Some(("+2tue".to_string(), day("2026-10-27"))),
+            })
+        );
+        // A deadline further out came from a date, not a weekday word.
+        assert_eq!(
+            deadline_before_scheduled(&timestamp("2026-11-30"), &timestamp("2026-11-02"), today)
+                .map(|clash| clash.instead),
+            Some(None)
+        );
+        assert_eq!(
+            deadline_before_scheduled(&timestamp("2026-10-20"), &timestamp("2026-10-20"), today),
+            None
+        );
+        assert_eq!(
+            deadline_before_scheduled(&timestamp("2026-10-20"), &timestamp("2026-10-23"), today),
+            None
+        );
     }
 }

@@ -1484,3 +1484,28 @@ Near the office.\n- [ ] book venue\n",
         assert!(text.contains("- [ ] book venue"), "{text}");
     });
 }
+
+#[test]
+#[serial]
+fn the_deadline_prompt_hints_a_deadline_before_the_scheduled_date() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* TODO Plan the offsite\nSCHEDULED: <2026-10-13 Tue>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('d'));
+        type_keys(&mut app, "-1d");
+        crate::tui::actions::refresh_stale_prompt(&mut app);
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(
+            screen.contains("scheduled 1 day after the deadline"),
+            "{screen}"
+        );
+        // A past deadline came from no weekday word: nothing to type instead.
+        assert!(!screen.contains(" for "), "{screen}");
+    });
+}

@@ -265,3 +265,24 @@ fn the_capture_preview_colours_org_text_like_its_chips() {
         assert_eq!(buffer[(star + 2, y)].fg, app.theme.named("orange"));
     });
 }
+
+#[test]
+#[serial]
+fn a_deadline_before_the_scheduled_date_is_hinted_under_the_chips() {
+    use crate::tui::capture::type_key;
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        app.overlay = Overlay::Capture(crate::tui::capture::Draft::default());
+        // Tuesday 13 Oct: fri is the 16th, thu the 15th.
+        for character in "tPlan the offsite on:fri due:thu".chars() {
+            type_key(&mut app, character);
+        }
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(
+            screen.contains("scheduled 1 day after the deadline · due:+2thu for Thu 22 Oct"),
+            "{screen}"
+        );
+    });
+}

@@ -18,7 +18,7 @@
 
 use std::path::{Path, PathBuf};
 
-use agd_core::{AgdError, AgendaSummary, ErrorCode, Item, Notation};
+use agd_core::{AgdError, AgendaSummary, DeadlineBeforeScheduled, ErrorCode, Item, Notation};
 use chrono::{Datelike, NaiveDate};
 
 /// `Fri 16 Oct`, or `Fri 16 Oct 2027` outside `today`'s year.
@@ -134,6 +134,25 @@ pub fn priority(notation: Notation, letter: &str) -> String {
         Notation::Agd => format!("!{letter}"),
         Notation::Org => format!("#{letter}"),
     }
+}
+
+/// A deadline before the scheduled date, as every surface says it:
+/// `scheduled 3 days after the deadline`, then, when a weekday likely
+/// meant the later one, what to type instead, after `token` (`due:` in a
+/// capture line): `· due:+2tue for Tue 27 Oct`.
+pub fn deadline_before_scheduled(
+    clash: &DeadlineBeforeScheduled,
+    token: &str,
+    today: NaiveDate,
+) -> String {
+    let mut line = format!(
+        "scheduled {} after the deadline",
+        counted(clash.days as usize, "day", "days")
+    );
+    if let Some((input, date)) = &clash.instead {
+        line.push_str(&format!(" · {token}{input} for {}", day(*date, today)));
+    }
+    line
 }
 
 /// `count` with its noun, singular for one: "1 file", "0 files".

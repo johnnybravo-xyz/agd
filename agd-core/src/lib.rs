@@ -105,7 +105,10 @@ pub use config::{
     Settings, VIEW_BLOCK_KINDS, VIEW_GROUP_BY, ViewBlock, ViewGroup, ViewSettings, WeekStart,
     default_config_path, load_settings, parse_agenda_day, parse_config_file, render_config,
 };
-pub use date::{format_active_timestamp, parse_date_change, parse_date_input, read_date};
+pub use date::{
+    DeadlineBeforeScheduled, deadline_before_scheduled, format_active_timestamp, parse_date_change,
+    parse_date_input, read_date,
+};
 pub use document::{
     ByteSpan, ChecklistItem, HeadlineSpan, LogKind, LogSettings, OrgDocument as IndexedDocument,
     PriorityRange, PropertySpan, TimestampSpan, TodoKeyword, WorkspaceIndex, checklist,

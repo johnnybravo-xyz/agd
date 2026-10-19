@@ -81,7 +81,19 @@ impl CaptureCommand {
             .unwrap_or_default();
         let item = &mutation.item;
         let location = words::location(&item.file, item.line, &roots);
-        let summary = words::captured(item, &location, Local::now().date_naive());
+        let today = Local::now().date_naive();
+        let summary = words::captured(item, &location, today);
+        // A deadline before the scheduled date is written as typed and said
+        // on stderr, so stdout stays what scripts read.
+        if let (Some(scheduled), Some(deadline)) =
+            (&item.planning.scheduled, &item.planning.deadline)
+            && let Some(clash) = agd_core::deadline_before_scheduled(scheduled, deadline, today)
+        {
+            eprintln!(
+                "note: {}",
+                words::deadline_before_scheduled(&clash, "due:", today)
+            );
+        }
         let output = if self.json {
             let mut json = serde_json::to_value(&mutation)?;
             json["location"] = location.into();

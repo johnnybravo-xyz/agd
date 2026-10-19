@@ -665,10 +665,29 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         frame.render_widget(Paragraph::new(Line::from(spans)), parts[2 + row]);
     }
     let next = 2 + if prompts > 0 { prompts as usize + 1 } else { 0 };
-    frame.render_widget(
-        Paragraph::new(Line::from(chips(app, draft.parsed(app).ok()))),
-        parts[next],
-    );
+    let parsed = draft.parsed(app).ok();
+    // A deadline before the scheduled date is written as typed; the row
+    // under the chips says so.
+    if let Some(clash) = parsed.as_ref().and_then(|parsed| {
+        agd_core::deadline_before_scheduled(
+            parsed.scheduled.as_ref()?,
+            parsed.deadline.as_ref()?,
+            app.today,
+        )
+    }) {
+        frame.render_widget(
+            // One column in, under the chips' text.
+            Paragraph::new(Span::styled(
+                format!(
+                    " {}",
+                    crate::words::deadline_before_scheduled(&clash, "due:", app.today)
+                ),
+                theme.muted(),
+            )),
+            parts[next + 1],
+        );
+    }
+    frame.render_widget(Paragraph::new(Line::from(chips(app, parsed))), parts[next]);
     frame.render_widget(
         Paragraph::new(Span::styled(destination(template), theme.fg(theme.text))),
         parts[next + 2],

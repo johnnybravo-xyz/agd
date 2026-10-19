@@ -496,7 +496,8 @@ fn item_body(item: &JsonObject, index: &WorkspaceIndex) -> Option<String> {
 // ---- capture, set_state, plan, edit: writes through WriteEngine ----
 
 /// `capture`'s agd.mutation/v1 result, with a `notes` array when the agent
-/// inbox changed what was asked.
+/// inbox changed what was asked or the deadline falls before the scheduled
+/// date.
 fn capture(
     settings: &agd_core::Settings,
     request: CaptureRequest,
@@ -523,6 +524,8 @@ fn capture(
         false,
         context,
     )?;
+    let mut notes = inbox_notes(settings, &template.key, &draft);
+    notes.extend(planning_note(&mutation.item, true, today));
     let mut json = serde_json::to_value(mutation).map_err(|error| {
         AgdError::with_source(
             ErrorCode::EncodeFailed,
@@ -530,11 +533,30 @@ fn capture(
             error,
         )
     })?;
-    let notes = inbox_notes(settings, &template.key, &draft);
     if !notes.is_empty() {
         json["notes"] = Value::from(notes);
     }
     Ok(json)
+}
+
+/// A deadline before the scheduled date, which the write keeps as asked:
+/// said as the TUI says it, so the model can tell the person. Only a new
+/// deadline says what to pass instead.
+fn planning_note(item: &agd_core::Item, new_deadline: bool, today: NaiveDate) -> Option<String> {
+    let planning = &item.planning;
+    let mut clash = agd_core::deadline_before_scheduled(
+        planning.scheduled.as_ref()?,
+        planning.deadline.as_ref()?,
+        today,
+    )?;
+    if !new_deadline {
+        clash.instead = None;
+    }
+    Some(crate::words::deadline_before_scheduled(
+        &clash,
+        "deadline ",
+        today,
+    ))
 }
 
 /// What the agent inbox changed about a capture, as `WriteEngine::capture`
@@ -570,11 +592,13 @@ fn inbox_notes(settings: &agd_core::Settings, template: &str, draft: &CaptureDra
     notes
 }
 
+/// `plan`'s agd.mutation/v1 result, with a `notes` array when the deadline
+/// falls before the scheduled date.
 fn plan(
     settings: &agd_core::Settings,
     request: PlanRequest,
     context: &WriteContext,
-) -> Result<agd_core::Mutation, AgdError> {
+) -> Result<Value, AgdError> {
     if request.scheduled.is_none() && request.deadline.is_none() {
         return Err(AgdError::new(
             ErrorCode::InvalidPlan,
@@ -582,13 +606,26 @@ fn plan(
         ));
     }
     let today = Local::now().date_naive();
+    let new_deadline = request.deadline.is_some();
     let intent = EditIntent {
         scheduled: planning_change(request.scheduled.as_deref(), today)?,
         deadline: planning_change(request.deadline.as_deref(), today)?,
         note: request.note,
         ..EditIntent::default()
     };
-    edit(settings, &request.item_ref, intent, context)
+    let mutation = edit(settings, &request.item_ref, intent, context)?;
+    let note = planning_note(&mutation.item, new_deadline, today);
+    let mut json = serde_json::to_value(mutation).map_err(|error| {
+        AgdError::with_source(
+            ErrorCode::EncodeFailed,
+            "cannot encode the mutation as JSON",
+            error,
+        )
+    })?;
+    if let Some(note) = note {
+        json["notes"] = Value::from(vec![note]);
+    }
+    Ok(json)
 }
 
 /// A `plan` date argument: left out keeps the date, `none` removes it, and

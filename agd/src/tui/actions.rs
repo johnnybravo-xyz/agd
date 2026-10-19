@@ -10,7 +10,8 @@ use std::path::Path;
 
 use agd_core::{
     AgdError, Change, EditIntent, ErrorCode, Item, ItemEdit, JournalStatus, LogKind,
-    OccurrenceType, PlanningTimestamp, PriorityRange, WriteEngine, parse_date_input,
+    OccurrenceType, PlanningTimestamp, PriorityRange, WriteEngine, deadline_before_scheduled,
+    parse_date_input,
 };
 use anyhow::{Result, bail};
 use chrono::{Duration, NaiveDate};
@@ -710,10 +711,38 @@ impl App {
 
     /// The preview a prompt shows: what Enter would write, or why not.
     pub(super) fn prompt_preview(&self, prompt: &Prompt) -> Result<Vec<String>, String> {
-        match self.prompt_edit(prompt)? {
-            Some(edit) => self.dry_run(&edit),
-            None => Ok(Vec::new()),
+        let Some(edit) = self.prompt_edit(prompt)? else {
+            return Ok(Vec::new());
+        };
+        let mut lines = self.dry_run(&edit)?;
+        lines.extend(self.planning_hint(&edit.intent));
+        Ok(lines)
+    }
+
+    /// For one target whose new date puts its deadline before its
+    /// scheduled date: the line that says so. Only a new deadline says
+    /// what to type instead; a new scheduled date does not move it.
+    fn planning_hint(&self, intent: &EditIntent) -> Option<String> {
+        if matches!(intent.scheduled, Change::Keep) && matches!(intent.deadline, Change::Keep) {
+            return None;
         }
+        let [target] = self.targets().try_into().ok()?;
+        let (_, headline) = self.index.resolve(&target).ok()?;
+        let planning = &headline.item.planning;
+        let after = |change: &Change<PlanningTimestamp>, current: &Option<PlanningTimestamp>| {
+            match change {
+                Change::Set(timestamp) => Some(timestamp.clone()),
+                Change::Clear => None,
+                Change::Keep => current.clone(),
+            }
+        };
+        let scheduled = after(&intent.scheduled, &planning.scheduled)?;
+        let deadline = after(&intent.deadline, &planning.deadline)?;
+        let mut clash = deadline_before_scheduled(&scheduled, &deadline, self.today)?;
+        if matches!(intent.deadline, Change::Keep) {
+            clash.instead = None;
+        }
+        Some(words::deadline_before_scheduled(&clash, "", self.today))
     }
 
     /// Enter in a prompt: writes exactly what the preview shows; a refusal

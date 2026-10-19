@@ -18,6 +18,10 @@ This file records user-visible changes to the `agd` executable. It follows
   `log_into_drawer`, else under the heading. `S-Enter` adds a line, here and
   in the note asked for with a state change. Peek counts notes and other
   changes apart and lists the three newest notes.
+- A deadline before the scheduled date is written as typed, as Org does, and
+  agd says so where the dates are set: `scheduled 3 days after the deadline ·
+  due:+2tue for Tue 27 Oct`. Capture, the edit popup, the `s` and `d`
+  prompts, `agd capture` and MCP `capture` and `plan` share the sentence.
 - `agd setup install --detected` now configures supported clients whose user
   config directories already exist. The setup guide now covers shared
   Codex/desktop configuration and Paseo's provider-owned MCP setup.

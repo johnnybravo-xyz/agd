@@ -349,7 +349,7 @@ impl Theme {
     }
 
     /// The inset inside a popup that previews a write's Org text or diff:
-    /// a rounded, subtle border titled "Preview", with two columns of
+    /// a rounded, subtle border titled "Org Preview", with two columns of
     /// padding. Terminals cannot round a filled background, so the inset is
     /// outlined, not shaded.
     pub(super) fn inset(&self) -> Block<'static> {
@@ -357,7 +357,7 @@ impl Theme {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(self.fg(self.border))
-            .title(Span::styled(" Preview ", self.muted()))
+            .title(Span::styled(" Org Preview ", self.muted()))
             .padding(Padding::horizontal(2))
     }
 
