@@ -39,6 +39,9 @@ pub enum Change<T> {
 pub struct EditIntent {
     pub state: Change<String>,
     pub title: Change<String>,
+    /// The entry's description, the first run of plain text in its body
+    /// (`Item::description`).
+    pub description: Change<String>,
     pub priority: Change<String>,
     pub tags_add: BTreeSet<String>,
     pub tags_remove: BTreeSet<String>,
@@ -72,12 +75,17 @@ impl EditIntent {
             ),
             (tags, JournalOperation::Tags),
             (!matches!(self.title, Change::Keep), JournalOperation::Edit),
+            (
+                !matches!(self.description, Change::Keep),
+                JournalOperation::Edit,
+            ),
             (!self.properties.is_empty(), JournalOperation::Edit),
             (!self.checklist.is_empty(), JournalOperation::Checklist),
         ];
         let mut made = changes.iter().filter(|(changed, _)| *changed);
-        match (made.next(), made.next()) {
-            (Some((_, operation)), None) => *operation,
+        match (made.next(), made.next(), self.note.is_some()) {
+            (Some((_, operation)), None, _) => *operation,
+            (None, None, true) => JournalOperation::Note,
             _ => JournalOperation::Edit,
         }
     }
@@ -488,6 +496,12 @@ mod tests {
         };
         assert_eq!(both.operation(), JournalOperation::Edit);
         assert_eq!(JournalOperation::State.label(), "state change");
+        let note = EditIntent {
+            note: Some("Needs context".to_string()),
+            ..EditIntent::default()
+        };
+        assert_eq!(note.operation(), JournalOperation::Note);
+        assert_eq!(JournalOperation::Note.label(), "note");
     }
 
     #[test]

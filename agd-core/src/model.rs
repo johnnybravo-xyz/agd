@@ -65,6 +65,10 @@ pub struct Item {
     pub done: bool,
     pub priority: Option<String>,
     pub title: String,
+    /// The first run of plain text in the entry's body, its lines joined
+    /// by newlines; see `document::description`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub tags: Vec<String>,
     pub inherited_tags: Vec<String>,
     pub category: String,

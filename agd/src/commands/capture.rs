@@ -160,6 +160,7 @@ mod tests {
             done: false,
             priority: None,
             title: "Renew passport".to_string(),
+            description: None,
             tags: Vec::new(),
             inherited_tags: Vec::new(),
             category: "inbox".to_string(),

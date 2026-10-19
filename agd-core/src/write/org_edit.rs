@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{NaiveDate, NaiveDateTime};
 
-use crate::document::{COOKIE, split_trailing_tags};
+use crate::document::{COOKIE, description, split_trailing_tags};
 use crate::{
     AgdError, ByteSpan, ErrorCode, HeadlineSpan, IdPolicy, IndexedDocument, LogKind, Planning,
     PlanningTimestamp, Settings, checklist, format_active_timestamp,
@@ -317,7 +317,62 @@ pub(super) fn build_edit_patches(
     if !log.is_empty() {
         patches.push(log_patch(source, headline, &log, logging.into_drawer)?);
     }
+    // After the log patch: a note and a new description written at the same
+    // place keep Org's order, notes first.
+    if let Some(patch) = description_patch(source, headline, &intent.description) {
+        patches.push(patch);
+    }
     Ok(patches)
+}
+
+/// The description's lines replaced, written where a new one goes, or
+/// removed with the blank lines after it.
+fn description_patch(
+    source: &str,
+    headline: &HeadlineSpan,
+    change: &Change<String>,
+) -> Option<Patch> {
+    let current = description(source, headline);
+    let newline = line_ending(source);
+    let text = match change {
+        Change::Keep => return None,
+        Change::Clear => {
+            return current.text.is_some().then(|| Patch {
+                span: ByteSpan {
+                    start: current.span.start,
+                    end: current.blanks_end,
+                },
+                replacement: String::new(),
+            });
+        }
+        Change::Set(text) => text.trim_matches('\n'),
+    };
+    let indent = if current.text.is_some() {
+        current.indent.as_str()
+    } else {
+        headline
+            .drawer_span
+            .or(headline.planning_span)
+            .map_or("", |span| leading_indent(source, span.start))
+    };
+    let mut replacement: String = text
+        .split('\n')
+        .map(|line| {
+            if line.trim().is_empty() {
+                newline.to_string()
+            } else {
+                format!("{indent}{line}{newline}")
+            }
+        })
+        .collect();
+    // A heading on the file's last line, without a newline, ends first.
+    if current.span.start == source.len() && !source.is_empty() && !source.ends_with('\n') {
+        replacement.insert_str(0, newline);
+    }
+    Some(Patch {
+        span: current.span,
+        replacement,
+    })
 }
 
 /// One `- heading` line in a LOGBOOK, with an optional note below it.
@@ -359,20 +414,32 @@ fn log_patch(
         .map_or("", |span| leading_indent(source, span.start));
     let mut lines = String::new();
     for entry in entries {
-        let Some(note) = &entry.note else {
-            lines.push_str(&format!("{indent}- {}{newline}", entry.heading));
-            continue;
+        // As org-store-log-note: the note's trailing whitespace goes, and
+        // each line is indented under the item, empty lines left empty.
+        let text = entry.note.as_deref().map(str::trim_end).unwrap_or_default();
+        let note_lines: Vec<&str> = if text.is_empty() {
+            Vec::new()
+        } else {
+            text.split('\n').collect()
         };
-        if note.contains(['\n', '\r']) {
+        if note_lines.iter().any(|line| line.contains('\r')) {
             return Err(AgdError::new(
                 ErrorCode::InvalidNote,
-                "log notes must be one line",
+                "log notes must use line-feed newlines",
             ));
         }
-        lines.push_str(&format!(
-            "{indent}- {} \\\\{newline}{indent}  {note}{newline}",
-            entry.heading
-        ));
+        if note_lines.is_empty() {
+            lines.push_str(&format!("{indent}- {}{newline}", entry.heading));
+            continue;
+        }
+        lines.push_str(&format!("{indent}- {} \\\\{newline}", entry.heading));
+        for line in note_lines {
+            if line.is_empty() {
+                lines.push_str(newline);
+            } else {
+                lines.push_str(&format!("{indent}  {line}{newline}"));
+            }
+        }
     }
     if into_drawer {
         let section = &source[start..headline.section_span.end];
@@ -758,6 +825,103 @@ mod tests {
     use super::*;
     use crate::write::test_support::{context, first_ref, scheduled, settings, state_change};
     use crate::{Repeat, WorkspaceIndex, WriteEngine};
+
+    /// Writes `source`, applies `intent` to its first heading, and returns
+    /// the file, or the error.
+    fn edited(source: &str, intent: EditIntent, into_drawer: bool) -> Result<String, AgdError> {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("tasks.org");
+        fs::write(&path, source).unwrap();
+        let mut settings = settings(temp.path());
+        settings.log_into_drawer = into_drawer;
+        let item_ref = first_ref(&settings);
+        let engine = WriteEngine::new(settings, temp.path().join("journal.jsonl")).unwrap();
+        engine.edit(&item_ref, &intent, false, &context())?;
+        Ok(fs::read_to_string(path).unwrap())
+    }
+
+    fn describe(text: &str) -> EditIntent {
+        EditIntent {
+            description: Change::Set(text.to_string()),
+            ..EditIntent::default()
+        }
+    }
+
+    #[test]
+    fn a_new_description_goes_after_the_drawers_and_before_the_checklist() {
+        let source = "* TODO Plan\n:PROPERTIES:\n:ID: a\n:END:\n:LOGBOOK:\n- Note taken on [2026-10-19 Mon 15:00] \\\\\n  first\n:END:\n- [ ] book venue\n* Next\n";
+        assert_eq!(
+            edited(source, describe("Near the office.\n\nBudget 50k.\n"), true).unwrap(),
+            "* TODO Plan\n:PROPERTIES:\n:ID: a\n:END:\n:LOGBOOK:\n- Note taken on [2026-10-19 Mon 15:00] \\\\\n  first\n:END:\nNear the office.\n\nBudget 50k.\n- [ ] book venue\n* Next\n"
+        );
+        // On the file's last line, without a newline.
+        assert_eq!(
+            edited("* TODO Plan", describe("Why"), true).unwrap(),
+            "* TODO Plan\nWhy\n"
+        );
+    }
+
+    #[test]
+    fn a_description_is_replaced_in_place_with_its_indentation() {
+        let source = "** TODO Plan\n   SCHEDULED: <2026-10-20 Tue>\n   Old first\n   old second\n\n   - [ ] book venue\n";
+        assert_eq!(
+            edited(source, describe("New\nlines"), true).unwrap(),
+            "** TODO Plan\n   SCHEDULED: <2026-10-20 Tue>\n   New\n   lines\n\n   - [ ] book venue\n"
+        );
+    }
+
+    #[test]
+    fn clearing_a_description_removes_it_and_the_blank_lines_after_it() {
+        let intent = EditIntent {
+            description: Change::Clear,
+            ..EditIntent::default()
+        };
+        assert_eq!(
+            edited("* TODO Plan\nOld text\n\n- [ ] book venue\n", intent, true).unwrap(),
+            "* TODO Plan\n- [ ] book venue\n"
+        );
+    }
+
+    #[test]
+    fn a_description_that_org_would_read_as_structure_is_refused() {
+        for text in [
+            "Steps:\n- [ ] book venue",
+            "* Heading",
+            "#+BEGIN_SRC",
+            "| a |",
+        ] {
+            let error = edited("* TODO Plan\n", describe(text), true).unwrap_err();
+            assert_eq!(error.code(), ErrorCode::InvalidEdit, "{text}");
+            assert!(error.to_string().contains("plain text"), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_note_follows_log_into_drawer_and_keeps_every_line() {
+        let note = |text: &str| EditIntent {
+            note: Some(text.to_string()),
+            ..EditIntent::default()
+        };
+        let plain = edited("* TODO Keep\nBody.\n", note("Waiting on legal"), false).unwrap();
+        assert!(
+            plain.starts_with("* TODO Keep\n- Note taken on ["),
+            "{plain}"
+        );
+        assert!(
+            plain.ends_with("] \\\\\n  Waiting on legal\nBody.\n"),
+            "{plain}"
+        );
+
+        let drawer = edited("* TODO Keep\nBody.\n", note("First\n\n  second  \n"), true).unwrap();
+        assert!(
+            drawer.starts_with("* TODO Keep\n:LOGBOOK:\n- Note taken on ["),
+            "{drawer}"
+        );
+        assert!(
+            drawer.ends_with("] \\\\\n  First\n\n    second\n:END:\nBody.\n"),
+            "{drawer}"
+        );
+    }
 
     #[test]
     fn add_on_write_inserts_an_id_only_when_missing() {

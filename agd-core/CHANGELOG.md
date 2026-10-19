@@ -6,6 +6,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 
 ## [Unreleased]
 
+### Added
+
+- `Item::description` and `EditIntent::description`: the first run of plain
+  text in an entry's body. A new one goes after the leading drawers; text Org
+  would read as a list, heading, drawer, block, table, comment or keyword is
+  refused.
+- `EditIntent::note` alone adds a timestamped note without a state change,
+  journaled as `JournalOperation::Note`. Notes may span lines and are written
+  as Org's `org-store-log-note` writes them, in the `LOGBOOK` only with
+  `log_into_drawer`.
+
 ## [0.2.0] - 2026-10-16
 
 ### Added

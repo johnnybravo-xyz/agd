@@ -16,7 +16,7 @@ use crate::{AgdError, ErrorCode, Progress};
 /// A list item: indentation, bullet (`-`, `+`, an indented `*`, `1.` or
 /// `1)`; Org's default allows no letters), an optional `[@3]` counter,
 /// then the rest of the line.
-static ITEM: LazyLock<Regex> = LazyLock::new(|| {
+pub(super) static ITEM: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^([ \t]*)(?:[-+]|\*|[0-9]+[.)])(?:[ \t]+(?:\[@(?:start:)?[0-9]+\][ \t]*)?(.*))?$")
         .expect("list item pattern")
 });

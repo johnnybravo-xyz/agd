@@ -212,6 +212,7 @@ pub(super) fn scan_headlines(
             inherited_tags: inherited,
             category: category.clone(),
             planning: headline.planning.clone(),
+            description: None,
             checklist: None,
         };
         let metadata_end = headline
@@ -249,6 +250,7 @@ pub(super) fn scan_headlines(
             digest: headline.digest,
         };
         span.item.checklist = super::checklist::progress(source, &span);
+        span.item.description = super::description::description(source, &span).text;
         result.push(span);
     }
     Ok(result)

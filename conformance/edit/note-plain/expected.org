@@ -1,0 +1,10 @@
+#+TODO: TODO | DONE
+* TODO Report
+SCHEDULED: <2026-10-13 Tue>
+:PROPERTIES:
+:ID: task-id
+:END:
+- Note taken on [2026-10-13 Tue 14:22] \\
+  Waiting on legal
+The quarterly numbers.
+- [ ] draft

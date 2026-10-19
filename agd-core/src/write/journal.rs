@@ -53,6 +53,8 @@ pub enum JournalOperation {
     /// DEADLINE set or removed.
     Deadline,
     Priority,
+    /// A timestamped note added without changing the task.
+    Note,
     Tags,
     /// Checklist boxes checked or unchecked.
     Checklist,
@@ -71,6 +73,7 @@ impl JournalOperation {
             Self::Deadline => "deadline",
             Self::Priority => "priority",
             Self::Tags => "tags",
+            Self::Note => "note",
             Self::Checklist => "checklist",
             Self::Edit => "edit",
             Self::Refile => "refile",

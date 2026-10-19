@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::document::is_org_tag;
+use crate::document::{is_org_tag, is_plain_text};
 use crate::{AgdError, CaptureDraft, ErrorCode, HeadlineSpan, IndexedDocument, WorkspaceIndex};
 
 use super::edit::{Change, EditIntent};
@@ -21,6 +21,9 @@ pub(super) fn validate_intent(intent: &EditIntent) -> Result<(), AgdError> {
     }
     if let Change::Set(title) = &intent.title {
         validate_title_text(title)?;
+    }
+    if let Change::Set(description) = &intent.description {
+        validate_description(description)?;
     }
     for tag in intent.tags_add.iter().chain(&intent.tags_remove) {
         validate_tag(tag)?;
@@ -180,6 +183,31 @@ fn validate_priority(priority: &str, document: &IndexedDocument) -> Result<(), A
                 "priority '{priority}' is outside the range {} of {}",
                 range.describe(),
                 document.path().display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// A description is plain text: a line Org reads as a list item, heading,
+/// drawer, block, table, comment or keyword would end it, so it would not
+/// read back as written.
+fn validate_description(description: &str) -> Result<(), AgdError> {
+    if description.contains('\r') {
+        return Err(AgdError::new(
+            ErrorCode::InvalidEdit,
+            "a description must use line-feed newlines",
+        ));
+    }
+    if let Some(line) = description
+        .lines()
+        .find(|line| !line.trim().is_empty() && !is_plain_text(line))
+    {
+        return Err(AgdError::new(
+            ErrorCode::InvalidEdit,
+            format!(
+                "a description is plain text, and '{}' is not; write lists, drawers, tables and #+ lines in $EDITOR",
+                line.trim()
             ),
         ));
     }

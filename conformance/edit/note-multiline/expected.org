@@ -1,0 +1,14 @@
+#+TODO: TODO | DONE
+* TODO Report
+:PROPERTIES:
+:ID: task-id
+:END:
+:LOGBOOK:
+- Note taken on [2026-10-13 Tue 14:22] \\
+  Called the bank.
+
+    They want the form   
+  by Friday.
+- Note taken on [2026-10-12 Mon 09:00] \\
+  Asked for the form.
+:END:

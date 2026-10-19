@@ -10,6 +10,7 @@
 //! occurs twice under the roots is refused for writes (`id_conflict`).
 
 mod checklist;
+mod description;
 mod directive;
 mod headline;
 mod index;
@@ -19,6 +20,7 @@ mod timestamp;
 
 pub(crate) use checklist::COOKIE;
 pub use checklist::{ChecklistItem, checklist};
+pub(crate) use description::{description, is_plain_text};
 pub use directive::{LogKind, LogSettings, PriorityRange, TodoKeyword};
 pub(crate) use directive::{ignored_priorities_line, todo_keywords};
 pub use headline::{HeadlineSpan, PropertySpan};

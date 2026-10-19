@@ -41,6 +41,14 @@
            (re-search-forward
             "^[ \t]*\\(?:[-+*]\\|[0-9]+[.)]\\)[ \t]+\\[[ X-]\\]" end))
          (org-toggle-checkbox)))
+      ;; As C-c C-z, then typing VALUE in the note buffer and C-c C-c.
+      ("note"
+       (org-add-note)
+       (run-hooks 'post-command-hook)
+       (goto-char (point-max))
+       (insert value)
+       (org-store-log-note)
+       (set-buffer (find-buffer-visiting "/root/input.org")))
       (_ (error "unsupported edit operation: %s" operation)))
     (run-hooks 'post-command-hook)
     (save-buffer)))

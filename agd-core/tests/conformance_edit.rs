@@ -77,6 +77,10 @@ fn intent(case: &Case) -> EditIntent {
             checklist: [(value.parse().expect("checkbox index"), case.checked)].into(),
             ..EditIntent::default()
         },
+        "note" => EditIntent {
+            note: Some(value),
+            ..EditIntent::default()
+        },
         operation => panic!("unsupported operation {operation}"),
     }
 }
