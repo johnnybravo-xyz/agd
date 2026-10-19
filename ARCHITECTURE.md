@@ -36,7 +36,7 @@ config.toml ── load_settings ──▶ Settings
 
 `WorkspaceIndex::load` discovers authorized agenda files and retains both typed
 values and original byte spans for headings, planning lines, properties,
-checklists, and subtrees. Reads calculate agendas, queries, views, counts, and
+descriptions, checklists, and subtrees. Reads calculate agendas, queries, views, counts, and
 exports without normalizing source text or creating journal state.
 
 All mutations pass through `agd-core/src/write/`:
@@ -88,7 +88,7 @@ integrations.
 | Primary destinations | Today, Week, Inbox, Agents, Triage, saved views |
 | Today sections | OVERDUE, SCHEDULE, DUE SOON, DOING, INBOX |
 | Org task or note | heading |
-| Mutation | capture, state change, schedule, deadline, priority, tags, checklist, edit, or refile |
+| Mutation | capture, state change, schedule, deadline, priority, tags, checklist, note, edit, or refile |
 | Agent identity | MCP client name, such as `claude-code` or `codex` |
 
 Use Org-agenda bindings where equivalents exist. A key keeps the same meaning

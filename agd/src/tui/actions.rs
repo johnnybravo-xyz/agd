@@ -45,12 +45,16 @@ pub(super) struct TriageStep {
     outcome: usize,
 }
 
-/// A one-line prompt over the cursor row or the marked rows, with a dry
-/// run of exactly what Enter writes.
+/// A prompt over the cursor row or the marked rows, with a dry run of
+/// exactly what Enter writes. A note takes several lines; the others one.
 #[derive(Debug)]
 pub(super) struct Prompt {
     pub kind: PromptKind,
     pub input: TextInput,
+    /// A note's lines after the first, and which line has focus, 0 being
+    /// `input`.
+    pub more: Vec<TextInput>,
+    pub line: usize,
     /// For a Note prompt, the TODO state the note goes with.
     pub state: String,
     /// For the filter, which applies as you type: what esc puts back.
@@ -70,6 +74,8 @@ impl Prompt {
         Self {
             kind,
             input,
+            more: Vec::new(),
+            line: 0,
             state: String::new(),
             restore: String::new(),
             preview: Ok(Vec::new()),
@@ -91,6 +97,30 @@ impl Prompt {
             state: state.to_string(),
             ..Self::new(PromptKind::Note, String::new())
         }
+    }
+
+    /// A note takes several lines, as Org's note buffer does.
+    pub(super) fn multiline(&self) -> bool {
+        matches!(self.kind, PromptKind::Note | PromptKind::LogNote)
+    }
+
+    /// The line with focus.
+    pub(super) fn focused(&mut self) -> &mut TextInput {
+        match self.line {
+            0 => &mut self.input,
+            line => &mut self.more[line - 1],
+        }
+    }
+
+    /// Every line, without blank lines or spaces at the ends.
+    fn text(&self) -> String {
+        std::iter::once(&self.input)
+            .chain(&self.more)
+            .map(TextInput::text)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string()
     }
 }
 
@@ -598,9 +628,20 @@ impl App {
             PromptKind::Tags => Ok(tags_edit(input)),
             // An empty note logs the change without one, as Org does.
             PromptKind::Note => {
-                let note = (!input.is_empty()).then(|| input.to_string());
+                let note = prompt.text();
+                let note = (!note.is_empty()).then_some(note);
                 Ok(Some(self.state_edit(&prompt.state, note)))
             }
+            PromptKind::LogNote if prompt.text().is_empty() => Ok(None),
+            PromptKind::LogNote => Ok(Some(PromptEdit {
+                intent: EditIntent {
+                    note: Some(prompt.text()),
+                    ..EditIntent::default()
+                },
+                outcome: OTHER,
+                label: "note added".to_string(),
+                unchanged: "the note was not added".to_string(),
+            })),
         }
     }
 

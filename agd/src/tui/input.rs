@@ -55,6 +55,72 @@ impl TextInput {
         *self = Self::new(text);
     }
 
+    /// Inserts clipboard text into a one-line field. Line endings become one
+    /// space, including CRLF as one line ending.
+    pub(super) fn paste_one_line(&mut self, text: &str) {
+        if text.contains(['\r', '\n']) {
+            self.insert_text(&normalize_newlines(text, ' '));
+        } else {
+            self.insert_text(text);
+        }
+    }
+
+    /// Inserts clipboard text into this line and returns any continuation
+    /// lines. The final line keeps the text that was after the cursor.
+    pub(super) fn paste_lines(&mut self, text: &str) -> Vec<Self> {
+        if !text.contains(['\r', '\n']) {
+            self.insert_text(text);
+            return Vec::new();
+        }
+        let normalized = normalize_newlines(text, '\n');
+        let mut pasted = normalized.split('\n');
+        let first = pasted.next().unwrap_or_default();
+        let mut rest = pasted.peekable();
+        if rest.peek().is_none() {
+            self.insert_text(first);
+            return Vec::new();
+        }
+        if self.selected {
+            self.set("");
+        }
+        let at = self.byte_index(self.cursor);
+        let suffix = self.text.split_off(at);
+        self.text.push_str(first);
+        self.cursor = self.text.chars().count();
+
+        let mut continuations = Vec::with_capacity(rest.clone().count());
+        while let Some(line) = rest.next() {
+            let mut input = Self::new(line);
+            if rest.peek().is_none() {
+                let cursor = input.cursor;
+                input.text.push_str(&suffix);
+                input.cursor = cursor;
+            }
+            continuations.push(input);
+        }
+        continuations
+    }
+
+    fn insert_text(&mut self, text: &str) {
+        if self.selected {
+            self.set("");
+        }
+        let at = self.byte_index(self.cursor);
+        self.text.insert_str(at, text);
+        self.cursor += text.chars().count();
+        self.selected = false;
+    }
+
+    fn insert_character(&mut self, character: char) {
+        if self.selected {
+            self.set("");
+        }
+        let at = self.byte_index(self.cursor);
+        self.text.insert(at, character);
+        self.cursor += 1;
+        self.selected = false;
+    }
+
     /// Applies one key: characters insert at the cursor, ←/→ move, and
     /// Backspace deletes; the rest are keys::POPUP_KEYS (C-a C-e to the
     /// start and end, C-d, C-w, C-u; esc and C-g cancel).
@@ -88,12 +154,7 @@ impl TextInput {
                 }
             }
             KeyCode::Char(character) if !control && !alt => {
-                if self.selected {
-                    self.set("");
-                }
-                let at = self.byte_index(self.cursor);
-                self.text.insert(at, character);
-                self.cursor += 1;
+                self.insert_character(character);
             }
             _ => return Edit::Other,
         }
@@ -156,6 +217,28 @@ impl TextInput {
     }
 }
 
+/// Normalizes CRLF and standalone carriage returns into `newline` without
+/// changing any other clipboard bytes.
+fn normalize_newlines(text: &str, newline: char) -> String {
+    let mut normalized = String::with_capacity(text.len());
+    let mut after_carriage_return = false;
+    for character in text.chars() {
+        match character {
+            '\r' => {
+                normalized.push(newline);
+                after_carriage_return = true;
+            }
+            '\n' if after_carriage_return => after_carriage_return = false,
+            '\n' => normalized.push(newline),
+            _ => {
+                normalized.push(character);
+                after_carriage_return = false;
+            }
+        }
+    }
+    normalized
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +288,24 @@ mod tests {
         input.handle(key(KeyCode::End));
         typed(&mut input, " 14:00");
         assert_eq!(input.text(), "2026-10-16 14:00");
+    }
+
+    #[test]
+    fn multiline_paste_splits_crlf_and_keeps_text_after_the_cursor() {
+        let mut input = TextInput::new("prefix suffix");
+        for _ in 0.." suffix".chars().count() {
+            input.handle(key(KeyCode::Left));
+        }
+
+        let mut continuations = input.paste_lines("one\r\ntwo");
+        assert_eq!(input.text(), "prefixone");
+        assert_eq!(continuations.len(), 1);
+        assert_eq!(continuations[0].text(), "two suffix");
+        continuations[0].handle(key(KeyCode::Char('!')));
+        assert_eq!(continuations[0].text(), "two! suffix");
+
+        let mut one_line = TextInput::default();
+        one_line.paste_one_line("first\r\nsecond\nthird");
+        assert_eq!(one_line.text(), "first second third");
     }
 }

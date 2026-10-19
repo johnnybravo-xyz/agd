@@ -8,6 +8,16 @@ This file records user-visible changes to the `agd` executable. It follows
 
 ### Added
 
+- Descriptions: in capture, `S-Enter` opens a Description box, collapsed
+  until then, and `Tab` moves on to sub-tasks; a paste keeps every line. The
+  description is plain text under the heading, where Org keeps an entry's
+  notes. The edit popup changes it, peek shows it under the title, and MCP
+  items and `edit` carry it as `description`.
+- `z` on a task, in Triage too, adds a timestamped note as Org's `C-c C-z`
+  does, without changing its TODO state: in the `LOGBOOK` with
+  `log_into_drawer`, else under the heading. `S-Enter` adds a line, here and
+  in the note asked for with a state change. Peek counts notes and other
+  changes apart and lists the three newest notes.
 - `agd setup install --detected` now configures supported clients whose user
   config directories already exist. The setup guide now covers shared
   Codex/desktop configuration and Paseo's provider-owned MCP setup.

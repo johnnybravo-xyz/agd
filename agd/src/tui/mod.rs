@@ -31,8 +31,9 @@ use agd_core::{
 use anyhow::{Context, Result};
 use chrono::{Local, NaiveDate, NaiveTime};
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyboardEnhancementFlags, MouseEventKind,
-    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    Event, KeyboardEnhancementFlags, MouseEventKind, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -69,6 +70,8 @@ enum PromptKind {
     Filter,
     /// The note Org asks for when a state change is logged with `@`.
     Note,
+    /// A standalone timestamped note; it never changes TODO state.
+    LogNote,
 }
 
 #[derive(Debug)]
@@ -571,6 +574,11 @@ fn handle_event(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App
                 app.set_error(&error);
             }
         }
+        Event::Paste(text) => {
+            if let Err(error) = keys::handle_paste(app, &text) {
+                app.set_error(&error);
+            }
+        }
         Event::Mouse(mouse) => match mouse.kind {
             MouseEventKind::ScrollDown => app.move_selection(1),
             MouseEventKind::ScrollUp => app.move_selection(-1),
@@ -714,10 +722,15 @@ fn start_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     Ok(Terminal::new(CrosstermBackend::new(stdout))?)
 }
 
-/// The alternate screen and mouse reports, and where the terminal speaks
-/// the kitty keyboard protocol, keys it reports apart, so S-⏎ is not ⏎.
+/// The alternate screen, mouse reports, bracketed paste, and the kitty
+/// keyboard protocol that reports S-⏎ separately from ⏎.
 fn enter_screen(stdout: &mut Stdout) -> Result<()> {
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(
+        stdout,
+        EnterAlternateScreen,
+        EnableMouseCapture,
+        EnableBracketedPaste
+    )?;
     if supports_keyboard_enhancement().unwrap_or(false) {
         execute!(
             stdout,
@@ -735,6 +748,7 @@ fn stop_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
+        DisableBracketedPaste,
         LeaveAlternateScreen,
         DisableMouseCapture
     )?;

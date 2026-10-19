@@ -1,6 +1,7 @@
 //! The edit popup (⏎ on a task): its title, state, priority, tags and
-//! dates as fields, its checklist boxes to check off with `x`, the exact
-//! diff of the one guarded write they make, and the hand-over to $EDITOR.
+//! dates as fields, its description, its checklist boxes to check off with
+//! `x`, the exact diff of the one guarded write they make, and the
+//! hand-over to $EDITOR.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -55,9 +56,13 @@ pub(super) struct EditForm {
     /// The fields as typed; the focused one starts selected, so typing
     /// replaces it and an arrow or End keeps it for editing.
     values: [TextInput; 6],
+    /// The description as the file has it, and its lines as typed; line
+    /// `n` is field `LABELS.len() + n`.
+    original_description: String,
+    description: Vec<TextInput>,
     /// The entry's checklist as the file has it, and each box as set
-    /// here; box `n` is field `LABELS.len() + n`. A nested checklist is
-    /// left out, for $EDITOR.
+    /// here; box `n` comes after the description lines. A nested
+    /// checklist is left out, for $EDITOR.
     checklist: Vec<ChecklistItem>,
     checks: Vec<bool>,
     field: usize,
@@ -95,6 +100,7 @@ impl EditForm {
             .ok()
             .and_then(|(document, headline)| checklist(document.source(), headline).ok())
             .unwrap_or_default();
+        let original_description = item.description.clone().unwrap_or_default();
         let mut form = Self {
             item_ref: item.item_ref.clone(),
             file: item.file.clone(),
@@ -104,6 +110,11 @@ impl EditForm {
             priorities,
             values: original.clone().map(TextInput::new),
             original,
+            description: original_description
+                .split('\n')
+                .map(TextInput::new)
+                .collect(),
+            original_description,
             checks: checklist.iter().map(|item| item.checked).collect(),
             checklist,
             field: TITLE,
@@ -122,16 +133,39 @@ impl EditForm {
         }
     }
 
-    /// The text fields, then one per checklist box.
+    /// The text fields, the description lines, then one per checklist box.
     fn field_count(&self) -> usize {
-        LABELS.len() + self.checks.len()
+        LABELS.len() + self.description.len() + self.checks.len()
+    }
+
+    /// The description line `field` is, if it is one.
+    fn description_line(&self, field: usize) -> Option<usize> {
+        field
+            .checked_sub(LABELS.len())
+            .filter(|index| *index < self.description.len())
     }
 
     /// The checklist box `field` is, if it is one.
     fn checkbox(&self, field: usize) -> Option<usize> {
         field
-            .checked_sub(LABELS.len())
+            .checked_sub(LABELS.len() + self.description.len())
             .filter(|index| *index < self.checks.len())
+    }
+
+    /// The focused text field, or None on a checklist box.
+    fn current(&mut self) -> Option<&mut TextInput> {
+        match self.description_line(self.field) {
+            Some(line) => self.description.get_mut(line),
+            None => self.values.get_mut(self.field),
+        }
+    }
+
+    /// The description as typed, without blank lines at its ends; Some
+    /// when it differs from the file's.
+    fn changed_description(&self) -> Option<String> {
+        let lines: Vec<&str> = self.description.iter().map(TextInput::text).collect();
+        let text = lines.join("\n").trim_matches('\n').to_string();
+        (text != self.original_description).then_some(text)
     }
 
     fn changed(&self, field: usize) -> Option<&str> {
@@ -180,6 +214,11 @@ impl EditForm {
             tags_remove: old_tags.difference(&new_tags).cloned().collect(),
             scheduled: date(SCHEDULED)?,
             deadline: date(DEADLINE)?,
+            description: match self.changed_description() {
+                None => Change::Keep,
+                Some(text) if text.trim().is_empty() => Change::Clear,
+                Some(text) => Change::Set(text),
+            },
             checklist: self.changed_boxes(),
             ..EditIntent::default()
         })
@@ -198,12 +237,14 @@ impl EditForm {
 
     fn unchanged(&self) -> bool {
         (0..LABELS.len()).all(|field| self.changed(field).is_none())
+            && self.changed_description().is_none()
             && self.changed_boxes().is_empty()
     }
 
     /// Only boxes changed: the done line names the count, `checklist 2/3`.
     fn checklist_only(&self) -> Option<String> {
-        let only = (0..LABELS.len()).all(|field| self.changed(field).is_none());
+        let only = (0..LABELS.len()).all(|field| self.changed(field).is_none())
+            && self.changed_description().is_none();
         let done = self.checks.iter().filter(|checked| **checked).count();
         only.then(|| format!("checklist {done}/{}", self.checks.len()))
     }
@@ -309,6 +350,12 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<keys::EditorTar
             }
             return Ok(None);
         }
+        // S-⏎ on a description line adds the next one, as in capture.
+        Some(Action::AddItem) if form.description_line(form.field).is_some() => {
+            let line = form.description_line(form.field).unwrap_or_default();
+            form.description.insert(line + 1, TextInput::default());
+            form.field += 1;
+        }
         Some(Action::NextField) => form.focus(next),
         Some(Action::PreviousField) => form.focus(previous),
         _ if keys::picker_step(key) == Some(1) => form.focus(next),
@@ -320,13 +367,44 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<keys::EditorTar
         }
         _ if form.checkbox(form.field).is_some() => {}
         _ if form.field == STATE || form.field == PRIORITY => form.choose(key),
+        // Backspace on an empty description line, but the only one,
+        // removes it.
+        _ if key.code == KeyCode::Backspace
+            && form.description.len() > 1
+            && form
+                .description_line(form.field)
+                .is_some_and(|line| form.description[line].text().is_empty()) =>
+        {
+            let line = form.description_line(form.field).unwrap_or_default();
+            form.description.remove(line);
+            form.field -= 1;
+        }
         _ => {
-            form.values[form.field].handle(key);
+            if let Some(input) = form.current() {
+                input.handle(key);
+            }
         }
     }
     form.stale = true;
     app.overlay = Overlay::Edit(form);
     Ok(None)
+}
+
+/// Inserts a bracketed paste into the focused text field. The description
+/// keeps every pasted line; in the other fields line endings become spaces.
+pub(super) fn paste(app: &mut App, text: &str) {
+    let Overlay::Edit(mut form) = std::mem::replace(&mut app.overlay, Overlay::None) else {
+        return;
+    };
+    if let Some(line) = form.description_line(form.field) {
+        let added = form.description[line].paste_lines(text);
+        form.field += added.len();
+        form.description.splice(line + 1..line + 1, added);
+    } else if let Some(input) = form.current() {
+        input.paste_one_line(text);
+    }
+    form.stale = true;
+    app.overlay = Overlay::Edit(form);
 }
 
 /// Rebuilds a stale preview with one dry run, as for capture.
@@ -426,7 +504,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let mut spans = vec![
             Span::styled(if focused { "▌ " } else { "  " }, theme.fg(theme.accent)),
             Span::styled(
-                format!("{label:<11}"),
+                format!("{label:<12}"),
                 if focused {
                     theme.strong(theme.text)
                 } else {
@@ -467,6 +545,39 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         }
         fields.push(Line::from(spans));
     }
+    // The description: one row per line, labelled once.
+    let changed = form.changed_description().is_some();
+    for (index, line) in form.description.iter().enumerate() {
+        let focused = form.description_line(form.field) == Some(index);
+        let label = if index == 0 { "Description" } else { "" };
+        let mut spans = vec![
+            Span::styled(if focused { "▌ " } else { "  " }, theme.fg(theme.accent)),
+            Span::styled(
+                format!("{label:<12}"),
+                if focused {
+                    theme.strong(theme.text)
+                } else {
+                    theme.muted()
+                },
+            ),
+        ];
+        if line.text().is_empty() && !focused {
+            spans.push(Span::styled(
+                if index == 0 { "—" } else { "" },
+                theme.muted(),
+            ));
+        } else {
+            spans.extend(line.spans(theme, focused));
+            if focused && line.text().is_empty() {
+                let key = keys::key_label(keys::POPUP_KEYS, Action::AddItem);
+                spans.push(Span::styled(format!("{key} new line"), theme.muted()));
+            }
+        }
+        if changed && index == 0 {
+            spans.push(Span::styled("  •", theme.fg(theme.due)));
+        }
+        fields.push(Line::from(spans));
+    }
     // The checklist: one row per box, labelled once; a checked box reads
     // as a done row does.
     for (index, (item, checked)) in form.checklist.iter().zip(&form.checks).enumerate() {
@@ -475,7 +586,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let mut spans = vec![
             Span::styled(if focused { "▌ " } else { "  " }, theme.fg(theme.accent)),
             Span::styled(
-                format!("{label:<11}"),
+                format!("{label:<12}"),
                 if focused {
                     theme.strong(theme.text)
                 } else {

@@ -348,14 +348,16 @@ impl Theme {
             .padding(Padding::new(2, 2, 1, 0))
     }
 
-    /// An inset inside a popup for Org text (previews, diffs): a rounded,
-    /// subtle border with two columns of padding. Terminals cannot round a
-    /// filled background, so the inset is outlined, not shaded.
+    /// The inset inside a popup that previews a write's Org text or diff:
+    /// a rounded, subtle border titled "Preview", with two columns of
+    /// padding. Terminals cannot round a filled background, so the inset is
+    /// outlined, not shaded.
     pub(super) fn inset(&self) -> Block<'static> {
         Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(self.fg(self.border))
+            .title(Span::styled(" Preview ", self.muted()))
             .padding(Padding::horizontal(2))
     }
 

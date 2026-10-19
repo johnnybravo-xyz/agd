@@ -35,7 +35,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
 use super::actions::Prompt;
-use super::input::Edit;
+use super::input::{Edit, TextInput};
 use super::{App, Overlay, PromptKind, Screen, capture, help, open_in_editor};
 
 type Term = Terminal<CrosstermBackend<Stdout>>;
@@ -111,6 +111,7 @@ pub(super) enum Action {
     PriorityUp,
     PriorityDown,
     Tags,
+    Note,
     Someday,
     Refile,
     Undo,
@@ -249,6 +250,7 @@ const CHANGE: KeyGroup = KeyGroup {
         bind("+", &[Char('+')], A::PriorityUp, "priority", "raise priority", "+"),
         bind("-", &[Char('-')], A::PriorityDown, "priority", "lower priority", "-"),
         bind(":", &[Char(':')], A::Tags, "tags", "add or remove tags", ":"),
+        bind("z", &[Char('z')], A::Note, "note", "timestamped note in LOGBOOK", "z"),
         bind("S", &[Char('S')], A::Someday, "someday", "someday: tag it, drop the date", ""),
         // C-c C-w is a chord, which `chord_key` handles.
         bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", "C-c C-w"),
@@ -294,6 +296,7 @@ pub(super) const TRIAGE_KEYS: &[KeyGroup] = &[
             bind("S", &[Char('S')], A::Someday, "someday", "someday: tag it, drop the date", ""),
             bind("X", &[Char('X')], A::Cancel, "cancel", "cancel: the file's last done state", ""),
             bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", "C-c C-w"),
+            bind("z", &[Char('z')], A::Note, "note", "timestamped note in LOGBOOK", "z"),
             bind("u", &[Char('u')], A::Undo, "undo", "undo a step; at the end, the whole pass", "C-_"),
         ],
     },
@@ -357,6 +360,7 @@ pub(super) const PANE_KEYS: &[KeyGroup] = &[KeyGroup {
         bind("p k ↑", &[Char('p'), Char('k'), Code(KeyCode::Up)], A::Previous, "previous", "previous row", ""),
         bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
         bind("X", &[Char('X')], A::Cancel, "cancel", "cancel", ""),
+        bind("z", &[Char('z')], A::Note, "note", "timestamped note in LOGBOOK", "z"),
         bind("u", &[Char('u')], A::Undo, "undo", "undo the last write", ""),
         bind("c", &[Char('c')], A::Capture, "capture", "capture a task", ""),
         bind("C-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", ""),
@@ -401,7 +405,7 @@ pub(super) const SCREENS: [(&str, &[KeyGroup]); 7] = [
 pub(super) const POPUP_KEYS: &[KeyGroup] = &[KeyGroup {
     title: "Type",
     bindings: &[
-        bind("M-⏎ S-⏎", &[Meta(KeyCode::Enter), Shift(KeyCode::Enter)], A::AddItem, "checklist", "in capture, add a checklist line", ""),
+        bind("S-⏎ M-⏎", &[Meta(KeyCode::Enter), Shift(KeyCode::Enter)], A::AddItem, "new line", "a new description, checklist or note line", ""),
         bind("⏎", &[Code(KeyCode::Enter)], A::Save, "save", "save what the preview shows", ""),
         bind("x SPC", &[Char('x'), Char(' ')], A::Done, "check", "check or uncheck a checklist line", ""),
         bind("H ←", &[Char('H'), Code(KeyCode::Left)], A::PreviousChoice, "previous", "previous State or Priority choice", ""),
@@ -614,6 +618,59 @@ pub(super) fn handle_key(terminal: &mut Term, app: &mut App, key: KeyEvent) -> R
     Ok(())
 }
 
+/// Inserts one bracketed-paste event without interpreting pasted letters or
+/// line endings as commands.
+pub(super) fn handle_paste(app: &mut App, text: &str) -> Result<()> {
+    if matches!(app.overlay, Overlay::Capture(_)) {
+        capture::paste(app, text);
+        return Ok(());
+    }
+    if matches!(app.overlay, Overlay::Edit(_)) {
+        super::edit::paste(app, text);
+        return Ok(());
+    }
+    let live_filter = match &mut app.overlay {
+        Overlay::Help(palette) => {
+            palette.query.paste_one_line(text);
+            palette.selected = 0;
+            None
+        }
+        // A note keeps every pasted line.
+        Overlay::Prompt(prompt) if prompt.multiline() => {
+            let added = prompt.focused().paste_lines(text);
+            let line = prompt.line;
+            prompt.line += added.len();
+            prompt.more.splice(line..line, added);
+            prompt.stale = true;
+            None
+        }
+        Overlay::Prompt(prompt) => {
+            prompt.input.paste_one_line(text);
+            if prompt.kind == PromptKind::Filter {
+                Some(prompt.input.text().trim().to_string())
+            } else {
+                prompt.stale = true;
+                None
+            }
+        }
+        Overlay::Refile(picker) => {
+            picker.input.paste_one_line(text);
+            picker.selected = 0;
+            None
+        }
+        Overlay::None
+        | Overlay::Capture(_)
+        | Overlay::Edit(_)
+        | Overlay::Bulk
+        | Overlay::Views { .. } => None,
+    };
+    if let Some(filter) = live_filter {
+        app.filter = filter;
+        app.reload_rows()?;
+    }
+    Ok(())
+}
+
 fn is_quit_key(key: KeyEvent) -> bool {
     key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c')
 }
@@ -807,6 +864,7 @@ fn run_change(app: &mut App, action: Action) -> Result<()> {
         A::PriorityUp => app.shift_priority(true)?,
         A::PriorityDown => app.shift_priority(false)?,
         A::Tags => prompt(app, PromptKind::Tags),
+        A::Note if has_task(app, "add a note to") => prompt(app, PromptKind::LogNote),
         A::Someday => app.someday()?,
         A::Refile => app.open_refile(),
         A::Undo => app.undo()?,
@@ -960,6 +1018,7 @@ fn run_triage(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarg
         A::Someday => app.someday()?,
         A::Cancel => app.cancel()?,
         A::Refile => app.open_refile(),
+        A::Note => prompt(app, PromptKind::LogNote),
         A::Undo => triage_undo(app)?,
         A::Next => triage_move(app, 1)?,
         A::Previous => triage_move(app, -1)?,
@@ -1037,6 +1096,7 @@ fn run_pane(app: &mut App, action: Action) -> Result<EditorTarget> {
         A::Previous => app.move_selection(-1),
         A::Done if has_task(app, "mark done") => app.mark_done()?,
         A::Cancel if has_task(app, "cancel") => app.cancel()?,
+        A::Note if has_task(app, "add a note to") => prompt(app, PromptKind::LogNote),
         A::Undo => app.undo()?,
         A::Capture => app.overlay = Overlay::Capture(capture::Draft::default()),
         A::Editor => return Ok(selected_location(app)),
@@ -1116,10 +1176,37 @@ fn prompt_key(app: &mut App, key: KeyEvent) -> Result<()> {
         return Ok(());
     };
     let filter = prompt.kind == PromptKind::Filter;
+    // A note's lines: S-⏎ adds one, ⌫ on an empty one removes it, and the
+    // picker keys move between them.
+    if prompt.multiline() {
+        let line = prompt.line;
+        match popup_action(key) {
+            Some(A::AddItem) => {
+                prompt.more.insert(line, TextInput::default());
+                prompt.line += 1;
+                prompt.stale = true;
+                return Ok(());
+            }
+            _ if key.code == KeyCode::Backspace
+                && line > 0
+                && prompt.focused().text().is_empty() =>
+            {
+                prompt.more.remove(line - 1);
+                prompt.line -= 1;
+                prompt.stale = true;
+                return Ok(());
+            }
+            _ if picker_step(key).is_some() => {
+                prompt.line = stepped(line, picker_step(key), prompt.more.len() + 1);
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
     // The field itself answers esc and C-g with Cancel.
     let edit = match popup_action(key) {
         Some(A::Save) => return app.commit_prompt(),
-        _ => prompt.input.handle(key),
+        _ => prompt.focused().handle(key),
     };
     let typed = prompt.input.text().to_string();
     let restore = prompt.restore.clone();

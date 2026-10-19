@@ -24,7 +24,7 @@ use ratatui::backend::TestBackend;
 use serial_test::serial;
 use temp_env::with_vars;
 
-use crate::tui::{App, Overlay, Screen, draw};
+use crate::tui::{App, Overlay, PromptKind, Screen, draw};
 
 fn today() -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 10, 13).unwrap()

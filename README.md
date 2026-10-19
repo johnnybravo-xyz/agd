@@ -89,6 +89,12 @@ AGD=target/release/agd docs/demo/demo.sh
 | MCP | `agd mcp` | Local coding-agent access over stdio |
 | Setup | `agd setup import`, `agd setup install`, `agd setup check` | Editor import, agent config, workspace diagnostics |
 
+In TUI capture, `S-Enter` opens a Description box and `Tab` moves from it to
+sub-tasks. The description is plain text under the heading, where Org keeps an
+entry's notes; the edit popup changes it and peek shows it under the title. On
+any task row, `z` adds a timestamped note as Org's `C-c C-z` does, without
+changing its TODO state. MCP items and `edit` carry the same `description`.
+
 Install supported local agent configuration by detection:
 
 ```bash

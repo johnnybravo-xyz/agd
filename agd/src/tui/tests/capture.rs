@@ -55,38 +55,110 @@ fn capture_preview_is_the_exact_text_that_will_be_written() {
 
 #[test]
 #[serial]
-fn alt_or_shift_return_adds_checklist_lines_written_under_the_task() {
+fn shift_return_opens_multiline_description_and_tab_opens_sub_tasks() {
     use crate::tui::capture::{apply_key, refresh_stale, type_key};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     with_home(|root| {
         fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
         let mut app = test_app(root);
+        app.theme = theme_for(Some("truecolor"));
         app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
         app.overlay = Overlay::Capture(crate::tui::capture::Draft::default());
         let press = |app: &mut App, code, modifiers| {
             apply_key(app, KeyEvent::new(code, modifiers)).unwrap();
         };
         let type_text = |app: &mut App, text: &str| text.chars().for_each(|key| type_key(app, key));
+
         type_text(&mut app, "tPlan the offsite due:fri");
-        press(&mut app, KeyCode::Enter, KeyModifiers::ALT);
+        let collapsed = render(&mut app, 100, 30).join("\n");
+        assert!(!collapsed.contains("Description"), "{collapsed}");
+        assert!(collapsed.contains("S-⏎ description"), "{collapsed}");
+        press(&mut app, KeyCode::Enter, KeyModifiers::SHIFT);
+        type_text(&mut app, "Keep it near transit");
+        let buffer = render_buffer(&mut app, 100, 34);
+        let task_y = row_of(&buffer, "Plan the offsite");
+        let description_y = row_of(&buffer, "Description");
+        let description_x = column_of(&buffer, description_y, "Description") - 2;
+        assert_eq!(description_y, task_y + 3);
+        assert_eq!(buffer[(description_x, description_y)].symbol(), "╭");
+        assert_eq!(buffer[(description_x, description_y)].fg, app.theme.accent);
+        assert_eq!(buffer[(description_x, description_y + 2)].symbol(), "╰");
+        let focused = render(&mut app, 100, 34).join("\n");
+        assert!(focused.contains("tab sub-tasks"), "{focused}");
+        assert!(focused.contains("S-⏎ new line"), "{focused}");
+
+        // S-Enter stays in DESCRIPTION and adds another physical line.
+        press(&mut app, KeyCode::Enter, KeyModifiers::SHIFT);
+        type_text(&mut app, "Budget is fixed");
+        // Tab moves from DESCRIPTION to the first sub-task.
+        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
         type_text(&mut app, "book venue");
-        // S-⏎ where the terminal reports it apart from ⏎.
         press(&mut app, KeyCode::Enter, KeyModifiers::SHIFT);
         type_text(&mut app, "send invites");
-        // ⌫ on an empty checklist line removes it.
-        press(&mut app, KeyCode::Enter, KeyModifiers::ALT);
+        // Backspace on an empty sub-task removes it.
+        press(&mut app, KeyCode::Enter, KeyModifiers::SHIFT);
         press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
         refresh_stale(&mut app);
-        let screen = render(&mut app, 100, 30).join("\n");
+
+        let screen = render(&mut app, 100, 34).join("\n");
+        assert!(screen.contains("Keep it near transit"), "{screen}");
+        assert!(screen.contains("Budget is fixed"), "{screen}");
         assert!(screen.contains("- [ ] book venue"), "{screen}");
-        assert!(screen.contains("M-⏎ checklist"), "{screen}");
+        assert!(screen.contains("S-⏎ sub-task"), "{screen}");
+
         press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
         let text = fs::read_to_string(root.join("inbox.org")).unwrap();
         assert!(text.contains("** TODO Plan the offsite\n"), "{text}");
+        // The description is the text under the heading, before the
+        // checklist.
         assert!(
-            text.ends_with("- [ ] book venue\n- [ ] send invites\n"),
+            text.ends_with(
+                "Keep it near transit\nBudget is fixed\n- [ ] book venue\n- [ ] send invites\n"
+            ),
             "{text}"
         );
+    });
+}
+
+#[test]
+#[serial]
+fn multiline_paste_stays_in_description_and_preserves_paragraphs() {
+    use crate::tui::capture::{refresh_stale, type_key};
+    use crate::tui::keys;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    const DESCRIPTION: &str = "When you cut the release, bump these together:\n\
+- versions.env and the manifest version in suchi-demo;\n\
+- DemoCorpusVersion and DemoCorpusSHA256 in suchi.\n\
+\n\
+That's also when to add the asn: and invoice-field checks to the smoke test.";
+
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        app.overlay = Overlay::Capture(crate::tui::capture::Draft::default());
+
+        type_key(&mut app, 't');
+        for character in "Cut the release".chars() {
+            type_key(&mut app, character);
+        }
+        crate::tui::capture::apply_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT),
+        )
+        .unwrap();
+        keys::handle_paste(&mut app, DESCRIPTION).unwrap();
+        refresh_stale(&mut app);
+
+        let screen = render(&mut app, 120, 40).join("\n");
+        assert!(screen.contains("When you cut the release"), "{screen}");
+        assert!(screen.contains("- versions.env"), "{screen}");
+        assert!(screen.contains("That's also when"), "{screen}");
+
+        crate::tui::capture::apply_key(&mut app, KeyEvent::from(KeyCode::Enter)).unwrap();
+        let text = fs::read_to_string(root.join("inbox.org")).unwrap();
+        assert!(text.ends_with(&format!("{DESCRIPTION}\n")), "{text}");
     });
 }
 

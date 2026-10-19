@@ -1,8 +1,8 @@
 //! The capture popup (`c`, and `agd capture -i`): pick a template as in
 //! org-capture's menu, type one line with tokens (`due:fri #tag !A`, or
-//! `:tag: #A` with `notation = "org"`) that show as chips, add checklist
-//! lines under it with M-⏎, answer the template's prompts, and see the
-//! exact Org text a dry run would write before ⏎ writes it.
+//! `:tag: #A` with `notation = "org"`), add a multiline description and
+//! checklist lines, answer the template's prompts, and see the exact Org
+//! text a dry run would write before ⏎ writes it.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -29,12 +29,14 @@ use super::theme::{Theme, centered, truncate};
 use super::{App, Overlay, run_editor, write_context};
 
 /// The capture popup's state. Field 0 is the one-line title with tokens,
-/// fields 1 to `items.len()` the checklist lines under it, and the fields
-/// after them answer the template's `%^{prompt}`s.
+/// then come the description lines, checklist lines, and the template's
+/// `%^{prompt}` answers.
 #[derive(Debug)]
 pub(super) struct Draft {
     template: Option<String>,
     input: TextInput,
+    /// Description lines, the first text of the body.
+    description: Vec<TextInput>,
     /// Checklist lines, written as `- [ ] line` after the body.
     items: Vec<TextInput>,
     prompts: Vec<(CapturePrompt, TextInput)>,
@@ -53,6 +55,7 @@ impl Default for Draft {
         Self {
             template: None,
             input: TextInput::default(),
+            description: vec![TextInput::default()],
             items: Vec::new(),
             prompts: Vec::new(),
             field: 0,
@@ -78,17 +81,23 @@ impl Draft {
     }
 
     fn current(&mut self) -> &mut TextInput {
+        let descriptions = self.description.len();
         let items = self.items.len();
         match self.field {
             0 => &mut self.input,
-            field if field <= items => &mut self.items[field - 1],
-            field => &mut self.prompts[field - 1 - items].1,
+            field if field <= descriptions => &mut self.description[field - 1],
+            field if field <= descriptions + items => &mut self.items[field - 1 - descriptions],
+            field => &mut self.prompts[field - 1 - descriptions - items].1,
         }
+    }
+
+    fn description_focused(&self) -> bool {
+        (1..=self.description.len()).contains(&self.field)
     }
 
     /// The field number of the prompt at `index`.
     fn prompt_field(&self, index: usize) -> usize {
-        1 + self.items.len() + index
+        1 + self.description.len() + self.items.len() + index
     }
 
     /// Field numbers of the prompts still to ask: a date prompt the capture
@@ -114,10 +123,11 @@ impl Draft {
             .find(|field| *field > self.field)
     }
 
-    /// Every field ↑ and ↓ visit, in order: the capture line, the checklist
-    /// lines, then the open prompts.
+    /// Every field ↑ and ↓ visit, in order: the capture line, description,
+    /// checklist lines, then the open prompts.
     fn fields(&self, app: &App) -> Vec<usize> {
-        let mut fields: Vec<usize> = (0..=self.items.len()).collect();
+        let editable = self.description.len() + self.items.len();
+        let mut fields: Vec<usize> = (0..=editable).collect();
         fields.extend(self.open_fields(app));
         fields
     }
@@ -135,8 +145,16 @@ impl Draft {
             .unwrap_or(0)
     }
 
-    /// The body as written: the text from $EDITOR, then a `- [ ] line` for
-    /// each checklist line that has text.
+    fn description_text(&self) -> Option<String> {
+        let mut lines: Vec<&str> = self.description.iter().map(TextInput::text).collect();
+        while lines.last().is_some_and(|line| line.is_empty()) {
+            lines.pop();
+        }
+        (!lines.is_empty()).then(|| lines.join("\n"))
+    }
+
+    /// The body as written: the description, the text from $EDITOR, then a
+    /// `- [ ] line` for each checklist line that has text.
     fn body_text(&self) -> String {
         let items = self
             .items
@@ -144,8 +162,9 @@ impl Draft {
             .map(|item| item.text().trim())
             .filter(|text| !text.is_empty())
             .map(|text| format!("- [ ] {text}"));
-        std::iter::once(self.body.clone())
-            .filter(|body| !body.is_empty())
+        self.description_text()
+            .into_iter()
+            .chain(std::iter::once(self.body.clone()).filter(|body| !body.is_empty()))
             .chain(items)
             .collect::<Vec<_>>()
             .join("\n")
@@ -222,6 +241,37 @@ pub(super) fn type_key(app: &mut App, character: char) {
     refresh_stale(app);
 }
 
+/// Inserts one bracketed-paste event into the focused field. The
+/// description is the only multiline field; every pasted line becomes one
+/// of its lines.
+pub(super) fn paste(app: &mut App, text: &str) {
+    let Overlay::Capture(mut draft) = std::mem::replace(&mut app.overlay, Overlay::None) else {
+        return;
+    };
+    if draft.template.is_none() {
+        let mut characters = text.chars();
+        if let Some(key) = characters.next() {
+            let mut key_bytes = [0; 4];
+            draft.choose(app, key.encode_utf8(&mut key_bytes));
+        }
+        if draft.template.is_some() {
+            draft.input.paste_one_line(characters.as_str());
+        }
+    } else if draft.description_focused() {
+        let index = draft.field - 1;
+        let continuations = draft.description[index].paste_lines(text);
+        let added = continuations.len();
+        draft
+            .description
+            .splice(index + 1..index + 1, continuations);
+        draft.field += added;
+    } else {
+        draft.current().paste_one_line(text);
+    }
+    draft.stale = true;
+    app.overlay = Overlay::Capture(draft);
+}
+
 pub(super) fn handle_key(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
@@ -247,24 +297,51 @@ pub(super) fn apply_key(app: &mut App, key: KeyEvent) -> Result<()> {
     };
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
     let action = keys::popup_action(key);
+    let descriptions = draft.description.len();
     let items = draft.items.len();
     match key.code {
         _ if action == Some(Action::Back) => return close(app),
-        // A checklist line goes under the capture line or the focused one.
-        _ if action == Some(Action::AddItem)
-            && draft.template.is_some()
-            && draft.field <= items =>
+        // The first S-Enter from the title opens the description. There it
+        // adds another line; on a checklist line it adds the next sub-task.
+        _ if action == Some(Action::AddItem) && draft.template.is_some() => {
+            if draft.field == 0 {
+                draft.field = 1;
+            } else if draft.description_focused() {
+                draft.description.insert(draft.field, TextInput::default());
+                draft.field += 1;
+            } else if draft.field <= descriptions + items {
+                draft
+                    .items
+                    .insert(draft.field - descriptions, TextInput::default());
+                draft.field += 1;
+            }
+        }
+        // Backspace on an extra empty description line removes it.
+        KeyCode::Backspace
+            if descriptions > 1
+                && draft.description_focused()
+                && draft.description[draft.field - 1].text().is_empty() =>
         {
-            draft.items.insert(draft.field, TextInput::default());
-            draft.field += 1;
+            draft.description.remove(draft.field - 1);
+            draft.field = draft.field.saturating_sub(1).max(1);
         }
         // Backspace on an empty checklist line removes it.
         KeyCode::Backspace
-            if (1..=items).contains(&draft.field)
-                && draft.items[draft.field - 1].text().is_empty() =>
+            if draft.field > descriptions
+                && draft.field <= descriptions + items
+                && draft.items[draft.field - descriptions - 1]
+                    .text()
+                    .is_empty() =>
         {
-            draft.items.remove(draft.field - 1);
+            draft.items.remove(draft.field - descriptions - 1);
             draft.field -= 1;
+        }
+        // Tab from the description opens the first sub-task line.
+        _ if action == Some(Action::NextField) && draft.description_focused() => {
+            if draft.items.is_empty() {
+                draft.items.push(TextInput::default());
+            }
+            draft.field = draft.description.len() + 1;
         }
         _ if action == Some(Action::NextField) => {
             let keys: Vec<String> = app
@@ -365,18 +442,25 @@ fn commit(app: &mut App, draft: Draft) -> Result<()> {
     app.reload_rows()
 }
 
-/// C-o: the body goes through $EDITOR as a temporary file, checklist
-/// lines included, so the editor shows everything that will be written.
+/// C-o: the body goes through $EDITOR as a temporary file, description and
+/// checklist lines included, so the editor shows everything that will be
+/// written.
 fn edit_body(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
     draft: &mut Draft,
 ) -> Result<()> {
-    let items = draft.items.len();
+    let lines = draft.description.len() + draft.items.len();
     draft.body = draft.body_text();
+    draft.description = vec![TextInput::default()];
     draft.items.clear();
-    // A checklist line's focus goes to the capture line.
-    draft.field = draft.field.saturating_sub(items);
+    // Focus on a description or checklist line goes to the capture line;
+    // prompt field numbers move up as those lines become body text.
+    if draft.field > lines {
+        draft.field -= lines - 1;
+    } else {
+        draft.field = 0;
+    }
     let mut file = tempfile::Builder::new()
         .suffix(".org")
         .tempfile()
@@ -423,8 +507,17 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let open = draft.open_fields(app);
     let prompts = open.len() as u16;
     let prompt_rows = if prompts > 0 { prompts + 1 } else { 0 };
-    // The capture line and its checklist lines, in one rounded box.
-    let input_rows = 3 + draft.items.len() as u16;
+    // Keep the optional DESCRIPTION box collapsed until it has focus or
+    // content. Once sub-tasks exist, it stays visible above them.
+    let description_visible = draft.description_focused()
+        || draft.description.iter().any(|line| !line.text().is_empty())
+        || !draft.items.is_empty();
+    let description_rows = if description_visible {
+        3 + draft.description.len() as u16
+    } else {
+        0
+    };
+    let input_rows = 3 + description_rows + draft.items.len() as u16;
     // border + top padding, input, gap, prompts, chips, gap, destination,
     // preview inset, gap, footer, border
     let height =
@@ -469,23 +562,74 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
     } else {
         input_spans.extend(draft.input.spans(theme, draft.field == 0));
     }
-    let mut input_lines = vec![Line::from(input_spans)];
+
+    let descriptions = draft.description.len();
+    let description_height = if description_visible {
+        descriptions as u16 + 2
+    } else {
+        0
+    };
+    let input_parts = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(u16::from(description_visible)),
+            Constraint::Length(description_height),
+            Constraint::Length(draft.items.len() as u16),
+        ])
+        .split(parts[0]);
+    // The description and sub-tasks sit two columns in from each side of
+    // the task box, so they read as part of the task above.
+    let nested = |area: Rect| Rect {
+        x: area.x + 2,
+        width: area.width.saturating_sub(4),
+        ..area
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(input_spans)).block(theme.input(draft.field == 0)),
+        input_parts[0],
+    );
+
+    if description_visible {
+        let mut description_lines = Vec::with_capacity(descriptions);
+        for (index, line) in draft.description.iter().enumerate() {
+            let focused = draft.field == index + 1;
+            let mut spans = line.spans(theme, focused);
+            if line.text().is_empty() {
+                let hint = if index == 0 {
+                    "S-⏎ for multiline · tab for sub-tasks"
+                } else {
+                    "⌫ removes this line"
+                };
+                spans.push(Span::styled(hint, theme.muted()));
+            }
+            description_lines.push(Line::from(spans));
+        }
+        let description_title = if draft.description_focused() {
+            theme.strong(theme.text)
+        } else {
+            theme.muted()
+        };
+        let description_block = theme
+            .input(draft.description_focused())
+            .title(Span::styled(" Description ", description_title));
+        frame.render_widget(
+            Paragraph::new(description_lines).block(description_block),
+            nested(input_parts[2]),
+        );
+    }
+
+    let mut item_lines = Vec::with_capacity(draft.items.len());
     for (index, item) in draft.items.iter().enumerate() {
-        let focused = draft.field == index + 1;
-        let mut spans = vec![Span::styled("  - [ ] ", theme.muted())];
+        let focused = draft.field == descriptions + index + 1;
+        let mut spans = vec![Span::styled("- [ ] ", theme.muted())];
         spans.extend(item.spans(theme, focused));
         if item.text().is_empty() && focused {
-            spans.push(Span::styled(
-                "a checklist line; ⌫ removes it",
-                theme.muted(),
-            ));
+            spans.push(Span::styled("⌫ removes this sub-task", theme.muted()));
         }
-        input_lines.push(Line::from(spans));
+        item_lines.push(Line::from(spans));
     }
-    frame.render_widget(
-        Paragraph::new(input_lines).block(theme.input(draft.field <= draft.items.len())),
-        parts[0],
-    );
+    frame.render_widget(Paragraph::new(item_lines), nested(input_parts[3]));
     let label_width = draft
         .prompts
         .iter()
@@ -494,7 +638,8 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .unwrap_or(0)
         + 2;
     for (row, field) in open.iter().enumerate() {
-        let (prompt, value) = &draft.prompts[field - 1 - draft.items.len()];
+        let (prompt, value) =
+            &draft.prompts[field - 1 - draft.description.len() - draft.items.len()];
         let focused = draft.field == *field;
         let mut spans = vec![
             Span::styled(if focused { "▌ " } else { "  " }, theme.fg(theme.accent)),
@@ -529,9 +674,16 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         parts[next + 2],
     );
     let key = |action| keys::key_label(keys::POPUP_KEYS, action);
+    let tab_label = if draft.description_focused() {
+        "sub-tasks"
+    } else {
+        "template"
+    };
     frame.render_widget(
-        Paragraph::new(Line::from(theme.key_hint(key(Action::NextField), "change")))
-            .alignment(ratatui::layout::Alignment::Right),
+        Paragraph::new(Line::from(
+            theme.key_hint(key(Action::NextField), tab_label),
+        ))
+        .alignment(ratatui::layout::Alignment::Right),
         parts[next + 2],
     );
     frame.render_widget(
@@ -540,11 +692,18 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             .block(theme.inset()),
         parts[next + 3],
     );
+    let add_label = if draft.field == 0 {
+        "description"
+    } else if draft.description_focused() {
+        "new line"
+    } else {
+        "sub-task"
+    };
     frame.render_widget(
         Paragraph::new(Line::from(
             [
                 theme.key_hint(key(Action::Save), "save"),
-                theme.key_hint(key(Action::AddItem), "checklist"),
+                theme.key_hint(key(Action::AddItem), add_label),
                 theme.key_hint(key(Action::Editor), "body in $EDITOR"),
                 theme.key_hint(key(Action::Back), "cancel"),
             ]
@@ -678,10 +837,7 @@ fn preview_lines(
     width: usize,
 ) -> Vec<Line<'static>> {
     match preview {
-        Ok(text) if text.is_empty() => vec![Line::from(Span::styled(
-            "the exact org text appears here",
-            theme.muted(),
-        ))],
+        Ok(text) if text.is_empty() => vec![Line::default()],
         Ok(text) => text
             .lines()
             .map(|line| org_line(theme, colors, &truncate(line, width)))

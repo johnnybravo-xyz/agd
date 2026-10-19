@@ -31,7 +31,7 @@ fn x_checks_off_checklist_lines_and_the_cookie_counts_them() {
         key(&mut app, KeyCode::Up);
         key(&mut app, KeyCode::Char('x'));
         let screen = render(&mut app, 100, 30).join("\n");
-        assert!(screen.contains("Checklist  [X] book venue"), "{screen}");
+        assert!(screen.contains("Checklist   [X] book venue"), "{screen}");
         assert!(screen.contains("[ ] send invites"), "{screen}");
         assert!(screen.contains("+- [X] book venue"), "{screen}");
         assert!(
@@ -91,7 +91,7 @@ fn enter_edits_title_and_state_in_place_and_keeps_untouched_dates() {
         assert!(
             render(&mut app, 100, 30)
                 .join("\n")
-                .contains("State      TODO  H/L ←/→")
+                .contains("State       TODO  H/L ←/→")
         );
         key(&mut app, KeyCode::Char('L'));
 
@@ -199,8 +199,9 @@ fn typing_into_a_focused_edit_field_replaces_it_and_end_keeps_it() {
         // Beside the date as typed, how agd says it.
         assert!(screen.contains("fri▏  Fri 16 Oct"), "{screen}");
 
-        // Back on Title, End keeps the text and typing appends.
-        for _ in 0..2 {
+        // Back on Title, past Deadline and Description, End keeps the text
+        // and typing appends.
+        for _ in 0..3 {
             key(&mut app, KeyCode::Tab);
         }
         key(&mut app, KeyCode::End);
@@ -210,5 +211,46 @@ fn typing_into_a_focused_edit_field_replaces_it_and_end_keeps_it() {
         let screen = render(&mut app, 100, 30).join("\n");
         assert!(screen.contains("+* TODO Draft report v2"), "{screen}");
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    });
+}
+
+#[test]
+#[serial]
+fn the_description_is_edited_under_the_heading_and_s_return_adds_a_line() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(
+            &path,
+            "* TODO Plan the offsite\nSCHEDULED: <2026-10-13 Tue>\nNear the office.\n- [ ] book venue\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        open_edit(&mut app);
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("Description Near the office."), "{screen}");
+
+        // Past Title, State, Priority, Tags, Scheduled and Deadline.
+        for _ in 0..6 {
+            key(&mut app, KeyCode::Tab);
+        }
+        key(&mut app, KeyCode::End);
+        for character in " Budget fixed.".chars() {
+            key(&mut app, KeyCode::Char(character));
+        }
+        crate::tui::edit::handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT))
+            .unwrap();
+        for character in "Second line".chars() {
+            key(&mut app, KeyCode::Char(character));
+        }
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("+Second line"), "{screen}");
+
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "* TODO Plan the offsite\nSCHEDULED: <2026-10-13 Tue>\nNear the office. Budget fixed.\nSecond line\n- [ ] book venue\n"
+        );
     });
 }

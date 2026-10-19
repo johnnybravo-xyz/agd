@@ -431,6 +431,52 @@ fn cancel_uses_the_last_done_keyword_of_the_files_workflow() {
 
 #[test]
 #[serial]
+fn z_adds_a_timestamped_note_of_several_lines_without_changing_state() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(
+            &path,
+            "* TODO Review proposal\nSCHEDULED: <2026-10-13 Tue>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+
+        press(&mut app, KeyCode::Char('z'));
+        let Overlay::Prompt(prompt) = &app.overlay else {
+            panic!("z did not open a prompt");
+        };
+        assert_eq!(prompt.kind, PromptKind::LogNote);
+        type_keys(&mut app, "Waiting for legal");
+        // S-⏎ adds a line, as in capture.
+        crate::tui::keys::dispatch(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT))
+            .unwrap();
+        type_keys(&mut app, "Asked twice");
+        press(&mut app, KeyCode::Enter);
+
+        // Without log_into_drawer, Org writes the note under the heading.
+        let written = fs::read_to_string(path).unwrap();
+        assert!(
+            written.starts_with(
+                "* TODO Review proposal\nSCHEDULED: <2026-10-13 Tue>\n- Note taken on ["
+            ),
+            "{written}"
+        );
+        assert!(
+            written.ends_with("] \\\\\n  Waiting for legal\n  Asked twice\n"),
+            "{written}"
+        );
+        assert_eq!(
+            app.selected_row().unwrap().item.todo.as_deref(),
+            Some("TODO")
+        );
+    });
+}
+
+#[test]
+#[serial]
 fn today_folds_overdue_behind_a_more_row_with_missed_deadlines_first() {
     use crossterm::event::KeyCode;
     with_home(|root| {
@@ -1399,5 +1445,42 @@ fn todays_sections_count_what_is_left_to_do() {
         let open = in_schedule(&app, false);
         let screen = render(&mut app, 120, 40).join("\n");
         assert!(screen.contains(&format!("SCHEDULE  {open}")), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn peek_shows_the_description_under_the_title_and_the_newest_notes() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* TODO Plan the offsite\nSCHEDULED: <2026-10-13 Tue>\n:LOGBOOK:\n\
+- Note taken on [2026-10-12 Mon 09:00] \\\\\n  Asked for the form.\n\
+- State \"TODO\"       from              [2026-10-11 Sun 10:00]\n:END:\n\
+- Note taken on [2026-10-13 Tue 08:00] \\\\\n  Called the venue.\n\
+Near the office.\n- [ ] book venue\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char(' '));
+        let screen = render(&mut app, 100, 30);
+        let title = screen
+            .iter()
+            .position(|line| line.contains("Plan the offsite"))
+            .unwrap();
+        assert!(
+            screen[title + 2].contains("Near the office."),
+            "{screen:#?}"
+        );
+        let text = screen.join("\n");
+        assert_eq!(text.matches("Near the office.").count(), 1, "{text}");
+        assert!(text.contains("Logged     2 notes · 1 change"), "{text}");
+        // The newest note first, wherever Org logged it.
+        let newest = text.find("Called the venue.").unwrap();
+        assert!(newest < text.find("Asked").unwrap(), "{text}");
+        assert!(!text.contains("Note taken on"), "{text}");
+        assert!(text.contains("- [ ] book venue"), "{text}");
     });
 }

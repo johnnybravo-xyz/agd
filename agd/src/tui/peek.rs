@@ -45,11 +45,12 @@ pub(super) fn links(text: &str) -> Vec<(String, String)> {
     found
 }
 
-/// Body lines a reader cares about: no planning line, drawers or blank
-/// edges.
+/// Body lines a reader cares about: no planning line, drawers, log entries
+/// or blank edges.
 fn body_lines(text: &str) -> Vec<String> {
     let mut lines = Vec::new();
     let mut in_drawer = false;
+    let mut log_indent = None;
     for line in text.lines() {
         let trimmed = line.trim();
         if in_drawer {
@@ -58,6 +59,14 @@ fn body_lines(text: &str) -> Vec<String> {
         }
         if trimmed.starts_with(':') && trimmed.ends_with(':') && trimmed.len() > 2 {
             in_drawer = true;
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        if log_indent.is_some_and(|log| indent > log) && !trimmed.is_empty() {
+            continue;
+        }
+        log_indent = log_heading(trimmed).map(|_| indent);
+        if log_indent.is_some() {
             continue;
         }
         if ["SCHEDULED:", "DEADLINE:", "CLOSED:"]
@@ -114,21 +123,78 @@ pub(super) fn link_descriptions(line: &str) -> String {
     output
 }
 
-/// Notes and state changes recorded in the LOGBOOK.
-fn logged_entries(text: &str) -> usize {
-    let mut in_logbook = false;
-    let mut count = 0;
+/// Org's org-log-note-headings, as Org and agd write them.
+const LOG_HEADINGS: [&str; 8] = [
+    "Note taken on ",
+    "State ",
+    "CLOSING NOTE ",
+    "Rescheduled from ",
+    "Not scheduled, was ",
+    "New deadline from ",
+    "Removed deadline, was ",
+    "Refiled on ",
+];
+
+/// The heading of a log entry line, `- Note taken on [...] \\`.
+fn log_heading(trimmed: &str) -> Option<&str> {
+    let heading = trimmed.strip_prefix("- ")?;
+    LOG_HEADINGS
+        .iter()
+        .any(|start| heading.starts_with(start))
+        .then_some(heading)
+}
+
+/// One entry Org logged: a note, or a change such as a new state or date.
+struct Logged {
+    note: bool,
+    /// Its inactive timestamp, `2026-10-19 Mon 15:00`.
+    stamp: String,
+    /// A note's first line.
+    text: String,
+}
+
+/// What Org logged for an entry, in its LOGBOOK or, without
+/// log_into_drawer, at the top of its body, in file order.
+fn logged(text: &str) -> Vec<Logged> {
+    let mut entries: Vec<Logged> = Vec::new();
+    let mut log_indent = None;
     for line in text.lines() {
         let trimmed = line.trim();
-        if trimmed.eq_ignore_ascii_case(":LOGBOOK:") {
-            in_logbook = true;
-        } else if trimmed.eq_ignore_ascii_case(":END:") {
-            in_logbook = false;
-        } else if in_logbook && trimmed.starts_with("- ") {
-            count += 1;
+        let indent = line.len() - line.trim_start().len();
+        if log_indent.is_some_and(|log| indent > log) && !trimmed.is_empty() {
+            if let Some(entry) = entries.last_mut()
+                && entry.text.is_empty()
+            {
+                entry.text = trimmed.to_string();
+            }
+            continue;
         }
+        let Some(heading) = log_heading(trimmed) else {
+            log_indent = None;
+            continue;
+        };
+        log_indent = Some(indent);
+        let stamp = heading
+            .rfind('[')
+            .and_then(|start| heading[start + 1..].split_once(']'))
+            .map(|(stamp, _)| stamp.to_string())
+            .unwrap_or_default();
+        entries.push(Logged {
+            note: heading.starts_with("Note taken on "),
+            stamp,
+            text: String::new(),
+        });
     }
-    count
+    entries
+}
+
+/// `2026-10-19 Mon 15:00` as agd says when something happened: `15:00`
+/// today, else `Mon 19 Oct 15:00`.
+fn logged_when(stamp: &str, today: chrono::NaiveDate) -> String {
+    let mut parts = stamp.split(' ');
+    let date = parts.next().unwrap_or_default();
+    let time = parts.nth(1).unwrap_or("00:00");
+    crate::words::moment(&format!("{date} {time}"), today)
 }
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) {
@@ -208,8 +274,22 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
             ),
             theme.muted(),
         )),
-        Line::default(),
     ]);
+    // The description's first lines read under the title, and the body
+    // below leaves them out. A plain timestamp shows as When instead.
+    let description: Vec<String> = item
+        .description
+        .as_deref()
+        .unwrap_or_default()
+        .lines()
+        .map(|line| link_descriptions(line.trim()))
+        .filter(|line| !line.is_empty() && plain_timestamp(line).is_none())
+        .take(3)
+        .collect();
+    for line in &description {
+        lines.push(Line::from(Span::styled(line.clone(), theme.fg(theme.text))));
+    }
+    lines.push(Line::default());
     if let Some(todo) = &item.todo {
         lines.push(Line::from(vec![label("State"), Span::raw(todo.clone())]));
     }
@@ -235,7 +315,16 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
         lines.push(Line::from(spans));
     }
     // An entry's own plain timestamp says when it is, as the dates above.
-    let (whens, body): (Vec<String>, Vec<String>) = body_lines(&text)
+    let mut body_text = body_lines(&text);
+    for line in &description {
+        if let Some(index) = body_text.iter().position(|body| body == line) {
+            body_text.remove(index);
+        }
+    }
+    while body_text.first().is_some_and(String::is_empty) {
+        body_text.remove(0);
+    }
+    let (whens, body): (Vec<String>, Vec<String>) = body_text
         .into_iter()
         .partition(|line| plain_timestamp(line).is_some());
     for line in &whens {
@@ -279,11 +368,31 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
         }
         lines.push(Line::from(spans));
     }
-    let logged = logged_entries(&text);
-    if logged > 0 {
+    // Notes and other changes are counted apart; the newest notes show.
+    let logged = logged(&text);
+    let notes = logged.iter().filter(|entry| entry.note).count();
+    let changes = logged.len() - notes;
+    if !logged.is_empty() {
+        let counts: Vec<String> = [(notes, "note", "notes"), (changes, "change", "changes")]
+            .into_iter()
+            .filter(|(count, _, _)| *count > 0)
+            .map(|(count, one, many)| crate::words::counted(count, one, many))
+            .collect();
         lines.push(Line::from(vec![
             label("Logged"),
-            Span::raw(crate::words::counted(logged, "change", "changes")),
+            Span::raw(counts.join(" · ")),
+        ]));
+    }
+    let mut notes: Vec<&Logged> = logged.iter().filter(|entry| entry.note).collect();
+    notes.sort_by(|left, right| right.stamp.cmp(&left.stamp));
+    for (index, note) in notes.into_iter().take(3).enumerate() {
+        lines.push(Line::from(vec![
+            label(if index == 0 { "Notes" } else { "" }),
+            Span::styled(
+                format!("{}  ", logged_when(&note.stamp, app.today)),
+                theme.muted(),
+            ),
+            Span::raw(link_descriptions(&note.text)),
         ]));
     }
     if let Some(reason) = occurrence.as_ref().and_then(why_listed) {

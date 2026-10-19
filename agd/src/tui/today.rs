@@ -904,8 +904,9 @@ fn prompt_text(app: &App, kind: PromptKind) -> (&'static str, String) {
         PromptKind::Filter => ("Filter", "text or tag; empty clears".to_string()),
         PromptKind::Note => (
             "Note",
-            "one line, logged with the change; empty logs it alone".to_string(),
+            "logged with the change; empty logs it alone".to_string(),
         ),
+        PromptKind::LogNote => ("Note", "timestamped, without changing state".to_string()),
     }
 }
 
@@ -947,8 +948,20 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
     };
     let preview_rows = preview.len() as u16;
     let gap = u16::from(preview_rows > 0);
+    // A note's lines, the focused one with the cursor.
+    let input_lines: Vec<Line<'static>> = std::iter::once(&prompt.input)
+        .chain(&prompt.more)
+        .enumerate()
+        .map(|(index, input)| {
+            let marker = if index == 0 { "› " } else { "  " };
+            let mut spans = vec![Span::styled(marker, theme.strong(theme.accent))];
+            spans.extend(input.spans(theme, index == prompt.line));
+            Line::from(spans)
+        })
+        .collect();
+    let input_rows = 2 + input_lines.len() as u16;
     // border + top padding, input, preview, gap, hint, gap, footer, border
-    let height = 2 + 3 + preview_rows + gap + 1 + 1 + 1 + 1;
+    let height = 2 + input_rows + preview_rows + gap + 1 + 1 + 1 + 1;
     let popup = centered(area, area.width.saturating_sub(4).clamp(60, 84), height);
     frame.render_widget(Clear, popup);
     let block = theme.popup(title);
@@ -956,10 +969,10 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
     frame.render_widget(block, popup);
     let parts = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([3, preview_rows, gap, 1, 1, 1].map(Constraint::Length))
+        .constraints([input_rows, preview_rows, gap, 1, 1, 1].map(Constraint::Length))
         .split(inner);
     frame.render_widget(
-        Paragraph::new(input_line(theme, &prompt.input)).block(theme.input(true)),
+        Paragraph::new(input_lines).block(theme.input(true)),
         parts[0],
     );
     frame.render_widget(Paragraph::new(preview), parts[1]);
@@ -968,6 +981,11 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
         Paragraph::new(Line::from(
             [
                 theme.key_hint(popup_key(Action::Save), "apply"),
+                if prompt.multiline() {
+                    theme.key_hint(popup_key(Action::AddItem), "new line")
+                } else {
+                    Vec::new()
+                },
                 theme.key_hint(popup_key(Action::Back), "cancel"),
             ]
             .concat(),

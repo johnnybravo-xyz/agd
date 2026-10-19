@@ -172,6 +172,14 @@ a priority. Date forms include `today`, `tomorrow`, weekdays, `+3d`, `+2w`,
 before text beginning with `-`; use `--body TEXT` for `%i` and
 `--prompt KEY=VALUE` for template prompts.
 
+In the TUI capture popup, the optional Description panel stays collapsed until
+`S-Enter` from the task line reveals and focuses it. Paste a paragraph there to
+preserve all of its lines and blank lines. `S-Enter` adds a description line
+manually; `Tab` opens the first sub-task, and subsequent `S-Enter` presses add
+sub-tasks. The description is plain text written under the heading, where Org
+keeps an entry's notes, so Emacs and Neovim show it as it is. `C-o` moves it,
+with the sub-tasks, into `$EDITOR`.
+
 `--dry-run` prints the exact proposed change and creates nothing. Normal
 terminal output is a concise summary; piped output is the new heading's stable
 ref. `agd undo` reverses the latest CLI change when the written bytes are still
@@ -197,14 +205,20 @@ Common keys:
 | Preview / edit / open in editor | `SPC` / `Enter` `e` / `C-e` |
 | Advance state / done / cancel | `t` / `x` / `X` |
 | Schedule / deadline | `s` / `d` |
+| Add a timestamped note | `z` |
 | Capture / Triage / saved views | `c` / `T` / `a` |
 | Mark / mark all / unmark / bulk | `m` / `*` / `U` / `B` |
 | Reload / undo / contextual help | `r` `g` / `u` / `?` |
 
 The complete generated reference is [KEYS.md](KEYS.md). Entry and capture
-popups preview exact Org diffs before saving. `C-o` opens `$EDITOR` from a text
-field; `C-e` opens it from list screens. Configure an argument array, not a
-shell command:
+popups preview exact Org diffs before saving. In the edit popup, Description
+changes the plain text under the heading. On a task, in Triage too, `z` records
+a timestamped note without changing TODO state, as Org's `C-c C-z` does: in the
+`LOGBOOK` with `log_into_drawer = true`, else under the heading. `S-Enter` adds
+a line to a note. Peek (`SPC`) shows the description under the title and the
+three newest notes. `C-o` opens
+`$EDITOR` from a text field; `C-e` opens it from list screens. Configure an
+argument array, not a shell command:
 
 ```toml
 editor = ["emacsclient", "-n", "+{line}:{col}", "{file}"]
@@ -346,6 +360,11 @@ agent_inbox = "t"
 
 Agent captures then use template `t` with requested schedules and deadlines
 removed; the tool result reports that behavior.
+
+MCP items carry a `description`: the first plain text under the heading.
+`edit` changes it; an empty one removes it, and a list, drawer, table or `#+`
+line in it is refused. `capture` writes one through `body`. `edit.note` adds a
+timestamped note, which may span lines, without changing TODO state.
 
 ## Import reference
 
