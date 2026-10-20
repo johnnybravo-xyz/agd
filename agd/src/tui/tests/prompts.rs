@@ -148,6 +148,9 @@ fn a_state_that_logs_a_note_asks_for_it_before_writing() {
         assert!(screen.contains("waiting on legal"), "{screen}");
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
 
+        // A note's ⏎ adds a line; ⏎ on the empty one applies.
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
         press(&mut app, KeyCode::Enter);
         let written = fs::read_to_string(&path).unwrap();
         assert!(written.contains("* WAIT Vendor contract"), "{written}");

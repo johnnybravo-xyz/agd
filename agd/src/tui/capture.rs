@@ -95,6 +95,28 @@ impl Draft {
         (1..=self.description.len()).contains(&self.field)
     }
 
+    fn item_focused(&self) -> bool {
+        let descriptions = self.description.len();
+        (descriptions + 1..=descriptions + self.items.len()).contains(&self.field)
+    }
+
+    /// ⏎ after the lines: the next prompt to ask, else the capture is
+    /// written. Without a task there is nothing to write, so the task line
+    /// gets focus.
+    fn finish(mut self, app: &mut App) -> Result<Option<Self>> {
+        if self.input.text().trim().is_empty() {
+            self.field = 0;
+            return Ok(Some(self));
+        }
+        match self.next_prompt(app) {
+            Some(field) => {
+                self.field = field;
+                Ok(Some(self))
+            }
+            None => commit(app, self).map(|()| None),
+        }
+    }
+
     /// The field number of the prompt at `index`.
     fn prompt_field(&self, index: usize) -> usize {
         1 + self.description.len() + self.items.len() + index
@@ -335,6 +357,34 @@ pub(super) fn apply_key(app: &mut App, key: KeyEvent) -> Result<()> {
         {
             draft.items.remove(draft.field - descriptions - 1);
             draft.field -= 1;
+        }
+        // On a description or sub-task line ⏎ adds the next line, and on an
+        // empty one drops it and finishes, as ⏎ on the task line does.
+        _ if action == Some(Action::Save)
+            && (draft.description_focused() || draft.item_focused()) =>
+        {
+            let empty = draft.current().text().is_empty();
+            if !empty && draft.description_focused() {
+                draft.description.insert(draft.field, TextInput::default());
+                draft.field += 1;
+            } else if !empty {
+                draft
+                    .items
+                    .insert(draft.field - descriptions, TextInput::default());
+                draft.field += 1;
+            } else {
+                if draft.item_focused() {
+                    draft.items.remove(draft.field - descriptions - 1);
+                    draft.field -= 1;
+                } else if descriptions > 1 {
+                    draft.description.remove(draft.field - 1);
+                    draft.field -= 1;
+                }
+                match draft.finish(app)? {
+                    Some(open) => draft = open,
+                    None => return Ok(()),
+                }
+            }
         }
         // Tab from the description opens the first sub-task line.
         _ if action == Some(Action::NextField) && draft.description_focused() => {
@@ -597,7 +647,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             let mut spans = line.spans(theme, focused);
             if line.text().is_empty() {
                 let hint = if index == 0 {
-                    "S-⏎ for multiline · tab for sub-tasks"
+                    "⏎ for multiline · tab for sub-tasks"
                 } else {
                     "⌫ removes this line"
                 };
@@ -711,18 +761,26 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             .block(theme.inset()),
         parts[next + 3],
     );
-    let add_label = if draft.field == 0 {
-        "description"
-    } else if draft.description_focused() {
-        "new line"
+    // On a line of several, ⏎ adds a line and ⏎ on an empty one saves.
+    let lines = draft.description_focused() || draft.item_focused();
+    let save = key(Action::Save);
+    let enter = if lines {
+        [
+            theme.key_hint(save, "new line"),
+            theme.key_hint(&format!("{save}{save}"), "save"),
+        ]
+        .concat()
     } else {
-        "sub-task"
+        [
+            theme.key_hint(save, "save"),
+            theme.key_hint(key(Action::AddItem), "description"),
+        ]
+        .concat()
     };
     frame.render_widget(
         Paragraph::new(Line::from(
             [
-                theme.key_hint(key(Action::Save), "save"),
-                theme.key_hint(key(Action::AddItem), add_label),
+                enter,
                 theme.key_hint(key(Action::Editor), "body in $EDITOR"),
                 theme.key_hint(key(Action::Back), "cancel"),
             ]

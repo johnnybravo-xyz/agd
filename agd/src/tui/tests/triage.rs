@@ -299,7 +299,11 @@ fn in_triage_q_quits_esc_goes_back_and_tab_switches_tabs() {
         let opened = crate::tui::keys::dispatch(&mut app, control_e).unwrap();
         assert_eq!(opened, Some((card.file, card.line)));
 
-        // On a card and on the finished pass, q quits.
+        // On a card, the pass would be lost: q asks, and q again quits.
+        press(&mut app, KeyCode::Char('q'));
+        assert!(!app.quit);
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert_eq!(status, "q again to quit, dropping this Triage pass");
         press(&mut app, KeyCode::Char('q'));
         assert!(app.quit);
         app.quit = false;

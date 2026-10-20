@@ -984,16 +984,22 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
     frame.render_widget(Paragraph::new(Span::styled(hint, theme.muted())), parts[3]);
     frame.render_widget(
         Paragraph::new(Line::from(
-            [
-                theme.key_hint(popup_key(Action::Save), "apply"),
-                if prompt.multiline() {
-                    theme.key_hint(popup_key(Action::AddItem), "new line")
-                } else {
-                    Vec::new()
-                },
-                theme.key_hint(popup_key(Action::Back), "cancel"),
-            ]
-            .concat(),
+            // A note's ⏎ adds a line, and ⏎ on an empty one applies.
+            if prompt.multiline() {
+                let save = popup_key(Action::Save);
+                [
+                    theme.key_hint(save, "new line"),
+                    theme.key_hint(&format!("{save}{save}"), "apply"),
+                    theme.key_hint(popup_key(Action::Back), "cancel"),
+                ]
+                .concat()
+            } else {
+                [
+                    theme.key_hint(popup_key(Action::Save), "apply"),
+                    theme.key_hint(popup_key(Action::Back), "cancel"),
+                ]
+                .concat()
+            },
         )),
         parts[5],
     );

@@ -51,7 +51,7 @@ Navigation: j/k move like n/p everywhere; C-n/C-p or C-j/C-k move in pickers.
 - `+`: raise priority (org-agenda `+`)
 - `-`: lower priority (org-agenda `-`)
 - `:`: add or remove tags (org-agenda `:`)
-- `z`: timestamped note in LOGBOOK (org-agenda `z`)
+- `z`: a timestamped note (org-agenda `z`)
 - `S`: someday: tag it, drop the date
 - `R` `C-c C-w`: refile under another heading (org-agenda `C-c C-w`)
 - `u`: undo the last write (org-agenda `C-_`)
@@ -96,7 +96,7 @@ Navigation: j/k move like n/p everywhere; C-n/C-p or C-j/C-k move in pickers.
 - `S`: someday: tag it, drop the date
 - `X`: cancel: the file's last done state
 - `R` `C-c C-w`: refile under another heading (org-agenda `C-c C-w`)
-- `z`: timestamped note in LOGBOOK (org-agenda `z`)
+- `z`: a timestamped note (org-agenda `z`)
 - `u`: undo a step; at the end, the whole pass (org-agenda `C-_`)
 
 ### Cards
@@ -147,7 +147,7 @@ As on Today · Week · Inbox · views.
 - `p` `k` `↑`: previous row
 - `x`: mark done
 - `X`: cancel
-- `z`: timestamped note in LOGBOOK (org-agenda `z`)
+- `z`: a timestamped note (org-agenda `z`)
 - `u`: undo the last write
 - `c`: capture a task
 - `C-e`: open the heading in $EDITOR
@@ -168,7 +168,7 @@ As on Today · Week · Inbox · views.
 ### Type
 
 - `S-⏎` `M-⏎`: a new description, checklist or note line
-- `⏎`: save what the preview shows
+- `⏎`: save; in lines of text, a new line
 - `x` `SPC`: check or uncheck a checklist line
 - `H` `←`: previous State or Priority choice
 - `L` `→`: next State or Priority choice

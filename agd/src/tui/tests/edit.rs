@@ -247,6 +247,12 @@ fn the_description_is_edited_under_the_heading_and_s_return_adds_a_line() {
         let screen = render(&mut app, 100, 30).join("\n");
         assert!(screen.contains("+Second line"), "{screen}");
 
+        // ⏎ adds a line, and ⏎ on that empty line saves without it.
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap().matches("Second").count(),
+            0
+        );
         key(&mut app, KeyCode::Enter);
         assert_eq!(
             fs::read_to_string(&path).unwrap(),

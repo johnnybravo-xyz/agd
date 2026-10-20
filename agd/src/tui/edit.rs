@@ -344,6 +344,24 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<keys::EditorTar
     match keys::popup_action(key) {
         Some(Action::Editor) => return Ok(Some((form.file, form.line))),
         Some(Action::Back) => return Ok(None),
+        // On a description line ⏎ adds the next line; on an empty one it
+        // drops it and saves, as ⏎ elsewhere does.
+        Some(Action::Save) if form.description_line(form.field).is_some() => {
+            let line = form.description_line(form.field).unwrap_or_default();
+            if !form.description[line].text().is_empty() {
+                form.description.insert(line + 1, TextInput::default());
+                form.field += 1;
+            } else {
+                if form.description.len() > 1 {
+                    form.description.remove(line);
+                    form.field -= 1;
+                }
+                if !form.unchanged() {
+                    commit(app, form)?;
+                }
+                return Ok(None);
+            }
+        }
         Some(Action::Save) => {
             if !form.unchanged() {
                 commit(app, form)?;
@@ -588,7 +606,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         } else {
             spans.extend(line.spans(theme, focused));
             if focused && line.text().is_empty() {
-                let key = keys::key_label(keys::POPUP_KEYS, Action::AddItem);
+                let key = keys::key_label(keys::POPUP_KEYS, Action::Save);
                 spans.push(Span::styled(format!("{key} new line"), theme.muted()));
             }
         }
@@ -641,6 +659,16 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
             [
                 theme.key_hint(key(Action::Done), "check"),
                 theme.key_hint(key(Action::Save), "save"),
+                theme.key_hint(key(Action::NextField), "next field"),
+                theme.key_hint(key(Action::Back), "cancel"),
+            ]
+            .concat()
+        } else if form.description_line(form.field).is_some() {
+            // On a description line, ⏎ adds a line and ⏎ on an empty one saves.
+            let save = key(Action::Save);
+            [
+                theme.key_hint(save, "new line"),
+                theme.key_hint(&format!("{save}{save}"), "save"),
                 theme.key_hint(key(Action::NextField), "next field"),
                 theme.key_hint(key(Action::Back), "cancel"),
             ]

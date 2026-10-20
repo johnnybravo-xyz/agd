@@ -85,7 +85,7 @@ fn shift_return_opens_multiline_description_and_tab_opens_sub_tasks() {
         assert_eq!(buffer[(description_x, description_y + 2)].symbol(), "╰");
         let focused = render(&mut app, 100, 34).join("\n");
         assert!(focused.contains("tab sub-tasks"), "{focused}");
-        assert!(focused.contains("S-⏎ new line"), "{focused}");
+        assert!(focused.contains("⏎ new line   ⏎⏎ save"), "{focused}");
 
         // S-Enter stays in DESCRIPTION and adds another physical line.
         press(&mut app, KeyCode::Enter, KeyModifiers::SHIFT);
@@ -104,8 +104,15 @@ fn shift_return_opens_multiline_description_and_tab_opens_sub_tasks() {
         assert!(screen.contains("Keep it near transit"), "{screen}");
         assert!(screen.contains("Budget is fixed"), "{screen}");
         assert!(screen.contains("- [ ] book venue"), "{screen}");
-        assert!(screen.contains("S-⏎ sub-task"), "{screen}");
+        assert!(screen.contains("⏎ new line   ⏎⏎ save"), "{screen}");
 
+        // On the last sub-task ⏎ adds one; ⏎ on that empty one saves.
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert!(
+            !fs::read_to_string(root.join("inbox.org"))
+                .unwrap()
+                .contains("offsite")
+        );
         press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
         let text = fs::read_to_string(root.join("inbox.org")).unwrap();
         assert!(text.contains("** TODO Plan the offsite\n"), "{text}");
@@ -156,7 +163,10 @@ That's also when to add the asn: and invoice-field checks to the smoke test.";
         assert!(screen.contains("- versions.env"), "{screen}");
         assert!(screen.contains("That's also when"), "{screen}");
 
-        crate::tui::capture::apply_key(&mut app, KeyEvent::from(KeyCode::Enter)).unwrap();
+        // ⏎ on the last pasted line adds one; ⏎ on that empty line saves.
+        for _ in 0..2 {
+            crate::tui::capture::apply_key(&mut app, KeyEvent::from(KeyCode::Enter)).unwrap();
+        }
         let text = fs::read_to_string(root.join("inbox.org")).unwrap();
         assert!(text.ends_with(&format!("{DESCRIPTION}\n")), "{text}");
     });

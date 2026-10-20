@@ -33,6 +33,12 @@ This file records user-visible changes to the `agd` executable. It follows
 
 ### Changed
 
+- Enter continues, and a blank Enter finishes: on a description, sub-task or
+  note line Enter adds the next line, and Enter on an empty line saves. One-line
+  fields save on Enter as before, and `S-Enter` always adds a line.
+- `q` quits at once only when nothing would be lost; with marked rows, a
+  filter or a Triage pass under way, and always in the pane, it asks for a
+  second `q`.
 - `agd setup install` now installs agent support once at user scope. The
   `agenda` skill goes to `~/.agents/skills`, which Codex, OpenCode, Pi,
   oh-my-pi, and Gemini CLI can share. Named `codex`, `opencode`, `pi`, and `omp`

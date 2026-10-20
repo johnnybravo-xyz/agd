@@ -182,9 +182,15 @@ prompts, `agd capture` (on stderr) and MCP `capture` and `plan` results (in
 
 In the TUI capture popup, the optional Description panel stays collapsed until
 `S-Enter` from the task line reveals and focuses it. Paste a paragraph there to
-preserve all of its lines and blank lines. `S-Enter` adds a description line
-manually; `Tab` opens the first sub-task, and subsequent `S-Enter` presses add
-sub-tasks. The description is plain text written under the heading, where Org
+preserve all of its lines and blank lines. `Tab` opens the first sub-task.
+
+Enter continues, and a blank Enter finishes. On the task line and in one-line
+fields, Enter saves, or moves to a template prompt still unanswered. On a
+description, sub-task or note line, Enter adds the next line, and Enter on an
+empty line drops it and saves; the footer shows it as `⏎ new line ⏎⏎ save`.
+`S-Enter` always adds a line, so it also types a blank line between paragraphs.
+
+The description is plain text written under the heading, where Org
 keeps an entry's notes, so Emacs and Neovim show it as it is. `C-o` moves it,
 with the sub-tasks, into `$EDITOR`.
 
@@ -217,13 +223,14 @@ Common keys:
 | Capture / Triage / saved views | `c` / `T` / `a` |
 | Mark / mark all / unmark / bulk | `m` / `*` / `U` / `B` |
 | Reload / undo / contextual help | `r` `g` / `u` / `?` |
+| Quit | `q`; it asks first when marks, a filter, a Triage pass or the pane would be lost |
 
 The complete generated reference is [KEYS.md](KEYS.md). Entry and capture
 popups preview exact Org diffs before saving. In the edit popup, Description
 changes the plain text under the heading. On a task, in Triage too, `z` records
 a timestamped note without changing TODO state, as Org's `C-c C-z` does: in the
-`LOGBOOK` with `log_into_drawer = true`, else under the heading. `S-Enter` adds
-a line to a note. Peek (`SPC`) shows the description under the title and the
+`LOGBOOK` with `log_into_drawer = true`, else under the heading. A note takes
+several lines, by the same Enter rule. Peek (`SPC`) shows the description under the title and the
 three newest notes. `C-o` opens
 `$EDITOR` from a text field; `C-e` opens it from list screens. Configure an
 argument array, not a shell command:

@@ -282,6 +282,9 @@ struct App {
     /// When `C-c` started a chord in the lists or Triage: `C-w` next
     /// refiles, as in Org; `C-c` again, or a second without a key, quits.
     chord: Option<Instant>,
+    /// The last key was a `q` that asked before quitting; another `q`
+    /// quits, and any other key lets it go.
+    quit_asked: bool,
     quit: bool,
 }
 
@@ -325,8 +328,40 @@ impl App {
             triage: TriageState::default(),
             agent_filter: None,
             chord: None,
+            quit_asked: false,
             quit: false,
         }
+    }
+
+    /// `q`: quits at once when nothing would be lost, as org-agenda's `q`
+    /// does. With marked rows, a filter or a Triage pass under way, or in
+    /// the pane, whose split it closes, the first `q` asks and a second
+    /// quits.
+    pub(super) fn quit_or_ask(&mut self, asked: bool) {
+        let mut lost = Vec::new();
+        if !self.marks.is_empty() {
+            lost.push(crate::words::counted(
+                self.marks.len(),
+                "marked row",
+                "marked rows",
+            ));
+        }
+        if !self.filter.is_empty() {
+            lost.push("the filter".to_string());
+        }
+        if self.screen == Screen::Triage && self.triage.position < self.triage.queue.len() {
+            lost.push("this Triage pass".to_string());
+        }
+        if asked || (lost.is_empty() && !self.pane) {
+            self.quit = true;
+            return;
+        }
+        self.quit_asked = true;
+        self.set_status(if lost.is_empty() {
+            "q again to close the pane".to_string()
+        } else {
+            format!("q again to quit, dropping {}", lost.join(", "))
+        });
     }
 
     /// Leaves the pane for the full view, or says why it cannot: under

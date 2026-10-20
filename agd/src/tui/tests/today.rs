@@ -456,6 +456,8 @@ fn z_adds_a_timestamped_note_of_several_lines_without_changing_state() {
         crate::tui::keys::dispatch(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT))
             .unwrap();
         type_keys(&mut app, "Asked twice");
+        // ⏎ adds a line, and ⏎ on that empty line applies.
+        press(&mut app, KeyCode::Enter);
         press(&mut app, KeyCode::Enter);
 
         // Without log_into_drawer, Org writes the note under the heading.
@@ -1509,5 +1511,44 @@ fn the_deadline_prompt_hints_a_deadline_before_the_scheduled_date() {
         );
         // A past deadline came from no weekday word: nothing to type instead.
         assert!(!screen.contains(" for "), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn q_quits_at_once_unless_something_would_be_lost() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(root.join("work.org"), THREE_TODAY).unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('q'));
+        assert!(app.quit);
+
+        // A marked row would be lost: q asks, another key lets it go.
+        app.quit = false;
+        press(&mut app, KeyCode::Char('m'));
+        press(&mut app, KeyCode::Char('q'));
+        assert!(!app.quit);
+        let status = app.status.as_ref().unwrap().text.clone();
+        assert_eq!(status, "q again to quit, dropping 1 marked row");
+        press(&mut app, KeyCode::Char('k'));
+        press(&mut app, KeyCode::Char('q'));
+        assert!(!app.quit);
+        press(&mut app, KeyCode::Char('q'));
+        assert!(app.quit);
+
+        // Quitting the pane closes its split, so it always asks.
+        let mut app = test_app(root);
+        app.pane = true;
+        app.reload_rows().unwrap();
+        press(&mut app, KeyCode::Char('q'));
+        assert!(!app.quit);
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "q again to close the pane"
+        );
+        press(&mut app, KeyCode::Char('q'));
+        assert!(app.quit);
     });
 }

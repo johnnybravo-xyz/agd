@@ -250,7 +250,7 @@ const CHANGE: KeyGroup = KeyGroup {
         bind("+", &[Char('+')], A::PriorityUp, "priority", "raise priority", "+"),
         bind("-", &[Char('-')], A::PriorityDown, "priority", "lower priority", "-"),
         bind(":", &[Char(':')], A::Tags, "tags", "add or remove tags", ":"),
-        bind("z", &[Char('z')], A::Note, "note", "timestamped note in LOGBOOK", "z"),
+        bind("z", &[Char('z')], A::Note, "note", "a timestamped note", "z"),
         bind("S", &[Char('S')], A::Someday, "someday", "someday: tag it, drop the date", ""),
         // C-c C-w is a chord, which `chord_key` handles.
         bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", "C-c C-w"),
@@ -296,7 +296,7 @@ pub(super) const TRIAGE_KEYS: &[KeyGroup] = &[
             bind("S", &[Char('S')], A::Someday, "someday", "someday: tag it, drop the date", ""),
             bind("X", &[Char('X')], A::Cancel, "cancel", "cancel: the file's last done state", ""),
             bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", "C-c C-w"),
-            bind("z", &[Char('z')], A::Note, "note", "timestamped note in LOGBOOK", "z"),
+            bind("z", &[Char('z')], A::Note, "note", "a timestamped note", "z"),
             bind("u", &[Char('u')], A::Undo, "undo", "undo a step; at the end, the whole pass", "C-_"),
         ],
     },
@@ -360,7 +360,7 @@ pub(super) const PANE_KEYS: &[KeyGroup] = &[KeyGroup {
         bind("p k ↑", &[Char('p'), Char('k'), Code(KeyCode::Up)], A::Previous, "previous", "previous row", ""),
         bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
         bind("X", &[Char('X')], A::Cancel, "cancel", "cancel", ""),
-        bind("z", &[Char('z')], A::Note, "note", "timestamped note in LOGBOOK", "z"),
+        bind("z", &[Char('z')], A::Note, "note", "a timestamped note", "z"),
         bind("u", &[Char('u')], A::Undo, "undo", "undo the last write", ""),
         bind("c", &[Char('c')], A::Capture, "capture", "capture a task", ""),
         bind("C-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", ""),
@@ -406,7 +406,7 @@ pub(super) const POPUP_KEYS: &[KeyGroup] = &[KeyGroup {
     title: "Type",
     bindings: &[
         bind("S-⏎ M-⏎", &[Meta(KeyCode::Enter), Shift(KeyCode::Enter)], A::AddItem, "new line", "a new description, checklist or note line", ""),
-        bind("⏎", &[Code(KeyCode::Enter)], A::Save, "save", "save what the preview shows", ""),
+        bind("⏎", &[Code(KeyCode::Enter)], A::Save, "save", "save; in lines of text, a new line", ""),
         bind("x SPC", &[Char('x'), Char(' ')], A::Done, "check", "check or uncheck a checklist line", ""),
         bind("H ←", &[Char('H'), Code(KeyCode::Left)], A::PreviousChoice, "previous", "previous State or Priority choice", ""),
         bind("L →", &[Char('L'), Code(KeyCode::Right)], A::NextChoice, "next", "next State or Priority choice", ""),
@@ -678,7 +678,20 @@ fn is_quit_key(key: KeyEvent) -> bool {
 /// Every key outside the capture popup, without a terminal, so tests can
 /// press keys; returns where to open $EDITOR when the key asks for it.
 pub(super) fn dispatch(app: &mut App, key: KeyEvent) -> Result<EditorTarget> {
-    if key.kind == KeyEventKind::Release || chord_key(app, key) {
+    if key.kind == KeyEventKind::Release {
+        return Ok(None);
+    }
+    // A `q` that asked holds for the next key only.
+    let asked = std::mem::take(&mut app.quit_asked);
+    let quit_key = [&[GO][..], PANE_KEYS]
+        .iter()
+        .any(|groups| action_for(groups, key) == Some(A::Quit));
+    if quit_key && matches!(app.overlay, Overlay::None) {
+        app.chord = None;
+        app.quit_or_ask(asked);
+        return Ok(None);
+    }
+    if chord_key(app, key) {
         return Ok(None);
     }
     match &app.overlay {
@@ -798,7 +811,6 @@ fn run_go(app: &mut App, action: Action) -> Result<bool> {
         A::Triage if app.screen != Screen::Triage => app.start_triage()?,
         A::Agents if app.screen != Screen::Review => app.switch_screen(Screen::Review)?,
         A::Triage | A::Agents => {}
-        A::Quit => app.quit = true,
         _ => return Ok(false),
     }
     Ok(true)
@@ -1109,7 +1121,6 @@ fn run_pane(app: &mut App, action: Action) -> Result<EditorTarget> {
             app.leave_pane()?;
         }
         A::Help => app.overlay = Overlay::Help(help::Palette::default()),
-        A::Quit => app.quit = true,
         _ => {}
     }
     Ok(None)
@@ -1180,8 +1191,17 @@ fn prompt_key(app: &mut App, key: KeyEvent) -> Result<()> {
     // picker keys move between them.
     if prompt.multiline() {
         let line = prompt.line;
+        let empty = prompt.focused().text().is_empty();
         match popup_action(key) {
-            Some(A::AddItem) => {
+            // ⏎ adds the next line; on an empty one it drops it and applies.
+            Some(A::Save) if empty => {
+                if line > 0 {
+                    prompt.more.remove(line - 1);
+                    prompt.line -= 1;
+                }
+                return app.commit_prompt();
+            }
+            Some(A::Save | A::AddItem) => {
                 prompt.more.insert(line, TextInput::default());
                 prompt.line += 1;
                 prompt.stale = true;
