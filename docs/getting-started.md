@@ -257,6 +257,36 @@ and editor actions. Narrow terminals select it automatically; at 60 columns or
 wider it can open Triage and the full view. `herdr` can run `agd --pane` in the
 same way. The TUI and pane watch source files for external edits.
 
+### VS Code
+
+The integrated terminal runs `agd`, the pane, and `agd capture -i`. To open
+headings in VS Code with `C-e`, set:
+
+```toml
+editor = ["code", "-g", "{file}:{line}:{col}"]
+```
+
+`code` returns at once and the TUI picks up your saves as you make them. To
+open agd as an editor tab, add a terminal profile to your settings
+(`terminal.integrated.profiles.linux` on Linux) and bind keys to it:
+
+```jsonc
+// settings.json
+"terminal.integrated.profiles.osx": {
+  "agd": { "path": "agd" },
+  "agd capture": { "path": "agd", "args": ["capture", "-i"] }
+}
+
+// keybindings.json
+{ "key": "ctrl+alt+a", "command": "workbench.action.terminal.newWithProfile",
+  "args": { "profileName": "agd", "location": "editor" } },
+{ "key": "ctrl+alt+c", "command": "workbench.action.terminal.newWithProfile",
+  "args": { "profileName": "agd capture", "location": "editor" } }
+```
+
+For agents in VS Code, see [Claude Code](#claude-code-terminal-desktop-local-sessions-and-vs-code)
+and [GitHub Copilot](#github-copilot-in-vs-code-and-the-copilot-cli).
+
 ## Connect coding agents and desktop clients
 
 All integrations run the local `agd mcp` stdio server. The server can reach only
@@ -272,8 +302,8 @@ agd setup install --dry-run --detected
 agd setup install --detected
 ```
 
-Detection is filesystem-only. It recognizes Codex, OpenCode, Pi, and oh-my-pi
-config directories; it does not launch clients, read private config contents,
+Detection is filesystem-only. It recognizes Codex, OpenCode, Pi, oh-my-pi, and
+Copilot config directories; it does not launch clients, read private config contents,
 or use the network. Name a newly installed client explicitly if its directory
 does not exist yet. Positional names and `--detected` may be combined.
 
@@ -310,6 +340,20 @@ desktop local sessions, and its VS Code integration. It provides the MCP tools,
 the `agenda` skill, `/agd`, `/capture`, and a status band. Claude Code 2.1.296
 or later is required. Claude Desktop chat is a different client; configure it
 as a generic MCP client below.
+
+### GitHub Copilot in VS Code and the Copilot CLI
+
+```bash
+agd setup install copilot
+```
+
+This adds agd to `~/.copilot/mcp-config.json`, or `$COPILOT_HOME/mcp-config.json`,
+the Copilot CLI's file. VS Code's chat discovers it by default
+(`chat.mcp.discovery.enabled`), so one entry serves both; VS Code also reads the
+`agenda` skill from `~/.agents/skills`. Start a new chat session, then check
+**MCP: List Servers**. The Copilot CLI passes only `PATH` from your environment,
+so a config under a custom `$XDG_CONFIG_HOME` is not found; use the default
+location or add the variable to the entry's `env`.
 
 ### Paseo
 

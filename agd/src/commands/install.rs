@@ -1,9 +1,11 @@
-//! `agd setup install [--detected] [codex] [opencode] [pi] [omp]`: installs
-//! agd for coding agents, user-wide. The `agenda` skill goes to
+//! `agd setup install [--detected] [codex] [opencode] [pi] [omp] [copilot]`:
+//! installs agd for coding agents, user-wide. The `agenda` skill goes to
 //! `~/.agents/skills`, the Agent Skills location that Codex, OpenCode, Pi,
-//! oh-my-pi and Gemini CLI all read; each named or detected harness also gets
-//! agd's MCP server in its user config. Pi and oh-my-pi also get `/capture`
-//! from agd's Pi extension. Claude Code uses agd's plugin, while Paseo reuses
+//! oh-my-pi, Gemini CLI and VS Code all read; each named or detected harness
+//! also gets agd's MCP server in its user config. Pi and oh-my-pi also get
+//! `/capture` from agd's Pi extension. Copilot's file is the Copilot CLI's,
+//! which VS Code's chat discovers by default, so one entry serves both.
+//! Claude Code uses agd's plugin, while Paseo reuses
 //! the setup of the provider it launches. Each person-owned config file is
 //! edited, not rewritten: Codex's TOML through toml_edit (comments and order
 //! survive), the JSON configs with their keys in their order. An existing agd
@@ -55,6 +57,8 @@ enum Harness {
     Pi,
     /// oh-my-pi: ~/.omp/agent/mcp.json and the /capture extension
     Omp,
+    /// GitHub Copilot in VS Code and the Copilot CLI: ~/.copilot/mcp-config.json, or under $COPILOT_HOME
+    Copilot,
 }
 
 /// Where the user-wide files live, read from the environment once so tests
@@ -70,6 +74,8 @@ struct Places {
     pi_extension: PathBuf,
     omp: PathBuf,
     omp_extension: PathBuf,
+    /// The Copilot CLI's file, which VS Code also discovers by default.
+    copilot: PathBuf,
 }
 
 impl Places {
@@ -78,6 +84,7 @@ impl Places {
         codex_home: Option<PathBuf>,
         xdg_config_home: Option<PathBuf>,
         pi_agent_dir: Option<PathBuf>,
+        copilot_home: Option<PathBuf>,
     ) -> Self {
         let pi = pi_agent_dir.unwrap_or_else(|| home.join(".pi/agent"));
         Self {
@@ -92,6 +99,9 @@ impl Places {
             pi_extension: pi.join("extensions/agd.ts"),
             omp: home.join(".omp/agent/mcp.json"),
             omp_extension: home.join(".omp/agent/extensions/agd.ts"),
+            copilot: copilot_home
+                .unwrap_or_else(|| home.join(".copilot"))
+                .join("mcp-config.json"),
         }
     }
 
@@ -103,6 +113,7 @@ impl Places {
             absolute_variable("CODEX_HOME"),
             absolute_variable("XDG_CONFIG_HOME"),
             absolute_variable("PI_CODING_AGENT_DIR"),
+            absolute_variable("COPILOT_HOME"),
         ))
     }
 }
@@ -124,6 +135,9 @@ fn detected_harnesses(places: &Places) -> Vec<Harness> {
     }
     if file_or_parent_exists(&places.omp) {
         harnesses.push(Harness::Omp);
+    }
+    if file_or_parent_exists(&places.copilot) {
+        harnesses.push(Harness::Copilot);
     }
     harnesses
 }
@@ -166,7 +180,7 @@ fn install_selected(
         selected.extend(detected_harnesses(places));
         if selected.is_empty() {
             bail!(
-                "no supported agent config directories found; pass one or more of: codex, opencode, pi, omp"
+                "no supported agent config directories found; pass one or more of: codex, opencode, pi, omp, copilot"
             );
         }
     }
@@ -186,7 +200,7 @@ fn install(places: &Places, harnesses: &[Harness], dry_run: bool) -> Result<Vec<
         let extension = match harness {
             Harness::Pi => Some(&places.pi_extension),
             Harness::Omp => Some(&places.omp_extension),
-            Harness::Codex | Harness::Opencode => None,
+            Harness::Codex | Harness::Opencode | Harness::Copilot => None,
         };
         if let Some(path) = extension {
             changes.push(owned_file_change(
@@ -211,7 +225,7 @@ fn install(places: &Places, harnesses: &[Harness], dry_run: bool) -> Result<Vec<
     }
     if harnesses.is_empty() {
         lines.push(
-            "the skill needs agd's MCP server: add it to a harness with `agd setup install codex` (or opencode, pi, omp)"
+            "the skill needs agd's MCP server: add it to a harness with `agd setup install codex` (or opencode, pi, omp, copilot)"
                 .to_string(),
         );
     }
@@ -276,6 +290,7 @@ fn server_change(places: &Places, harness: Harness) -> Result<FileChange> {
         }
         Harness::Pi => places.pi.clone(),
         Harness::Omp => places.omp.clone(),
+        Harness::Copilot => places.copilot.clone(),
     };
     let before = read_text(&path)?;
     let after = match harness {
@@ -284,6 +299,7 @@ fn server_change(places: &Places, harness: Harness) -> Result<FileChange> {
         Harness::Pi | Harness::Omp => {
             add_json_server(&before, &path, "mcpServers", mcp_servers_entry())?
         }
+        Harness::Copilot => add_json_server(&before, &path, "mcpServers", copilot_entry())?,
     };
     Ok(FileChange {
         path,
@@ -375,6 +391,11 @@ fn opencode_entry() -> Value {
 /// The `mcpServers` shape that Pi, oh-my-pi and most MCP clients share.
 fn mcp_servers_entry() -> Value {
     json!({"command": "agd", "args": ["mcp"]})
+}
+
+/// The Copilot CLI's shape for a local server, with every tool enabled.
+fn copilot_entry() -> Value {
+    json!({"type": "local", "command": "agd", "args": ["mcp"], "tools": ["*"]})
 }
 
 /// `source` with `<servers>.agd` added and its keys kept in order; the same
@@ -474,7 +495,7 @@ mod tests {
     }
 
     fn places(home: &Path) -> Places {
-        Places::new(home, None, None, None)
+        Places::new(home, None, None, None, None)
     }
 
     #[test]
@@ -514,17 +535,23 @@ mod tests {
             default.omp_extension,
             Path::new("/home/a/.omp/agent/extensions/agd.ts")
         );
+        assert_eq!(
+            default.copilot,
+            Path::new("/home/a/.copilot/mcp-config.json")
+        );
 
         let moved = Places::new(
             home,
             Some(PathBuf::from("/srv/codex")),
             Some(PathBuf::from("/srv/config")),
             Some(PathBuf::from("/srv/pi")),
+            Some(PathBuf::from("/srv/copilot")),
         );
         assert_eq!(moved.codex, Path::new("/srv/codex/config.toml"));
         assert_eq!(moved.opencode, Path::new("/srv/config/opencode"));
         assert_eq!(moved.pi, Path::new("/srv/pi/mcp.json"));
         assert_eq!(moved.pi_extension, Path::new("/srv/pi/extensions/agd.ts"));
+        assert_eq!(moved.copilot, Path::new("/srv/copilot/mcp-config.json"));
     }
 
     #[test]
@@ -548,6 +575,11 @@ mod tests {
         let omp = places(omp_home.path());
         fs::create_dir_all(omp.omp.parent().unwrap()).unwrap();
         assert_eq!(detected_harnesses(&omp), [Harness::Omp]);
+
+        let copilot_home = tempfile::tempdir().unwrap();
+        let copilot = places(copilot_home.path());
+        fs::create_dir_all(copilot.copilot.parent().unwrap()).unwrap();
+        assert_eq!(detected_harnesses(&copilot), [Harness::Copilot]);
     }
 
     #[test]
@@ -585,7 +617,7 @@ mod tests {
             .to_string();
         assert_eq!(
             error,
-            "no supported agent config directories found; pass one or more of: codex, opencode, pi, omp"
+            "no supported agent config directories found; pass one or more of: codex, opencode, pi, omp, copilot"
         );
         assert!(fs::read_dir(home.path()).unwrap().next().is_none());
     }
@@ -814,6 +846,26 @@ mod tests {
             omp.find("\"other\"").unwrap() < omp.find("\"agd\"").unwrap(),
             "{omp}"
         );
+    }
+
+    #[test]
+    fn copilot_gets_its_local_entry_beside_the_persons_servers() {
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(places.copilot.parent().unwrap()).unwrap();
+        fs::write(
+            &places.copilot,
+            "{\"mcpServers\": {\"other\": {\"type\": \"local\", \"command\": \"other\"}}}\n",
+        )
+        .unwrap();
+
+        let lines = install(&places, &[Harness::Copilot], false).unwrap();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        let installed: Value =
+            serde_json::from_str(&fs::read_to_string(&places.copilot).unwrap()).unwrap();
+        assert_eq!(installed["mcpServers"]["agd"], copilot_entry());
+        assert_eq!(installed["mcpServers"]["other"]["command"], "other");
+        assert!(!home.path().join(".copilot/extensions").exists());
     }
 
     #[test]

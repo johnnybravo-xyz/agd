@@ -28,6 +28,9 @@ This file records user-visible changes to the `agd` executable. It follows
 - Pi and oh-my-pi now receive `/capture`, matching Claude Code. `agd setup
   install pi` or `agd setup install omp` adds an extension that files tasks
   through `agd capture` without a model turn.
+- `agd setup install copilot` adds agd to `~/.copilot/mcp-config.json`, which
+  the Copilot CLI reads and VS Code's chat discovers. The setup guide covers
+  VS Code: `C-e` into the editor and agd in an editor tab.
 - `agd capture --json` now includes `summary`, the same concise result shown on
   a terminal.
 

@@ -108,10 +108,11 @@ agd setup install --detected
 | Claude Code terminal, desktop local sessions, VS Code | `claude plugin marketplace add johnnybravo-xyz/agd`, then `claude plugin install agd@johnnybravo-xyz` |
 | Paseo | Configure the provider it launches; Paseo reuses provider config and MCP servers |
 | OpenCode, Pi, oh-my-pi | `agd setup install opencode`, `agd setup install pi`, or `agd setup install omp` |
+| GitHub Copilot in VS Code, Copilot CLI | `agd setup install copilot` |
 | Claude Desktop chat or another stdio client | command `agd`, argument `mcp` |
 
-`--detected` recognizes existing Codex, OpenCode, Pi, and oh-my-pi config
-directories. The installer preserves unrelated configuration and refuses the
+`--detected` recognizes existing Codex, OpenCode, Pi, oh-my-pi, and Copilot
+config directories. The installer preserves unrelated configuration and refuses the
 whole operation on a conflict. GUI clients may need the absolute `agd` path.
 
 ## Safety
