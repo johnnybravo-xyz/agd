@@ -5,8 +5,8 @@
 //! also gets agd's MCP server in its user config. Pi and oh-my-pi also get
 //! `/capture` from agd's Pi extension. Copilot's file is the Copilot CLI's,
 //! which VS Code's chat discovers by default, so one entry serves both.
-//! Claude Code uses agd's plugin, while Paseo reuses
-//! the setup of the provider it launches. Each person-owned config file is
+//! Claude Code uses agd's plugin, while Paseo and Herdr reuse the setup of the
+//! provider they launch. Each person-owned config file is
 //! edited, not rewritten: Codex's TOML through toml_edit (comments and order
 //! survive), the JSON configs with their keys in their order. An existing agd
 //! entry that differs, or a file agd cannot edit safely, is refused before
