@@ -45,9 +45,9 @@ The input may be an editor directory such as `~/.doom.d`, `~/.config/emacs`,
 importer runs `emacs -Q` or `nvim --clean`; the selected editor must be on
 `PATH`, but normal startup, daemons, and plugin managers do not run.
 
-Review the report before using the generated configuration. See
-[Import reference](#import-reference) for discovery, supported settings, and
-re-import behavior.
+Review the report before using the generated configuration. See the
+[import reference](reference.md#import-reference) for discovery, supported
+settings, and re-import behavior.
 
 ### Start with new Org files
 
@@ -259,134 +259,61 @@ same way. The TUI and pane watch source files for external edits.
 
 ### VS Code
 
-The integrated terminal runs `agd`, the pane, and `agd capture -i`. To open
-headings in VS Code with `C-e`, set:
+Run `agd`, `agd --pane`, or `agd capture -i` in the integrated terminal. To
+open headings in the editor with `C-e`, set:
 
 ```toml
 editor = ["code", "-g", "{file}:{line}:{col}"]
 ```
 
-`code` returns at once and the TUI picks up your saves as you make them. To
-open agd as an editor tab, add a terminal profile to your settings
-(`terminal.integrated.profiles.linux` on Linux) and bind keys to it:
-
-```jsonc
-// settings.json
-"terminal.integrated.profiles.osx": {
-  "agd": { "path": "agd" },
-  "agd capture": { "path": "agd", "args": ["capture", "-i"] }
-}
-
-// keybindings.json
-{ "key": "ctrl+alt+a", "command": "workbench.action.terminal.newWithProfile",
-  "args": { "profileName": "agd", "location": "editor" } },
-{ "key": "ctrl+alt+c", "command": "workbench.action.terminal.newWithProfile",
-  "args": { "profileName": "agd capture", "location": "editor" } }
-```
-
-For agents in VS Code, see [Claude Code](#claude-code-terminal-desktop-local-sessions-and-vs-code)
-and [GitHub Copilot](#github-copilot-in-vs-code-and-the-copilot-cli).
+Use VS Code terminal profiles when you want dedicated Agenda and Capture tabs.
+Agent setup is the same as the corresponding terminal client below.
 
 ## Connect coding agents and desktop clients
 
-All integrations run the local `agd mcp` stdio server. The server can reach only
-the Org files available on the same machine under configured roots.
+Every integration starts the local `agd mcp` stdio server. It can reach only
+Org files available on the same machine under configured roots.
 
-### Detect supported local clients
-
-Preview, then configure supported clients whose user config directories already
-exist:
+Preview and install every supported client whose user config already exists:
 
 ```bash
 agd setup install --dry-run --detected
 agd setup install --detected
 ```
 
-Detection is filesystem-only. It recognizes Codex, OpenCode, Pi, oh-my-pi, and
-Copilot config directories; it does not launch clients, read private config contents,
-or use the network. Name a newly installed client explicitly if its directory
-does not exist yet. Positional names and `--detected` may be combined.
+Or select one explicitly:
 
-The installer writes the shared skill to
-`~/.agents/skills/agenda/SKILL.md`, preserves unrelated configuration and
-comments, and calculates every candidate change before writing. A conflicting
-`agd` server, unsupported JSONC edit, or another skill named `agenda` refuses
-the whole operation.
-
-### Codex CLI, ChatGPT desktop Codex, and the Codex IDE extension
-
-```bash
-agd setup install codex
-codex mcp get agd
-```
-
-These Codex surfaces share `~/.codex/config.toml`, or
-`$CODEX_HOME/config.toml`. Start a new session after installation. In an
-interactive Codex session, `/mcp` also shows connected servers.
-
-### Claude Code terminal, desktop local sessions, and VS Code
-
-Install `agd`, then install the repository's Claude Code plugin:
-
-```bash
-claude plugin marketplace add johnnybravo-xyz/agd
-claude plugin install agd@johnnybravo-xyz
-claude plugin list
-claude mcp list
-```
-
-The user-installed plugin is shared by Claude Code terminal, Claude Code
-desktop local sessions, and its VS Code integration. It provides the MCP tools,
-the `agenda` skill, `/agd`, `/capture`, and a status band. Claude Code 2.1.296
-or later is required. Claude Desktop chat is a different client; configure it
-as a generic MCP client below.
-
-### GitHub Copilot in VS Code and the Copilot CLI
-
-```bash
-agd setup install copilot
-```
-
-This adds agd to `~/.copilot/mcp-config.json`, or `$COPILOT_HOME/mcp-config.json`,
-the Copilot CLI's file. VS Code's chat discovers it by default
-(`chat.mcp.discovery.enabled`), so one entry serves both; VS Code also reads the
-`agenda` skill from `~/.agents/skills`. Start a new chat session, then check
-**MCP: List Servers**. The Copilot CLI passes only `PATH` from your environment,
-so a config under a custom `$XDG_CONFIG_HOME` is not found; use the default
-location or add the variable to the entry's `env`.
-
-### Paseo
-
-Paseo launches an installed provider CLI and preserves that provider's config,
-skills, and MCP servers. Configure the provider Paseo will run—`codex`, the
-Claude Code plugin, `opencode`, `pi`, or `omp`—then start a new Paseo agent.
-There is no `agd setup install paseo` because Paseo does not own a separate MCP
-configuration.
-
-### OpenCode, Pi, and oh-my-pi
-
-```bash
-agd setup install opencode
-agd setup install pi
-agd setup install omp
-```
-
-| Harness | User configuration |
+| Client | Setup |
 | --- | --- |
-| OpenCode | `~/.config/opencode/opencode.json`, or under `$XDG_CONFIG_HOME` |
-| Pi | `~/.pi/agent/mcp.json`, or under `$PI_CODING_AGENT_DIR` |
-| oh-my-pi | `~/.omp/agent/mcp.json` |
+| Codex CLI, ChatGPT desktop Codex, Codex IDE | `agd setup install codex` |
+| Claude Code terminal, desktop local sessions, VS Code | `claude plugin marketplace add johnnybravo-xyz/agd`, then `claude plugin install agd@johnnybravo-xyz` |
+| GitHub Copilot in VS Code and Copilot CLI | `agd setup install copilot` |
+| OpenCode | `agd setup install opencode` |
+| Pi / oh-my-pi | `agd setup install pi` / `agd setup install omp` |
+| Paseo or Herdr agent | Configure the provider it launches |
+| Claude Desktop or another stdio client | command `agd`, argument `mcp` |
 
-Pi and oh-my-pi also receive an `agd.ts` extension that implements `/capture`
-without a model turn. Start a new session, or run `/reload` in Pi.
+`--detected` recognizes Codex, OpenCode, Pi, oh-my-pi, and Copilot directories.
+It never launches clients, reads private config contents, or uses the network.
+The installer writes the shared skill to `~/.agents/skills/agenda/SKILL.md`,
+preserves unrelated configuration and comments, and refuses every write if one
+target conflicts. Name a new client explicitly when its config directory does
+not exist yet.
 
-Running `agd setup install` without a harness installs only the shared skill.
-Gemini CLI and another Agent Skills-compatible harness may read that skill, but
-still need an MCP entry that starts `agd mcp`.
+Codex surfaces share `~/.codex/config.toml`, or `$CODEX_HOME/config.toml`.
+Claude Code's plugin provides the MCP tools, `agenda` skill, `/agd`, `/capture`,
+and status band; it requires Claude Code 2.1.296 or later. Pi and oh-my-pi also
+receive an `agd.ts` `/capture` extension and can reload it with `/reload`.
+Copilot uses `~/.copilot/mcp-config.json`; VS Code discovers that file by
+default. A custom `$XDG_CONFIG_HOME` is not inherited by Copilot unless its MCP
+entry includes the variable.
 
-### Claude Desktop and other stdio MCP clients
+Paseo and Herdr launch an installed provider CLI with that provider's config,
+skills, and MCP servers. Configure Codex, the Claude Code plugin, OpenCode, Pi,
+or oh-my-pi first, then start a new agent. There is no `agd setup install paseo`
+or `agd setup install herdr` because neither owns a separate MCP configuration.
 
-Add a local stdio server using the configuration shape your client expects:
+For another stdio client, use its equivalent of:
 
 ```json
 {
@@ -399,10 +326,41 @@ Add a local stdio server using the configuration shape your client expects:
 }
 ```
 
-GUI applications often do not inherit the shell's `PATH`. If the client reports
-that `agd` is missing, replace `"agd"` with the absolute path printed by
-`command -v agd`, then restart the client. The exact settings file and reload
-operation belong to that client.
+GUI apps may need the absolute path from `command -v agd`.
+
+### Herdr agenda panel
+
+The optional native Herdr mod shows today's unfinished agenda, refreshes once a
+minute, and opens the full TUI or capture popup in terminal tabs. It runs the
+local `agd` executable and makes no network requests.
+
+Install the mod without overwriting an existing `agd` mod:
+
+```bash
+set -e
+tmp="$(mktemp -d)"
+git clone --depth 1 https://github.com/johnnybravo-xyz/agd.git "$tmp/agd"
+herdr_home="${HERDR_APP_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr-app}"
+test ! -e "$herdr_home/mods/agd"
+mkdir -p "$herdr_home/mods"
+cp -R "$tmp/agd/agd/herdr/mods/agd" "$herdr_home/mods/agd"
+rm -rf "$tmp"
+herdr-app check "$herdr_home/mods/agd"
+```
+
+Herdr docks it on the right when it first sees the folder. The source and
+security notes are in the [mod recipe](../agd/herdr/RECIPE.md).
+
+Without the mod, open terminal tabs directly:
+
+```bash
+herdr-app do tab.new '{"name":"Agenda","argv":["agd","--pane"]}'
+herdr-app do tab.new '{"name":"Capture","argv":["agd","capture","-i"]}'
+```
+
+The panel runs on the machine hosting the Herdr window. A provider running on a
+remote machine needs `agd`, its provider integration, and the intended Org files
+on that remote host; local stdio configuration is not forwarded.
 
 ### Review agent changes
 
@@ -411,286 +369,15 @@ The journal records each write under
 its actor and project directory. The Agents tab can inspect a diff, accept the
 record without changing Org, edit its task, or safely undo it.
 
-To let agents capture work without scheduling your day:
+To route agent captures through one template and remove requested schedules and
+deadlines:
 
 ```toml
 agent_inbox = "t"
 ```
 
-Agent captures then use template `t` with requested schedules and deadlines
-removed; the tool result reports that behavior.
-
 MCP items carry a `description`: the first plain text under the heading.
-`edit` changes it; an empty one removes it, and a list, drawer, table or `#+`
-line in it is refused. `capture` writes one through `body`. `edit.note` adds a
-timestamped note, which may span lines, without changing TODO state.
-
-## Import reference
-
-Import is an explicit conversion, not synchronization. After the first run,
-`config.toml` belongs to you; editor settings are read again only when you rerun
-`agd setup import`.
-
-### Discovery and report
-
-A supplied file is read directly. For a directory, discovery considers editor
-entry points first:
-
-- Emacs: `early-init.el`, `init.el`, `config.el`, `.emacs`, `.spacemacs`;
-- Neovim: `init.lua`;
-- literate configuration: `config.org`.
-
-It then considers `.el` files containing `org-`, `.lua` files containing
-`orgmode`, and likely literate Org files containing Emacs Lisp blocks.
-Discovery respects `.gitignore`, skips common package/cache directories, and
-stops at four directory levels, 300 files, 1 MiB per file, or 120 seconds for an
-editor reader. The report names any limit reached.
-
-Every relevant setting receives a mark and source location:
-
-| Mark | Meaning |
-| --- | --- |
-| `✓` | Imported |
-| `~` | Imported with a stated difference, or intentionally unused |
-| `✗` | Omitted with the reason |
-
-Nothing is silently guessed or dropped.
-
-### Emacs setting map
-
-The reader recognizes `setq`, `setq-default`, `setq!`, `setopt`, Customize
-forms, `add-to-list`, `push`, `defvar`, and `defconst` at top level and in common
-`progn`, Doom, use-package, after-load, and Spacemacs configuration contexts.
-Emacs parses files without loading them. Only imported values and referenced
-top-level variables are evaluated; later assignments win.
-
-| Emacs settings | `agd` result |
-| --- | --- |
-| `org-directory`, `org-agenda-files` | roots and `agenda_files` |
-| `org-todo-keywords` | `todo_keywords` sequences |
-| priority, tag-column, inheritance settings | priority range/default, `tags_column`, exclusions |
-| deadline, span, start, skipping, sorting settings | corresponding agenda settings |
-| `org-log-*`, `org-log-into-drawer` | corresponding logging settings |
-| `org-capture-templates` | `[[capture]]` records |
-| `org-agenda-custom-commands` | `[[view]]` records |
-
-### Neovim setting map
-
-The reader finds `require("orgmode").setup()` in direct configuration and
-lazy.nvim `opts` or `config`. Files mentioning orgmode run under `nvim --clean`;
-stand-ins prevent unrelated missing plugins from failing the read.
-
-| nvim-orgmode options | `agd` result |
-| --- | --- |
-| `org_agenda_files`, `org_default_notes_file` | `agenda_files` and default capture target |
-| TODO, priority, tags, deadline, span, start, skipping, sorting options | corresponding `agd` settings |
-| `org_log_done`, `org_log_repeat`, `org_log_into_drawer` | corresponding logging settings |
-| `org_capture_templates` | `[[capture]]`, sorted by key |
-| `org_agenda_custom_commands` | `[[view]]` records |
-
-Options not supplied use nvim-orgmode defaults. Neovim has no stable exported
-agenda rows, so `--verify` is Emacs-only.
-
-### Templates, views, and groups
-
-Emacs entry capture targets may use `file`, `file+headline`, `file+olp`,
-`file+datetree`, `file+olp+datetree`, or `id`; literal bodies and template files
-are supported. Neovim datetree and function targets are not. Non-entry
-templates, computed targets or bodies, functions, lambdas, and `%(sexp)` are
-reported and omitted.
-
-Custom views import supported `agenda`, `todo`, `alltodo`, `tags`, and
-`tags-todo` blocks, literal spans and headers, and property comparisons. A view
-using a lambda, `search`, `stuck`, or a regexp term is omitted with a reason.
-
-Block-local literal org-super-agenda groups import supported TODO, tag,
-category, priority, planning, property, Boolean, effort, discard, order, and
-automatic grouping selectors. Tags remain case-sensitive; property selectors
-read only a heading's own drawer; matching the default priority also includes a
-heading without a priority cookie. Unsupported predicates, time grids, logs,
-habits, global groups, faces, and transformers are reported; the affected block
-remains ungrouped where safe.
-
-Executable Lisp is never imported as behavior. Computed package values, hidden
-hook/function assignments, numeric priorities, Emacs agenda-file indirection,
-plugin-derived Lua values, and missing Neovim `setup()` calls are reported
-rather than inferred.
-
-### Roots, verification, and re-importing
-
-On first import, roots come from `org-directory`; otherwise they are derived
-from agenda-entry directories. `-r DIR` overrides that choice. Files remain
-files, directories become non-recursive `dir/*.org` entries, and globs retain
-their pattern. In an existing config, roots remain unchanged and agenda entries
-outside them are reported.
-
-```bash
-agd setup import ~/.emacs.d --verify
-agd setup import ~/.emacs.d --dry-run
-agd setup import ~/.emacs.d --force
-```
-
-`--verify` compares each imported Emacs view with `org-batch-agenda-csv` before
-grouping. If a config already exists, import shows a diff and stops; `--force`
-applies it. Re-import preserves `agd`-owned settings such as roots, IDs, theme,
-editor, start view, agent inbox, Triage settings, and agent profiles. Existing
-capture templates or views remain when the editor defines none. Rendering does
-not preserve handwritten TOML comments, so review with `--dry-run` or
-`--stdout`.
-
-## Compatibility
-
-Compatibility evidence uses pinned Emacs 30.2 with Org 9.7 and pinned Neovim
-0.12.6 for import fixtures.
-
-| Classification | Supported behavior |
-| --- | --- |
-| **Exact** | Agenda text/CSV, dates and repeaters, inherited tags, warnings, spans, skipping, sorting, tags/TODO/property matches, in-file workflows, state/logging/planning edits, checklists, capture placement, refile, and byte-exact round trips match pinned Emacs fixtures. |
-| **Native** | TUI workflows, saved-view grouping, letter `#+PRIORITIES`, MCP org-ql subset, journal/undo, agent review, and import reporting are implemented and tested by `agd` without claiming identical Emacs presentation. |
-| **Unsupported** | Regex match terms, time grids, clocking/tables, habit graphs, diary sexps, executable Lisp, skip functions, calendar grids, and numeric priorities are not evaluated; source text remains untouched and unsupported configuration is reported. |
-
-The MCP `query` subset supports Boolean forms; TODO/done, tags, priority,
-category, and text predicates; and deadline/scheduled `:to` ranges. Unknown
-forms return `invalid_query`.
-
-Agenda and edit fixtures compare recorded behavior with pinned Emacs; write
-fixtures require identical resulting Org bytes. Import fixtures compare clean
-editor readers with recorded settings. CI reruns the pinned oracles, and weekly
-checks round-trip pinned Org and Worg corpora. This establishes the documented
-subset, not compatibility with every historical Org version.
-
-User-visible limits:
-
-- only letter priorities are supported;
-- agenda output does not draw time grids, calendar grids, clock tables, or habit
-  consistency graphs;
-- nested checklist cookies in body/item text are left to the editor;
-- imported dynamic or executable forms are reported, never run as behavior;
-- reads return bounded result sets; narrow the query or increase an exposed
-  limit when a response reports omitted rows.
-
-## Safety, transactions, and privacy
-
-Org files are user-owned source documents. A successful write changes only the
-intended byte ranges; uncertainty refuses the operation before replacement.
-
-### Roots and identity
-
-- Configured `roots` authorize every read and write. `..` paths are rejected.
-- A symlink may be read only when it resolves inside a root; writes through any
-  symlink are refused.
-- Files must be UTF-8. Invalid files are reported and never rewritten.
-- A unique `:ID:` is stable identity. A heading without one uses a ref containing
-  its path, line hint, and heading digest; the line is only a lookup hint.
-- A changed or missing heading is `ref_conflict`. Any duplicated `:ID:` under
-  roots is `id_conflict`, including duplicates outside agenda files.
-
-### Write protocol
-
-Every CLI, TUI, pane, capture, and MCP write follows one sequence:
-
-1. Load a fresh workspace, resolve identity, validate intent, and build sorted,
-   non-overlapping byte patches.
-2. Reject unauthorized paths, symlink writes, and Emacs `.#file` locks that
-   indicate unsaved changes.
-3. For `--dry-run`, return the exact diff without creating files, directories,
-   locks, or journal records.
-4. Acquire per-file advisory locks in deterministic order and settle pending
-   journal state.
-5. Re-read under lock and resolve refs again.
-6. Append and fsync a pending journal record with hashes and inverse patches.
-7. Write a same-directory temporary file, preserve mode, fsync, rename
-   atomically, and fsync the directory.
-8. Append and fsync the committed record.
-
-Cross-file refile and bulk edit are one transaction. If any replacement fails,
-already replaced files are restored. An interrupted write is reconciled from
-old/new hashes; unrelated current bytes produce `journal_conflict` until the
-file is reviewed and `agd setup check --resolve` accepts its current contents.
-
-Undo applies inverse patches only where written bytes still match or relocate
-uniquely with context. Modified or ambiguous bytes produce `undo_conflict` and
-write nothing. A transaction undoes all files or none. The TUI, CLI, and Agents
-tab select only changes from their own histories.
-
-### Refusal codes
-
-| Code | Condition |
-| --- | --- |
-| `id_conflict` | More than one heading has the target `:ID:` |
-| `invalid_id_change` | A request changes or removes an existing `:ID:` |
-| `ref_conflict` | The ref's heading changed or disappeared |
-| `invalid_path` | A path escapes roots, contains `..`, or is a prohibited symlink |
-| `editor_conflict` | Emacs has unsaved changes for the file |
-| `invalid_utf8` | A source file is not UTF-8 |
-| `invalid_patch` | Patches overlap or exceed the file |
-| `invalid_refile` | A heading would move into its own subtree |
-| `journal_conflict` | Interrupted-write bytes match neither journal hash |
-| `undo_conflict` | Undo bytes changed or became ambiguous |
-
-Each refusal leaves Org files unchanged.
-
-### Privacy and operational limits
-
-`agd` makes no network requests and starts no background service. MCP uses only
-stdin/stdout and logs to stderr. The data directory is mode `0700`; the journal
-is mode `0600`. Explicit editor/import subprocesses run as argument arrays,
-never through a shell.
-
-Advisory locks cannot make an unrelated writer that ignores both agd and Emacs
-locks transactional. Atomic replacement assumes ordinary same-directory rename
-and fsync semantics; weaker network filesystems are outside the tested
-boundary. The journal provides undo and interrupted-write recovery, not backup,
-encryption, synchronization, or version history.
-
-## Troubleshooting
-
-### A client says `agd` is not found
-
-Run `command -v agd` in a terminal. If it succeeds but a GUI client cannot start
-the MCP server, use that absolute path in the client's command field and
-restart it. This is an executable/PATH failure, not an MCP protocol failure.
-
-### The MCP server exists but is disconnected
-
-Run `agd mcp` in a terminal: it should remain waiting for stdio input rather
-than exit with a configuration error. Then inspect the client entry for command
-`agd`, argument `mcp`, and valid local roots. For installed integrations, use
-`codex mcp get agd`, `claude mcp list`, or the provider's MCP listing.
-
-### Local and cloud sessions differ
-
-Local stdio works only on the machine—or provider host—that can execute `agd`
-and reach the configured Org files. Local configuration does not make ChatGPT
-web, Claude cloud sessions, or a remote provider able to access those files.
-Install and configure `agd` on the actual provider host, or use a local session.
-
-### Top-level TOML settings appear unknown
-
-An error such as ``unknown field `tui` `` or a direction to move `start_view`
-usually means the key appears after `[[capture]]` or `[[view]]`. Move all
-ordinary settings above the first array record.
-
-### No configuration or Org root exists
-
-For `no config at ... and no ~/org to read`, create `~/org`, import editor
-settings, or pass `agd -r DIR`.
-
-### A capture outline path is missing
-
-`capture heading not found on level 1: Projects` means an `olpath` target does
-not exist. Create the path first or use `heading`, which `agd` can create.
-
-### A date or priority is rejected
-
-`unsupported date '...'` lists accepted forms; common values are `fri`, `+2d`,
-`oct 30`, `2026-10-30 14:00`, and `fri +1w -3d`. Priorities must be letters;
-configure `highest_priority = "A"` and `lowest_priority = "C"` as needed.
-
-### Colors are absent or incorrect
-
-A non-empty `NO_COLOR` disables color while retaining bold, dim, reverse, and
-strikethrough meaning. `theme = "auto"` queries the terminal background;
-`"dark"` and `"light"` select explicitly. Without `COLORTERM=truecolor`, `agd`
-uses its 16-color palette. Leave `nerd_font = false` unless the terminal font
-contains the required glyphs.
+`edit` changes it, `capture` writes it through `body`, and `edit.note` adds a
+timestamped note without changing TODO state. See the
+[reference](reference.md) for import details, compatibility boundaries, write
+safety, and troubleshooting.

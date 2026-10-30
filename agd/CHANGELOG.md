@@ -8,6 +8,8 @@ This file records user-visible changes to the `agd` executable. It follows
 
 ### Added
 
+- A native Herdr side-panel mod shows today's agenda and opens agd or capture
+  in terminal tabs. Herdr agents continue to use their provider's MCP setup.
 - Descriptions: in capture, `S-Enter` opens a Description box, collapsed
   until then, and `Tab` moves on to sub-tasks; a paste keeps every line. The
   description is plain text under the heading, where Org keeps an entry's
@@ -42,6 +44,8 @@ This file records user-visible changes to the `agd` executable. It follows
 - `q` quits at once only when nothing would be lost; with marked rows, a
   filter or a Triage pass under way, and always in the pane, it asks for a
   second `q`.
+- The getting-started guide is shorter; detailed import behavior,
+  compatibility, write safety, and troubleshooting now live in one reference.
 - `agd setup install` now installs agent support once at user scope. The
   `agenda` skill goes to `~/.agents/skills`, which Codex, OpenCode, Pi,
   oh-my-pi, and Gemini CLI can share. Named `codex`, `opencode`, `pi`, and `omp`

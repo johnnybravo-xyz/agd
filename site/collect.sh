@@ -35,7 +35,8 @@ while IFS='|' read -r source target description; do
   page "docs/$source" "$content/docs/$target" "weight = $weight
 description = \"$description\""
 done <<'EOF'
-getting-started.md|getting-started.md|Install, configure, import, connect agents, and understand compatibility and safety
+getting-started.md|getting-started.md|Install, configure, use the terminal interfaces, and connect coding agents
+reference.md|reference.md|Import behavior, compatibility boundaries, write safety, and troubleshooting
 KEYS.md|keys.md|Generated keyboard reference for the full TUI, pane, Triage, Agents, and popups
 EOF
 

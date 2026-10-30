@@ -21,7 +21,7 @@ network access.
   templates, logging rules, priorities, and custom agenda commands from Emacs
   or nvim-orgmode.
 - **Use one task system everywhere.** Plan in the TUI, glance from tmux or
-  herdr, script against the CLI, and let coding agents work through MCP.
+  Herdr, script against the CLI, and let coding agents work through MCP.
 - **Preserve the document.** Writes patch only the intended byte ranges. File
   mode, line endings, comments, drawers, and unrelated formatting remain
   unchanged.
@@ -84,7 +84,7 @@ AGD=target/release/agd docs/demo/demo.sh
 | Surface | Entry point | Purpose |
 | --- | --- | --- |
 | Full TUI | `agd` | Today, Week, Inbox, Agents, Triage, saved views |
-| Narrow pane | `agd --pane` | Persistent tmux or herdr view |
+| Narrow pane | `agd --pane` | Persistent tmux or Herdr view |
 | CLI | `agd agenda`, `agd capture`, `agd undo` | Scripts, status bars, capture, guarded undo |
 | MCP | `agd mcp` | Local coding-agent access over stdio |
 | Setup | `agd setup import`, `agd setup install`, `agd setup check` | Editor import, agent config, workspace diagnostics |
@@ -107,6 +107,7 @@ agd setup install --detected
 | Codex CLI, ChatGPT desktop Codex, Codex IDE | `agd setup install codex` |
 | Claude Code terminal, desktop local sessions, VS Code | `claude plugin marketplace add johnnybravo-xyz/agd`, then `claude plugin install agd@johnnybravo-xyz` |
 | Paseo | Configure the provider it launches; Paseo reuses provider config and MCP servers |
+| Herdr | Configure the provider it launches; optionally install the [native agenda mod](https://github.com/johnnybravo-xyz/agd/tree/main/agd/herdr) |
 | OpenCode, Pi, oh-my-pi | `agd setup install opencode`, `agd setup install pi`, or `agd setup install omp` |
 | GitHub Copilot in VS Code, Copilot CLI | `agd setup install copilot` |
 | Claude Desktop chat or another stdio client | command `agd`, argument `mcp` |
@@ -130,7 +131,8 @@ and Org 9.7. Import fixtures also use pinned Neovim 0.12.6.
 
 ## Documentation
 
-- [Getting started and complete user guide](https://github.com/johnnybravo-xyz/agd/blob/main/docs/getting-started.md)
+- [Getting started](https://github.com/johnnybravo-xyz/agd/blob/main/docs/getting-started.md)
+- [Import, compatibility, safety, and troubleshooting reference](https://github.com/johnnybravo-xyz/agd/blob/main/docs/reference.md)
 - [Generated key reference](https://github.com/johnnybravo-xyz/agd/blob/main/docs/KEYS.md)
 - [Architecture](https://github.com/johnnybravo-xyz/agd/blob/main/ARCHITECTURE.md)
 - [Contributing](https://github.com/johnnybravo-xyz/agd/blob/main/CONTRIBUTING.md)
