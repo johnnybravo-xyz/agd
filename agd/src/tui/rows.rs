@@ -68,15 +68,24 @@ impl App {
         Ok(())
     }
 
-    /// `T`: overdue tasks in the core's order (overdue_entries), then the
-    /// inbox, frozen as the pass's queue.
+    /// `T`: the current saved view's open rows, or overdue tasks followed
+    /// by the inbox elsewhere. The queue is frozen for the pass.
     pub(super) fn start_triage(&mut self) -> Result<()> {
+        let from_view = matches!(self.screen, Screen::View(_));
         let engine = AgendaEngine::new(&self.index);
-        let entries = engine.agenda(&self.query(self.today, self.today))?;
+        let mut queue = if from_view {
+            self.rows.clone()
+        } else {
+            let entries = engine.agenda(&self.query(self.today, self.today))?;
+            triage_rows(&entries, engine.inbox())
+        };
         let someday = &self.settings.someday_tag;
-        let mut queue = triage_rows(&entries, engine.inbox());
-        // Demoted tasks are done being triaged.
-        queue.retain(|row| !row.item.tags.contains(someday) && self.visible(&row.item));
+        let mut seen = BTreeSet::new();
+        queue.retain(|row| {
+            !row.item.done
+                && (from_view || (!row.item.tags.contains(someday) && self.visible(&row.item)))
+                && seen.insert(super::stable_ref(&row.item.item_ref))
+        });
         self.triage = TriageState {
             started: Some(Instant::now()),
             queue,

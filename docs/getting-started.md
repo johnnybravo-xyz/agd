@@ -235,7 +235,7 @@ Run `agd`. It opens Today or the view named by `start_view`:
 - **Find** (`F`) searches every heading, including undated tasks and notes.
 - **Agents** groups unreviewed MCP writes by client for inspection, acceptance,
   editing, or safe undo.
-- **Triage** (`T`) reviews overdue work and inbox items one card at a time.
+- **Triage** (`T`) reviews overdue and inbox work, or the open rows in a saved view.
 
 Common keys:
 

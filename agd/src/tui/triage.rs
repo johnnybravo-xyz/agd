@@ -9,7 +9,7 @@ use ratatui::widgets::{LineGauge, Padding, Paragraph, Wrap};
 use super::actions::{DONE, NEXT_WEEK, REFILED, SOMEDAY, TODAY, TOMORROW, when};
 use super::keys::{self, Action};
 use super::rows::days_since;
-use super::{App, DisplayRow, INBOX, peek, today};
+use super::{App, DisplayRow, INBOX, OVERDUE, peek, today};
 
 /// Card rows: borders, the top padding, and heading, path, facts, body
 /// line and nudge with blank rows between.
@@ -148,6 +148,7 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
     let theme = &app.theme;
     let item = &row.item;
     let inbox = row.section == INBOX;
+    let overdue = row.section == OVERDUE;
     let title = if inbox {
         match app.provenance.get(&super::stable_ref(&item.item_ref)) {
             Some((actor, time)) => format!(
@@ -156,10 +157,14 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
             ),
             None => "Inbox".to_string(),
         }
-    } else {
+    } else if overdue {
         format!("Overdue · {}d", overdue_days(row, app.today))
+    } else if row.section.is_empty() {
+        "Review".to_string()
+    } else {
+        row.section.clone()
     };
-    let color = if inbox { theme.accent } else { theme.overdue };
+    let color = if overdue { theme.overdue } else { theme.accent };
     let block = theme
         .panel(title)
         .border_style(theme.fg(color))

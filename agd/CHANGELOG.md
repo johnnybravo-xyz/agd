@@ -46,6 +46,7 @@ This file records user-visible changes to the `agd` executable. It follows
 - Enter continues, and a blank Enter finishes: on a description, sub-task or
   note line Enter adds the next line, and Enter on an empty line saves. One-line
   fields save on Enter as before, and `S-Enter` always adds a line.
+- Triage reviews a saved view's open rows once, in view order.
 - `q` quits at once only when nothing would be lost; with marked rows, a
   filter or a Triage pass under way, and always in the pane, it asks for a
   second `q`.

@@ -39,6 +39,44 @@ fn every_chip_fits_under_the_card_at_120_columns() {
         );
     });
 }
+#[test]
+#[serial]
+fn triage_reviews_saved_view_rows_once() {
+    with_home(|root| {
+        fs::write(root.join("work.org"), "* TODO Review release\n").unwrap();
+        let mut app = test_app(root);
+        app.settings.views = toml::from_str::<ViewsOnly>(
+            r#"[[view]]
+key = "r"
+desc = "Release"
+blocks = [
+  { kind = "alltodo", header = "First" },
+  { kind = "alltodo", header = "Second" },
+]"#,
+        )
+        .unwrap()
+        .view;
+        app.switch_screen(Screen::View("r".to_string())).unwrap();
+        assert_eq!(app.rows.len(), 2);
+
+        // A changed line hint still identifies the same heading.
+        let item_ref = app.rows[1].item.item_ref.clone();
+        let (location, digest) = item_ref.rsplit_once("#sha256:").unwrap();
+        let (file, _) = location.rsplit_once(':').unwrap();
+        app.rows[1].item.item_ref = format!("{file}:99#sha256:{digest}");
+
+        press(&mut app, crossterm::event::KeyCode::Char('T'));
+        assert_eq!(app.screen, Screen::Triage);
+        assert_eq!(app.triage.queue.len(), 1);
+        assert_eq!(app.triage.queue[0].item.title, "Review release");
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(screen.contains("First"), "{screen}");
+        assert!(!screen.contains("Overdue · 0d"), "{screen}");
+
+        press(&mut app, crossterm::event::KeyCode::Esc);
+        assert_eq!(app.screen, Screen::View("r".to_string()));
+    });
+}
 
 #[test]
 #[serial]
