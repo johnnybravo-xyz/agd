@@ -232,21 +232,34 @@ fn a_refused_write_names_its_file_relative_to_the_root() {
 }
 
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "release-only performance budget; run this test with --release"
+)]
 fn renders_five_thousand_headings_under_budget() {
     let directory = tempfile::tempdir().unwrap();
     let source = (0..5_000)
         .map(|index| format!("* TODO Task {index}\nSCHEDULED: <2026-10-13 Tue>\n"))
         .collect::<String>();
     fs::write(directory.path().join("tasks.org"), source).unwrap();
+
+    let started = Instant::now();
     let mut app = test_app(directory.path());
+    let load = started.elapsed();
     app.screen = Screen::Week;
+    let started = Instant::now();
     app.reload_rows().unwrap();
+    let reload = started.elapsed();
     assert_eq!(app.rows.len(), 5_000);
     let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
     let started = Instant::now();
     terminal.draw(|frame| draw(frame, &mut app)).unwrap();
-    let elapsed = started.elapsed();
-    assert!(elapsed < StdDuration::from_millis(100), "{elapsed:?}");
+    let draw = started.elapsed();
+
+    eprintln!("5,000 headings: load {load:?}, reload {reload:?}, draw {draw:?}");
+    assert!(load < StdDuration::from_millis(500), "load: {load:?}");
+    assert!(reload < StdDuration::from_millis(100), "reload: {reload:?}");
+    assert!(draw < StdDuration::from_millis(100), "draw: {draw:?}");
 }
 
 #[test]

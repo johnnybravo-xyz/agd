@@ -1,4 +1,7 @@
-use std::fs;
+use std::{
+    fs,
+    time::{Duration, Instant},
+};
 
 use chrono::Local;
 use rmcp::{
@@ -222,6 +225,40 @@ fn busy_fixture() -> tempfile::TempDir {
     fs::write(directory.path().join("busy.org"), source).expect("org fixture");
     write_config(&directory, "agenda_span = 2\n");
     directory
+}
+#[tokio::test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "release-only performance budget; run this test with --release"
+)]
+async fn repeated_mcp_reads_stay_under_release_budget() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let today = Local::now().date_naive();
+    let mut source = String::new();
+    for number in 0..5_000 {
+        source.push_str(&format!(
+            "* TODO Task {number:04}\nSCHEDULED: <{}>\n",
+            today.format("%Y-%m-%d %a")
+        ));
+    }
+    fs::write(directory.path().join("tasks.org"), source).expect("org fixture");
+    let service = service(&directory).await?;
+    let arguments = json!({"expression": "(todo)", "limit": 100});
+
+    let started = Instant::now();
+    call(&service, "query", arguments.clone()).await?;
+    let first = started.elapsed();
+    let started = Instant::now();
+    let result = call(&service, "query", arguments).await?;
+    let repeated = started.elapsed();
+
+    assert_eq!(first_block(&result).as_array().map(Vec::len), Some(100));
+    eprintln!("5,000-heading MCP query: first {first:?}, repeated {repeated:?}");
+    let budget = Duration::from_millis(250);
+    assert!(first < budget, "first read: {first:?}");
+    assert!(repeated < budget, "repeated read: {repeated:?}");
+    service.cancel().await?;
+    Ok(())
 }
 
 #[tokio::test]
