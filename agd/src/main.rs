@@ -10,7 +10,9 @@ mod importer;
 mod mcp;
 mod tui;
 mod words;
-use commands::{AgendaCommand, CaptureCommand, CompletionsCommand, SetupCommand, UndoCommand};
+use commands::{
+    AgendaCommand, CaptureCommand, CompletionsCommand, QueryCommand, SetupCommand, UndoCommand,
+};
 use mcp::McpCommand;
 
 /// Org agenda for terminals and coding agents. With no command, opens your
@@ -40,6 +42,8 @@ enum Commands {
     Agenda(AgendaCommand),
     /// Capture one line through a template, or open the popup with -i
     Capture(CaptureCommand),
+    /// Search every configured Org file with an org-ql expression
+    Query(QueryCommand),
     /// Undo the latest change you made from the command line
     Undo(UndoCommand),
     /// Run the stdio MCP server for coding agents
@@ -56,6 +60,7 @@ impl Cli {
         match &self.command {
             Some(Commands::Agenda(command)) => command.json,
             Some(Commands::Capture(command)) => command.json,
+            Some(Commands::Query(command)) => command.json,
             Some(Commands::Undo(command)) => command.json,
             Some(Commands::Setup(command)) => command.json(),
             Some(Commands::Mcp(_)) | Some(Commands::Completions(_)) | None => false,
@@ -190,6 +195,7 @@ fn run(cli: Cli) -> Result<bool> {
         None => tui::run(config, root_directory, pane).map(|()| false),
         Some(Commands::Agenda(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Capture(command)) => command.execute(config, root_directory).map(|()| false),
+        Some(Commands::Query(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Undo(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Mcp(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Setup(command)) => command.execute(config, root_directory),

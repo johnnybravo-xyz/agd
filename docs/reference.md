@@ -126,9 +126,9 @@ Compatibility evidence uses pinned Emacs 30.2 with Org 9.7 and pinned Neovim
 | **Native** | TUI workflows, saved-view grouping, letter `#+PRIORITIES`, MCP org-ql subset, journal/undo, agent review, and import reporting are implemented and tested by `agd` without claiming identical Emacs presentation. |
 | **Unsupported** | Regex match terms, time grids, clocking/tables, habit graphs, diary sexps, executable Lisp, skip functions, calendar grids, and numeric priorities are not evaluated; source text remains untouched and unsupported configuration is reported. |
 
-The MCP `query` subset supports Boolean forms; TODO/done, tags, priority,
-category, and text predicates; and deadline/scheduled `:to` ranges. Unknown
-forms return `invalid_query`.
+The CLI and MCP `query` subset supports Boolean forms; TODO/done, tags,
+priority, category, and text predicates; and deadline/scheduled `:to` ranges.
+Unknown forms return `invalid_query`.
 
 Agenda and edit fixtures compare recorded behavior with pinned Emacs; write
 fixtures require identical resulting Org bytes. Import fixtures compare clean

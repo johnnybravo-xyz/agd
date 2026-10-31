@@ -85,7 +85,7 @@ AGD=target/release/agd docs/demo/demo.sh
 | --- | --- | --- |
 | Full TUI | `agd` | Today, Week, Inbox, Agents, Triage, saved views |
 | Narrow pane | `agd --pane` | Persistent tmux or Herdr view |
-| CLI | `agd agenda`, `agd capture`, `agd undo` | Scripts, status bars, capture, guarded undo |
+| CLI | `agd agenda`, `agd query`, `agd capture`, `agd undo` | Scripts, search, status bars, capture, guarded undo |
 | MCP | `agd mcp` | Local coding-agent access over stdio |
 | Setup | `agd setup import`, `agd setup install`, `agd setup check` | Editor import, agent config, workspace diagnostics |
 

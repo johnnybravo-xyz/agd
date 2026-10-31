@@ -8,6 +8,7 @@ pub mod check;
 pub mod completions;
 pub mod import;
 pub mod install;
+pub mod query;
 pub mod setup;
 pub mod undo;
 
@@ -17,6 +18,7 @@ pub use check::CheckCommand;
 pub use completions::CompletionsCommand;
 pub use import::ImportCommand;
 pub use install::InstallCommand;
+pub use query::QueryCommand;
 pub use setup::SetupCommand;
 pub use undo::UndoCommand;
 

@@ -199,6 +199,17 @@ terminal output is a concise summary; piped output is the new heading's stable
 ref. `agd undo` reverses the latest CLI change when the written bytes are still
 identifiable.
 
+Search every configured Org file with the same org-ql subset as the MCP server:
+
+```bash
+agd query '(and (todo) (deadline :to 7))'
+agd query '(tags "work")' --limit 20 --json
+agd query '(text "release")' --with-body --json
+```
+
+Queries support `and`, `or`, `not`, `todo`, `done`, `tags`, `priority`,
+`category`, `text`, `deadline :to DAYS`, and `scheduled :to DAYS`.
+
 ### Today, Week, Inbox, Agents, and Triage
 
 Run `agd`. It opens Today or the view named by `start_view`:

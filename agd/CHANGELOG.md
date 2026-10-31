@@ -11,6 +11,9 @@ This file records user-visible changes to the `agd` executable. It follows
 - A native Herdr side-panel mod shows today's agenda and opens agd or capture
   in terminal tabs. `agd setup install herdr` installs and updates it without
   replacing another mod; Herdr agents continue to use their provider's MCP.
+- `agd query EXPRESSION` searches every configured Org file with the same
+  org-ql subset as MCP. It prints agenda-style rows or stable `agd.item/v1`
+  JSON, with optional limits and full bodies.
 - Descriptions: in capture, `S-Enter` opens a Description box, collapsed
   until then, and `Tab` moves on to sub-tasks; a paste keeps every line. The
   description is plain text under the heading, where Org keeps an entry's

@@ -105,6 +105,65 @@ fn agenda_prints_org_agenda_layout_and_shared_schemas() {
 }
 
 #[test]
+fn query_prints_text_or_stable_json_with_optional_bodies() {
+    let fixture = Fixture::new();
+    let source = fs::read_to_string(&fixture.tasks).unwrap();
+    fs::write(
+        &fixture.tasks,
+        source.replace(
+            "DEADLINE: <2026-10-20 Tue -3d>\n",
+            "DEADLINE: <2026-10-20 Tue -3d>\nBring the original documents.\n",
+        ),
+    )
+    .unwrap();
+
+    fixture
+        .command()
+        .args(["query", "(tags \"work\")"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("NEXT File paperwork"));
+
+    let output = fixture
+        .command()
+        .args([
+            "query",
+            "(and (todo) (tags \"admin\"))",
+            "--with-body",
+            "--json",
+        ])
+        .output()
+        .expect("query command");
+    assert!(output.status.success(), "{output:?}");
+    let rows: Value = serde_json::from_slice(&output.stdout).expect("query JSON");
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    assert_eq!(rows[0]["schema"], "agd.item/v1");
+    assert_eq!(rows[0]["title"], "Renew passport");
+    assert!(
+        rows[0]["body"]
+            .as_str()
+            .unwrap()
+            .contains("Bring the original documents.")
+    );
+
+    let limited = fixture
+        .command()
+        .args(["query", "(todo)", "--limit", "1", "--json"])
+        .output()
+        .expect("limited query");
+    assert!(limited.status.success(), "{limited:?}");
+    let rows: Value = serde_json::from_slice(&limited.stdout).expect("limited query JSON");
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+
+    fixture
+        .command()
+        .args(["query", "(unknown)", "--json"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("\"code\":\"invalid_query\""));
+}
+
+#[test]
 fn agenda_span_takes_a_number_of_days_from_config_or_flag() {
     let fixture = Fixture::new();
     let config = fs::read_to_string(&fixture.config).unwrap();
