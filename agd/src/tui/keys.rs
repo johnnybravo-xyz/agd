@@ -204,7 +204,8 @@ const MOVE: KeyGroup = KeyGroup {
     ],
 };
 
-/// Tabs, capture, refresh and help: the same on every full screen.
+/// Tabs, workspace find, capture, refresh and help: the same on every full
+/// screen.
 #[rustfmt::skip]
 const SWITCH: KeyGroup = KeyGroup {
     title: "Switch",
@@ -212,6 +213,7 @@ const SWITCH: KeyGroup = KeyGroup {
         bind("tab", &[Code(KeyCode::Tab)], A::NextTab, "tab", "next tab", ""),
         bind("S-tab", &[Code(KeyCode::BackTab)], A::PreviousTab, "tab", "previous tab", ""),
         bind("1–9", &[Digit], A::TabNumber, "tab", "tab by number, left to right", ""),
+        bind("F", &[Char('F')], A::Find, "find", "find any workspace heading", ""),
         bind("c", &[Char('c')], A::Capture, "capture", "capture a task", "k"),
         bind("r g", &[Char('r'), Char('g')], A::Refresh, "refresh", "re-read every file", "r / g"),
         bind("?", &[Char('?')], A::Help, "help", "these keys", ""),
@@ -232,7 +234,6 @@ const SHOW: KeyGroup = KeyGroup {
         bind("l", &[Char('l')], A::LogMode, "log", "log mode: closed items", "l"),
         bind("<", &[Char('<')], A::Context, "context", "filter by category, cycling", "<"),
         bind("/", &[Char('/')], A::Filter, "filter", "filter by text or tag", "/"),
-        bind("F", &[Char('F')], A::Find, "find", "find any workspace heading", ""),
     ],
 };
 
@@ -797,6 +798,7 @@ fn run_switch(app: &mut App, action: Action, key: KeyEvent) -> Result<bool> {
                 }
             }
         }
+        A::Find => app.open_find(),
         A::Capture => app.overlay = Overlay::Capture(capture::Draft::default()),
         A::Refresh => {
             app.index = agd_core::WorkspaceIndex::load(app.settings.clone())?;
@@ -856,7 +858,6 @@ fn run_list(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget
         }
         A::Context => cycle_context(app)?,
         A::Filter => app.overlay = Overlay::Prompt(Prompt::filter(&app.filter)),
-        A::Find => app.open_find(),
         A::Edit => {
             if !app.expand_overdue()?
                 && let Some(row) = app.selected_row()

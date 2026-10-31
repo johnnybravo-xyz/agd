@@ -273,6 +273,56 @@ fn workspace_find_jumps_to_headings_outside_the_current_agenda() {
         assert_eq!(app.screen, Screen::Today);
     });
 }
+#[test]
+#[serial]
+fn workspace_find_returns_through_nested_screens() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        fs::write(
+            root.join("work.org"),
+            "* TODO Release verification\nDEADLINE: <2026-10-10 Sat>\nCheck the ASN field.\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.settings.views = toml::from_str::<ViewsOnly>(
+            r#"[[view]]
+key = "r"
+desc = "Release"
+blocks = [{ kind = "alltodo" }]"#,
+        )
+        .unwrap()
+        .view;
+        app.reload_rows().unwrap();
+
+        app.switch_screen(Screen::View("r".to_string())).unwrap();
+        press(&mut app, KeyCode::Char('F'));
+        type_keys(&mut app, "asn");
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.screen, Screen::View("r".to_string()));
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.screen, Screen::Today);
+
+        app.switch_screen(Screen::Review).unwrap();
+        press(&mut app, KeyCode::Char('F'));
+        type_keys(&mut app, "asn");
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.screen, Screen::Review);
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.screen, Screen::Today);
+
+        press(&mut app, KeyCode::Char('T'));
+        assert_eq!(app.screen, Screen::Triage);
+        press(&mut app, KeyCode::Char('F'));
+        type_keys(&mut app, "asn");
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.screen, Screen::Triage);
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.screen, Screen::Today);
+    });
+}
 
 #[test]
 #[serial]

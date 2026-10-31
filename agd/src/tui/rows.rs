@@ -123,16 +123,30 @@ impl App {
     /// Triage, Agents and saved views other than the start view, which is a
     /// tab.
     pub(super) fn switch_screen(&mut self, screen: Screen) -> Result<()> {
+        let returning_from_find = matches!(self.screen, Screen::Find(_)) && screen == self.back;
+        let previous_back = if returning_from_find {
+            self.find_previous_back.take()
+        } else {
+            if matches!(self.screen, Screen::Find(_)) {
+                self.find_previous_back = None;
+            }
+            None
+        };
         let tab_view = matches!(&screen, Screen::View(key) if *key == self.settings.start_view);
-        if matches!(
-            screen,
-            Screen::Triage | Screen::Review | Screen::View(_) | Screen::Find(_)
-        ) && !tab_view
+        if !returning_from_find
+            && matches!(
+                screen,
+                Screen::Triage | Screen::Review | Screen::View(_) | Screen::Find(_)
+            )
+            && !tab_view
             && !matches!(self.screen, Screen::Triage | Screen::Review)
         {
             self.back = self.screen.clone();
         }
         self.screen = screen;
+        if let Some(previous_back) = previous_back {
+            self.back = previous_back;
+        }
         self.rows.clear();
         self.selected = 0;
         self.marks.clear();

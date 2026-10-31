@@ -236,6 +236,9 @@ struct App {
     screen: Screen,
     /// Where esc returns to from Triage, Review or a view.
     back: Screen,
+    /// Where `back` pointed before Find, restored when Find returns to its
+    /// origin so nested screens keep their own escape target.
+    find_previous_back: Option<Screen>,
     rows: Vec<DisplayRow>,
     /// Headers in display order, including days without rows, so Week
     /// shows every day as org-agenda does.
@@ -302,6 +305,7 @@ impl App {
             day: today,
             screen: Screen::Today,
             back: Screen::Today,
+            find_previous_back: None,
             rows: Vec::new(),
             headers: Vec::new(),
             journals: Vec::new(),

@@ -22,6 +22,7 @@ Navigation: j/k move like n/p everywhere; C-n/C-p or C-j/C-k move in pickers.
 - `tab`: next tab
 - `S-tab`: previous tab
 - `1–9`: tab by number, left to right
+- `F`: find any workspace heading
 - `c`: capture a task (org-agenda `k`)
 - `r` `g`: re-read every file (org-agenda `r` or `g`)
 - `?`: these keys
@@ -37,7 +38,6 @@ Navigation: j/k move like n/p everywhere; C-n/C-p or C-j/C-k move in pickers.
 - `l`: log mode: closed items (org-agenda `l`)
 - `<`: filter by category, cycling (org-agenda `<`)
 - `/`: filter by text or tag (org-agenda `/`)
-- `F`: find any workspace heading
 
 ### Change (marked rows, else the cursor row)
 

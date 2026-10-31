@@ -1049,10 +1049,14 @@ impl App {
             return Ok(());
         };
         let query = picker.input.text().trim().to_string();
+        let origin = self.screen.clone();
+        let previous_back = self.back.clone();
         self.overlay = Overlay::None;
         self.filter.clear();
         self.context = None;
         self.switch_screen(Screen::Find(query))?;
+        self.back = origin;
+        self.find_previous_back = Some(previous_back);
         if let Some(selected) = self
             .rows
             .iter()
