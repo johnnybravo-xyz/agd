@@ -232,6 +232,7 @@ Run `agd`. It opens Today or the view named by `start_view`:
 - **Today** separates OVERDUE, SCHEDULE, DUE SOON, DOING, and INBOX.
 - **Week** provides the Org-compatible weekly agenda.
 - **Inbox** collects open entries filed by capture templates.
+- **Find** (`F`) searches every heading, including undated tasks and notes.
 - **Agents** groups unreviewed MCP writes by client for inspection, acceptance,
   editing, or safe undo.
 - **Triage** (`T`) reviews overdue work and inbox items one card at a time.
@@ -243,6 +244,7 @@ Common keys:
 | Next / previous row | `n` `j` / `p` `k` |
 | Change tab / select tab | `Tab` `S-Tab` / number |
 | Preview / edit / open in editor | `SPC` / `Enter` `e` / `C-e` |
+| Find any workspace heading | `F`, then type; `Enter` jumps to it |
 | Advance state / done / cancel | `t` / `x` / `X` |
 | Schedule / deadline | `s` / `d` |
 | Add a timestamped note | `z` |

@@ -17,7 +17,7 @@
 //!   lists `.` goes to today), `>` tomorrow, `w` next week, `N` make NEXT.
 //!   `m` only ever marks.
 //! - Where letters are typed or name items (the Views popup, capture's
-//!   templates, the refile picker, `?`'s filter, the edit popup's fields),
+//!   templates, workspace find, refile, `?`'s filter, the edit popup's fields),
 //!   only `↓ C-n C-j` and `↑ C-p C-k` move, as in fzf and Emacs.
 //! - `C-e` opens $EDITOR from the lists, Triage, Agents and the pane. In a
 //!   popup with a text field it is the end of the line, as in Emacs's
@@ -100,6 +100,7 @@ pub(super) enum Action {
     LogMode,
     Context,
     Filter,
+    Find,
     Edit,
     Editor,
     State,
@@ -231,6 +232,7 @@ const SHOW: KeyGroup = KeyGroup {
         bind("l", &[Char('l')], A::LogMode, "log", "log mode: closed items", "l"),
         bind("<", &[Char('<')], A::Context, "context", "filter by category, cycling", "<"),
         bind("/", &[Char('/')], A::Filter, "filter", "filter by text or tag", "/"),
+        bind("F", &[Char('F')], A::Find, "find", "find any workspace heading", ""),
     ],
 };
 
@@ -372,8 +374,8 @@ pub(super) const PANE_KEYS: &[KeyGroup] = &[KeyGroup {
 }];
 
 /// Moving where letters are typed or name items: the Views popup,
-/// capture's templates and fields, the refile picker, `?`'s filter and the
-/// edit popup's fields. Letters there are text or keys, so only the arrows
+/// capture's templates and fields, workspace find, refile, `?`'s filter and
+/// the edit popup's fields. Letters there are text or keys, so only the arrows
 /// and these ctrl keys move.
 #[rustfmt::skip]
 pub(super) const PICKER_KEYS: &[KeyGroup] = &[KeyGroup {
@@ -392,15 +394,14 @@ pub(super) const SCREENS: [(&str, &[KeyGroup]); 7] = [
     ("Agents", AGENT_KEYS),
     ("Pane", PANE_KEYS),
     (
-        "Pickers · views, templates, refile, edit fields",
+        "Pickers · views, templates, find, refile, edit fields",
         PICKER_KEYS,
     ),
     ("Popups · capture, edit, prompts, refile", POPUP_KEYS),
 ];
 
-/// Popups with a text field: capture, the edit popup, the prompts and the
-/// refile picker. Fields take Emacs's minibuffer keys, so here C-e is the
-/// end of the line and $EDITOR is C-o.
+/// Popups with a text field: capture, edit, prompts, workspace find and
+/// refile. C-e is end of line here, so $EDITOR is C-o.
 #[rustfmt::skip]
 pub(super) const POPUP_KEYS: &[KeyGroup] = &[KeyGroup {
     title: "Type",
@@ -658,6 +659,11 @@ pub(super) fn handle_paste(app: &mut App, text: &str) -> Result<()> {
             picker.selected = 0;
             None
         }
+        Overlay::Find(picker) => {
+            picker.input.paste_one_line(text);
+            picker.selected = 0;
+            None
+        }
         Overlay::None
         | Overlay::Capture(_)
         | Overlay::Edit(_)
@@ -850,6 +856,7 @@ fn run_list(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarget
         }
         A::Context => cycle_context(app)?,
         A::Filter => app.overlay = Overlay::Prompt(Prompt::filter(&app.filter)),
+        A::Find => app.open_find(),
         A::Edit => {
             if !app.expand_overdue()?
                 && let Some(row) = app.selected_row()
@@ -1253,6 +1260,18 @@ fn handle_overlay(app: &mut App, key: KeyEvent) -> Result<()> {
         Overlay::Prompt(_) => prompt_key(app, key)?,
         Overlay::Refile(picker) => match popup_action(key) {
             Some(A::Save) => app.commit_refile()?,
+            _ if picker_step(key).is_some() => {
+                let count = picker.matches().len();
+                picker.selected = stepped(picker.selected, picker_step(key), count);
+            }
+            _ => match picker.input.handle(key) {
+                Edit::Cancel => app.overlay = Overlay::None,
+                Edit::Changed => picker.selected = 0,
+                Edit::Other => {}
+            },
+        },
+        Overlay::Find(picker) => match popup_action(key) {
+            Some(A::Save) => app.commit_find()?,
             _ if picker_step(key).is_some() => {
                 let count = picker.matches().len();
                 picker.selected = stepped(picker.selected, picker_step(key), count);

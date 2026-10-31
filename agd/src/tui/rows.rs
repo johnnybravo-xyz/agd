@@ -100,7 +100,10 @@ impl App {
     /// Triage while it runs.
     pub(super) fn shown_tabs(&self) -> Vec<Screen> {
         let mut shown = self.tabs();
-        if matches!(self.screen, Screen::View(_) | Screen::Triage) && !shown.contains(&self.screen)
+        if matches!(
+            self.screen,
+            Screen::View(_) | Screen::Find(_) | Screen::Triage
+        ) && !shown.contains(&self.screen)
         {
             shown.push(self.screen.clone());
         }
@@ -112,8 +115,10 @@ impl App {
     /// tab.
     pub(super) fn switch_screen(&mut self, screen: Screen) -> Result<()> {
         let tab_view = matches!(&screen, Screen::View(key) if *key == self.settings.start_view);
-        if matches!(screen, Screen::Triage | Screen::Review | Screen::View(_))
-            && !tab_view
+        if matches!(
+            screen,
+            Screen::Triage | Screen::Review | Screen::View(_) | Screen::Find(_)
+        ) && !tab_view
             && !matches!(self.screen, Screen::Triage | Screen::Review)
         {
             self.back = self.screen.clone();
@@ -291,6 +296,23 @@ impl App {
                 .into_iter()
                 .map(|item| DisplayRow::item(INBOX, item))
                 .collect(),
+            Screen::Find(query) => {
+                let section = if query.is_empty() {
+                    "FIND".to_string()
+                } else {
+                    format!("FIND · {query}")
+                };
+                headers.push(Header::section(section.clone(), None));
+                self.index
+                    .items()
+                    .filter(|item| {
+                        super::actions::fuzzy_match(&super::actions::workspace_text(item), query)
+                            && self.visible(item)
+                    })
+                    .cloned()
+                    .map(|item| DisplayRow::item(&section, item))
+                    .collect()
+            }
             Screen::View(key) => {
                 let mut rows = Vec::new();
                 if let Some(view) = self.settings.view(key) {

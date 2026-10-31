@@ -37,6 +37,7 @@ Navigation: j/k move like n/p everywhere; C-n/C-p or C-j/C-k move in pickers.
 - `l`: log mode: closed items (org-agenda `l`)
 - `<`: filter by category, cycling (org-agenda `<`)
 - `/`: filter by text or tag (org-agenda `/`)
+- `F`: find any workspace heading
 
 ### Change (marked rows, else the cursor row)
 
@@ -156,7 +157,7 @@ As on Today · Week · Inbox · views.
 - `?`: these keys
 - `q`: quit
 
-## Pickers · views, templates, refile, edit fields
+## Pickers · views, templates, find, refile, edit fields
 
 ### Move in a picker
 

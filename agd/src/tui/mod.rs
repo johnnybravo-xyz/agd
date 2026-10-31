@@ -57,6 +57,7 @@ enum Screen {
     Week,
     Inbox,
     View(String),
+    Find(String),
     Triage,
     Review,
 }
@@ -83,6 +84,7 @@ enum Overlay {
     Edit(Box<edit::EditForm>),
     Prompt(actions::Prompt),
     Refile(actions::RefilePicker),
+    Find(actions::FindPicker),
     /// `B`: what to do with every marked row (keys::BULK_KEYS).
     Bulk,
     /// org-agenda's dispatcher: saved views by key.
@@ -658,9 +660,11 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
         Overlay::Help(_) => help::draw(frame, app, area),
         Overlay::Capture(_) => capture::draw(frame, app, area),
         Overlay::Edit(_) => edit::draw(frame, app, area),
-        Overlay::Prompt(_) | Overlay::Refile(_) | Overlay::Bulk | Overlay::Views { .. } => {
-            today::draw_overlay(frame, app, area)
-        }
+        Overlay::Prompt(_)
+        | Overlay::Refile(_)
+        | Overlay::Find(_)
+        | Overlay::Bulk
+        | Overlay::Views { .. } => today::draw_overlay(frame, app, area),
     }
 }
 

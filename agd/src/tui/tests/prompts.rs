@@ -227,6 +227,55 @@ fn the_filter_narrows_rows_as_you_type_and_esc_restores_them() {
 
 #[test]
 #[serial]
+fn workspace_find_jumps_to_headings_outside_the_current_agenda() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    with_home(|root| {
+        let path = root.join("archive.org");
+        fs::write(
+            &path,
+            "* TODO Release verification :quality:\nCheck the ASN field in the smoke test.\n* Reference notes\nInvoice mapping details.\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        app.filter = "current screen only".to_string();
+        app.reload_rows().unwrap();
+        assert!(app.rows.is_empty());
+
+        press(&mut app, KeyCode::Char('F'));
+        type_keys(&mut app, "asn");
+        let popup = render(&mut app, 100, 24).join("\n");
+        assert!(popup.contains("Find workspace"), "{popup}");
+        assert!(popup.contains("1 heading"), "{popup}");
+        assert!(popup.contains("Release verification"), "{popup}");
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.screen, Screen::Find("asn".to_string()));
+        assert!(app.filter.is_empty());
+        assert!(matches!(app.overlay, Overlay::None));
+        assert_eq!(app.rows.len(), 1);
+        assert_eq!(
+            app.selected_row().unwrap().item.title,
+            "Release verification"
+        );
+        let screen = render(&mut app, 100, 24).join("\n");
+        assert!(screen.contains("Find · asn"), "{screen}");
+
+        let editor = crate::tui::keys::dispatch(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL),
+        )
+        .unwrap();
+        let (file, line) = editor.expect("find result opens in the editor");
+        assert!(file.ends_with("archive.org"), "{file}");
+        assert_eq!(line, 1);
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.screen, Screen::Today);
+    });
+}
+
+#[test]
+#[serial]
 fn ctrl_n_and_ctrl_j_move_in_pickers_where_letters_are_typed() {
     use crossterm::event::KeyCode;
     with_home(|root| {

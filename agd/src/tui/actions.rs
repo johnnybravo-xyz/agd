@@ -224,6 +224,30 @@ impl RefilePicker {
     }
 }
 
+/// `F`: every heading in the workspace, narrowed as the person types.
+#[derive(Debug)]
+pub(super) struct FindPicker {
+    pub input: TextInput,
+    pub selected: usize,
+    targets: Vec<FindTarget>,
+}
+
+#[derive(Debug)]
+pub(super) struct FindTarget {
+    item_ref: String,
+    pub label: String,
+    search: String,
+}
+
+impl FindPicker {
+    pub(super) fn matches(&self) -> Vec<&FindTarget> {
+        self.targets
+            .iter()
+            .filter(|target| fuzzy_match(&target.search, self.input.text()))
+            .collect()
+    }
+}
+
 impl App {
     /// Applies one edit to every target (marked rows, else the selected
     /// row) as one transaction: if any target is refused, nothing is
@@ -976,6 +1000,69 @@ impl App {
         self.reload_rows()
     }
 
+    /// Opens a fuzzy picker over every heading, including undated tasks and
+    /// notes absent from the current agenda screen.
+    pub(super) fn open_find(&mut self) {
+        let mut targets: Vec<FindTarget> = self
+            .index
+            .items()
+            .map(|item| {
+                let mut tags = String::new();
+                for tag in &item.tags {
+                    if !tags.is_empty() {
+                        tags.push(' ');
+                    }
+                    tags.push('#');
+                    tags.push_str(tag);
+                }
+                let suffix = if tags.is_empty() {
+                    self.short_location(item)
+                } else {
+                    format!("{}  {tags}", self.short_location(item))
+                };
+                FindTarget {
+                    item_ref: item.item_ref.clone(),
+                    label: format!("{}  {suffix}", super::peek::display_title(item)),
+                    search: workspace_text(item),
+                }
+            })
+            .collect();
+        targets.sort_by_key(|target| target.label.to_lowercase());
+        self.overlay = Overlay::Find(FindPicker {
+            input: TextInput::default(),
+            selected: 0,
+            targets,
+        });
+    }
+
+    /// Keeps the picked workspace match as a normal list row, so every list
+    /// action works on it and esc returns to the screen the find started on.
+    pub(super) fn commit_find(&mut self) -> Result<()> {
+        let Overlay::Find(picker) = &self.overlay else {
+            return Ok(());
+        };
+        let Some(item_ref) = picker
+            .matches()
+            .get(picker.selected)
+            .map(|target| target.item_ref.clone())
+        else {
+            return Ok(());
+        };
+        let query = picker.input.text().trim().to_string();
+        self.overlay = Overlay::None;
+        self.filter.clear();
+        self.context = None;
+        self.switch_screen(Screen::Find(query))?;
+        if let Some(selected) = self
+            .rows
+            .iter()
+            .position(|row| row.item.item_ref == item_ref)
+        {
+            self.selected = selected;
+        }
+        Ok(())
+    }
+
     pub(super) fn open_refile(&mut self) {
         let Some(source) = self.selected_row().map(|row| row.item.item_ref.clone()) else {
             return;
@@ -1093,6 +1180,37 @@ fn titles_summary(titles: &[String]) -> String {
         [title] => title.clone(),
         [first, rest @ ..] => format!("{first} + {} more", rest.len()),
     }
+}
+
+/// Text a workspace find searches. Its result row stays short, but title,
+/// outline, description, category, tags and file are all discoverable.
+pub(super) fn workspace_text(item: &agd_core::Item) -> String {
+    let mut text = String::new();
+    push_search_part(&mut text, &item.title);
+    for part in &item.olpath {
+        push_search_part(&mut text, part);
+    }
+    push_search_part(&mut text, item.description.as_deref().unwrap_or_default());
+    push_search_part(&mut text, &item.category);
+    for tag in item.tags.iter().chain(&item.inherited_tags) {
+        push_search_part(&mut text, tag);
+    }
+    let file = Path::new(&item.file)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&item.file);
+    push_search_part(&mut text, file);
+    text
+}
+
+fn push_search_part(text: &mut String, part: &str) {
+    if part.is_empty() {
+        return;
+    }
+    if !text.is_empty() {
+        text.push(' ');
+    }
+    text.push_str(part);
 }
 
 /// Characters of `query` appear in `value` in order, ignoring case.

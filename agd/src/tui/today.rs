@@ -118,6 +118,7 @@ fn header_tabs(app: &App, width: usize) -> Vec<Span<'static>> {
                     format!("{key} {}", view_desc(key))
                 }
                 Screen::View(key) => view_desc(key),
+                Screen::Find(_) => "Find".to_string(),
                 Screen::Week => "Week".to_string(),
                 Screen::Inbox => format!("Inbox {}", app.counts.inbox),
                 Screen::Review => "Agents".to_string(),
@@ -193,6 +194,7 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Screen::Week => "WEEK",
         Screen::Inbox => "INBOX",
         Screen::View(_) => "VIEW",
+        Screen::Find(_) => "FIND",
         Screen::Triage => "TRIAGE",
         Screen::Review => "AGENTS",
     };
@@ -284,6 +286,8 @@ fn list_title(app: &App) -> String {
             .settings
             .view(key)
             .map_or_else(|| key.clone(), |view| view.desc.clone()),
+        Screen::Find(query) if query.is_empty() => "Find · every heading".to_string(),
+        Screen::Find(query) => format!("Find · {query}"),
         Screen::Triage | Screen::Review => String::new(),
     }
 }
@@ -1066,7 +1070,7 @@ fn draw_bulk(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(Paragraph::new(rows).block(block), popup);
 }
 
-/// Prompts, the refile picker and the views dispatcher.
+/// Prompts, workspace find, the refile picker and the views dispatcher.
 pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
     // The filter applies as you type, so it stays out of the list's way:
@@ -1119,6 +1123,49 @@ pub(super) fn draw_overlay(frame: &mut Frame<'_>, app: &App, area: Rect) {
             frame.render_widget(
                 Paragraph::new(footer(&[
                     (popup_key(Action::Save), "refile"),
+                    ("↑↓", "choose"),
+                    (popup_key(Action::Back), "cancel"),
+                ])),
+                parts[4],
+            );
+        }
+        Overlay::Find(picker) => {
+            let popup = centered(area, 84, area.height.saturating_sub(6).max(12));
+            frame.render_widget(Clear, popup);
+            let block = theme.popup("Find workspace");
+            let inner = block.inner(popup);
+            frame.render_widget(block, popup);
+            let parts = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Length(1),
+                    Constraint::Min(1),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                ])
+                .split(inner);
+            frame.render_widget(
+                Paragraph::new(input_line(theme, &picker.input)).block(theme.input(true)),
+                parts[0],
+            );
+            let matches = picker.matches();
+            frame.render_widget(
+                Paragraph::new(Span::styled(
+                    crate::words::counted(matches.len(), "heading", "headings"),
+                    theme.muted(),
+                )),
+                parts[1],
+            );
+            let items: Vec<ListItem<'_>> = matches
+                .iter()
+                .map(|target| ListItem::new(target.label.clone()))
+                .collect();
+            let mut state = ListState::default().with_selected(Some(picker.selected));
+            frame.render_stateful_widget(theme.list(items), parts[2], &mut state);
+            frame.render_widget(
+                Paragraph::new(footer(&[
+                    (popup_key(Action::Save), "jump"),
                     ("↑↓", "choose"),
                     (popup_key(Action::Back), "cancel"),
                 ])),
