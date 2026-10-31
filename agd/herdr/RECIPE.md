@@ -13,7 +13,7 @@ Build a native Herdr side panel for the local
   and overdue emphasis.
 - Keep the last successful agenda visible when refresh fails, and show the
   error at the bottom.
-- Provide **Refresh**, **Open** (`agd`), and **+** (`agd capture -i`) actions.
+- Provide **Done**, **Refresh**, **Open** (`agd`), and **+** (`agd capture -i`).
 - Follow Herdr's active theme. Do not animate frequent actions.
 
 ## Install
@@ -24,5 +24,5 @@ refuses a different mod already named `agd`.
 ## Access
 
 The mod makes no network requests. It runs the local `agd` executable, which
-reads the Org roots in agd's configuration. Open and Capture start local
-terminal tabs through Herdr.
+reads the Org roots in agd's configuration. **Done** uses guarded `agd edit`;
+Open and Capture start local terminal tabs through Herdr.

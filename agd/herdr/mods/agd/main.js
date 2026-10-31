@@ -31,12 +31,13 @@ export default class AgdAgenda extends View {
     this.entries = [];
     this.error = null;
     this.loading = false;
+    this.completing = null;
     this.refresh(cx);
     cx.timer.every(60000, (cx) => this.refresh(cx));
   }
 
   refresh(cx) {
-    if (this.loading) return;
+    if (this.loading || this.completing) return;
     this.loading = true;
     cx.spawn(async (cx) => {
       try {
@@ -52,6 +53,28 @@ export default class AgdAgenda extends View {
         this.error = String(error).replace(/^Error:\s*/, "");
       } finally {
         this.loading = false;
+        cx.notify();
+      }
+    });
+  }
+
+  complete(entry, cx) {
+    const itemRef = entry.item?.ref;
+    if (!itemRef || this.completing || this.loading) return;
+    this.completing = itemRef;
+    this.error = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const result = await exec("agd", ["edit", itemRef, "--done", "--json"]);
+        if (result.code !== 0) {
+          throw new Error((result.stderr || result.stdout).trim() || "agd edit failed");
+        }
+        this.entries = this.entries.filter((row) => row.item?.ref !== itemRef);
+      } catch (error) {
+        this.error = String(error).replace(/^Error:\s*/, "");
+      } finally {
+        this.completing = null;
         cx.notify();
       }
     });
@@ -77,7 +100,13 @@ export default class AgdAgenda extends View {
         .child(h_flex().gap(7).text_size(11).text_color(t.dim)
           .child(div().flex_none().text_color(late ? t.blocked : t.muted).child(timing(entry)))
           .when(Boolean(detail), (el) => el.child(div().truncate().child(detail)))))
-      .when(Boolean(item.priority), (el) => el.child(div().flex_none().text_size(10.5).text_color(t.muted).child(`!${item.priority}`)));
+      .when(Boolean(item.priority), (el) => el.child(div().flex_none().text_size(10.5).text_color(t.muted).child(`!${item.priority}`)))
+      .when(Boolean(item.todo), (el) => el.child(this.button(
+        `agd-done-${index}`,
+        this.completing === item.ref ? "Saving" : "Done",
+        (_event, cx) => this.complete(entry, cx),
+        t,
+      )));
   }
 
   render() {

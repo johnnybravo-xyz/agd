@@ -359,34 +359,16 @@ GUI apps may need the absolute path from `command -v agd`.
 
 ### Herdr agenda panel
 
-The native Herdr mod shows today's unfinished agenda, refreshes once a minute,
-and opens the full TUI or capture popup in terminal tabs. It runs the local
-`agd` executable and makes no network requests.
-
-Preview and install it without overwriting another mod named `agd`:
+The native panel shows today's unfinished agenda, marks tasks done, and opens
+agd or capture in terminal tabs:
 
 ```bash
-agd setup install --dry-run herdr
 agd setup install herdr
-
-herdr_home="${HERDR_APP_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr-app}"
-herdr-app check "$herdr_home/mods/agd"
 ```
 
-Herdr docks it on the right when it first sees the folder. Re-running the
-installer updates files owned by agd. The source and security notes are in the
-[mod recipe](../agd/herdr/RECIPE.md).
-
-Without the mod, open terminal tabs directly:
-
-```bash
-herdr-app do tab.new '{"name":"Agenda","argv":["agd","--pane"]}'
-herdr-app do tab.new '{"name":"Capture","argv":["agd","capture","-i"]}'
-```
-
-The panel runs on the machine hosting the Herdr window. A provider running on a
-remote machine needs `agd`, its provider integration, and the intended Org files
-on that remote host; local stdio configuration is not forwarded.
+It docks on the right, updates safely when reinstalled, and reuses the chosen
+provider's MCP setup. See the [mod recipe](../agd/herdr/RECIPE.md) for its source
+and security notes.
 
 ### Review agent changes
 

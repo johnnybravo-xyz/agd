@@ -8,9 +8,8 @@ This file records user-visible changes to the `agd` executable. It follows
 
 ### Added
 
-- A native Herdr side-panel mod shows today's agenda and opens agd or capture
-  in terminal tabs. `agd setup install herdr` installs and updates it without
-  replacing another mod; Herdr agents continue to use their provider's MCP.
+- A native Herdr panel shows today's agenda, marks tasks done, and opens agd or
+  capture. Install it with `agd setup install herdr`.
 - `agd query EXPRESSION` searches Org files and prints text or JSON.
 - `agd edit REF` safely updates a task, with `--dry-run`, `--json`, and
   workflow-aware `--done`.
