@@ -9,7 +9,8 @@ This file records user-visible changes to the `agd` executable. It follows
 ### Added
 
 - A native Herdr side-panel mod shows today's agenda and opens agd or capture
-  in terminal tabs. Herdr agents continue to use their provider's MCP setup.
+  in terminal tabs. `agd setup install herdr` installs and updates it without
+  replacing another mod; Herdr agents continue to use their provider's MCP.
 - Descriptions: in capture, `S-Enter` opens a Description box, collapsed
   until then, and `Tab` moves on to sub-tasks; a paste keeps every line. The
   description is plain text under the heading, where Org keeps an entry's

@@ -1,16 +1,16 @@
-//! `agd setup install [--detected] [codex] [opencode] [pi] [omp] [copilot]`:
-//! installs agd for coding agents, user-wide. The `agenda` skill goes to
+//! `agd setup install [--detected] [codex] [opencode] [pi] [omp] [copilot] [herdr]`:
+//! installs agd integrations user-wide. The `agenda` skill goes to
 //! `~/.agents/skills`, the Agent Skills location that Codex, OpenCode, Pi,
-//! oh-my-pi, Gemini CLI and VS Code all read; each named or detected harness
-//! also gets agd's MCP server in its user config. Pi and oh-my-pi also get
-//! `/capture` from agd's Pi extension. Copilot's file is the Copilot CLI's,
-//! which VS Code's chat discovers by default, so one entry serves both.
-//! Claude Code uses agd's plugin, while Paseo and Herdr reuse the setup of the
-//! provider they launch. Each person-owned config file is
-//! edited, not rewritten: Codex's TOML through toml_edit (comments and order
-//! survive), the JSON configs with their keys in their order. An existing agd
-//! entry that differs, or a file agd cannot edit safely, is refused before
-//! anything is written.
+//! oh-my-pi, Gemini CLI and VS Code all read. Named agent harnesses also get
+//! agd's MCP server in their user config. Pi and oh-my-pi get `/capture` from
+//! agd's Pi extension. Copilot's file is the Copilot CLI's, which VS Code's
+//! chat discovers by default, so one entry serves both. Herdr gets agd's
+//! native agenda mod and reuses the MCP setup of the provider it launches.
+//! Claude Code uses agd's plugin, while Paseo reuses its provider. Each
+//! person-owned config file is edited, not rewritten: Codex's TOML through
+//! toml_edit (comments and order survive), the JSON configs with their keys
+//! in their order. An existing agd entry that differs, or a file agd cannot
+//! edit safely, is refused before anything is written.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -31,18 +31,22 @@ const SKILL: &str = include_str!("../../claude-plugin/skills/agenda/SKILL.md");
 /// model turn.
 const PI_EXTENSION: &str = include_str!("../../pi/agd.ts");
 
+/// Herdr's native agenda panel.
+const HERDR_MOD: &str = include_str!("../../herdr/mods/agd/main.js");
+const HERDR_MANIFEST: &str = include_str!("../../herdr/mods/agd/mod.json");
+
 /// Claude Code gets agd from its plugin (`claude plugin install
-/// agd@johnnybravo-xyz`), so it is not a harness here.
+/// agd@johnnybravo-xyz`), so it is not an integration here.
 #[derive(Args, Debug)]
 pub struct InstallCommand {
     /// Print what would change as a diff and write nothing.
     #[arg(long)]
     dry_run: bool,
-    /// Select clients whose user config directories already exist.
+    /// Select integrations whose user config directories already exist.
     #[arg(long)]
     detected: bool,
-    /// Harnesses that also get agd's MCP server in their user config. The
-    /// skill alone goes to ~/.agents/skills for every harness.
+    /// Agent harnesses get agd's MCP server; Herdr gets the native agenda
+    /// panel. The skill goes to ~/.agents/skills for every selection.
     #[arg(value_enum)]
     harnesses: Vec<Harness>,
 }
@@ -59,6 +63,8 @@ enum Harness {
     Omp,
     /// GitHub Copilot in VS Code and the Copilot CLI: ~/.copilot/mcp-config.json, or under $COPILOT_HOME
     Copilot,
+    /// Herdr native panel: $HERDR_APP_HOME/mods/agd, or under $XDG_CONFIG_HOME
+    Herdr,
 }
 
 /// Where the user-wide files live, read from the environment once so tests
@@ -76,6 +82,8 @@ struct Places {
     omp_extension: PathBuf,
     /// The Copilot CLI's file, which VS Code also discovers by default.
     copilot: PathBuf,
+    /// Herdr's agd mod directory.
+    herdr: PathBuf,
 }
 
 impl Places {
@@ -85,16 +93,16 @@ impl Places {
         xdg_config_home: Option<PathBuf>,
         pi_agent_dir: Option<PathBuf>,
         copilot_home: Option<PathBuf>,
+        herdr_app_home: Option<PathBuf>,
     ) -> Self {
+        let config_home = xdg_config_home.unwrap_or_else(|| home.join(".config"));
         let pi = pi_agent_dir.unwrap_or_else(|| home.join(".pi/agent"));
         Self {
             skill: home.join(".agents/skills/agenda/SKILL.md"),
             codex: codex_home
                 .unwrap_or_else(|| home.join(".codex"))
                 .join("config.toml"),
-            opencode: xdg_config_home
-                .unwrap_or_else(|| home.join(".config"))
-                .join("opencode"),
+            opencode: config_home.join("opencode"),
             pi: pi.join("mcp.json"),
             pi_extension: pi.join("extensions/agd.ts"),
             omp: home.join(".omp/agent/mcp.json"),
@@ -102,6 +110,9 @@ impl Places {
             copilot: copilot_home
                 .unwrap_or_else(|| home.join(".copilot"))
                 .join("mcp-config.json"),
+            herdr: herdr_app_home
+                .unwrap_or_else(|| config_home.join("herdr-app"))
+                .join("mods/agd"),
         }
     }
 
@@ -114,12 +125,13 @@ impl Places {
             absolute_variable("XDG_CONFIG_HOME"),
             absolute_variable("PI_CODING_AGENT_DIR"),
             absolute_variable("COPILOT_HOME"),
+            absolute_variable("HERDR_APP_HOME"),
         ))
     }
 }
 
-/// Harnesses whose user config directory or file already exists. Detection is
-/// deliberately filesystem-only and does not inspect config contents.
+/// Integrations whose user config directory or file already exists. Detection
+/// is deliberately filesystem-only and does not inspect config contents.
 fn detected_harnesses(places: &Places) -> Vec<Harness> {
     let file_or_parent_exists =
         |path: &Path| path.exists() || path.parent().is_some_and(Path::exists);
@@ -138,6 +150,14 @@ fn detected_harnesses(places: &Places) -> Vec<Harness> {
     }
     if file_or_parent_exists(&places.copilot) {
         harnesses.push(Harness::Copilot);
+    }
+    if places
+        .herdr
+        .parent()
+        .and_then(Path::parent)
+        .is_some_and(Path::exists)
+    {
+        harnesses.push(Harness::Herdr);
     }
     harnesses
 }
@@ -180,27 +200,32 @@ fn install_selected(
         selected.extend(detected_harnesses(places));
         if selected.is_empty() {
             bail!(
-                "no supported agent config directories found; pass one or more of: codex, opencode, pi, omp, copilot"
+                "no supported integration directories found; pass one or more of: codex, opencode, pi, omp, copilot, herdr"
             );
         }
     }
     install(places, &selected, dry_run)
 }
 
-/// Writes the skill and each harness's entry, unless `dry_run`, and returns
-/// what to print. Every change is computed before the first write, so a
-/// refusal leaves every file as it was.
+/// Writes the skill and each selected integration, unless `dry_run`, and
+/// returns what to print. Every change is computed before the first write, so
+/// a refusal leaves every file as it was.
 fn install(places: &Places, harnesses: &[Harness], dry_run: bool) -> Result<Vec<String>> {
     let mut harnesses = harnesses.to_vec();
     harnesses.sort();
     harnesses.dedup();
     let mut changes = vec![skill_change(&places.skill)?];
     for harness in &harnesses {
+        if *harness == Harness::Herdr {
+            changes.extend(herdr_changes(&places.herdr)?);
+            continue;
+        }
         changes.push(server_change(places, *harness)?);
         let extension = match harness {
             Harness::Pi => Some(&places.pi_extension),
             Harness::Omp => Some(&places.omp_extension),
             Harness::Codex | Harness::Opencode | Harness::Copilot => None,
+            Harness::Herdr => unreachable!("handled above"),
         };
         if let Some(path) = extension {
             changes.push(owned_file_change(
@@ -226,6 +251,11 @@ fn install(places: &Places, harnesses: &[Harness], dry_run: bool) -> Result<Vec<
     if harnesses.is_empty() {
         lines.push(
             "the skill needs agd's MCP server: add it to a harness with `agd setup install codex` (or opencode, pi, omp, copilot)"
+                .to_string(),
+        );
+    } else if harnesses == [Harness::Herdr] {
+        lines.push(
+            "Herdr reuses its agent provider's MCP setup; install that provider too when needed"
                 .to_string(),
         );
     }
@@ -273,6 +303,34 @@ fn owned_file_change(path: &Path, content: &str, marker: &str, other: &str) -> R
     })
 }
 
+/// Herdr's two owned mod files. A previous agd main file proves the directory
+/// is ours, so its manifest may be updated with it. A manifest without agd's
+/// main file is someone else's and is refused before any write.
+fn herdr_changes(directory: &Path) -> Result<Vec<FileChange>> {
+    let main = owned_file_change(
+        &directory.join("main.js"),
+        HERDR_MOD,
+        "export default class AgdAgenda extends View",
+        "another Herdr mod named agd",
+    )?;
+    let manifest_path = directory.join("mod.json");
+    let manifest_before = read_text(&manifest_path)?;
+    if main.before.is_empty() && !manifest_before.is_empty() {
+        bail!(
+            "{} belongs to another Herdr mod named agd; move it aside, then install again",
+            manifest_path.display()
+        );
+    }
+    Ok(vec![
+        main,
+        FileChange {
+            path: manifest_path,
+            before: manifest_before,
+            after: HERDR_MANIFEST.to_string(),
+        },
+    ])
+}
+
 /// The harness's user config with agd's server entry.
 fn server_change(places: &Places, harness: Harness) -> Result<FileChange> {
     let path = match harness {
@@ -291,6 +349,7 @@ fn server_change(places: &Places, harness: Harness) -> Result<FileChange> {
         Harness::Pi => places.pi.clone(),
         Harness::Omp => places.omp.clone(),
         Harness::Copilot => places.copilot.clone(),
+        Harness::Herdr => unreachable!("Herdr has no separate MCP config"),
     };
     let before = read_text(&path)?;
     let after = match harness {
@@ -300,6 +359,7 @@ fn server_change(places: &Places, harness: Harness) -> Result<FileChange> {
             add_json_server(&before, &path, "mcpServers", mcp_servers_entry())?
         }
         Harness::Copilot => add_json_server(&before, &path, "mcpServers", copilot_entry())?,
+        Harness::Herdr => unreachable!("Herdr has no separate MCP config"),
     };
     Ok(FileChange {
         path,
@@ -495,7 +555,7 @@ mod tests {
     }
 
     fn places(home: &Path) -> Places {
-        Places::new(home, None, None, None, None)
+        Places::new(home, None, None, None, None, None)
     }
 
     #[test]
@@ -509,14 +569,17 @@ mod tests {
         assert!(detected.harnesses.is_empty());
         assert!(detected.detected);
 
-        let some = parse(&["install", "codex", "--detected", "--dry-run", "pi"]);
-        assert_eq!(some.harnesses, [Harness::Codex, Harness::Pi]);
+        let some = parse(&["install", "codex", "--detected", "--dry-run", "pi", "herdr"]);
+        assert_eq!(
+            some.harnesses,
+            [Harness::Codex, Harness::Pi, Harness::Herdr]
+        );
         assert!(some.dry_run);
         assert!(some.detected);
     }
 
     #[test]
-    fn places_follow_each_harness_directory_variable() {
+    fn places_follow_each_integration_directory_variable() {
         let home = Path::new("/home/a");
         let default = places(home);
         assert_eq!(
@@ -539,6 +602,10 @@ mod tests {
             default.copilot,
             Path::new("/home/a/.copilot/mcp-config.json")
         );
+        assert_eq!(
+            default.herdr,
+            Path::new("/home/a/.config/herdr-app/mods/agd")
+        );
 
         let moved = Places::new(
             home,
@@ -546,16 +613,28 @@ mod tests {
             Some(PathBuf::from("/srv/config")),
             Some(PathBuf::from("/srv/pi")),
             Some(PathBuf::from("/srv/copilot")),
+            None,
         );
         assert_eq!(moved.codex, Path::new("/srv/codex/config.toml"));
         assert_eq!(moved.opencode, Path::new("/srv/config/opencode"));
         assert_eq!(moved.pi, Path::new("/srv/pi/mcp.json"));
         assert_eq!(moved.pi_extension, Path::new("/srv/pi/extensions/agd.ts"));
         assert_eq!(moved.copilot, Path::new("/srv/copilot/mcp-config.json"));
+        assert_eq!(moved.herdr, Path::new("/srv/config/herdr-app/mods/agd"));
+
+        let herdr = Places::new(
+            home,
+            None,
+            None,
+            None,
+            None,
+            Some(PathBuf::from("/srv/herdr")),
+        );
+        assert_eq!(herdr.herdr, Path::new("/srv/herdr/mods/agd"));
     }
 
     #[test]
-    fn detection_follows_each_harness_config_directory() {
+    fn detection_follows_each_integration_config_directory() {
         let codex_home = tempfile::tempdir().unwrap();
         let codex = places(codex_home.path());
         fs::create_dir_all(codex.codex.parent().unwrap()).unwrap();
@@ -580,6 +659,11 @@ mod tests {
         let copilot = places(copilot_home.path());
         fs::create_dir_all(copilot.copilot.parent().unwrap()).unwrap();
         assert_eq!(detected_harnesses(&copilot), [Harness::Copilot]);
+
+        let herdr_home = tempfile::tempdir().unwrap();
+        let herdr = places(herdr_home.path());
+        fs::create_dir_all(herdr.herdr.parent().unwrap().parent().unwrap()).unwrap();
+        assert_eq!(detected_harnesses(&herdr), [Harness::Herdr]);
     }
 
     #[test]
@@ -617,7 +701,7 @@ mod tests {
             .to_string();
         assert_eq!(
             error,
-            "no supported agent config directories found; pass one or more of: codex, opencode, pi, omp, copilot"
+            "no supported integration directories found; pass one or more of: codex, opencode, pi, omp, copilot, herdr"
         );
         assert!(fs::read_dir(home.path()).unwrap().next().is_none());
     }
@@ -866,6 +950,54 @@ mod tests {
         assert_eq!(installed["mcpServers"]["agd"], copilot_entry());
         assert_eq!(installed["mcpServers"]["other"]["command"], "other");
         assert!(!home.path().join(".copilot/extensions").exists());
+    }
+
+    #[test]
+    fn herdr_gets_the_owned_native_mod_and_reuses_provider_setup() {
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+
+        let lines = install(&places, &[Harness::Herdr], false).unwrap();
+        assert_eq!(
+            fs::read_to_string(places.herdr.join("main.js")).unwrap(),
+            HERDR_MOD
+        );
+        assert_eq!(
+            fs::read_to_string(places.herdr.join("mod.json")).unwrap(),
+            HERDR_MANIFEST
+        );
+        assert!(
+            lines.last().unwrap().contains("reuses its agent provider"),
+            "{lines:?}"
+        );
+
+        let again = install(&places, &[Harness::Herdr], false).unwrap();
+        assert!(
+            again
+                .iter()
+                .any(|line| line.ends_with("main.js is up to date")),
+            "{again:?}"
+        );
+    }
+
+    #[test]
+    fn another_herdr_mod_named_agd_refuses_every_write() {
+        let home = tempfile::tempdir().unwrap();
+        let places = places(home.path());
+        fs::create_dir_all(&places.herdr).unwrap();
+        let theirs = "export default class PersonalAgenda {}\n";
+        fs::write(places.herdr.join("main.js"), theirs).unwrap();
+
+        let error = install(&places, &[Harness::Herdr], false)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("another Herdr mod named agd"), "{error}");
+        assert_eq!(
+            fs::read_to_string(places.herdr.join("main.js")).unwrap(),
+            theirs
+        );
+        assert!(!places.skill.exists());
+        assert!(!places.herdr.join("mod.json").exists());
     }
 
     #[test]

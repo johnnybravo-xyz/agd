@@ -12,6 +12,7 @@ intended bytes or refuse the operation.
 | `agd/` | The `agd` executable: CLI, TUI, stdio MCP, editor readers, setup, and output formatting |
 | `agd/claude-plugin/` | Claude Code MCP entry, skill, `/agd`, `/capture`, and status band |
 | `agd/pi/` | Pi and oh-my-pi `/capture` extension installed by setup |
+| `agd/herdr/` | Native Herdr agenda panel installed by setup |
 | `conformance/` | Emacs and Neovim oracle fixtures, write fixtures, and byte-exact round trips |
 
 Domain behavior belongs in `agd-core`; executable and integration code should
@@ -72,7 +73,7 @@ Each convention has one implementation owner:
 | Key bindings and generated key reference | `agd/src/tui/keys.rs` and `docs/KEYS.md` |
 | Colors, glyphs, spacing, and terminal presentation | `agd/src/tui/theme.rs` |
 | Human-readable dates, change summaries, and errors | `agd/src/words.rs` |
-| User setup, compatibility, safety, and troubleshooting | `docs/getting-started.md` |
+| User setup and daily workflows | `docs/getting-started.md`; detailed compatibility, safety, and troubleshooting in `docs/reference.md` |
 
 `docs/KEYS.md` is generated. Update the key table, then run
 `AGD_UPDATE_DOCS=1 cargo test -p agd keys_md`.

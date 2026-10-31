@@ -290,15 +290,16 @@ Or select one explicitly:
 | GitHub Copilot in VS Code and Copilot CLI | `agd setup install copilot` |
 | OpenCode | `agd setup install opencode` |
 | Pi / oh-my-pi | `agd setup install pi` / `agd setup install omp` |
-| Paseo or Herdr agent | Configure the provider it launches |
+| Paseo agent | Configure the provider it launches |
+| Herdr | `agd setup install herdr` for the native panel; configure its provider for MCP |
 | Claude Desktop or another stdio client | command `agd`, argument `mcp` |
 
-`--detected` recognizes Codex, OpenCode, Pi, oh-my-pi, and Copilot directories.
-It never launches clients, reads private config contents, or uses the network.
-The installer writes the shared skill to `~/.agents/skills/agenda/SKILL.md`,
-preserves unrelated configuration and comments, and refuses every write if one
-target conflicts. Name a new client explicitly when its config directory does
-not exist yet.
+`--detected` recognizes Codex, OpenCode, Pi, oh-my-pi, Copilot, and Herdr
+directories. It never launches clients, reads private config contents, or uses
+the network. The installer writes the shared skill to
+`~/.agents/skills/agenda/SKILL.md`, preserves unrelated configuration and
+comments, and refuses every write if one target conflicts. Name a new client
+explicitly when its config directory does not exist yet.
 
 Codex surfaces share `~/.codex/config.toml`, or `$CODEX_HOME/config.toml`.
 Claude Code's plugin provides the MCP tools, `agenda` skill, `/agd`, `/capture`,
@@ -310,8 +311,8 @@ entry includes the variable.
 
 Paseo and Herdr launch an installed provider CLI with that provider's config,
 skills, and MCP servers. Configure Codex, the Claude Code plugin, OpenCode, Pi,
-or oh-my-pi first, then start a new agent. There is no `agd setup install paseo`
-or `agd setup install herdr` because neither owns a separate MCP configuration.
+or oh-my-pi first, then start a new agent. Herdr's install target adds only its
+native panel; it does not create a second MCP configuration.
 
 For another stdio client, use its equivalent of:
 
@@ -330,26 +331,23 @@ GUI apps may need the absolute path from `command -v agd`.
 
 ### Herdr agenda panel
 
-The optional native Herdr mod shows today's unfinished agenda, refreshes once a
-minute, and opens the full TUI or capture popup in terminal tabs. It runs the
-local `agd` executable and makes no network requests.
+The native Herdr mod shows today's unfinished agenda, refreshes once a minute,
+and opens the full TUI or capture popup in terminal tabs. It runs the local
+`agd` executable and makes no network requests.
 
-Install the mod without overwriting an existing `agd` mod:
+Preview and install it without overwriting another mod named `agd`:
 
 ```bash
-set -e
-tmp="$(mktemp -d)"
-git clone --depth 1 https://github.com/johnnybravo-xyz/agd.git "$tmp/agd"
+agd setup install --dry-run herdr
+agd setup install herdr
+
 herdr_home="${HERDR_APP_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr-app}"
-test ! -e "$herdr_home/mods/agd"
-mkdir -p "$herdr_home/mods"
-cp -R "$tmp/agd/agd/herdr/mods/agd" "$herdr_home/mods/agd"
-rm -rf "$tmp"
 herdr-app check "$herdr_home/mods/agd"
 ```
 
-Herdr docks it on the right when it first sees the folder. The source and
-security notes are in the [mod recipe](../agd/herdr/RECIPE.md).
+Herdr docks it on the right when it first sees the folder. Re-running the
+installer updates files owned by agd. The source and security notes are in the
+[mod recipe](../agd/herdr/RECIPE.md).
 
 Without the mod, open terminal tabs directly:
 

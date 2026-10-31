@@ -14,7 +14,7 @@ pub struct SetupCommand {
 enum SetupAction {
     /// Import your Emacs or Neovim org settings into config.toml
     Import(ImportCommand),
-    /// Install agent support; --detected finds existing Codex, OpenCode, Pi, oh-my-pi, and Copilot configs (Claude Code uses the plugin; Paseo and Herdr reuse their provider)
+    /// Install agent integrations; --detected finds existing configs and Herdr (Claude uses its plugin; Paseo reuses its provider)
     Install(InstallCommand),
     /// Check org files for parse drift, invalid UTF-8, duplicate IDs and interrupted writes
     Check(CheckCommand),

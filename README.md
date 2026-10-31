@@ -107,14 +107,15 @@ agd setup install --detected
 | Codex CLI, ChatGPT desktop Codex, Codex IDE | `agd setup install codex` |
 | Claude Code terminal, desktop local sessions, VS Code | `claude plugin marketplace add johnnybravo-xyz/agd`, then `claude plugin install agd@johnnybravo-xyz` |
 | Paseo | Configure the provider it launches; Paseo reuses provider config and MCP servers |
-| Herdr | Configure the provider it launches; optionally install the [native agenda mod](https://github.com/johnnybravo-xyz/agd/tree/main/agd/herdr) |
+| Herdr | `agd setup install herdr` adds the native agenda panel; configure the provider it launches for MCP |
 | OpenCode, Pi, oh-my-pi | `agd setup install opencode`, `agd setup install pi`, or `agd setup install omp` |
 | GitHub Copilot in VS Code, Copilot CLI | `agd setup install copilot` |
 | Claude Desktop chat or another stdio client | command `agd`, argument `mcp` |
 
-`--detected` recognizes existing Codex, OpenCode, Pi, oh-my-pi, and Copilot
-config directories. The installer preserves unrelated configuration and refuses the
-whole operation on a conflict. GUI clients may need the absolute `agd` path.
+`--detected` recognizes existing Codex, OpenCode, Pi, oh-my-pi, Copilot, and
+Herdr config directories. The installer preserves unrelated configuration and
+refuses the whole operation on a conflict. GUI clients may need the absolute
+`agd` path.
 
 ## Safety
 
