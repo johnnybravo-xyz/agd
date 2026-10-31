@@ -14,6 +14,10 @@ This file records user-visible changes to the `agd` executable. It follows
 - `agd query EXPRESSION` searches every configured Org file with the same
   org-ql subset as MCP. It prints agenda-style rows or stable `agd.item/v1`
   JSON, with optional limits and full bodies.
+- `agd edit REF` exposes guarded title, description, state, planning, priority,
+  tag, property, and note changes to scripts. `--dry-run` prints the exact
+  diff; `--json` returns `agd.mutation/v1`; `--done` follows the file's own
+  TODO workflow.
 - Descriptions: in capture, `S-Enter` opens a Description box, collapsed
   until then, and `Tab` moves on to sub-tasks; a paste keeps every line. The
   description is plain text under the heading, where Org keeps an entry's

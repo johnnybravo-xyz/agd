@@ -11,7 +11,8 @@ mod mcp;
 mod tui;
 mod words;
 use commands::{
-    AgendaCommand, CaptureCommand, CompletionsCommand, QueryCommand, SetupCommand, UndoCommand,
+    AgendaCommand, CaptureCommand, CompletionsCommand, EditCommand, QueryCommand, SetupCommand,
+    UndoCommand,
 };
 use mcp::McpCommand;
 
@@ -44,6 +45,8 @@ enum Commands {
     Capture(CaptureCommand),
     /// Search every configured Org file with an org-ql expression
     Query(QueryCommand),
+    /// Safely edit one item by its current ref
+    Edit(EditCommand),
     /// Undo the latest change you made from the command line
     Undo(UndoCommand),
     /// Run the stdio MCP server for coding agents
@@ -61,6 +64,7 @@ impl Cli {
             Some(Commands::Agenda(command)) => command.json,
             Some(Commands::Capture(command)) => command.json,
             Some(Commands::Query(command)) => command.json,
+            Some(Commands::Edit(command)) => command.json,
             Some(Commands::Undo(command)) => command.json,
             Some(Commands::Setup(command)) => command.json(),
             Some(Commands::Mcp(_)) | Some(Commands::Completions(_)) | None => false,
@@ -196,6 +200,7 @@ fn run(cli: Cli) -> Result<bool> {
         Some(Commands::Agenda(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Capture(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Query(command)) => command.execute(config, root_directory).map(|()| false),
+        Some(Commands::Edit(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Undo(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Mcp(command)) => command.execute(config, root_directory).map(|()| false),
         Some(Commands::Setup(command)) => command.execute(config, root_directory),

@@ -164,6 +164,100 @@ fn query_prints_text_or_stable_json_with_optional_bodies() {
 }
 
 #[test]
+fn edit_dry_runs_then_applies_a_guarded_multi_field_change() {
+    let fixture = Fixture::new();
+    let source = fs::read_to_string(&fixture.tasks).unwrap();
+    fs::write(
+        &fixture.tasks,
+        source.replace(
+            "SCHEDULED: <2026-10-13 Tue 09:30>\nDEADLINE:",
+            "SCHEDULED: <2026-10-13 Tue 09:30> DEADLINE:",
+        ),
+    )
+    .unwrap();
+    let query = fixture
+        .command()
+        .args(["query", "(tags \"admin\")", "--json"])
+        .output()
+        .expect("query command");
+    let rows: Value = serde_json::from_slice(&query.stdout).expect("query JSON");
+    let item_ref = rows[0]["ref"].as_str().unwrap().to_string();
+    let original = fs::read_to_string(&fixture.tasks).unwrap();
+
+    fixture
+        .command()
+        .args(["edit", &item_ref, "--title", "Preview only", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("+* TODO Preview only"));
+    assert_eq!(fs::read_to_string(&fixture.tasks).unwrap(), original);
+    assert!(
+        !fixture
+            .directory
+            .path()
+            .join("data/agd/journal.jsonl")
+            .exists()
+    );
+
+    let output = fixture
+        .command()
+        .args([
+            "edit",
+            &item_ref,
+            "--done",
+            "--description",
+            "Ready to ship.\nChecks passed.",
+            "--priority",
+            "A",
+            "--add-tag",
+            "shipped",
+            "--remove-tag",
+            "admin",
+            "--property",
+            "OWNER=release",
+            "--scheduled",
+            "none",
+            "--json",
+        ])
+        .output()
+        .expect("edit command");
+    assert!(output.status.success(), "{output:?}");
+    let mutation: Value = serde_json::from_slice(&output.stdout).expect("mutation JSON");
+    assert_eq!(mutation["schema"], "agd.mutation/v1");
+    assert_eq!(mutation["item"]["todo"], "DONE");
+    assert_eq!(mutation["item"]["done"], true);
+    assert_eq!(
+        mutation["item"]["description"],
+        "Ready to ship.\nChecks passed."
+    );
+    assert_ne!(mutation["item"]["ref"], item_ref);
+    // The sentence every surface shows, as the TUI says `x`.
+    assert_eq!(
+        mutation["summary"],
+        "tasks.org:3  TODO → DONE · Renew passport"
+    );
+    assert_eq!(mutation["notes"], Value::Array(Vec::new()));
+
+    let changed = fs::read_to_string(&fixture.tasks).unwrap();
+    assert!(changed.contains("* DONE [#A] Renew passport"));
+    assert!(changed.contains(":shipped:\n"));
+    assert!(changed.contains(":OWNER:    release\n"));
+    assert!(changed.contains("Ready to ship.\nChecks passed.\n"));
+    assert!(!changed.contains("SCHEDULED:"));
+    assert!(changed.contains("DEADLINE: <2026-10-20 Tue -3d>"));
+    assert!(changed.ends_with("* NEXT File paperwork :work:\n* Inbox\n"));
+
+    let before_conflict = changed.clone();
+    fixture
+        .command()
+        .args(["edit", &item_ref, "--title", "Stale write", "--json"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("\"code\":\"ref_conflict\""));
+    assert_eq!(fs::read_to_string(&fixture.tasks).unwrap(), before_conflict);
+}
+
+#[test]
 fn agenda_span_takes_a_number_of_days_from_config_or_flag() {
     let fixture = Fixture::new();
     let config = fs::read_to_string(&fixture.config).unwrap();

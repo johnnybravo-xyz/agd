@@ -210,6 +210,21 @@ agd query '(text "release")' --with-body --json
 Queries support `and`, `or`, `not`, `todo`, `done`, `tags`, `priority`,
 `category`, `text`, `deadline :to DAYS`, and `scheduled :to DAYS`.
 
+Every agenda, query, capture, or edit result carries an item `ref`. Use the
+latest ref for guarded scripted changes:
+
+```bash
+agd edit 'REF' --done
+agd edit 'REF' --scheduled fri --deadline +7d --add-tag work
+agd edit 'REF' --description $'First line\nSecond line' --dry-run
+agd edit 'REF' --title 'Ship release' --json
+```
+
+`--dry-run` prints the exact diff without writing. An edit can also add or
+remove tags, set or clear a priority, set or remove properties, and add a
+timestamped note. A stale ref fails with `ref_conflict`; read the item again
+instead of retrying blindly.
+
 ### Today, Week, Inbox, Agents, and Triage
 
 Run `agd`. It opens Today or the view named by `start_view`:

@@ -140,6 +140,18 @@ impl OrgDocument {
             .find(|keyword| keyword.name == name)
     }
 
+    /// The keywords of `todo`'s sequence in order (`TODO NEXT | DONE
+    /// CANCELLED`); the first sequence when `todo` is None or undeclared.
+    pub fn sequence(&self, todo: Option<&str>) -> Vec<&TodoKeyword> {
+        let sequence = todo
+            .and_then(|todo| self.todo_keyword(todo))
+            .map_or(0, |keyword| keyword.sequence);
+        self.todo_keywords
+            .iter()
+            .filter(|keyword| keyword.sequence == sequence)
+            .collect()
+    }
+
     pub fn logging(&self) -> LogSettings {
         self.logging
     }
