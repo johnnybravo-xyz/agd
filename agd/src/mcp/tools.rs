@@ -485,11 +485,8 @@ fn add_bodies(json: &mut Value, index: &WorkspaceIndex) {
 fn item_body(item: &JsonObject, index: &WorkspaceIndex) -> Option<String> {
     let file = item.get("file")?.as_str()?;
     let line = usize::try_from(item.get("line")?.as_u64()?).ok()?;
-    let document = index.document(std::path::Path::new(file))?;
-    let span = document.headline_at_line(line)?.body_span;
-    document
-        .source()
-        .get(span.start..span.end)
+    index
+        .item_body(std::path::Path::new(file), line)
         .map(str::to_string)
 }
 

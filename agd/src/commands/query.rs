@@ -58,17 +58,7 @@ fn json_output(items: &[Item], index: &WorkspaceIndex, with_body: bool) -> Resul
                 continue;
             };
             let body = index
-                .document(Path::new(&item.file))
-                .and_then(|document| {
-                    document
-                        .headline_at_line(item.line)
-                        .map(|headline| (document, headline))
-                })
-                .and_then(|(document, headline)| {
-                    document
-                        .source()
-                        .get(headline.body_span.start..headline.body_span.end)
-                })
+                .item_body(Path::new(&item.file), item.line)
                 .unwrap_or_default();
             row.insert("body".to_string(), Value::String(body.to_string()));
         }

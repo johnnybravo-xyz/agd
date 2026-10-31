@@ -210,10 +210,11 @@ agd query '(text "release")' --with-body --json
 Queries support `and`, `or`, `not`, `todo`, `done`, `tags`, `priority`,
 `category`, `text`, `deadline :to DAYS`, and `scheduled :to DAYS`.
 
-Every agenda, query, capture, or edit result carries an item `ref`. Use the
-latest ref for guarded scripted changes:
+Machine-readable `--json` agenda, query, capture, and edit results carry an
+item `ref`. Read the latest ref before a guarded scripted change:
 
 ```bash
+agd query '(todo)' --limit 1 --json
 agd edit 'REF' --done
 agd edit 'REF' --scheduled fri --deadline +7d --add-tag work
 agd edit 'REF' --description $'First line\nSecond line' --dry-run
@@ -339,8 +340,8 @@ entry includes the variable.
 
 Paseo and Herdr launch an installed provider CLI with that provider's config,
 skills, and MCP servers. Configure Codex, the Claude Code plugin, OpenCode, Pi,
-or oh-my-pi first, then start a new agent. Herdr's install target adds only its
-native panel; it does not create a second MCP configuration.
+or oh-my-pi first, then start a new agent. Herdr installs the native panel and
+shared skill, but does not create a second MCP configuration.
 
 For another stdio client, use its equivalent of:
 

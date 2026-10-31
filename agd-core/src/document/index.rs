@@ -249,6 +249,14 @@ impl WorkspaceIndex {
         self.documents.get(path)
     }
 
+    /// The exact text below the heading at `line`, including drawers and
+    /// lists, for machine-readable responses that request full bodies.
+    pub fn item_body(&self, path: &Path, line: usize) -> Option<&str> {
+        let document = self.document(path)?;
+        let span = document.headline_at_line(line)?.body_span;
+        document.source().get(span.start..span.end)
+    }
+
     pub fn resolve(&self, item_ref: &str) -> Result<(&OrgDocument, &HeadlineSpan), AgdError> {
         if !item_ref.contains("#sha256:") {
             self.refuse_duplicate_id(Some(item_ref))?;

@@ -191,13 +191,7 @@ fn edit_dry_runs_then_applies_a_guarded_multi_field_change() {
         .success()
         .stdout(predicate::str::contains("+* TODO Preview only"));
     assert_eq!(fs::read_to_string(&fixture.tasks).unwrap(), original);
-    assert!(
-        !fixture
-            .directory
-            .path()
-            .join("data/agd/journal.jsonl")
-            .exists()
-    );
+    assert!(!fixture.directory.path().join("data").exists());
 
     let output = fixture
         .command()
@@ -248,6 +242,8 @@ fn edit_dry_runs_then_applies_a_guarded_multi_field_change() {
     assert!(changed.ends_with("* NEXT File paperwork :work:\n* Inbox\n"));
 
     let before_conflict = changed.clone();
+    let journal = fixture.directory.path().join("data/agd/journal.jsonl");
+    let journal_before = fs::read(&journal).unwrap();
     fixture
         .command()
         .args(["edit", &item_ref, "--title", "Stale write", "--json"])
@@ -255,6 +251,28 @@ fn edit_dry_runs_then_applies_a_guarded_multi_field_change() {
         .failure()
         .stderr(predicate::str::contains("\"code\":\"ref_conflict\""));
     assert_eq!(fs::read_to_string(&fixture.tasks).unwrap(), before_conflict);
+    assert_eq!(fs::read(&journal).unwrap(), journal_before);
+}
+
+#[test]
+fn edit_refuses_duplicate_ids_without_writing() {
+    let fixture = Fixture::new();
+    fs::write(
+        &fixture.tasks,
+        "* TODO One\n:PROPERTIES:\n:ID: shared\n:END:\n* TODO Two\n:PROPERTIES:\n:ID: shared\n:END:\n",
+    )
+    .unwrap();
+    let original = fs::read(&fixture.tasks).unwrap();
+
+    fixture
+        .command()
+        .args(["edit", "shared", "--done", "--json"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("\"code\":\"id_conflict\""));
+
+    assert_eq!(fs::read(&fixture.tasks).unwrap(), original);
+    assert!(!fixture.directory.path().join("data").exists());
 }
 
 #[test]
