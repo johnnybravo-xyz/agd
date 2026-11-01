@@ -1,5 +1,5 @@
-//! The edit popup: its fields, the dry-run preview and the one guarded
-//! write.
+//! The edit popup: its fields, the dry-run preview and the one write, which
+//! resolves its target again under lock.
 
 use super::*;
 

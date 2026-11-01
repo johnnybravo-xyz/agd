@@ -1,68 +1,53 @@
 # Getting started with agd
 
-`agd` is a local-first Org agenda for terminals and coding agents. The full TUI,
-narrow pane, CLI, and stdio MCP server all read the same Org files and use the
-same source-preserving write engine.
+`agd` is a local-first Org agenda for terminals and coding agents. The TUI,
+the pane, the CLI, the MCP server and the Claude Code and Herdr panels all read
+the same Org files and write through the same source-preserving engine.
 
 ## Install and try the demo
 
+Choose one:
+
 ```bash
-cargo install agd --locked                 # Rust 1.89+
-brew install johnnybravo-xyz/agd/agd
-nix run github:johnnybravo-xyz/agd
-agd --version
+cargo install agd --locked                  # Cargo; Rust 1.89+
+brew install johnnybravo-xyz/agd/agd        # Homebrew
+nix profile add github:johnnybravo-xyz/agd  # Nix
 ```
 
-Release binaries, signed checksums, and the Arch recipe are listed in the
-[README](../README.md#install). Generate shell completions with
+Release binaries and the Arch recipe are listed in the
+[README](../README.md#install). Shell completions:
 `agd completions bash|zsh|fish|elvish|powershell`.
 
-To explore sample data without touching your files:
+To explore sample data without touching your files (needs `python3`; `HOME`,
+config, data and Org files live in a temporary directory):
 
 ```bash
-git clone https://github.com/johnnybravo-xyz/agd.git
-cd agd
-cargo build --release
+git clone https://github.com/johnnybravo-xyz/agd.git && cd agd
+scripts/cargo build --release
 AGD=target/release/agd docs/demo/demo.sh
 ```
 
-The demo requires `python3` and isolates `HOME`, configuration, application
-data, and Org files in a temporary directory.
+## Start
 
-## Start from existing settings or new Org files
-
-### Import an existing Emacs or Neovim setup
+### From Emacs or Neovim
 
 ```bash
-agd setup import ~/.emacs.d --stdout
-agd setup import ~/.emacs.d
+agd setup import ~/.emacs.d --stdout    # preview the generated config
+agd setup import ~/.emacs.d             # write ~/.config/agd/config.toml
 agd setup check
 agd
 ```
 
-The input may be an editor directory such as `~/.doom.d`, `~/.config/emacs`,
-`~/.emacs.d`, or `~/.config/nvim`, or one or more configuration files. The
-importer runs `emacs -Q` or `nvim --clean`; the selected editor must be on
-`PATH`, but normal startup, daemons, and plugin managers do not run.
+Pass an editor directory (`~/.doom.d`, `~/.config/emacs`, `~/.config/nvim`) or
+config files. The importer runs `emacs -Q` or `nvim --clean`, so your normal
+startup and plugin managers never run, and reports anything it could not
+carry over. See the [import reference](reference.md#import-reference).
 
-Review the report before using the generated configuration. See the
-[import reference](reference.md#import-reference) for discovery, supported
-settings, and re-import behavior.
+### From nothing
 
-### Start with new Org files
-
-Org stores notes and tasks in plain text. A heading with a TODO keyword is a
-task; a heading without one is a note:
-
-```org
-* TODO Renew passport
-```
-
-A **scheduled date** says when you plan to work on a task. A **deadline** says
-when it must be complete and becomes visible during its warning period. Most
-tasks need neither; some need one; few need both.
-
-Create the default root and capture a first task:
+Org keeps tasks in plain text. A heading with a TODO keyword is a task, one
+without is a note. A **scheduled** date is when you plan to work on it; a
+**deadline** is when it must be done.
 
 ```bash
 mkdir -p ~/org
@@ -70,16 +55,14 @@ agd capture "Renew passport due:fri #personal !A"
 agd
 ```
 
-Without a configuration file, `agd` uses `~/org`, reads every `.org` file under
-it, uses `TODO NEXT WAIT | DONE CANCELLED`, adds a `CLOSED:` timestamp on
-completion, shows a week agenda, and captures TODO headings under Inbox with
-template `t`.
+With no config, agd reads every `.org` file under `~/org`, uses
+`TODO NEXT WAIT | DONE CANCELLED`, stamps `CLOSED:` on completion and captures
+into an Inbox.
 
-## Configure roots, capture, and views
+## Configure
 
-The default configuration is `~/.config/agd/config.toml`, or
-`$XDG_CONFIG_HOME/agd/config.toml`. `agd --config FILE` selects another file for
-one invocation.
+`~/.config/agd/config.toml` (or under `$XDG_CONFIG_HOME`); `--config FILE`
+picks another for one run.
 
 ```toml
 roots = ["~/org"]
@@ -93,20 +76,6 @@ desc = "Todo"
 file = "inbox.org"
 heading = "Inbox"
 template = "* TODO %?\n:PROPERTIES:\n:CREATED: %U\n:END:"
-
-[[capture]]
-key = "n"
-desc = "Note"
-file = "notes.org"
-heading = "Notes"
-template = "* %?\n:PROPERTIES:\n:CREATED: %U\n:END:\n%i"
-
-[[capture]]
-key = "m"
-desc = "Meeting"
-file = "calendar.org"
-heading = "Meetings"
-template = "* %?"
 
 [[capture]]
 key = "j"
@@ -125,150 +94,76 @@ blocks = [
 ]
 ```
 
-Important rules:
+- `roots` is the boundary for every read and write.
+- Ordinary settings go before the first `[[capture]]` or `[[view]]`; TOML
+  gives later keys to the record above them.
+- A file's own `#+TODO`, `#+CATEGORY`, `#+FILETAGS`, `#+PRIORITIES` and
+  `#+STARTUP` win over the config for that file.
+- In a keyword sequence, `|` separates open from done; `!` logs a timestamp,
+  `@` asks for a note.
+- Templates: `%?` is the captured text, `%U` and `%t` are now and today, `%i` is
+  the body, `%^{name}` prompts. Defining any `[[capture]]` replaces the
+  defaults.
+- View blocks are `agenda`, `todo`, `alltodo`, `tags` or `tags-todo`, matched
+  with Emacs tags/TODO syntax; `groups` work as in org-super-agenda.
+- `notation = "org"` shows `:work:` and `#A` instead of `#work` and `!A`.
+- Unknown keys and bad values fail on load and name the accepted ones.
 
-- `roots` is the authorization boundary for reads and writes.
-- Every ordinary setting is top-level. Put it before the first `[[capture]]` or
-  `[[view]]`; TOML assigns later keys to the current array record.
-- A file's `#+TODO`, `#+SEQ_TODO`, `#+CATEGORY`, `#+FILETAGS`, `#+PRIORITIES`,
-  and `#+STARTUP` directives override configured defaults for that file.
-- Keywords before `|` are open; keywords after it are complete. `!` logs a
-  timestamp and `@` requests a note.
-- A capture target's `file` is relative to a root. `heading` can be created;
-  every component of `olpath` must already exist; `datetree = true` creates
-  year, month, and day headings.
-- `%?` receives captured text, `%U` inserts the current inactive timestamp,
-  `%i` receives body text, and `%^{name}` defines a prompt.
-- Defining any `[[capture]]` record replaces the default template set.
-- Saved-view blocks may be `agenda`, `todo`, `alltodo`, `tags`, or `tags-todo`.
-  Match expressions use Emacs tags/TODO syntax, including property comparisons.
-- Groups use first-match-wins ordering and support `discard`, `order`, effort
-  bounds, and `by = "category"|"parent"|"todo"|"priority"`. Unmatched rows
-  appear under “Other items.”
-- `notation = "org"` displays tags and priorities as `:work:` and `#A` instead
-  of the default `#work` and `!A`.
-- Unknown keys and invalid values fail at load time and list accepted values.
+`agd setup check` checks the config and every Org file.
 
-Check configuration and Org files with `agd setup check`.
+## Daily use
 
-## Daily workflow
+### The TUI
 
-### Capture
+`agd` opens Today, or your `start_view`:
 
-The CLI, TUI, and direct agent commands share one-line capture syntax:
-
-```bash
-agd capture "Renew passport due:fri #personal !A" --dry-run
-agd capture "Renew passport due:fri #personal !A"
-agd capture n "Wifi password is on the router"
-agd capture m "Dentist on:fri 14:00"
-agd capture j "Shipped the release"
-```
-
-A leading template key selects that template when more text follows. `due:DATE`
-sets `DEADLINE:`, `on:DATE` sets `SCHEDULED:`, `#tag` adds a tag, and `!A` adds
-a priority. Date forms include `today`, `tomorrow`, weekdays, `+3d`, `+2w`,
-`oct 30`, ISO dates, optional times, repeaters, and warning periods. Put `--`
-before text beginning with `-`; use `--body TEXT` for `%i` and
-`--prompt KEY=VALUE` for template prompts.
-
-Each date counts from today, as Org's date prompt does, so `on:fri due:tue`
-on a Monday puts the deadline on the coming Tuesday, before Friday. agd writes
-that as typed, as Org does, and says so under the chips:
-`scheduled 3 days after the deadline · due:+2tue for Tue 27 Oct`, the second
-part naming the token for the Tuesday after. The edit popup, the `s` and `d`
-prompts, `agd capture` (on stderr) and MCP `capture` and `plan` results (in
-`notes`) say the same.
-
-In the TUI capture popup, the optional Description panel stays collapsed until
-`S-Enter` from the task line reveals and focuses it. Paste a paragraph there to
-preserve all of its lines and blank lines. `Tab` opens the first sub-task.
-
-Enter continues, and a blank Enter finishes. On the task line and in one-line
-fields, Enter saves, or moves to a template prompt still unanswered. On a
-description, sub-task or note line, Enter adds the next line, and Enter on an
-empty line drops it and saves; the footer shows it as `⏎ new line ⏎⏎ save`.
-`S-Enter` always adds a line, so it also types a blank line between paragraphs.
-
-The description is plain text written under the heading, where Org
-keeps an entry's notes, so Emacs and Neovim show it as it is. `C-o` moves it,
-with the sub-tasks, into `$EDITOR`.
-
-`--dry-run` prints the exact proposed change and creates nothing. Normal
-terminal output is a concise summary; piped output is the new heading's stable
-ref. `agd undo`, like `u` in the TUI, undoes your latest change from any
-surface (TUI, CLI, a mod), never an agent's, while its bytes are unchanged.
-
-Search every configured Org file with the same org-ql subset as the MCP server:
-
-```bash
-agd query '(and (todo) (deadline :to 7))'
-agd query '(tags "work")' --limit 20 --json
-agd query '(text "release")' --with-body --json
-```
-
-Queries support `and`, `or`, `not`, `todo`, `done`, `tags`, `priority`,
-`category`, `text`, `deadline :to DAYS`, and `scheduled :to DAYS`.
-
-Machine-readable `--json` agenda, query, capture, and edit results carry an
-item `ref`. Read the latest ref before a guarded scripted change:
-
-```bash
-agd query '(todo)' --limit 1 --json
-agd edit 'REF' --done
-agd edit 'REF' --scheduled fri --deadline +7d --add-tag work
-agd edit 'REF' --description $'First line\nSecond line' --dry-run
-agd edit 'REF' --title 'Ship release' --json
-```
-
-`--dry-run` prints the exact diff without writing. An edit can also add or
-remove tags, set or clear a priority, set or remove properties, and add a
-timestamped note. A stale ref fails with `ref_conflict`; read the item again
-instead of retrying blindly.
-
-### Today, Week, Inbox, Agents, and Triage
-
-Run `agd`. It opens Today or the view named by `start_view`:
-
-- **Today** separates OVERDUE, SCHEDULE, DUE SOON, DOING, and INBOX.
-- **Week** provides the Org-compatible weekly agenda.
-- **Inbox** collects open entries filed by capture templates.
-- **Find** (`F`) searches every heading, including undated tasks and notes.
-- **Agents** groups unreviewed MCP writes by client for inspection, acceptance,
-  editing, or safe undo.
-- **Triage** (`T`) reviews overdue and inbox work, or the open rows in a saved view.
-
-Common keys:
+- **Today**: OVERDUE, SCHEDULE, DUE SOON, DOING and INBOX.
+- **Week**: the Org weekly agenda. **Inbox**: what capture filed.
+- **Find** (`F`): any heading, dated or not.
+- **Triage** (`T`): overdue then inbox, or a saved view's rows, one card at a
+  time.
+- **Agents** (`A`): agent changes waiting for review.
 
 | Action | Keys |
 | --- | --- |
-| Next / previous row | `n` `j` / `p` `k` |
-| Change tab / select tab | `Tab` `S-Tab` / number |
-| Preview / edit / open in editor | `SPC` / `Enter` `e` / `C-e` |
-| Find any workspace heading | `F`, then type; `Enter` jumps to it |
-| Advance state / done / cancel | `t` / `x` / `X` |
-| Schedule / deadline | `s` / `d` |
-| Add a timestamped note | `z` |
-| Capture / Triage / saved views | `c` / `T` / `a` |
-| Mark / mark all / unmark / bulk | `m` / `*` / `U` / `B` |
-| Reload / undo / contextual help | `r` `g` / `u` / `?` |
-| Quit | `q`; it asks first when marks, a filter, a Triage pass or the pane would be lost |
+| Move / switch tab | `n` `p` (`j` `k`) / `Tab`, a number |
+| Peek / edit / open in `$EDITOR` | `SPC` / `e` / `C-e` |
+| Next state / done / cancel | `t` / `x` / `X` |
+| Schedule / deadline / note | `s` / `d` / `z` |
+| Capture / find / saved views | `c` / `F` / `a` |
+| Mark / bulk / undo / help | `m` / `B` / `u` / `?` |
+| Quit | `q`, which asks again before losing marks, a filter or a Triage pass |
 
-The complete generated reference is [KEYS.md](KEYS.md). Entry and capture
-popups preview exact Org diffs before saving. In the edit popup, Description
-changes the plain text under the heading. On a task, in Triage too, `z` records
-a timestamped note without changing TODO state, as Org's `C-c C-z` does: in the
-`LOGBOOK` with `log_into_drawer = true`, else under the heading. A note takes
-several lines, by the same Enter rule. Peek (`SPC`) shows the description under the title and the
-three newest notes. `C-o` opens
-`$EDITOR` from a text field; `C-e` opens it from list screens. Configure an
-argument array, not a shell command:
+Every key is in [KEYS.md](KEYS.md). Popups preview the exact Org change before
+saving. In multi-line fields (a description, sub-tasks, a note) Enter adds a
+line and Enter on an empty line saves; `S-Enter` always adds a line.
+
+The **description** is the plain text under a heading, where Org keeps an
+entry's notes: capture and the edit popup write it, peek shows it. `z` adds a
+timestamped note as Org's `C-c C-z` does, in the `LOGBOOK` with
+`log_into_drawer`.
+
+`$EDITOR` opens at the heading; set an argument array to choose another:
 
 ```toml
 editor = ["emacsclient", "-n", "+{line}:{col}", "{file}"]
 ```
 
-If unset, `agd` uses `$EDITOR +{line} {file}`, then `vi`.
+### Capture
+
+One line, the same in the CLI, the TUI and `/capture`:
+
+```bash
+agd capture "Renew passport due:fri #personal !A"
+agd capture j "Shipped the release"            # a template key first
+agd capture --dry-run "Dentist on:fri 14:00"   # show the change, write nothing
+```
+
+`due:` sets the deadline, `on:` the scheduled date, `#tag` a tag, `!A` a
+priority. Dates take `today`, `fri`, `+3d`, `oct 30`, ISO dates, times,
+repeaters and warnings, each counted from today as Org's date prompt does. A
+deadline before the scheduled date is kept, with a hint naming the date you may
+have meant. Put `--` before text that starts with `-`.
 
 ### Pane and status line
 
@@ -278,116 +173,107 @@ tmux split-window -h -l 36 'agd --pane'
 # ~/.tmux.conf
 bind T display-popup -E -w 80 -h 22 'agd capture -i'
 set -g status-right '#(agd agenda --status)'
-set -g set-clipboard on
 ```
 
-The pane shows today's timed work and overdue count, and takes `x` `X` `z` `u`
-`c` and `C-e`. Narrow terminals select it automatically; at 60 columns or
-wider it can open Triage and the full view. The TUI and pane watch source files
-for external edits; `agd agenda --status --watch` prints a fresh status line on
-each one, which Claude Code's band uses.
+The pane shows today at a glance and takes `x` `X` `z` `u` `c` and `C-e`;
+narrow terminals open it on their own. The TUI and pane follow edits made
+elsewhere.
 
 ### VS Code
 
-Run `agd`, `agd --pane`, or `agd capture -i` in the integrated terminal. To
-open headings in the editor with `C-e`, set:
+Run `agd`, `agd --pane` or `agd capture -i` in the integrated terminal, and
+open headings in VS Code with:
 
 ```toml
 editor = ["code", "-g", "{file}:{line}:{col}"]
 ```
 
-Use VS Code terminal profiles when you want dedicated Agenda and Capture tabs.
-Agent setup is the same as the corresponding terminal client below.
+## Script it with JSON
 
-## Connect coding agents and desktop clients
-
-Every integration starts the local `agd mcp` stdio server. It can reach only
-Org files available on the same machine under configured roots.
-
-Preview and install every supported client whose user config already exists:
+The agenda, query, capture, edit and undo commands take `--json`. Agenda rows
+carry `display.lead` and `display.title`, what the lists show; items carry a
+`ref` that guards edits.
 
 ```bash
-agd setup install --dry-run --detected
+# Today, as the pane says it
+agd agenda --span day --json | jq -r '.[] | "\(.display.lead)\t\(.display.title)"'
+
+# The counts a status bar shows
+agd agenda --status --json | jq '{overdue, today, inbox}'
+
+# Open tasks per category
+agd query '(todo)' --json | jq 'group_by(.category) | map({(.[0].category): length}) | add'
+
+# Deadlines in the next week
+agd query '(deadline :to 7)' --json | jq -r '.[] | "\(.planning.deadline.date) \(.title)"'
+```
+
+With `--json`, capture and edit return the item and the sentence a terminal
+shows:
+
+```bash
+ref=$(agd capture --json "Call the bank on:fri" | jq -r '.item.ref')
+agd edit "$ref" --add-tag finance --dry-run
+agd edit "$ref" --add-tag finance --json | jq -r '.summary'
+
+agd capture --json "Book flights on:fri due:wed" | jq -r '.summary, .notes[]'
+agd undo                                         # your latest change, from anywhere
+```
+
+`agd edit` sets `--title`, `--description`, `--todo` or `--done`,
+`--scheduled`, `--deadline`, `--priority`, tags, properties and `--note`. A ref
+goes stale when the item changes; a stale one fails with `ref_conflict`, so
+read it again instead of retrying.
+
+`agd query` takes the org-ql subset the MCP server uses: `and`, `or`, `not`,
+`todo`, `done`, `tags`, `priority`, `category`, `text`, `deadline :to N` and
+`scheduled :to N`; `--with-body` adds each item's text.
+
+`agd agenda --status --watch` prints a fresh status line whenever an Org file
+changes, for anything that should redraw then.
+
+## Connect agents
+
+Every integration runs the local `agd mcp` server, which reaches only the Org
+files under your roots.
+
+```bash
+agd setup install --dry-run --detected   # preview detected integrations
 agd setup install --detected
 ```
 
-Or select one explicitly:
-
 | Client | Setup |
 | --- | --- |
-| Codex CLI, ChatGPT desktop Codex, Codex IDE | `agd setup install codex` |
-| Claude Code terminal, desktop local sessions, VS Code | `claude plugin marketplace add johnnybravo-xyz/agd`, then `claude plugin install agd@johnnybravo-xyz` |
-| GitHub Copilot in VS Code and Copilot CLI | `agd setup install copilot` |
-| OpenCode | `agd setup install opencode` |
-| Pi / oh-my-pi | `agd setup install pi` / `agd setup install omp` |
-| Paseo agent | Configure the provider it launches |
-| Herdr | `agd setup install herdr` for the native panel; configure its provider for MCP |
-| Claude Desktop or another stdio client | command `agd`, argument `mcp` |
+| Claude Code (terminal, desktop, VS Code) | `claude plugin marketplace add johnnybravo-xyz/agd`, then `claude plugin install agd@johnnybravo-xyz` |
+| Codex CLI, ChatGPT desktop, Codex IDE | `agd setup install codex` |
+| GitHub Copilot in VS Code, Copilot CLI | `agd setup install copilot` |
+| OpenCode / Pi / oh-my-pi | `agd setup install opencode` / `pi` / `omp` |
+| Herdr | `agd setup install herdr` for the panel; set up the agent it launches |
+| Paseo | set up the agent it launches |
+| Any other stdio client | command `agd`, argument `mcp` |
 
-`--detected` recognizes Codex, OpenCode, Pi, oh-my-pi, Copilot, and Herdr
-directories. It never launches clients, reads private config contents, or uses
-the network. The installer writes the shared skill to
-`~/.agents/skills/agenda/SKILL.md`, preserves unrelated configuration and
-comments, and refuses every write if one target conflicts. Name a new client
-explicitly when its config directory does not exist yet.
-
-Codex surfaces share `~/.codex/config.toml`, or `$CODEX_HOME/config.toml`.
-Claude Code's plugin provides the MCP tools, `agenda` skill, `/agd`, `/capture`,
-and status band; it requires Claude Code 2.1.296 or later. Pi and oh-my-pi also
-receive an `agd.ts` `/capture` extension and can reload it with `/reload`.
-Copilot uses `~/.copilot/mcp-config.json`; VS Code discovers that file by
-default. A custom `$XDG_CONFIG_HOME` is not inherited by Copilot unless its MCP
-entry includes the variable.
-
-Paseo and Herdr launch an installed provider CLI with that provider's config,
-skills, and MCP servers. Configure Codex, the Claude Code plugin, OpenCode, Pi,
-or oh-my-pi first, then start a new agent. Herdr installs the native panel and
-shared skill, but does not create a second MCP configuration.
-
-For another stdio client, use its equivalent of:
-
-```json
-{
-  "mcpServers": {
-    "agd": {
-      "command": "agd",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
+The installer writes the shared `agenda` skill to `~/.agents/skills`, keeps
+everything else in each config, and refuses the whole install on a conflict.
 GUI apps may need the absolute path from `command -v agd`.
 
-### Herdr agenda panel
-
-The native panel shows today as the pane does, marks tasks done (with Undo),
-and opens agd or capture in terminal tabs:
-
-```bash
-agd setup install herdr
-```
-
-It docks on the right, updates safely when reinstalled, and reuses the chosen
-provider's MCP setup. See the [mod recipe](../agd/herdr/RECIPE.md) for its source
-and security notes.
+- **Claude Code** gets the MCP tools, the skill, `/agd` (your agenda in a
+  pane), `/capture` and a status band that redraws when an Org file changes.
+- **Pi and oh-my-pi** get `/capture` too.
+- **Herdr** gets a panel that shows today as the pane does, with Done and Undo,
+  and follows changes made anywhere. See its
+  [recipe](../agd/herdr/RECIPE.md).
+- **Copilot** reads `~/.copilot/mcp-config.json`, which VS Code also finds.
 
 ### Review agent changes
 
-The journal records each write under
-`$XDG_DATA_HOME/agd/journal.jsonl`, or `~/.local/share/agd/journal.jsonl`, with
-its actor and project directory. The Agents tab can inspect a diff, accept the
-record without changing Org, edit its task, or safely undo it.
-
-To route agent captures through one template and remove requested schedules and
-deadlines:
+Every write is journaled in `~/.local/share/agd/journal.jsonl` (or under
+`$XDG_DATA_HOME`) with who made it. The Agents tab shows each agent change's
+diff and lets you accept, edit or undo it. To file every agent capture through
+one template and drop the dates agents ask for:
 
 ```toml
 agent_inbox = "t"
 ```
 
-MCP items carry a `description`: the first plain text under the heading.
-`edit` changes it, `capture` writes it through `body`, and `edit.note` adds a
-timestamped note without changing TODO state. See the
-[reference](reference.md) for import details, compatibility boundaries, write
-safety, and troubleshooting.
+See the [reference](reference.md) for import details, compatibility, write
+safety and troubleshooting.

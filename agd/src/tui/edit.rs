@@ -1,7 +1,7 @@
 //! The edit popup (⏎ on a task): its title, state, priority, tags and
 //! dates as fields, its description, its checklist boxes to check off with
-//! `x`, the exact diff of the one guarded write they make, and the
-//! hand-over to $EDITOR.
+//! `x`, and the exact diff of its one write, which resolves the item again
+//! under lock before changing it; plus the hand-over to $EDITOR.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -39,10 +39,10 @@ const LABELS: [&str; 6] = [
 ];
 
 /// The edit popup (⏎ on an entry): its title, state, priority, tags and
-/// dates as text fields. Only fields that differ from the entry are
-/// written, in one guarded write, and the preview is that write's exact
-/// diff. Dates take the same input as `s` and `d` and show the entry's own
-/// repeater and warning, so an untouched date is never rewritten.
+/// dates as text fields. Only fields that differ from the entry are written,
+/// in one write that resolves the item again under lock; the preview is that
+/// write's exact diff. Dates take the same input as `s` and `d` and show the
+/// entry's own repeater and warning, so an untouched date is never rewritten.
 #[derive(Debug)]
 pub(super) struct EditForm {
     item_ref: String,

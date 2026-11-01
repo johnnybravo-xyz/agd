@@ -37,8 +37,9 @@ config.toml ── load_settings ──▶ Settings
 
 `WorkspaceIndex::load` discovers authorized agenda files and retains both typed
 values and original byte spans for headings, planning lines, properties,
-descriptions, checklists, and subtrees. Reads calculate agendas, queries, views, counts, and
-exports without normalizing source text or creating journal state.
+descriptions, checklists, and subtrees. Reads calculate agendas, queries,
+views, counts, and exports without normalizing source text or creating journal
+state.
 
 All mutations pass through `agd-core/src/write/`:
 
@@ -76,7 +77,7 @@ Each convention has one implementation owner:
 | User setup and daily workflows | `docs/getting-started.md`; detailed compatibility, safety, and troubleshooting in `docs/reference.md` |
 
 `docs/KEYS.md` is generated. Update the key table, then run
-`AGD_UPDATE_DOCS=1 cargo test -p agd keys_md`.
+`AGD_UPDATE_DOCS=1 scripts/cargo test -p agd keys_md`.
 
 ## Cross-surface language and interaction
 
@@ -105,8 +106,8 @@ snake_case and one name per concept: `olpath`, `todo`, `ref`, `template_key`,
 
 Human errors explain what happened and the recovery action. Machine codes use a
 stable `invalid_*`, `unknown_*`, `*_not_found`, `*_conflict`, or `*_failed`
-scheme. Exact write previews and guarded undo are preferred to extra
-confirmation prompts.
+scheme. Prefer exact write previews and undo that refuses changed or ambiguous
+bytes over extra confirmation prompts.
 
 ## Verification layers
 

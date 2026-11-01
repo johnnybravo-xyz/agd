@@ -239,7 +239,7 @@ fn keys_markdown() -> String {
         "# Keyboard reference\n\n\
          <!-- Generated from agd/src/tui/keys.rs, which drives dispatch, \
          footers, and `?` help. Edit the tables there, then run \
-         `AGD_UPDATE_DOCS=1 cargo test -p agd keys_md`. -->\n\n\
+         `AGD_UPDATE_DOCS=1 scripts/cargo test -p agd keys_md`. -->\n\n\
          This is the complete TUI key reference, organized by screen. \
          Org-agenda equivalents appear where they exist. Press `?` in `agd` \
          to search the actions available on the current screen.\n\n",

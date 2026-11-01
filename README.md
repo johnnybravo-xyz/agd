@@ -7,59 +7,48 @@
 **A local-first Org agenda for terminals and coding agents.**
 
 `agd` reads the Org files and settings you already use with Emacs or
-nvim-orgmode. It presents the same tasks through a keyboard-first TUI, a compact
-pane, command-line output, and a local stdio MCP server. Org files remain the
-source of truth: writes preserve untouched bytes, refuse ambiguous or stale
-targets, and are journaled for guarded undo. Runtime operation requires no
-network access.
+nvim-orgmode and shows the same tasks everywhere: a keyboard-first TUI, a
+narrow pane, the command line, coding agents over MCP, and panels in Claude
+Code and Herdr. Org files stay the source of truth, and nothing leaves your
+machine.
 
-![Claude Code captures into agd, then agd shows what you, Claude, and Codex added](https://raw.githubusercontent.com/johnnybravo-xyz/agd/main/docs/release/agd-story.gif)
+![Claude Code reads the agenda in a terminal, resumes in Herdr beside the agd panel, captures a task that the panel shows at once, and the panel marks a task done and undoes it](https://raw.githubusercontent.com/johnnybravo-xyz/agd/main/agd/herdr/claude-herdr.gif)
 
 ## Why agd
 
-- **Keep your existing workflow.** Import agenda files, TODO sequences, capture
-  templates, logging rules, priorities, and custom agenda commands from Emacs
-  or nvim-orgmode.
-- **Use one task system everywhere.** Plan in the TUI, glance from tmux or
-  Herdr, script against the CLI, and let coding agents work through MCP.
-- **Preserve the document.** Writes patch only the intended byte ranges. File
-  mode, line endings, comments, drawers, and unrelated formatting remain
-  unchanged.
-- **Match Org deliberately.** Agenda output and supported edits are checked
-  byte for byte against pinned Emacs 30.2 and Org 9.7 fixtures.
-- **Stay local.** The MCP server uses stdio, opens no port, and sends agenda data
-  only when a connected client calls a tool.
+- **Keep your workflow.** Import agenda files, TODO sequences, capture
+  templates, logging, priorities and custom views from Emacs or nvim-orgmode.
+- **One agenda, every surface.** Plan in the TUI, glance from a pane, script the
+  CLI, let agents work through MCP. Each says the same thing the same way.
+- **Your files stay yours.** Writes touch only the intended bytes, refuse stale
+  or ambiguous targets, and are journaled for undo.
+- **Org, deliberately.** Agenda output and edits are checked byte for byte
+  against pinned Emacs 30.2 and Org 9.7.
+- **Local only.** The MCP server speaks stdio and opens no port.
 
 ## Install
 
+Choose one:
+
 ```bash
-cargo install agd --locked                 # Rust 1.89+
-brew install johnnybravo-xyz/agd/agd
-nix run github:johnnybravo-xyz/agd
+cargo install agd --locked                  # Cargo; Rust 1.89+
+brew install johnnybravo-xyz/agd/agd        # Homebrew
+nix profile add github:johnnybravo-xyz/agd  # Nix
 ```
 
-Other options:
-
-- download a signed Linux, macOS, or Windows build from
-  [GitHub Releases](https://github.com/johnnybravo-xyz/agd/releases/latest);
-- build the [AUR package](https://github.com/johnnybravo-xyz/agd/tree/main/packaging/aur)
-  on Arch Linux;
-- generate completions with `agd completions bash|zsh|fish|elvish|powershell`.
+Signed builds for Linux, macOS and Windows are on
+[GitHub Releases](https://github.com/johnnybravo-xyz/agd/releases/latest); Arch
+users can build the
+[AUR package](https://github.com/johnnybravo-xyz/agd/tree/main/packaging/aur).
 
 ## Quick start
 
-### Existing Emacs or Neovim setup
-
 ```bash
-agd setup import ~/.doom.d     # also ~/.config/emacs, ~/.emacs.d, or ~/.config/nvim
-agd setup check
-agd
+agd setup import ~/.doom.d     # or ~/.emacs.d, ~/.config/emacs, ~/.config/nvim
+agd                            # the TUI
 ```
 
-The importer runs `emacs -Q` or `nvim --clean`, reports unsupported values, and
-writes `~/.config/agd/config.toml` without running normal editor startup.
-
-### New Org files
+New to Org? No config is needed:
 
 ```bash
 mkdir -p ~/org
@@ -67,88 +56,74 @@ agd capture "Renew passport due:fri #personal !A"
 agd
 ```
 
-No config is required. The default reads `.org` files under `~/org`, uses
-`TODO NEXT WAIT | DONE CANCELLED`, and captures into an inbox.
+## Every surface
 
-To try isolated sample data instead:
-
-```bash
-git clone https://github.com/johnnybravo-xyz/agd.git
-cd agd
-cargo build --release
-AGD=target/release/agd docs/demo/demo.sh
-```
-
-## Interfaces and agents
-
-| Surface | Entry point | Purpose |
+| Surface | Start it | For |
 | --- | --- | --- |
-| Full TUI | `agd` | Agenda, workspace find, Triage, agent review |
-| Narrow pane | `agd --pane` | Persistent tmux view |
-| CLI | `agd agenda`, `agd query`, `agd capture`, `agd edit`, `agd undo` | Scripts, search, guarded writes, status bars |
-| MCP | `agd mcp` | Local coding-agent access over stdio |
-| Setup | `agd setup import`, `agd setup install`, `agd setup check` | Editor import, agent config, workspace diagnostics |
+| TUI | `agd` | Today, Week, Inbox, saved views, Find, Triage, agent review |
+| Pane | `agd --pane` | A narrow glance in a tmux split |
+| CLI | `agd agenda`, `agd query`, `agd capture`, `agd edit`, `agd undo` | Scripts and status bars, text or JSON |
+| MCP | `agd mcp` | Coding agents, over stdio |
+| Claude Code | `/agd`, `/capture`, a status band | Your agenda beside the chat |
+| Herdr | a docked panel | Today with Done and Undo |
 
-In TUI capture, `S-Enter` opens a Description box and `Tab` moves from it to
-sub-tasks. The description is plain text under the heading, where Org keeps an
-entry's notes; the edit popup changes it and peek shows it under the title. On
-any task row, `z` adds a timestamped note as Org's `C-c C-z` does, without
-changing its TODO state. MCP items and `edit` carry the same `description`.
+`u` in the TUI and `agd undo` take back your latest change from any of them.
+Agent changes wait on the Agents tab for review.
 
-Install supported local agent configuration by detection:
+## Connect agents
 
 ```bash
-agd setup install --dry-run --detected
+agd setup install --dry-run --detected   # preview detected integrations
 agd setup install --detected
 ```
 
-| Client | Setup |
-| --- | --- |
-| Codex CLI, ChatGPT desktop Codex, Codex IDE | `agd setup install codex` |
-| Claude Code terminal, desktop local sessions, VS Code | `claude plugin marketplace add johnnybravo-xyz/agd`, then `claude plugin install agd@johnnybravo-xyz` |
-| Paseo | Configure the provider it launches; Paseo reuses provider config and MCP servers |
-| Herdr | `agd setup install herdr` adds the native agenda panel; configure the provider it launches for MCP |
-| OpenCode, Pi, oh-my-pi | `agd setup install opencode`, `agd setup install pi`, or `agd setup install omp` |
-| GitHub Copilot in VS Code, Copilot CLI | `agd setup install copilot` |
-| Claude Desktop chat or another stdio client | command `agd`, argument `mcp` |
+Or install one explicitly: `codex`, `opencode`, `pi`, `omp`, `copilot` (VS
+Code and the Copilot CLI) or `herdr`. Claude Code uses the plugin:
 
-`--detected` recognizes existing Codex, OpenCode, Pi, oh-my-pi, Copilot, and
-Herdr config directories. The installer preserves unrelated configuration and
-refuses the whole operation on a conflict. GUI clients may need the absolute
-`agd` path.
+```bash
+claude plugin marketplace add johnnybravo-xyz/agd
+claude plugin install agd@johnnybravo-xyz
+```
 
-## Safety
+Any other stdio client runs command `agd` with argument `mcp`.
 
-Every interface uses the same read and write engines. Configured roots authorize
-access. Writes resolve a fresh identity, refuse duplicate IDs, stale refs,
-symlinks, and unsaved Emacs files, build byte-range patches, lock and re-read,
-then journal and atomically replace. Multi-file writes are transactional;
-`--dry-run` creates nothing; undo refuses changed or ambiguous bytes. MCP opens
-no port and works only where the local process can execute `agd` and reach the
-Org files.
+## Script it
 
-Supported agenda and edit behavior is fixture-checked against pinned Emacs 30.2
-and Org 9.7. Import fixtures also use pinned Neovim 0.12.6.
+The agenda, query, capture, edit and undo commands support `--json`. Use it
+instead of parsing terminal text: versioned schemas expose dates, counts and
+agd's own display wording. Mutations return the current `ref`, so agd can
+recheck the target before the next edit writes. `jq` is optional and used only
+in these examples:
+
+```bash
+agd agenda --span day --json | jq -r '.[] | "\(.display.lead)\t\(.display.title)"'
+agd query '(todo)' --json | jq 'group_by(.category) | map({(.[0].category): length}) | add'
+
+ref=$(agd capture --json "Call the bank on:fri" | jq -r '.item.ref')
+agd edit "$ref" --add-tag finance
+```
 
 ## Documentation
 
-- [Getting started](https://github.com/johnnybravo-xyz/agd/blob/main/docs/getting-started.md)
-- [Import, compatibility, safety, and troubleshooting reference](https://github.com/johnnybravo-xyz/agd/blob/main/docs/reference.md)
-- [Generated key reference](https://github.com/johnnybravo-xyz/agd/blob/main/docs/KEYS.md)
-- [Architecture](https://github.com/johnnybravo-xyz/agd/blob/main/ARCHITECTURE.md)
-- [Contributing](https://github.com/johnnybravo-xyz/agd/blob/main/CONTRIBUTING.md)
-- [Security policy](https://github.com/johnnybravo-xyz/agd/blob/main/SECURITY.md)
-- [CLI changelog](https://github.com/johnnybravo-xyz/agd/blob/main/agd/CHANGELOG.md)
-- [Library changelog](https://github.com/johnnybravo-xyz/agd/blob/main/agd-core/CHANGELOG.md)
+- [Getting started](https://github.com/johnnybravo-xyz/agd/blob/main/docs/getting-started.md):
+  setup, daily use, scripting and agents
+- [Reference](https://github.com/johnnybravo-xyz/agd/blob/main/docs/reference.md):
+  import, compatibility, write safety and troubleshooting
+- [Keys](https://github.com/johnnybravo-xyz/agd/blob/main/docs/KEYS.md),
+  [architecture](https://github.com/johnnybravo-xyz/agd/blob/main/ARCHITECTURE.md),
+  [contributing](https://github.com/johnnybravo-xyz/agd/blob/main/CONTRIBUTING.md),
+  [security](https://github.com/johnnybravo-xyz/agd/blob/main/SECURITY.md)
+- Changelogs: [agd](https://github.com/johnnybravo-xyz/agd/blob/main/agd/CHANGELOG.md),
+  [agd-core](https://github.com/johnnybravo-xyz/agd/blob/main/agd-core/CHANGELOG.md)
 
 ## Development and license
 
-`just check` runs formatting, Clippy, workspace tests, Claude Code plugin checks,
-and `nix flake check`. `just oracles` compares agd with pinned Emacs and Neovim
-environments in Docker.
+`just check` runs formatting, Clippy, the tests, the Claude Code plugin checks
+and `nix flake check`; `just oracles` compares agd with pinned Emacs and Neovim
+in Docker.
 
 `agd` began as a fork of
-[`szaffarano/org-mcp-server`](https://github.com/szaffarano/org-mcp-server).
-The combined work is licensed under GPL-3.0-or-later. Upstream-derived code is
-also available under the
+[`szaffarano/org-mcp-server`](https://github.com/szaffarano/org-mcp-server). The
+combined work is licensed under GPL-3.0-or-later; upstream-derived code is also
+available under the
 [MIT license](https://github.com/johnnybravo-xyz/agd/blob/main/LICENSE-MIT).

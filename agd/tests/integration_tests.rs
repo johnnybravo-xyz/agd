@@ -164,7 +164,7 @@ fn query_prints_text_or_stable_json_with_optional_bodies() {
 }
 
 #[test]
-fn edit_dry_runs_then_applies_a_guarded_multi_field_change() {
+fn edit_dry_runs_then_applies_a_multi_field_change() {
     let fixture = Fixture::new();
     let source = fs::read_to_string(&fixture.tasks).unwrap();
     fs::write(

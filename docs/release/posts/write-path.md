@@ -46,7 +46,7 @@ with both hashes. New bytes mean the write happened; old bytes mean it did not;
 anything else blocks further writes until the user reviews the file and runs
 `agd setup check --resolve`.
 
-## Undo is another guarded patch
+## Undo checks current bytes again
 
 Undo never writes an old whole-file snapshot. If the source still contains
 exactly what `agd` wrote, the engine applies inverse patches. If unrelated lines
@@ -63,9 +63,9 @@ MCP adds identity, not a separate write implementation. The stdio server
 journals each mutation under the connected client, such as
 `mcp:claude-code`, and records its working directory as the project.
 
-The TUI's Agents tab shows those records, their diffs, and the same guarded undo.
-Accepting a change updates only journal review state; it does not rewrite the
-Org file.
+The TUI's Agents tab shows those records and their diffs, and applies those same
+checks before undo. Accepting a change updates only journal review state; it
+does not rewrite the Org file.
 
 ## Keep the invariant narrow
 

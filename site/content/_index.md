@@ -15,14 +15,16 @@ remains the source of truth; writes preserve bytes outside the requested change.
 ![agd showing Today, Week, Agents, Triage, Capture, and saved views](agd.gif)
 
 - **21 agenda fixtures** whose text and CSV match Emacs byte for byte
-- **27 edit fixtures** whose resulting files match Emacs byte for byte
+- **30 edit fixtures** whose resulting files match Emacs byte for byte
 - **0 unrelated bytes** changed by a successful patch
 - **1 binary** for the TUI, pane, CLI, and MCP server
+
+Choose one:
 
 ```sh
 cargo install agd --locked
 brew install johnnybravo-xyz/agd/agd
-nix run github:johnnybravo-xyz/agd
+nix profile add github:johnnybravo-xyz/agd
 ```
 
 [Source](https://github.com/johnnybravo-xyz/agd) ·
@@ -55,8 +57,8 @@ checklists.
 ![Capture with exact Org preview](capture.webp)
 
 The Agents tab records the MCP client and project for every agent write. `a`
-accepts a record without changing Org, `u` performs guarded undo, and `SPC`
-shows the diff and task.
+accepts a record without changing Org, `u` undoes only when the written bytes
+still match or relocate uniquely, and `SPC` shows the diff and task.
 
 ![Agent change review](review.webp)
 
@@ -88,10 +90,11 @@ agd setup install --dry-run --detected
 agd setup install --detected
 ```
 
-Detection configures existing Codex, OpenCode, Pi, and oh-my-pi user
-directories. Claude Code uses the `agd` plugin. Paseo reuses the configuration,
-skills, and MCP servers of the provider it launches. Any local stdio client can
-start `agd mcp`; GUI applications may need the binary's absolute path.
+Detection configures existing installations of Codex, OpenCode, Pi, oh-my-pi,
+Copilot, and Herdr. Claude Code uses the `agd` plugin. Paseo reuses the
+configuration, skills, and MCP servers of the provider it launches. Any local
+stdio client can start `agd mcp`; GUI applications may need the binary's
+absolute path.
 
 The server opens no port and collects no telemetry. It can access only Org files
 under configured roots on the same machine. See the
@@ -110,7 +113,7 @@ refuses bytes that changed or became ambiguous.
 ```sh
 git clone https://github.com/johnnybravo-xyz/agd
 cd agd
-cargo build --release
+scripts/cargo build --release
 AGD=target/release/agd docs/demo/demo.sh
 ```
 

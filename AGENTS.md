@@ -66,9 +66,9 @@ debug, and regenerate.
 Run the repository checks:
 
 ```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-targets --all-features
+scripts/cargo fmt --all --check
+scripts/cargo clippy --workspace --all-targets --all-features -- -D warnings
+scripts/cargo test --workspace --all-targets --all-features
 nix flake check
 ```
 
