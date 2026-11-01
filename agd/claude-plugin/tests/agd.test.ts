@@ -670,6 +670,32 @@ test('a write tool answers at once and the band catches up; reads refresh nothin
   expect(calls).toEqual(['agenda --status'])
 })
 
+test('the band redraws when agd\'s watcher sees an Org file change', async ($, on) => {
+  const clock = mock.clock(on)
+  sessionStart(on, [])
+  const changed = held()
+  let counts = '1 overdue · 4 today\n'
+  const spawned: string[] = []
+  on('process.run', async () => ({ value: result(0, counts, '') }))
+  on('process.spawn', async function* (_, e) {
+    spawned.push(e.argv.slice(1).join(' '))
+    yield { stream: 'stdout' as const, text: '1 overdue · 4 today\n' }
+    await changed.gate
+    yield { stream: 'stdout' as const, text: '5 today\n' }
+    return { value: { code: 0, signal: null } }
+  })
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  expect(spawned).toEqual(['agenda --status --watch'])
+  expect(await bandLine($)).toBe('agd · 1 overdue · 4 today')
+
+  // The Herdr panel marks the overdue task done; the watcher says so.
+  counts = '5 today\n'
+  changed.release()
+  await clock.settle()
+  expect(await bandLine($)).toBe('agd · 5 today')
+})
+
 test('a slower, older refresh never draws over a newer one', async ($, on) => {
   const clock = mock.clock(on)
   on('ui.render', { component: 'AbovePrompt' }, async ($, e) => $.ui.resolve(e).Box({ children: [] }))

@@ -21,6 +21,10 @@ This file records user-visible changes to the `agd` executable. It follows
 - `agd setup install` also covers Pi, oh-my-pi and Copilot (VS Code and the
   Copilot CLI), and `--detected` finds the installed ones. Pi and oh-my-pi
   get `/capture`.
+- `agd agenda --status --watch` prints a fresh status line whenever an Org
+  file changes, and `--status --json` names the roots it watches. Claude
+  Code's band and the Herdr panel follow them, so a change from anywhere
+  shows at once.
 - `--json` output carries what a list draws and says: agenda rows have
   `display.lead` and `display.title`, `--status --json` lists today's rows,
   and `capture` and `edit` return `summary` and `notes`.

@@ -527,9 +527,46 @@ fn status_line_counts_today_for_a_status_bar() {
             .unwrap()
             .ends_with('d')
     );
+    assert_eq!(status["roots"].as_array().map(Vec::len), Some(1));
     let today_rows = status["today_entries"].as_array().unwrap();
     assert_eq!(today_rows.len(), 1);
     assert_eq!(today_rows[0]["display"]["title"], "Now");
+}
+
+#[test]
+fn status_watch_prints_a_fresh_line_after_each_org_change() {
+    use std::io::BufRead;
+    let fixture = Fixture::new();
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_agd"))
+        .arg("--config")
+        .arg(&fixture.config)
+        .args(["agenda", "--status", "--watch"])
+        .env("XDG_DATA_HOME", fixture.directory.path().join("data"))
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("agd agenda --status --watch");
+    let stdout = child.stdout.take().expect("stdout");
+    let (sender, lines) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines() {
+            let _ = sender.send(line.expect("line"));
+        }
+    });
+    let next = || {
+        lines
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("a status line")
+    };
+    let first = next();
+    assert!(!first.contains("1 inbox"), "{first}");
+
+    // Another surface captures into the inbox: a fresh line follows.
+    let source = fs::read_to_string(&fixture.tasks).unwrap();
+    fs::write(&fixture.tasks, format!("{source}** TODO New idea\n")).unwrap();
+    let second = next();
+    assert!(second.contains("1 inbox"), "{second}");
+    child.kill().expect("stop the watcher");
+    child.wait().expect("reap the watcher");
 }
 
 #[test]

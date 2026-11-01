@@ -284,7 +284,8 @@ set -g set-clipboard on
 The pane shows today's timed work and overdue count, and takes `x` `X` `z` `u`
 `c` and `C-e`. Narrow terminals select it automatically; at 60 columns or
 wider it can open Triage and the full view. The TUI and pane watch source files
-for external edits.
+for external edits; `agd agenda --status --watch` prints a fresh status line on
+each one, which Claude Code's band uses.
 
 ### VS Code
 

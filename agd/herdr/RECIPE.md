@@ -9,7 +9,8 @@ Build a native Herdr side panel for the local
 
 - Dock on the right at 340 px the first time Herdr sees the mod.
 - Draw today as agd's pane does, from `agd agenda --status --json`: overdue,
-  then today, each row with agd's own lead and title. Refresh once a minute.
+  then today, each row with agd's own lead and title. Re-read when an Org
+  file under agd's roots changes (Herdr's `watchFolder`), and once a minute.
 - **Done** runs `agd edit REF --done` and shows agd's summary with **Undo**
   (`agd undo`). Errors show as agd's sentence, and the last agenda stays.
 - **Refresh**, **Open** (`agd`) and **+** (`agd capture -i`).

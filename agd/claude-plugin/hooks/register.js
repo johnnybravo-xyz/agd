@@ -212,6 +212,24 @@ async function readNow($) {
   }
 }
 
+// agd's own watcher, `agd agenda --status --watch`, prints a line whenever an
+// Org file changes, whoever changed it: the TUI, the Herdr panel, an editor.
+// Each line after the first (which refreshSoon already covers) redraws the
+// band and the pane. The loop is the watcher's life; without agd it ends at
+// once, and the pane says why when opened.
+async function watchFiles($) {
+  let first = true
+  try {
+    for await (const piece of $.process.spawn({ argv: ['agd', 'agenda', '--status', '--watch'] })) {
+      if (piece.stream !== 'stdout') continue
+      if (!first) refresh($)
+      first = false
+    }
+  } catch {
+    // agd could not start; the timer still refreshes.
+  }
+}
+
 // A refresh that runs once this dispatch has answered, so no hook waits on agd.
 function refreshSoon($) {
   $.clock.after(0, () => {
@@ -606,6 +624,9 @@ export function register(on, options) {
     await registerCommands($)
     $.clock.every(60000, () => refresh($))
     refreshSoon($)
+    $.clock.after(0, () => {
+      watchFiles($)
+    })
     return next(e)
   })
 

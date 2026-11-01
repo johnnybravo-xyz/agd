@@ -49,8 +49,8 @@ pub struct AgendaCommand {
     #[arg(long)]
     brief: bool,
     /// One line of counts for a tmux or herdr status bar; with --json,
-    /// agd.status/v1: the counts, and the overdue and today rows as the
-    /// pane lists them
+    /// agd.status/v1: the counts, the overdue and today rows as the pane
+    /// lists them, and the roots agd reads
     #[arg(
         long,
         conflicts_with_all = [
@@ -58,6 +58,10 @@ pub struct AgendaCommand {
         ]
     )]
     status: bool,
+    /// With --status, keep running: print the line now and again whenever
+    /// an Org file under the roots changes, for a bar or a mod to redraw
+    #[arg(long, requires = "status", conflicts_with = "json")]
+    watch: bool,
     /// The saved views, start_view first; with --json, also what a client
     /// draws them with: theme, nerd_font, notation and each TODO keyword's
     /// color
@@ -91,6 +95,9 @@ impl AgendaCommand {
         };
         let index = load_index(settings.clone())?;
         let today = Local::now().date_naive();
+        if self.watch {
+            return watch_status(&settings);
+        }
         if self.status {
             return Ok(write_stdout(&status_output(
                 &index, &settings, today, self.json,
@@ -437,6 +444,8 @@ fn status_output(
         "unreviewed": summary.unreviewed,
         "overdue_entries": entries_json(&overdue_entries(&entries))?,
         "today_entries": entries_json(&today_entries(&entries))?,
+        // The folders agd reads, so a client can watch them as --watch does.
+        "roots": index.roots().roots(),
     });
     Ok(format!("{}\n", serde_json::to_string_pretty(&payload)?))
 }
@@ -466,6 +475,29 @@ fn items_json(items: &[agd_core::Item]) -> Result<Value> {
         values.push(value);
     }
     Ok(Value::Array(values))
+}
+
+/// `--status --watch`: the status line, then a fresh one after each change
+/// to an Org file under the roots, a burst of events counting once. Runs
+/// until stdout closes or the watch fails.
+fn watch_status(settings: &Settings) -> Result<()> {
+    let (changes, _watcher) = crate::tui::watch_roots(&load_index(settings.clone())?)?;
+    loop {
+        let index = load_index(settings.clone())?;
+        let today = Local::now().date_naive();
+        write_stdout(&status_output(&index, settings, today, false)?)?;
+        loop {
+            let event = changes.recv()??;
+            let org = |path: &std::path::PathBuf| path.extension().is_some_and(|ext| ext == "org");
+            if event.paths.iter().any(org) {
+                break;
+            }
+        }
+        while changes
+            .recv_timeout(std::time::Duration::from_millis(200))
+            .is_ok()
+        {}
+    }
 }
 
 // Reads keep working when one agenda file cannot be indexed; say which file

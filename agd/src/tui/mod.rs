@@ -739,7 +739,9 @@ fn base64_encode(bytes: &[u8]) -> String {
     output
 }
 
-fn watch_roots(
+/// Watches every root for changes, as the TUI and `agd agenda --status
+/// --watch` follow external edits; keep the watcher alive while reading.
+pub(crate) fn watch_roots(
     index: &WorkspaceIndex,
 ) -> Result<(Receiver<notify::Result<NotifyEvent>>, RecommendedWatcher)> {
     let (sender, receiver) = mpsc::channel();

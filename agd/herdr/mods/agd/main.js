@@ -1,11 +1,13 @@
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { exec, run, theme } from "herdr";
+import { exec, run, theme, watchFolder } from "herdr";
 
 // agd's Herdr panel: today as the TUI's pane shows it. It only runs the
 // `agd` binary and draws what agd prints (`agd agenda --status --json`:
 // the counts, the overdue rows and today's, each with agd's own lead and
-// title), so agd stays the one reader and writer of the Org files.
+// title), so agd stays the one reader and writer of the Org files. It
+// watches the roots agd names there, as `agd agenda --status --watch` does
+// (exec cannot stream that), so a change from anywhere shows at once.
 
 // agd's stderr as the sentence its TUI shows: the agd.error/v1 line under
 // --json, else the line after `error:`.
@@ -44,13 +46,19 @@ export default class AgdAgenda extends View {
     this.undoable = false;
     this.error = null;
     this.busy = false;
+    this.stale = false;
+    this.watching = false;
     this.refresh(cx);
     cx.timer.every(60000, (cx) => this.refresh(cx));
   }
 
-  // Runs one agd action at a time, then reads the agenda again.
+  // Runs one agd action at a time, then reads the agenda again; a refresh
+  // asked for meanwhile runs after it.
   act(cx, action) {
-    if (this.busy) return;
+    if (this.busy) {
+      this.stale = true;
+      return;
+    }
     this.busy = true;
     cx.notify();
     cx.spawn(async (cx) => {
@@ -58,13 +66,33 @@ export default class AgdAgenda extends View {
         await action();
         this.status = JSON.parse(await agd(["agenda", "--status", "--json"]));
         this.error = null;
+        this.watch(this.status.roots, cx);
       } catch (error) {
         this.error = String(error.message ?? error);
       } finally {
         this.busy = false;
         cx.notify();
+        if (this.stale) {
+          this.stale = false;
+          this.refresh(cx);
+        }
       }
     });
+  }
+
+  // Re-reads the agenda whenever an Org file under agd's roots changes;
+  // started once, with the roots of the first answer.
+  watch(roots, cx) {
+    if (this.watching) return;
+    this.watching = true;
+    for (const root of roots) {
+      cx.spawn(async (cx) => {
+        for (;;) {
+          const changed = await watchFolder(root);
+          if (changed.some((path) => path.endsWith(".org"))) this.refresh(cx);
+        }
+      });
+    }
   }
 
   refresh(cx) {
