@@ -35,6 +35,28 @@ pub fn overdue_entries(entries: &[AgendaEntry]) -> Vec<AgendaEntry> {
         .collect()
 }
 
+/// Today's rows among `entries` (a day's agenda) as a glance lists them:
+/// not overdue, and not a deadline's warning (`In 3 d.:`), which the
+/// status band does not count as today's; timed rows by time, then
+/// untimed ones, done rows last.
+pub fn today_entries(entries: &[AgendaEntry]) -> Vec<AgendaEntry> {
+    let mut today: Vec<AgendaEntry> = entries
+        .iter()
+        .filter(|entry| {
+            !entry.occurrence.late && entry.occurrence.kind != OccurrenceType::UpcomingDeadline
+        })
+        .cloned()
+        .collect();
+    today.sort_by_key(|entry| {
+        (
+            entry.item.done,
+            entry.occurrence.time.is_none(),
+            entry.occurrence.time.clone(),
+        )
+    });
+    today
+}
+
 /// What the status band counts, each item once.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct AgendaSummary {

@@ -25,6 +25,6 @@ pub use engine::{AgendaEngine, AgendaQuery};
 pub use export::{agenda_csv, agenda_row, agenda_text, agenda_title, item_row, items_csv};
 pub use repeat::next_repeat;
 pub use span::AgendaSpan;
-pub use summary::{AgendaSummary, overdue_entries};
+pub use summary::{AgendaSummary, overdue_entries, today_entries};
 pub(crate) use view::duration_minutes;
 pub use view::{ViewSection, ViewSectionGroup, validate_view_block};

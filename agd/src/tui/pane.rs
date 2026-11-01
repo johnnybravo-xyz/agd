@@ -188,7 +188,7 @@ fn pane_line(app: &App, row: &DisplayRow, clock: Clock, width: usize) -> Line<'s
     let progress = today::progress_span(theme, item);
     let progress_width = progress.as_ref().map_or(0, Span::width);
     let title = truncate(
-        &super::peek::display_title(item),
+        &crate::words::display_title(item),
         width.saturating_sub(used + progress_width + right_width + gap),
     );
     let title_width = Span::raw(title.as_str()).width();

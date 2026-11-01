@@ -519,6 +519,17 @@ fn status_line_counts_today_for_a_status_bar() {
     assert_eq!(overdue.len(), 1);
     assert_eq!(overdue[0]["item"]["title"], "Late");
     assert_eq!(overdue[0]["occurrence"]["late"], true);
+    // Each row carries what every list draws: agd's lead and title. Today's
+    // rows leave out the deadline's warning, as the count does.
+    assert!(
+        overdue[0]["display"]["lead"]
+            .as_str()
+            .unwrap()
+            .ends_with('d')
+    );
+    let today_rows = status["today_entries"].as_array().unwrap();
+    assert_eq!(today_rows.len(), 1);
+    assert_eq!(today_rows[0]["display"]["title"], "Now");
 }
 
 #[test]

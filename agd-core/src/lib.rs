@@ -93,7 +93,7 @@ mod write;
 pub use agenda::{
     AgendaEngine, AgendaQuery, AgendaSpan, AgendaSummary, ViewSection, ViewSectionGroup,
     agenda_csv, agenda_row, agenda_text, agenda_title, item_row, items_csv, keyword_color,
-    keyword_colors, next_repeat, overdue_entries,
+    keyword_colors, next_repeat, overdue_entries, today_entries,
 };
 pub use capture_line::{CaptureDraft, parse_capture_line};
 pub use capture_template::{CapturePrompt, capture_prompts, render_capture_template};

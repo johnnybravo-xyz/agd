@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use agd_core::{
     AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, Item, JournalOperation, JournalRecord,
-    JournalStatus, OccurrenceType, WorkspaceIndex, WriteEngine, overdue_entries,
+    JournalStatus, OccurrenceType, WorkspaceIndex, WriteEngine, overdue_entries, today_entries,
 };
 use anyhow::Result;
 use chrono::{Datelike, Duration, NaiveDate};
@@ -291,7 +291,7 @@ impl App {
                 return Ok(());
             }
             Screen::Today if self.pane => {
-                pane_rows(engine.agenda(&self.query(self.today, self.today))?)
+                pane_rows(&engine.agenda(&self.query(self.today, self.today))?)
             }
             Screen::Today if self.classic => {
                 headers.extend(day_labels(self.day, self.day));
@@ -551,31 +551,13 @@ fn collapse_overdue(mut rows: Vec<DisplayRow>, expanded: bool) -> Vec<DisplayRow
     rows
 }
 
-/// The pane: today's dated rows, timed ones by clock time, then untimed,
-/// with done rows last. Overdue rows are only counted, and a deadline's
-/// warning (`in 3d`) is not today's, as the status band counts them; Today
-/// lists both.
-fn pane_rows(entries: Vec<AgendaEntry>) -> Vec<DisplayRow> {
-    let mut rows: Vec<DisplayRow> = entries
+/// The pane: today's rows as agd-core's today_entries lists them. Overdue
+/// rows are only counted; Today lists them and a deadline's warning.
+fn pane_rows(entries: &[AgendaEntry]) -> Vec<DisplayRow> {
+    today_entries(entries)
         .into_iter()
-        .filter(|entry| {
-            !entry.occurrence.late && entry.occurrence.kind != OccurrenceType::UpcomingDeadline
-        })
         .map(|entry| DisplayRow::entry(SCHEDULE, entry))
-        .collect();
-    rows.sort_by_key(|row| {
-        (
-            row.item.done,
-            row.occurrence
-                .as_ref()
-                .and_then(|occurrence| occurrence.time.clone())
-                .is_none(),
-            row.occurrence
-                .as_ref()
-                .and_then(|occurrence| occurrence.time.clone()),
-        )
-    });
-    rows
+        .collect()
 }
 
 /// Reschedules per item: Org's own "Rescheduled from" LOGBOOK notes when

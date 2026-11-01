@@ -18,7 +18,10 @@
 
 use std::path::{Path, PathBuf};
 
-use agd_core::{AgdError, AgendaSummary, DeadlineBeforeScheduled, ErrorCode, Item, Notation};
+use agd_core::{
+    AgdError, AgendaSummary, DeadlineBeforeScheduled, ErrorCode, Item, Notation, Occurrence,
+    OccurrenceType,
+};
 use chrono::{Datelike, NaiveDate};
 
 /// `Fri 16 Oct`, or `Fri 16 Oct 2027` outside `today`'s year.
@@ -179,6 +182,59 @@ pub fn summary(summary: &AgendaSummary) -> String {
     .map(|(count, word)| counted(*count, word, word))
     .collect::<Vec<_>>()
     .join(" · ")
+}
+
+/// What a row's lead says, as every list draws it: days overdue (`12d`,
+/// a missed deadline `-2d`), `in 3d` before a deadline, `due` on its day,
+/// else the clock time; empty for an untimed row.
+pub fn lead(occurrence: &Occurrence) -> String {
+    let days = occurrence.days;
+    match occurrence.kind {
+        // The age in days: `12x` would read as "twelve times" beside
+        // "rescheduled 3x". The classic view keeps Org's `Sched.12x:`.
+        OccurrenceType::PastScheduled => format!("{days}d"),
+        OccurrenceType::Deadline if occurrence.late => format!("-{days}d"),
+        OccurrenceType::UpcomingDeadline => format!("in {}d", -days),
+        OccurrenceType::Deadline => "due".to_string(),
+        _ => occurrence.time.clone().unwrap_or_default(),
+    }
+}
+
+/// A heading as the agenda shows it: no timestamps, links as their text.
+pub fn display_title(item: &Item) -> String {
+    link_descriptions(&agd_core::agenda_title(item))
+}
+
+/// A link without a description as people read it: a path under home
+/// with `~`, as Org's own `file:` links write it.
+pub fn link_target_text(target: &str) -> String {
+    match target.strip_prefix("file:") {
+        Some(path) => format!("file:{}", home_path(path)),
+        None => home_path(target),
+    }
+}
+
+/// `[[target][description]]` reads as its description, `[[target]]` as
+/// the target.
+pub fn link_descriptions(line: &str) -> String {
+    let mut output = String::new();
+    let mut rest = line;
+    while let Some(start) = rest.find("[[") {
+        output.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("]]") else {
+            output.push_str(&rest[start..]);
+            return output;
+        };
+        let inner = &after[..end];
+        match inner.split_once("][") {
+            Some((_, description)) => output.push_str(description),
+            None => output.push_str(&link_target_text(inner)),
+        }
+        rest = &after[end + 2..];
+    }
+    output.push_str(rest);
+    output
 }
 
 /// `<location>  <change> · <title>`, the one shape of every change line.

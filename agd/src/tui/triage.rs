@@ -180,7 +180,7 @@ fn draw_card(frame: &mut Frame<'_>, app: &App, row: &DisplayRow, area: Rect) {
         ));
     }
     heading.push(Span::styled(
-        peek::display_title(item),
+        crate::words::display_title(item),
         theme.strong(theme.text),
     ));
     if let Some(priority) = &item.priority {

@@ -4,9 +4,10 @@ use agd_core::{
     AgendaEngine, AgendaEntry, AgendaQuery, AgendaSpan, OccurrenceType, STATUS_SCHEMA, Settings,
     VIEWS_SCHEMA, ViewSection, WorkspaceIndex, WriteEngine, agenda_csv, agenda_row, agenda_text,
     agenda_title, item_row, items_csv, keyword_colors, load_settings, overdue_entries,
-    parse_agenda_day,
+    parse_agenda_day, today_entries,
 };
 use anyhow::Result;
+use serde_json::Value;
 
 use super::write_stdout;
 use chrono::{Local, NaiveDate};
@@ -48,7 +49,8 @@ pub struct AgendaCommand {
     #[arg(long)]
     brief: bool,
     /// One line of counts for a tmux or herdr status bar; with --json,
-    /// agd.status/v1: the counts and the overdue rows in Today's order
+    /// agd.status/v1: the counts, and the overdue and today rows as the
+    /// pane lists them
     #[arg(
         long,
         conflicts_with_all = [
@@ -126,7 +128,10 @@ impl AgendaCommand {
             log_mode: self.log,
         })?;
         let output = if self.json {
-            format!("{}\n", serde_json::to_string_pretty(&entries)?)
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&entries_json(&entries)?)?
+            )
         } else if self.csv {
             agenda_csv(&entries, today, &index)
         } else if self.brief {
@@ -284,7 +289,18 @@ fn view_output(
     index: &WorkspaceIndex,
 ) -> Result<String> {
     if json {
-        return Ok(format!("{}\n", serde_json::to_string_pretty(sections)?));
+        let mut shown = Vec::new();
+        for section in sections {
+            let mut value = serde_json::to_value(section)?;
+            value["entries"] = entries_json(&section.entries)?;
+            value["items"] = items_json(&section.items)?;
+            for (index, group) in section.groups.iter().enumerate() {
+                value["groups"][index]["entries"] = entries_json(&group.entries)?;
+                value["groups"][index]["items"] = items_json(&group.items)?;
+            }
+            shown.push(value);
+        }
+        return Ok(format!("{}\n", serde_json::to_string_pretty(&shown)?));
     }
     if !csv {
         return Ok(render_view(sections));
@@ -419,9 +435,37 @@ fn status_output(
         "today": summary.today,
         "inbox": summary.inbox,
         "unreviewed": summary.unreviewed,
-        "overdue_entries": overdue_entries(&entries),
+        "overdue_entries": entries_json(&overdue_entries(&entries))?,
+        "today_entries": entries_json(&today_entries(&entries))?,
     });
     Ok(format!("{}\n", serde_json::to_string_pretty(&payload)?))
+}
+
+/// Entries as agd.agenda-entry/v1, each with what every list draws for it,
+/// `display.lead` (words::lead) and `display.title`, so a mod shows agd's
+/// own words.
+fn entries_json(entries: &[AgendaEntry]) -> Result<Value> {
+    let mut values = Vec::new();
+    for entry in entries {
+        let mut value = serde_json::to_value(entry)?;
+        value["display"] = serde_json::json!({
+            "lead": crate::words::lead(&entry.occurrence),
+            "title": crate::words::display_title(&entry.item),
+        });
+        values.push(value);
+    }
+    Ok(Value::Array(values))
+}
+
+/// Items as agd.item/v1, each with `display.title`.
+fn items_json(items: &[agd_core::Item]) -> Result<Value> {
+    let mut values = Vec::new();
+    for item in items {
+        let mut value = serde_json::to_value(item)?;
+        value["display"] = serde_json::json!({ "title": crate::words::display_title(item) });
+        values.push(value);
+    }
+    Ok(Value::Array(values))
 }
 
 // Reads keep working when one agenda file cannot be indexed; say which file

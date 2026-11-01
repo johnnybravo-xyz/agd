@@ -206,7 +206,7 @@ pub(super) fn changed_place(app: &App, record: &JournalRecord) -> (String, usize
 /// agenda shows it, else the headline the diff names.
 pub(super) fn subject_title(app: &App, record: &JournalRecord) -> String {
     match subject(app, record) {
-        Some(item) => super::peek::display_title(&item),
+        Some(item) => crate::words::display_title(&item),
         None => diff_headline(record)
             .map(|headline| crate::words::headline_title(&headline))
             .unwrap_or_default(),

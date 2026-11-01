@@ -625,7 +625,8 @@ async fn agenda_runs_views_and_profiles_from_agenda_start_day_as_the_cli_does()
         "{}",
         String::from_utf8_lossy(&cli.stderr)
     );
-    let printed: Value = serde_json::from_slice(&cli.stdout)?;
+    let mut printed: Value = serde_json::from_slice(&cli.stdout)?;
+    without_display(&mut printed);
     assert_eq!(first_block(&result), printed);
     assert_eq!(printed[1]["header"], "Work");
 
@@ -931,4 +932,16 @@ fn initialize_client_names_drop_the_mcp_client_suffix() -> Result<(), Box<dyn st
         assert_eq!(journaled, actor);
     }
     Ok(())
+}
+
+/// `value` with every `display` field removed.
+fn without_display(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            object.remove("display");
+            object.values_mut().for_each(without_display);
+        }
+        Value::Array(values) => values.iter_mut().for_each(without_display),
+        _ => {}
+    }
 }

@@ -75,7 +75,7 @@ fn body_lines(text: &str) -> Vec<String> {
         {
             continue;
         }
-        lines.push(link_descriptions(trimmed));
+        lines.push(crate::words::link_descriptions(trimmed));
     }
     while lines.first().is_some_and(String::is_empty) {
         lines.remove(0);
@@ -84,43 +84,6 @@ fn body_lines(text: &str) -> Vec<String> {
         lines.pop();
     }
     lines
-}
-
-/// A heading as the agenda shows it: no timestamps, links as their text.
-pub(super) fn display_title(item: &Item) -> String {
-    link_descriptions(&agd_core::agenda_title(item))
-}
-
-/// A link without a description as people read it: a path under home
-/// with `~`, as Org's own `file:` links write it.
-fn link_target_text(target: &str) -> String {
-    match target.strip_prefix("file:") {
-        Some(path) => format!("file:{}", crate::words::home_path(path)),
-        None => crate::words::home_path(target),
-    }
-}
-
-/// `[[target][description]]` reads as its description, `[[target]]` as
-/// the target.
-pub(super) fn link_descriptions(line: &str) -> String {
-    let mut output = String::new();
-    let mut rest = line;
-    while let Some(start) = rest.find("[[") {
-        output.push_str(&rest[..start]);
-        let after = &rest[start + 2..];
-        let Some(end) = after.find("]]") else {
-            output.push_str(&rest[start..]);
-            return output;
-        };
-        let inner = &after[..end];
-        match inner.split_once("][") {
-            Some((_, description)) => output.push_str(description),
-            None => output.push_str(&link_target_text(inner)),
-        }
-        rest = &after[end + 2..];
-    }
-    output.push_str(rest);
-    output
 }
 
 /// Org's org-log-note-headings, as Org and agd write them.
@@ -262,7 +225,10 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
         lines.push(Line::default());
     }
     lines.extend([
-        Line::from(Span::styled(display_title(item), theme.strong(theme.text))),
+        Line::from(Span::styled(
+            crate::words::display_title(item),
+            theme.strong(theme.text),
+        )),
         Line::from(Span::styled(
             format!(
                 "{} › {}",
@@ -282,7 +248,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
         .as_deref()
         .unwrap_or_default()
         .lines()
-        .map(|line| link_descriptions(line.trim()))
+        .map(|line| crate::words::link_descriptions(line.trim()))
         .filter(|line| !line.is_empty() && plain_timestamp(line).is_none())
         .take(3)
         .collect();
@@ -392,7 +358,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
                 format!("{}  ", logged_when(&note.stamp, app.today)),
                 theme.muted(),
             ),
-            Span::raw(link_descriptions(&note.text)),
+            Span::raw(crate::words::link_descriptions(&note.text)),
         ]));
     }
     if let Some(reason) = occurrence.as_ref().and_then(why_listed) {
@@ -425,7 +391,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect, overlay: bool) 
     }
     for (target, description) in links {
         let shown = if description == target {
-            link_target_text(&target)
+            crate::words::link_target_text(&target)
         } else {
             description
         };

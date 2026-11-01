@@ -1022,7 +1022,7 @@ impl App {
                 };
                 FindTarget {
                     item_ref: item.item_ref.clone(),
-                    label: format!("{}  {suffix}", super::peek::display_title(item)),
+                    label: format!("{}  {suffix}", crate::words::display_title(item)),
                     search: workspace_text(item),
                 }
             })
@@ -1079,7 +1079,7 @@ impl App {
                 let location = self.short_location(item);
                 let file = location.split(':').next().unwrap_or_default().to_string();
                 let mut path = item.olpath[..item.olpath.len().saturating_sub(1)].to_vec();
-                path.push(super::peek::display_title(item));
+                path.push(crate::words::display_title(item));
                 (
                     item.item_ref.clone(),
                     format!("{file} › {}", path.join(" › ")),
@@ -1166,7 +1166,7 @@ impl App {
 /// agenda shows it: `[[id:…][Pay rent]]`, else
 /// `[[file:~/org/home.org::*Pay rent][Pay rent]]`.
 pub(super) fn org_link(item: &Item) -> String {
-    let description = super::peek::display_title(item);
+    let description = crate::words::display_title(item);
     match &item.id {
         Some(id) => format!("[[id:{id}][{description}]]"),
         None => format!(

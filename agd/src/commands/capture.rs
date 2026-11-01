@@ -41,17 +41,17 @@ pub struct CaptureCommand {
     #[arg(long)]
     dry_run: bool,
     /// Print the agd.mutation/v1 result, with the item's file:line under
-    /// its root as `location` and the terminal's line as `summary`
+    /// its root as `location`, the terminal's line as `summary` and any
+    /// `notes`
     #[arg(long)]
     pub json: bool,
 }
 
 impl CaptureCommand {
-    /// Prints the diff with --dry-run, the mutation with --json (and its
-    /// `location` as people read it, `projects/alpha.org:3`, which the
-    /// Claude Code mod's /capture says, and the terminal's sentence as
-    /// `summary`, which Pi's and oh-my-pi's /capture says), a sentence on a terminal, and
-    /// otherwise the new item's ref alone, which scripts read.
+    /// Prints the diff with --dry-run, the mutation with --json (plus the
+    /// terminal's sentence as `summary`, which the mods' /capture shows), a
+    /// sentence on a terminal, and otherwise the new item's ref alone,
+    /// which scripts read.
     pub fn execute(self, config: Option<String>, root: Option<String>) -> Result<()> {
         if self.interactive {
             return crate::tui::run_capture(config, root);
@@ -84,27 +84,32 @@ impl CaptureCommand {
         let today = Local::now().date_naive();
         let summary = words::captured(item, &location, today);
         // A deadline before the scheduled date is written as typed and said
-        // on stderr, so stdout stays what scripts read.
+        // as a note: in the JSON, else on stderr, so stdout stays what
+        // scripts read.
+        let mut notes = Vec::new();
         if let (Some(scheduled), Some(deadline)) =
             (&item.planning.scheduled, &item.planning.deadline)
             && let Some(clash) = agd_core::deadline_before_scheduled(scheduled, deadline, today)
         {
-            eprintln!(
-                "note: {}",
-                words::deadline_before_scheduled(&clash, "due:", today)
-            );
+            notes.push(words::deadline_before_scheduled(&clash, "due:", today));
         }
         let output = if self.json {
             let mut json = serde_json::to_value(&mutation)?;
             json["location"] = location.into();
             json["summary"] = summary.into();
+            json["notes"] = notes.into();
             format!("{}\n", serde_json::to_string_pretty(&json)?)
-        } else if self.dry_run {
-            mutation.diff
-        } else if std::io::stdout().is_terminal() {
-            format!("{summary}\n")
         } else {
-            format!("{}\n", mutation.item.item_ref)
+            for note in &notes {
+                eprintln!("note: {note}");
+            }
+            if self.dry_run {
+                mutation.diff
+            } else if std::io::stdout().is_terminal() {
+                format!("{summary}\n")
+            } else {
+                format!("{}\n", mutation.item.item_ref)
+            }
         };
         Ok(write_stdout(&output)?)
     }

@@ -634,7 +634,7 @@ fn row_line(app: &App, index: usize, columns: &RowColumns) -> Line<'static> {
     spans.extend(fit_row(
         columns.width,
         used,
-        Span::styled(peek::display_title(item), title_style),
+        Span::styled(crate::words::display_title(item), title_style),
         priority,
         tags,
         right_cell(app, row),
@@ -763,32 +763,26 @@ pub(super) fn lead_cell(app: &App, row: &DisplayRow, clock: Clock) -> Vec<Span<'
         }
         return vec![Span::raw(" ".repeat(6))];
     };
-    let days = occurrence.days;
+    let text = crate::words::lead(occurrence);
     match occurrence.kind {
-        // The age in days: `12x` would read as "twelve times" beside
-        // "rescheduled 3x". The classic view keeps Org's `Sched.12x:`.
-        OccurrenceType::PastScheduled => badge(theme, format!("{days}d")),
-        OccurrenceType::Deadline if occurrence.late => badge(theme, format!("-{days}d")),
-        OccurrenceType::UpcomingDeadline => vec![Span::styled(
-            format!("{:<6}", format!("in {}d", -days)),
-            theme.fg(theme.due),
-        )],
-        OccurrenceType::Deadline => vec![Span::styled(
-            format!("{:<6}", "due"),
-            theme.strong(theme.due),
-        )],
-        _ => match &occurrence.time {
-            Some(time) => {
-                let style = match clock {
-                    _ if row.item.done => theme.muted(),
-                    Clock::Past => theme.muted(),
-                    Clock::Next => theme.strong(theme.accent),
-                    Clock::Later => theme.fg(theme.accent),
-                };
-                vec![Span::styled(format!("{time:<6}"), style)]
-            }
-            None => vec![Span::raw(" ".repeat(6))],
-        },
+        _ if text.is_empty() => vec![Span::raw(" ".repeat(6))],
+        OccurrenceType::PastScheduled => badge(theme, text),
+        OccurrenceType::Deadline if occurrence.late => badge(theme, text),
+        OccurrenceType::UpcomingDeadline => {
+            vec![Span::styled(format!("{text:<6}"), theme.fg(theme.due))]
+        }
+        OccurrenceType::Deadline => {
+            vec![Span::styled(format!("{text:<6}"), theme.strong(theme.due))]
+        }
+        _ => {
+            let style = match clock {
+                _ if row.item.done => theme.muted(),
+                Clock::Past => theme.muted(),
+                Clock::Next => theme.strong(theme.accent),
+                Clock::Later => theme.fg(theme.accent),
+            };
+            vec![Span::styled(format!("{text:<6}"), style)]
+        }
     }
 }
 
@@ -923,7 +917,7 @@ fn draw_prompt(frame: &mut Frame<'_>, app: &App, prompt: &actions::Prompt, area:
     // rows by their count.
     let target = if app.marks.is_empty() {
         app.selected_row()
-            .map(|row| peek::display_title(&row.item))
+            .map(|row| crate::words::display_title(&row.item))
             .unwrap_or_default()
     } else {
         marked_rows(app)
