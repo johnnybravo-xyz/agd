@@ -1,6 +1,6 @@
 # Maintainer: johnnybravo-xyz
 pkgname=agd
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="An org-agenda for the terminal and for coding agents"
 arch=('x86_64' 'aarch64')
@@ -9,7 +9,7 @@ license=('GPL-3.0-or-later' 'MIT')
 depends=('gcc-libs' 'glibc')
 makedepends=('cargo')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('aac0591bfee2f226cf6f55a0112125e2955103dfbcb5d8308b046e10002030b7')
+sha256sums=('1b1d06c1579cf380a241fb828932ab4c67ef20106f895c1dbe468d4c90d2f9f1')
 
 prepare() {
   cd "$pkgname-$pkgver"

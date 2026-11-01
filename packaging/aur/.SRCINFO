@@ -1,6 +1,6 @@
 pkgbase = agd
 	pkgdesc = An org-agenda for the terminal and for coding agents
-	pkgver = 0.2.0
+	pkgver = 0.3.0
 	pkgrel = 1
 	url = https://github.com/johnnybravo-xyz/agd
 	arch = x86_64
@@ -10,7 +10,7 @@ pkgbase = agd
 	makedepends = cargo
 	depends = gcc-libs
 	depends = glibc
-	source = agd-0.2.0.tar.gz::https://github.com/johnnybravo-xyz/agd/archive/refs/tags/v0.2.0.tar.gz
-	sha256sums = aac0591bfee2f226cf6f55a0112125e2955103dfbcb5d8308b046e10002030b7
+	source = agd-0.3.0.tar.gz::https://github.com/johnnybravo-xyz/agd/archive/refs/tags/v0.3.0.tar.gz
+	sha256sums = 1b1d06c1579cf380a241fb828932ab4c67ef20106f895c1dbe468d4c90d2f9f1
 
 pkgname = agd
