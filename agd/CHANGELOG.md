@@ -6,6 +6,8 @@ This file records user-visible changes to the `agd` executable. It follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-01
+
 ### Added
 
 - `agd query` searches every Org file with org-ql; `agd edit REF` changes one
@@ -166,7 +168,8 @@ using existing Emacs or nvim-orgmode files.
 - First `agd` release, forked from
   [org-mcp-server](https://github.com/szaffarano/org-mcp-server).
 
-[Unreleased]: https://github.com/johnnybravo-xyz/agd/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/johnnybravo-xyz/agd/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/johnnybravo-xyz/agd/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/johnnybravo-xyz/agd/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/johnnybravo-xyz/agd/compare/agd-v0.0.1...v0.1.0
 [0.0.1]: https://github.com/johnnybravo-xyz/agd/releases/tag/agd-v0.0.1
