@@ -94,7 +94,7 @@ impl Fixture {
 }
 
 #[test]
-fn undo_reverts_your_latest_command_line_change_and_never_an_agents() {
+fn undo_reverts_your_latest_change_and_never_an_agents() {
     let fixture = Fixture::new();
     fixture.agent_capture("Agent task");
     let after_agent = fixture.inbox();
@@ -131,7 +131,7 @@ fn undo_reverts_your_latest_command_line_change_and_never_an_agents() {
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.starts_with("error: nothing to undo: no change made from the command line"),
+        stderr.starts_with("error: nothing to undo: none of your changes"),
         "{stderr}"
     );
     assert!(!stderr.contains("journal_not_found"), "{stderr}");

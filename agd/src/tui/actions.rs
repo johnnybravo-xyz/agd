@@ -29,15 +29,6 @@ pub(super) const DONE: usize = 4;
 pub(super) const REFILED: usize = 5;
 pub(super) const OTHER: usize = 6;
 
-/// A write this TUI made, undone as a unit by `u`: a journal entry or
-/// transaction, and where it was and which task, for the status line.
-#[derive(Debug)]
-pub(super) struct UndoStep {
-    journal_id: String,
-    location: String,
-    title: String,
-}
-
 /// One triage decision, undone as a unit: its journal entry or transaction
 /// and the outcome it counted.
 #[derive(Debug)]
@@ -326,7 +317,6 @@ impl App {
             "{} · u undo",
             words::change(&location, &change, &summary)
         ));
-        self.remember_undo(&batch.transaction, &location, &summary);
         self.reload_rows()
     }
 
@@ -818,50 +808,20 @@ impl App {
         }
     }
 
-    /// Keeps a write this TUI made, so `u` can undo it later and say so as
-    /// the CLI does: `tasks.org:1  undid schedule · Pay rent`.
-    pub(super) fn remember_undo(&mut self, journal_id: &str, location: &str, title: &str) {
-        self.undo_steps.push(UndoStep {
-            journal_id: journal_id.to_string(),
-            location: location.to_string(),
-            title: title.to_string(),
-        });
-    }
-
-    /// `<location>  undid <operation> · <title>`: what an undo took back,
-    /// named by the journal (JournalRecord::operation_label).
-    fn undone(&self, engine: &WriteEngine, step: &UndoStep) -> Result<String> {
-        let operation = engine
-            .journal()?
-            .iter()
-            .find(|record| {
-                record.id == step.journal_id
-                    || record.transaction.as_deref() == Some(step.journal_id.as_str())
-            })
-            .map_or("change", agd_core::JournalRecord::operation_label);
-        Ok(words::change(
-            &step.location,
-            &format!("undid {operation}"),
-            &step.title,
-        ))
-    }
-
-    /// `u` in the lists and Triage undoes the latest change this TUI made,
-    /// never another actor's (agent changes are undone per card on the
-    /// Agents tab); at the end of a triage pass it undoes the whole pass.
+    /// `u` undoes your newest change from any surface, as `agd undo` does
+    /// (agent changes are undone per card on the Agents tab); in Triage it
+    /// undoes the pass's last decision, or the whole pass once it is through.
     pub(super) fn undo(&mut self) -> Result<()> {
         if self.screen == Screen::Triage && !self.triage.undo.is_empty() {
             return self.undo_triage();
         }
-        let Some(step) = self.undo_steps.last() else {
-            self.set_status("nothing to undo from this session");
+        let Some((result, undone)) =
+            crate::commands::undo::undo_latest(&self.settings, &write_context())?
+        else {
+            self.set_status("nothing to undo");
             return Ok(());
         };
-        let engine = WriteEngine::with_default_journal(self.settings.clone())?;
-        let result = engine.undo(&step.journal_id, &write_context())?;
-        let step = self.undo_steps.pop().expect("the step just undone");
         self.refresh_files(&result.file)?;
-        let undone = self.undone(&engine, &step)?;
         self.set_done(undone);
         self.reload_rows()
     }
@@ -877,30 +837,27 @@ impl App {
             self.triage.undo.pop().into_iter().collect()
         };
         let count = steps.len();
-        let mut undone = None;
+        let journal = engine.journal()?;
+        let mut undone = String::new();
         for step in steps.into_iter().rev() {
+            if let Some(record) = journal.iter().find(|record| {
+                record.id == step.journal_id
+                    || record.transaction.as_deref() == Some(step.journal_id.as_str())
+            }) {
+                undone = crate::commands::undo::undone_sentence(record, &self.settings);
+            }
             let result = engine.undo(&step.journal_id, &write_context())?;
             self.refresh_files(&result.file)?;
             self.triage.outcomes[step.outcome] =
                 self.triage.outcomes[step.outcome].saturating_sub(1);
-            if let Some(index) = self
-                .undo_steps
-                .iter()
-                .position(|undo| undo.journal_id == step.journal_id)
-            {
-                undone = Some(self.undo_steps.remove(index));
-            }
         }
-        match undone {
-            Some(step) if !undo_all => {
-                let undone = self.undone(&engine, &step)?;
-                self.set_done(undone);
-            }
-            _ => self.set_done(format!(
+        if undo_all {
+            undone = format!(
                 "{}  undid the whole triage pass",
                 crate::words::counted(count, "item", "items")
-            )),
+            );
         }
+        self.set_done(undone);
         self.reload_rows()
     }
 
@@ -1140,7 +1097,6 @@ impl App {
         let change = format!("refiled → {label}");
         if let Some(journal_id) = result.journal_ids.first() {
             self.record_triage(journal_id, REFILED);
-            self.remember_undo(journal_id, &location, &result.item.title);
         }
         self.set_done(format!(
             "{} · u undo",

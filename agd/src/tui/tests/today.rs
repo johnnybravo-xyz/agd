@@ -1084,7 +1084,7 @@ fn marked_rows_that_already_match_are_left_out_of_the_write() {
 
 #[test]
 #[serial]
-fn u_undoes_only_this_sessions_changes_and_names_them() {
+fn u_undoes_your_latest_change_from_any_surface_but_never_an_agents() {
     with_home(|root| {
         let tasks = root.join("tasks.org");
         fs::write(&tasks, "* TODO Pay rent\nSCHEDULED: <2026-10-13 Tue>\n").unwrap();
@@ -1114,6 +1114,31 @@ fn u_undoes_only_this_sessions_changes_and_names_them() {
             .unwrap();
         let inbox = fs::read_to_string(root.join("inbox.org")).unwrap();
 
+        // The person captures from another surface, the command line.
+        let cli = agd_core::WriteContext {
+            actor: "cli".to_string(),
+            ..agent
+        };
+        agd_core::WriteEngine::with_default_journal(app.settings.clone())
+            .unwrap()
+            .capture(
+                "t",
+                &agd_core::parse_capture_line("From the shell", today(), agd_core::Notation::Agd)
+                    .unwrap(),
+                "",
+                &Default::default(),
+                false,
+                &cli,
+            )
+            .unwrap();
+
+        app.undo().unwrap();
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "inbox.org:6  undid capture · From the shell"
+        );
+        assert_eq!(fs::read_to_string(root.join("inbox.org")).unwrap(), inbox);
+
         app.undo().unwrap();
         assert_eq!(
             app.status.as_ref().unwrap().text,
@@ -1125,10 +1150,7 @@ fn u_undoes_only_this_sessions_changes_and_names_them() {
                 .contains("<2026-10-13 Tue>")
         );
         app.undo().unwrap();
-        assert_eq!(
-            app.status.as_ref().unwrap().text,
-            "nothing to undo from this session"
-        );
+        assert_eq!(app.status.as_ref().unwrap().text, "nothing to undo");
         assert_eq!(fs::read_to_string(root.join("inbox.org")).unwrap(), inbox);
     });
 }

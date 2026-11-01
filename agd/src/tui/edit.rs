@@ -451,7 +451,6 @@ fn commit(app: &mut App, form: Box<EditForm>) -> Result<()> {
     let mutation = engine.edit(&form.item_ref, &intent, false, &write_context())?;
     app.index.refresh_path(Path::new(&mutation.item.file))?;
     let location = app.short_location(&mutation.item);
-    app.remember_undo(&mutation.journal_id, &location, &mutation.item.title);
     let what = form
         .checklist_only()
         .unwrap_or_else(|| "edited".to_string());

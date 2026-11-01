@@ -994,8 +994,7 @@ fn triage_move(app: &mut App, delta: isize) -> Result<()> {
 /// pass's own writes, never an older, unrelated one.
 fn triage_undo(app: &mut App) -> Result<()> {
     if app.triage.undo.is_empty() {
-        app.set_status("nothing to undo in this pass");
-        return Ok(());
+        return app.undo();
     }
     let whole = app.triage.finished();
     app.undo()?;

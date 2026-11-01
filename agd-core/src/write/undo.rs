@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AgdError, ByteSpan, ErrorCode, Settings, UNDO_SCHEMA};
 
-use super::engine::{JournalImage, PreparedFile, WriteContext, WriteEngine, parse_text};
+use super::engine::{
+    JournalImage, PreparedFile, WriteContext, WriteEngine, agent_name, parse_text,
+};
 use super::file::replace_all_or_restore;
 use super::journal::{JournalRecord, JournalStatus, content_hash};
 use super::patch::{Patch, StoredPatch, apply_patches};
@@ -29,6 +31,19 @@ pub struct UndoResult {
 }
 
 impl WriteEngine {
+    /// The newest change a person made, from any surface, that is still in
+    /// effect: what `u` and `agd undo` take back. Agents' changes are
+    /// reviewed instead.
+    pub fn latest_own_change(&self) -> Result<Option<JournalRecord>, AgdError> {
+        Ok(self.journal()?.into_iter().find(|record| {
+            agent_name(&record.actor).is_none()
+                && matches!(
+                    record.status,
+                    JournalStatus::Committed | JournalStatus::Reviewed
+                )
+        }))
+    }
+
     /// Reverts one journal entry, or every file of its transaction, given
     /// the entry's id or the transaction id. A change is reverted only where
     /// the file still holds what it wrote; otherwise nothing is written and

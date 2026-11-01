@@ -280,8 +280,6 @@ struct App {
     /// created it.
     provenance: BTreeMap<String, (String, String)>,
     recent_targets: Vec<String>,
-    /// Writes this TUI made, newest last, for `u`.
-    undo_steps: Vec<actions::UndoStep>,
     triage: TriageState,
     agent_filter: Option<String>,
     /// When `C-c` started a chord in the lists or Triage: `C-w` next
@@ -330,7 +328,6 @@ impl App {
             reschedules: BTreeMap::new(),
             provenance: BTreeMap::new(),
             recent_targets: Vec::new(),
-            undo_steps: Vec::new(),
             triage: TriageState::default(),
             agent_filter: None,
             chord: None,
