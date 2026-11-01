@@ -648,16 +648,48 @@ fn edit(
 /// A tool's JSON schema for its request struct, as `Parameters<T>` would
 /// publish it, always with `properties`: some clients refuse an object
 /// schema without one, which schemars leaves out for a struct with no
-/// fields.
+/// fields. Some clients (Copilot, Gemini) also read one `type` per schema,
+/// so an optional `"type": ["string", "null"]` is published as `anyOf`.
 fn input_schema<T: JsonSchema + 'static>() -> std::sync::Arc<JsonObject> {
     let mut schema = schema_for_input::<T>()
         .unwrap_or_else(|error| panic!("invalid input schema for a tool request: {error}"))
         .as_ref()
         .clone();
-    schema
+    let properties = schema
         .entry("properties")
         .or_insert_with(|| Value::Object(JsonObject::new()));
+    if let Value::Object(properties) = properties {
+        properties.values_mut().for_each(nullable_as_any_of);
+    }
     std::sync::Arc::new(schema)
+}
+
+/// `{"type": ["string", "null"], "format": …}` as
+/// `{"anyOf": [{"type": "string", "format": …}, {"type": "null"}]}`, its
+/// description kept outside.
+fn nullable_as_any_of(property: &mut Value) {
+    let Some(property) = property.as_object_mut() else {
+        return;
+    };
+    let kind = match property.get("type") {
+        Some(Value::Array(types)) => match types.as_slice() {
+            [Value::String(kind), Value::String(null)] if null == "null" => kind.clone(),
+            _ => return,
+        },
+        _ => return,
+    };
+    property.remove("type");
+    let mut branch = JsonObject::new();
+    branch.insert("type".to_string(), Value::String(kind));
+    for key in property.keys().cloned().collect::<Vec<_>>() {
+        if !matches!(key.as_str(), "description" | "default" | "title") {
+            branch.insert(key.clone(), property.remove(&key).unwrap_or_default());
+        }
+    }
+    property.insert(
+        "anyOf".to_string(),
+        serde_json::json!([branch, {"type": "null"}]),
+    );
 }
 
 /// Reads a tool's arguments into its request struct. A bad argument is an

@@ -546,8 +546,25 @@ async fn unknown_arguments_are_refused_before_any_write() -> Result<(), Box<dyn 
                 "{}.{name} has no description",
                 tool.name
             );
+            // One `type` per schema: an optional argument is an anyOf.
+            assert!(
+                !property["type"].is_array(),
+                "{}.{name} has a type array",
+                tool.name
+            );
         }
     }
+    let capture = service
+        .list_tools(Default::default())
+        .await?
+        .tools
+        .into_iter()
+        .find(|tool| tool.name == "capture")
+        .expect("capture tool");
+    assert_eq!(
+        capture.input_schema["properties"]["deadline"]["anyOf"],
+        json!([{"type": "string"}, {"type": "null"}])
+    );
     service.cancel().await?;
     Ok(())
 }
@@ -605,7 +622,8 @@ async fn agenda_runs_views_and_profiles_from_agenda_start_day_as_the_cli_does()
     let result = call(&service, "agenda", json!({"from": "today", "log": true})).await?;
     assert!(titles(&first_block(&result)).contains(&"Closed today".to_string()));
 
-    // A view's sections, exactly as `agd agenda --view w --json` prints them.
+    // A view's sections as `agd agenda --view w --json` prints them, less
+    // the `display` text the CLI adds for mods to draw.
     let result = call(&service, "agenda", json!({"view": "w"})).await?;
     assert_eq!(result.content.len(), 1);
     let cli = std::process::Command::new(binary())
