@@ -55,7 +55,7 @@ Navigation: j/k move like n/p everywhere; C-n/C-p or C-j/C-k move in pickers.
 - `z`: a timestamped note (org-agenda `z`)
 - `S`: someday: tag it, drop the date
 - `R` `C-c C-w`: refile under another heading (org-agenda `C-c C-w`)
-- `u`: undo the last write (org-agenda `C-_`)
+- `u`: undo your last change, from anywhere (org-agenda `C-_`)
 - `y`: copy an Org link to the heading (org-agenda `C-c l`)
 - `m`: mark or unmark the row (org-agenda `m`)
 - `*`: mark every row shown (org-agenda `*`)
@@ -64,7 +64,7 @@ Navigation: j/k move like n/p everywhere; C-n/C-p or C-j/C-k move in pickers.
 
 ### Go
 
-- `T`: triage overdue, then inbox
+- `T`: triage overdue, then inbox; in a view, its rows
 - `A`: review agent changes
 - `esc`: close peek, clear marks or filter, go back
 - `q`: quit (org-agenda `q`)
@@ -142,14 +142,14 @@ As on Today · Week · Inbox · views.
 
 ## Pane
 
-### Glance
+### Pane
 
 - `n` `j` `↓`: next row
 - `p` `k` `↑`: previous row
 - `x`: mark done
-- `X`: cancel
+- `X`: cancel: the file's last done state
 - `z`: a timestamped note (org-agenda `z`)
-- `u`: undo the last write
+- `u`: undo your last change, from anywhere
 - `c`: capture a task
 - `C-e`: open the heading in $EDITOR
 - `⏎`: the full view, at 60+ columns

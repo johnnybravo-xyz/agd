@@ -14,10 +14,10 @@ views, tags in use, and accepted date forms.
 
 ## Read current state
 
-Use `agenda` for dated work. It defaults to today and accepts `span`, `from`, or
-a saved `view`. Use `query` for org-ql expressions; for example,
-`(and (todo) (deadline :to 7))` finds open tasks due within seven days,
-including overdue tasks.
+Use `agenda` for dated work. It covers the configured `agenda_span` unless given
+`span` (`day` for today), `from`, or a saved `view`. Use `query` for org-ql
+expressions; for example, `(and (todo) (deadline :to 7))` finds open tasks due
+within seven days, including overdue tasks.
 
 Reads return at most 100 rows. A second content block reports omitted rows, so
 increase `limit` or narrow the request when results are truncated. Set

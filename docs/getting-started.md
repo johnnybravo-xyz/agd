@@ -196,8 +196,8 @@ with the sub-tasks, into `$EDITOR`.
 
 `--dry-run` prints the exact proposed change and creates nothing. Normal
 terminal output is a concise summary; piped output is the new heading's stable
-ref. `agd undo` reverses the latest CLI change when the written bytes are still
-identifiable.
+ref. `agd undo`, like `u` in the TUI, undoes your latest change from any
+surface (TUI, CLI, a mod), never an agent's, while its bytes are unchanged.
 
 Search every configured Org file with the same org-ql subset as the MCP server:
 
@@ -281,10 +281,10 @@ set -g status-right '#(agd agenda --status)'
 set -g set-clipboard on
 ```
 
-The pane shows upcoming timed work, overdue counts, completion, capture, undo,
-and editor actions. Narrow terminals select it automatically; at 60 columns or
-wider it can open Triage and the full view. `herdr` can run `agd --pane` in the
-same way. The TUI and pane watch source files for external edits.
+The pane shows today's timed work and overdue count, and takes `x` `X` `z` `u`
+`c` and `C-e`. Narrow terminals select it automatically; at 60 columns or
+wider it can open Triage and the full view. The TUI and pane watch source files
+for external edits.
 
 ### VS Code
 
@@ -360,8 +360,8 @@ GUI apps may need the absolute path from `command -v agd`.
 
 ### Herdr agenda panel
 
-The native panel shows today's unfinished agenda, marks tasks done, and opens
-agd or capture in terminal tabs:
+The native panel shows today as the pane does, marks tasks done (with Undo),
+and opens agd or capture in terminal tabs:
 
 ```bash
 agd setup install herdr

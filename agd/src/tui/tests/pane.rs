@@ -16,7 +16,7 @@ fn pane_sorts_by_clock_time_and_keeps_done_rows_last() {
         assert_eq!(titles, ["Review ingestion PR", "Call with bank"]);
         let screen = render(&mut app, 35, 12).join("\n");
         assert!(screen.contains("1 overdue"), "{screen}");
-        assert!(screen.contains("Inbox 1"), "{screen}");
+        assert!(screen.contains("1 inbox"), "{screen}");
     });
 }
 

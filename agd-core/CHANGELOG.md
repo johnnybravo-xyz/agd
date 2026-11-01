@@ -9,16 +9,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 ### Added
 
 - `Item::description` and `EditIntent::description`: the first run of plain
-  text in an entry's body. A new one goes after the leading drawers; text Org
-  would read as a list, heading, drawer, block, table, comment or keyword is
-  refused.
+  text under a heading; text Org would read as structure is refused.
+- `EditIntent::note` alone adds a timestamped note, written as Org writes it.
 - `deadline_before_scheduled` says when a deadline falls before the
-  scheduled date and, for a deadline a weekday word gives, which `+2tue`
-  input reads the same weekday after it.
-- `EditIntent::note` alone adds a timestamped note without a state change,
-  journaled as `JournalOperation::Note`. Notes may span lines and are written
-  as Org's `org-store-log-note` writes them, in the `LOGBOOK` only with
-  `log_into_drawer`.
+  scheduled date.
+- `today_entries`: today's rows as the pane lists them, beside
+  `overdue_entries`.
+- `OrgDocument::sequence`: the TODO keywords of a heading's workflow.
+- `WriteEngine::latest_own_change`: the newest change a person made, from
+  any surface, that undo can take back.
+- `WorkspaceIndex::item_body`: the exact text below a heading.
 
 ## [0.2.0] - 2026-10-16
 

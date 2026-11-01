@@ -8,56 +8,37 @@ This file records user-visible changes to the `agd` executable. It follows
 
 ### Added
 
-- A native Herdr panel shows today's agenda, marks tasks done, and opens agd or
-  capture. Install it with `agd setup install herdr`.
-- `agd query EXPRESSION` searches Org files and prints text or JSON.
-- `agd edit REF` safely updates a task, with `--dry-run`, `--json`, and
-  workflow-aware `--done`.
-- `F` finds any workspace heading by title, notes, tags, category, or file.
-- Descriptions: in capture, `S-Enter` opens a Description box, collapsed
-  until then, and `Tab` moves on to sub-tasks; a paste keeps every line. The
-  description is plain text under the heading, where Org keeps an entry's
-  notes. The edit popup changes it, peek shows it under the title, and MCP
-  items and `edit` carry it as `description`.
-- `z` on a task, in Triage too, adds a timestamped note as Org's `C-c C-z`
-  does, without changing its TODO state: in the `LOGBOOK` with
-  `log_into_drawer`, else under the heading. `S-Enter` adds a line, here and
-  in the note asked for with a state change. Peek counts notes and other
-  changes apart and lists the three newest notes.
-- A deadline before the scheduled date is written as typed, as Org does, and
-  agd says so where the dates are set: `scheduled 3 days after the deadline ·
-  due:+2tue for Tue 27 Oct`. Capture, the edit popup, the `s` and `d`
-  prompts, `agd capture` and MCP `capture` and `plan` share the sentence.
-- `agd setup install --detected` now configures supported clients whose user
-  config directories already exist. The setup guide now covers shared
-  Codex/desktop configuration and Paseo's provider-owned MCP setup.
-- Pi and oh-my-pi now receive `/capture`, matching Claude Code. `agd setup
-  install pi` or `agd setup install omp` adds an extension that files tasks
-  through `agd capture` without a model turn.
-- `agd setup install copilot` adds agd to `~/.copilot/mcp-config.json`, which
-  the Copilot CLI reads and VS Code's chat discovers. The setup guide covers
-  VS Code: `C-e` into the editor and agd in an editor tab.
-- `agd capture --json` now includes `summary`, the same concise result shown on
-  a terminal.
+- `agd query` searches every Org file with org-ql; `agd edit REF` changes one
+  task safely, with `--done`, `--dry-run` and `--json`.
+- `F` finds any heading in the workspace.
+- Descriptions: the plain text under a heading. Capture and the edit popup
+  write it, peek shows it, and MCP items carry it.
+- `z` adds a timestamped note, as Org's `C-c C-z` does.
+- A deadline before the scheduled date is kept, as in Org, with a hint where
+  the dates are set.
+- A native Herdr panel: today as the pane shows it, with Done and Undo.
+  `agd setup install herdr` installs it.
+- `agd setup install` also covers Pi, oh-my-pi and Copilot (VS Code and the
+  Copilot CLI), and `--detected` finds the installed ones. Pi and oh-my-pi
+  get `/capture`.
+- `--json` output carries what a list draws and says: agenda rows have
+  `display.lead` and `display.title`, `--status --json` lists today's rows,
+  and `capture` and `edit` return `summary` and `notes`.
 
 ### Changed
 
-- Enter continues, and a blank Enter finishes: on a description, sub-task or
-  note line Enter adds the next line, and Enter on an empty line saves. One-line
-  fields save on Enter as before, and `S-Enter` always adds a line.
-- Triage reviews a saved view's open rows once, in view order.
-- `q` quits at once only when nothing would be lost; with marked rows, a
-  filter or a Triage pass under way, and always in the pane, it asks for a
-  second `q`.
-- The getting-started guide is shorter; detailed import behavior,
-  compatibility, write safety, and troubleshooting now live in one reference.
-- `agd setup install` now installs agent support once at user scope. The
-  `agenda` skill goes to `~/.agents/skills`, which Codex, OpenCode, Pi,
-  oh-my-pi, and Gemini CLI can share. Named `codex`, `opencode`, `pi`, and `omp`
-  harnesses receive the MCP server in their user configuration.
-- Per-project installation and `--directory` were removed. Existing project
-  copies under `.agents/skills/agenda` and project-local `agd` server entries
-  may be deleted.
+- `u` and `agd undo` undo your latest change from any surface (TUI, CLI, the
+  Herdr panel, `/capture`), never an agent's.
+- Enter adds a line in multi-line fields; Enter on an empty line saves.
+- `q` asks again before losing marks, a filter or a Triage pass.
+- Triage on a saved view reviews that view's rows.
+- The Claude Code and Herdr panels and `/capture` show agd's own words, so
+  every surface reads alike. `/capture` takes an optional template key.
+- The narrow pane is called the pane everywhere.
+- MCP tools publish optional arguments as `anyOf`, which Copilot and Gemini
+  read (from upstream org-mcp-server).
+- `agd setup install` installs once per user; per-project installs and
+  `--directory` are gone.
 
 ## [0.2.0] - 2026-10-16
 

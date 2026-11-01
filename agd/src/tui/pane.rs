@@ -110,7 +110,8 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 }
 
 /// The last write's confirmation or a refusal while it lasts, else the
-/// inbox and agent counts named as the tabs are; `?` at the right.
+/// inbox and unreviewed counts as the status band says them; `?` at the
+/// right.
 fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = &app.theme;
     let line = match &app.status {
@@ -120,12 +121,13 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         )),
         None => {
             let mut spans = vec![Span::styled(
-                format!("Inbox {}  Agents", app.counts.inbox),
+                format!("{} inbox", app.counts.inbox),
                 theme.muted(),
             )];
             if app.counts.unreviewed > 0 {
+                spans.push(Span::styled(" · ", theme.muted()));
                 spans.push(Span::styled(
-                    format!(" ● {}", app.counts.unreviewed),
+                    format!("{} unreviewed", app.counts.unreviewed),
                     theme.strong(theme.accent),
                 ));
             }

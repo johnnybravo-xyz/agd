@@ -187,8 +187,9 @@ file is reviewed and `agd setup check --resolve` accepts its current contents.
 
 Undo applies inverse patches only where written bytes still match or relocate
 uniquely with context. Modified or ambiguous bytes produce `undo_conflict` and
-write nothing. A transaction undoes all files or none. The TUI, CLI, and Agents
-tab select only changes from their own histories.
+write nothing. A transaction undoes all files or none. `u` and `agd undo` take
+back your latest change from any surface; agent changes are undone on the
+Agents tab.
 
 ### Refusal codes
 

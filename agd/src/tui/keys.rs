@@ -257,7 +257,7 @@ const CHANGE: KeyGroup = KeyGroup {
         bind("S", &[Char('S')], A::Someday, "someday", "someday: tag it, drop the date", ""),
         // C-c C-w is a chord, which `chord_key` handles.
         bind("R C-c C-w", &[Char('R')], A::Refile, "refile", "refile under another heading", "C-c C-w"),
-        bind("u", &[Char('u')], A::Undo, "undo", "undo the last write", "C-_"),
+        bind("u", &[Char('u')], A::Undo, "undo", "undo your last change, from anywhere", "C-_"),
         bind("y", &[Char('y')], A::CopyLink, "copy link", "copy an Org link to the heading", "C-c l"),
         bind("m", &[Char('m')], A::Mark, "mark", "mark or unmark the row", "m"),
         bind("*", &[Char('*')], A::MarkAll, "mark all", "mark every row shown", "*"),
@@ -272,7 +272,7 @@ const CHANGE: KeyGroup = KeyGroup {
 const GO: KeyGroup = KeyGroup {
     title: "Go",
     bindings: &[
-        bind("T", &[Char('T')], A::Triage, "triage", "triage overdue, then inbox", ""),
+        bind("T", &[Char('T')], A::Triage, "triage", "triage overdue, then inbox; in a view, its rows", ""),
         bind("A", &[Char('A')], A::Agents, "agents", "review agent changes", ""),
         bind("esc", &[Code(KeyCode::Esc)], A::Back, "back", "close peek, clear marks or filter, go back", ""),
         bind("q", &[Char('q')], A::Quit, "quit", "quit", "q"),
@@ -357,14 +357,14 @@ pub(super) const BULK_KEYS: &[KeyGroup] = &[KeyGroup {
 /// The narrow pane beside an agent or editor.
 #[rustfmt::skip]
 pub(super) const PANE_KEYS: &[KeyGroup] = &[KeyGroup {
-    title: "Glance",
+    title: "Pane",
     bindings: &[
         bind("n j ↓", &[Char('n'), Char('j'), Code(KeyCode::Down)], A::Next, "next", "next row", ""),
         bind("p k ↑", &[Char('p'), Char('k'), Code(KeyCode::Up)], A::Previous, "previous", "previous row", ""),
         bind("x", &[Char('x')], A::Done, "done", "mark done", ""),
-        bind("X", &[Char('X')], A::Cancel, "cancel", "cancel", ""),
+        bind("X", &[Char('X')], A::Cancel, "cancel", "cancel: the file's last done state", ""),
         bind("z", &[Char('z')], A::Note, "note", "a timestamped note", "z"),
-        bind("u", &[Char('u')], A::Undo, "undo", "undo the last write", ""),
+        bind("u", &[Char('u')], A::Undo, "undo", "undo your last change, from anywhere", ""),
         bind("c", &[Char('c')], A::Capture, "capture", "capture a task", ""),
         bind("C-e", &[Ctrl('e')], A::Editor, "$EDITOR", "open the heading in $EDITOR", ""),
         bind("⏎", &[Code(KeyCode::Enter)], A::FullView, "full view", "the full view, at 60+ columns", ""),
@@ -1033,7 +1033,16 @@ fn run_triage(app: &mut App, action: Action, key: KeyEvent) -> Result<EditorTarg
         A::Schedule => prompt(app, PromptKind::Schedule),
         A::Deadline => prompt(app, PromptKind::Deadline),
         A::Done => app.mark_done()?,
-        A::MakeNext => app.set_state("NEXT")?,
+        A::MakeNext => {
+            if !app
+                .selected_keywords()
+                .iter()
+                .any(|(keyword, _)| keyword == "NEXT")
+            {
+                anyhow::bail!("this file's workflow has no NEXT state");
+            }
+            app.set_state("NEXT")?;
+        }
         A::Someday => app.someday()?,
         A::Cancel => app.cancel()?,
         A::Refile => app.open_refile(),

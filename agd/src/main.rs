@@ -29,7 +29,7 @@ struct Cli {
     #[arg(short, long, global = true)]
     root_directory: Option<String>,
 
-    /// Open the narrow glance pane for a tmux or herdr split
+    /// Open the pane, today at a glance, for a tmux split
     #[arg(long)]
     pane: bool,
 
@@ -120,7 +120,7 @@ fn parse_cli() -> Result<Cli, clap::Error> {
     if cli.pane && cli.command.is_some() {
         return Err(Cli::command().error(
             ErrorKind::ArgumentConflict,
-            "--pane opens the glance pane, so it takes no command",
+            "--pane opens the pane, so it takes no command",
         ));
     }
     Ok(cli)

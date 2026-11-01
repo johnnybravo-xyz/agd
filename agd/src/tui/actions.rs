@@ -476,15 +476,9 @@ impl App {
         let Some(document) = self.index.document(Path::new(&item.file)) else {
             return Vec::new();
         };
-        let sequence = item
-            .todo
-            .as_deref()
-            .and_then(|todo| document.todo_keyword(todo))
-            .map_or(0, |keyword| keyword.sequence);
         document
-            .todo_keywords()
-            .iter()
-            .filter(|keyword| keyword.sequence == sequence)
+            .sequence(item.todo.as_deref())
+            .into_iter()
             .map(|keyword| (keyword.name.clone(), keyword.done))
             .collect()
     }

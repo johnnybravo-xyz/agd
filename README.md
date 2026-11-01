@@ -84,7 +84,7 @@ AGD=target/release/agd docs/demo/demo.sh
 | Surface | Entry point | Purpose |
 | --- | --- | --- |
 | Full TUI | `agd` | Agenda, workspace find, Triage, agent review |
-| Narrow pane | `agd --pane` | Persistent tmux or Herdr view |
+| Narrow pane | `agd --pane` | Persistent tmux view |
 | CLI | `agd agenda`, `agd query`, `agd capture`, `agd edit`, `agd undo` | Scripts, search, guarded writes, status bars |
 | MCP | `agd mcp` | Local coding-agent access over stdio |
 | Setup | `agd setup import`, `agd setup install`, `agd setup check` | Editor import, agent config, workspace diagnostics |
