@@ -90,10 +90,9 @@ function errorSentence(stderr) {
   }
 }
 
-// A saved view's sections, or Today as two: agd's overdue rows in its order
-// (`agd agenda --status --json`, as the TUI's Today and Triage list them),
-// then today's rows, each with the status band's count. A deadline's warning
-// (`in 3d`) is not today's, as the band and the TUI's pane count it.
+// A saved view's sections, or Today as two from `agd agenda --status
+// --json`: the overdue rows and today's rows, each in agd's order and with
+// the status band's count, as the TUI's pane lists them.
 async function readSections($, key) {
   if (key !== TODAY) {
     const view = await agd($, ['agenda', '--view', key, '--json'])
@@ -101,15 +100,10 @@ async function readSections($, key) {
   }
   const status = await agd($, ['agenda', '--status', '--json'])
   if (status.error) return { error: status.error }
-  const day = await agd($, ['agenda', '--span', 'day', '--json'])
-  if (day.error) return { error: day.error }
-  return parsed(day.stdout, (entries) => {
-    const counts = JSON.parse(status.stdout)
-    return [
-      { header: 'Overdue', count: counts.overdue, entries: counts.overdue_entries, color: 'red' },
-      { header: 'Today', count: counts.today, entries: entries.filter(isToday), color: 'blue' },
-    ]
-  })
+  return parsed(status.stdout, (counts) => [
+    { header: 'Overdue', count: counts.overdue, entries: counts.overdue_entries, color: 'red' },
+    { header: 'Today', count: counts.today, entries: counts.today_entries, color: 'blue' },
+  ])
 }
 
 // agd's JSON as { sections }, or { error } when it does not parse.
@@ -273,9 +267,9 @@ function withHotkey(props, hotkey) {
   return hotkey ? { ...props, hotkey } : props
 }
 
-// The tab row: Today, then each saved view on its own key (`d: Dashboard`),
-// as org-agenda's dispatcher keys; a view keyed `a` or `g` takes that key
-// from Today or refresh.
+// The tab row: Today on `1`, the TUI's first tab, then each saved view on
+// its own key (`d: Dashboard`), as org-agenda's dispatcher keys; a view
+// keyed `1` or `g` takes that key from Today or refresh.
 function tabs($, Box, Button) {
   const keys = new Set(views.map((view) => view.key))
   const tab = (key, label, hotkey) =>
@@ -290,7 +284,7 @@ function tabs($, Box, Button) {
     flexWrap: 'wrap',
     columnGap: 3,
     children: [
-      tab(TODAY, 'Today', keys.has('a') ? undefined : 'a'),
+      tab(TODAY, 'Today', keys.has('1') ? undefined : '1'),
       ...views.map((view) => tab(view.key, view.desc, view.key)),
     ],
   })
@@ -312,12 +306,6 @@ function pill(Text, text, color) {
   ]
 }
 
-// Whether an agenda row of today is today's: not late, and not a deadline's
-// warning.
-function isToday(entry) {
-  return !entry.occurrence.late && entry.occurrence.type !== 'upcoming-deadline'
-}
-
 // The lead's color, as the TUI's: late rows red, deadlines amber; null for
 // the rest, which are muted.
 function leadColor(occurrence) {
@@ -334,19 +322,18 @@ function leadMinutes(occurrence) {
   return time ? Number(time[1]) * 60 + Number(time[2]) : null
 }
 
-// The six-cell lead that always says when, as the TUI's lead_cell, from
-// agd's `days` and `late`: an overdue badge (`12d`, a missed deadline `-2d`,
-// right-aligned), `due` on a deadline's day, or the time: muted once past or
-// done, bold on the next timed task, accent later.
-function leadCell(Text, occurrence, done, clock) {
-  if (occurrence.late) {
-    const missed = occurrence.type === 'deadline' ? '-' : ''
-    return pill(Text, (missed + occurrence.days + 'd').padStart(4), palette.overdue)
-  }
-  if (occurrence.type === 'deadline') return [Text(colored(palette.due, { bold: true, children: ['due   '] }))]
-  if (!occurrence.time) return [Text({ children: ['      '] })]
-  const time = { children: [occurrence.time.padEnd(6)] }
-  if (done || clock === 'past') return [Text(muted(time))]
+// The six-cell lead, agd's own words (`display.lead`: `12d`, `-2d`,
+// `in 3d`, `due`, a time) in the TUI's lead_cell styles: an overdue badge,
+// deadlines amber, a time muted once past or done, bold on the next timed
+// task, accent later.
+function leadCell(Text, entry, clock) {
+  const { occurrence, item } = entry
+  const lead = entry.display.lead
+  if (occurrence.late) return pill(Text, lead.padStart(4), palette.overdue)
+  if (occurrence.type === 'deadline') return [Text(colored(palette.due, { bold: true, children: [lead.padEnd(6)] }))]
+  if (occurrence.type === 'upcoming-deadline') return [Text(colored(palette.due, { children: [lead.padEnd(6)] }))]
+  const time = { children: [lead.padEnd(6)] }
+  if (item.done || clock === 'past') return [Text(muted(time))]
   if (clock === 'next') return [Text(colored(palette.accent, { ...time, bold: true }))]
   return [Text(colored(palette.accent, time))]
 }
@@ -355,7 +342,9 @@ function leadCell(Text, occurrence, done, clock) {
 // and org-agenda's lead (`10:00......`, `In 2 d.:`, `Sched. 2x:`), else an
 // indent; then the keyword in its color, the title, the priority chip and
 // the tags, muted.
-function taskRow(Text, item, occurrence) {
+function taskRow(Text, row) {
+  const item = row.item || row
+  const occurrence = row.occurrence
   const parts = []
   if (occurrence) {
     parts.push(Text(muted({ children: [(item.category + ':').padEnd(12)] })))
@@ -373,7 +362,7 @@ function taskRow(Text, item, occurrence) {
     const bold = !item.done && name !== 'orange'
     parts.push(Text(colored(colorOf(name), { bold, children: [item.todo + ' '] })))
   }
-  parts.push(Text({ ...titleStyle(item, false), children: [displayTitle(item.title)] }))
+  parts.push(Text({ ...titleStyle(item, false), children: [row.display.title] }))
   parts.push(...progress(Text, item))
   if (item.priority) parts.push(Text({ children: [' '] }), ...pill(Text, item.priority, palette.due))
   if (item.tags.length > 0) parts.push(Text(muted({ children: ['  ' + tagsText(item.tags)] })))
@@ -403,15 +392,6 @@ function titleStyle(item, next) {
   return colored(palette.text, next ? { bold: true } : {})
 }
 
-// The title as agd's lists show it: active timestamps dropped, and
-// `[[target][description]]` read as its description, `[[target]]` as the target.
-function displayTitle(title) {
-  return title
-    .replace(/[ \t]*<\d{4}-\d{2}-\d{2}[^>\n]*>/g, '')
-    .replace(/\[\[([^\]]*)\](?:\[([^\]]*)\])?\]/g, (_, target, description) => description || target)
-    .trim()
-}
-
 // Rows for a block or a group: agenda entries under their day, list items
 // as they come.
 function rows(Text, entries, items) {
@@ -424,9 +404,9 @@ function rows(Text, entries, items) {
       const style = day === isoDate(now) ? colored(palette.accent, { underline: true }) : colored(palette.text)
       lines.push(Text({ ...style, bold: true, children: [dayLabel(day)] }))
     }
-    lines.push(taskRow(Text, entry.item, entry.occurrence))
+    lines.push(taskRow(Text, entry))
   }
-  for (const item of items) lines.push(taskRow(Text, item, null))
+  for (const item of items) lines.push(taskRow(Text, item))
   return lines
 }
 
@@ -494,53 +474,43 @@ function sectionLines(Text, section) {
   return lines
 }
 
-// Today's two sections compact enough for a 40-column pane, with the TUI
-// pane's rows: OVERDUE in agd's order, then TODAY's timed rows by time,
-// untimed ones, and done rows last, each header with the status band's
-// count; each row the marker (`▸` on the next timed task), the lead, the
-// title, and at the right the priority, ↻ for a repeating task or ✓ for
+// Today's two sections compact enough for a 40-column pane, as the TUI's
+// pane draws them: OVERDUE, then TODAY, each in agd's order with the status
+// band's count; each row the marker (`▸` on the next timed task), the lead,
+// the title, and at the right the priority, ↻ for a repeating task or ✓ for
 // done. A view's sections, drawn before Today's are read, show as none.
 function todayLines(Box, Text, sections) {
   const none = { count: 0, entries: [] }
   const [overdue, today] = sections.length === 2 && sections[0].header === 'Overdue' ? sections : [none, none]
   const minutes = now.getHours() * 60 + now.getMinutes()
-  const rest = [...today.entries]
-  const order = (entry) => {
-    const time = leadMinutes(entry.occurrence)
-    return [entry.item.done ? 1 : 0, time === null ? 1 : 0, time ?? 0]
-  }
-  rest.sort((left, right) => {
-    const [a, b] = [order(left), order(right)]
-    return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
-  })
-  const next = rest.find((entry) => !entry.item.done && (leadMinutes(entry.occurrence) ?? -1) >= minutes)
+  const next = today.entries.find((entry) => !entry.item.done && (leadMinutes(entry.occurrence) ?? -1) >= minutes)
   const lines = []
   if (overdue.entries.length > 0) {
     lines.push(header(Text, overdue.header, overdue.count, overdue.color))
     for (const entry of overdue.entries) lines.push(compactRow(Box, Text, entry, 'later'))
   }
   lines.push(header(Text, 'Today', today.count, 'blue'))
-  for (const entry of rest) {
+  for (const entry of today.entries) {
     const time = leadMinutes(entry.occurrence)
     const clock = entry === next ? 'next' : time !== null && time < minutes ? 'past' : 'later'
     lines.push(compactRow(Box, Text, entry, clock))
   }
-  if (overdue.entries.length + rest.length === 0) lines.push(Text(muted({ children: ['All clear for today.'] })))
+  if (overdue.entries.length + today.entries.length === 0) lines.push(Text(muted({ children: ['All clear for today.'] })))
   return lines
 }
 
 // One compact row: what is left of the right mark's room goes to the
 // title, which ends in "…" when it does not fit.
 function compactRow(Box, Text, entry, clock) {
-  const { item, occurrence } = entry
+  const { item } = entry
   const marker = clock === 'next' ? Text(colored(palette.accent, { bold: true, children: ['▸ '] })) : Text({ children: ['  '] })
   const left = Text({
     wrap: 'truncate-end',
     children: [
       marker,
-      ...leadCell(Text, occurrence, item.done, clock),
+      ...leadCell(Text, entry, clock),
       Text({ children: [' '] }),
-      Text({ ...titleStyle(item, clock === 'next'), children: [displayTitle(item.title)] }),
+      Text({ ...titleStyle(item, clock === 'next'), children: [entry.display.title] }),
       ...progress(Text, item),
     ],
   })
@@ -574,7 +544,7 @@ function paneBody($, e) {
           views.some((view) => view.key === 'g') ? undefined : 'g',
         ),
       ),
-      Text(muted({ children: ['esc close · ctrl-x x close'] })),
+      Text(muted({ children: ['esc close · C-x x close'] })),
     ],
   })
   return Box({
@@ -584,52 +554,24 @@ function paneBody($, e) {
   })
 }
 
-// "/capture t buy milk due:fri" runs `agd capture --json -- t "buy milk
-// due:fri"`; after `--` a text such as `-1 point` is text, not an option.
-// It says what it wrote as agd's TUI and terminal do, the file relative to
-// its root: `projects/inbox.org:7  captured · buy milk · deadline Fri 23 Oct`.
+// "/capture t buy milk due:fri" runs `agd capture --json -- "t buy milk
+// due:fri"`, which picks the template as the terminal does: the first word
+// when it names one, else the first template. After `--` a text such as
+// `-1 point` is text, not an option. It says agd's own `summary` and
+// `notes`, and that `agd undo` takes it back.
 async function capture($, args) {
-  const match = args.trim().match(/^(\S+)\s+(.+)$/)
-  if (!match) return { text: 'usage: /capture KEY text, such as /capture t buy milk due:fri' }
-  const result = await agd($, ['capture', '--json', '--', match[1], match[2]])
+  const text = args.trim()
+  if (!text) return { text: 'usage: /capture [KEY] text, such as /capture t buy milk due:fri' }
+  const result = await agd($, ['capture', '--json', '--', text])
   // Claude Code prefixes the plugin's name, so the text starts with agd's own.
   if (result.error) return { text: result.error }
-  const today = await readNow($)
   await refresh($)
   try {
-    return { text: capturedLine(JSON.parse(result.stdout), today) }
+    const captured = JSON.parse(result.stdout)
+    return { text: [captured.summary + ' · agd undo', ...captured.notes].join('\n') }
   } catch {
     return { text: 'captured' }
   }
-}
-
-// agd's words::captured for a capture's JSON: its `location` (file:line
-// under its root), `captured`, the title, then its dates (`scheduled Sat 17
-// Oct`, `deadline Fri 23 Oct`).
-function capturedLine(captured, today) {
-  const item = captured.item
-  let line = captured.location + '  captured · ' + item.title
-  const planning = item.planning || {}
-  for (const [label, timestamp] of [
-    ['scheduled', planning.scheduled],
-    ['deadline', planning.deadline],
-  ]) {
-    if (timestamp) line += ' · ' + label + ' ' + when(timestamp.date, timestamp.time, today)
-  }
-  return line
-}
-
-const SHORT_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-// agd's words::when: `Fri 16 Oct`, with the year when it is not `today`'s,
-// and the time after it.
-function when(date, time, today) {
-  const parsed = new Date(date + 'T00:00:00Z')
-  if (Number.isNaN(parsed.getTime())) return date
-  let text = SHORT_WEEKDAYS[parsed.getUTCDay()] + ' ' + parsed.getUTCDate() + ' ' + SHORT_MONTHS[parsed.getUTCMonth()]
-  if (parsed.getUTCFullYear() !== today.getFullYear()) text += ' ' + parsed.getUTCFullYear()
-  return time ? text + ' ' + time : text
 }
 
 // Literal names, so `claude plugin validate` sees each command.run hook
@@ -646,7 +588,7 @@ async function registerCommands($) {
       description: 'File a task through an agd capture template',
       // Registered before agd's notation is read, so it names no tag or
       // priority marker.
-      argumentHint: 'KEY text  due:fri on:+2d',
+      argumentHint: '[KEY] text  due:fri on:+2d',
       immediate: true,
     })
   } catch (error) {

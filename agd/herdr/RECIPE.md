@@ -8,12 +8,11 @@ Build a native Herdr side panel for the local
 ## Behavior
 
 - Dock on the right at 340 px the first time Herdr sees the mod.
-- Run `agd agenda --span day --json` on load and once a minute.
-- Show unfinished rows in agd's order, with timing, category, tags, priority,
-  and overdue emphasis.
-- Keep the last successful agenda visible when refresh fails, and show the
-  error at the bottom.
-- Provide **Done**, **Refresh**, **Open** (`agd`), and **+** (`agd capture -i`).
+- Draw today as agd's pane does, from `agd agenda --status --json`: overdue,
+  then today, each row with agd's own lead and title. Refresh once a minute.
+- **Done** runs `agd edit REF --done` and shows agd's summary with **Undo**
+  (`agd undo`). Errors show as agd's sentence, and the last agenda stays.
+- **Refresh**, **Open** (`agd`) and **+** (`agd capture -i`).
 - Follow Herdr's active theme. Do not animate frequent actions.
 
 ## Install
@@ -24,5 +23,6 @@ refuses a different mod already named `agd`.
 ## Access
 
 The mod makes no network requests. It runs the local `agd` executable, which
-reads the Org roots in agd's configuration. **Done** uses guarded `agd edit`;
-Open and Capture start local terminal tabs through Herdr.
+reads the Org roots in agd's configuration. **Done** and **Undo** use guarded
+`agd edit` and `agd undo`; Open and Capture start local terminal tabs through
+Herdr.
