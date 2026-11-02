@@ -12,6 +12,8 @@ narrow pane, the command line, coding agents over MCP, and panels in Claude
 Code and Herdr. Org files stay the source of truth, and nothing leaves your
 machine.
 
+![Claude Code checks the agenda and captures tasks, then agd shows work from the user, Claude and Codex, completes checklist steps, and reviews agent changes](https://raw.githubusercontent.com/johnnybravo-xyz/agd/main/docs/release/agd-story.gif)
+
 ![Claude Code reads the agenda in a terminal, resumes in Herdr beside the agd panel, captures a task that the panel shows at once, and the panel marks a task done and undoes it](https://raw.githubusercontent.com/johnnybravo-xyz/agd/main/agd/herdr/claude-herdr.gif)
 
 ## Why agd
