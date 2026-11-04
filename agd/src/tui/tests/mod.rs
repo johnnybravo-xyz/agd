@@ -37,7 +37,12 @@ fn test_app(root: &Path) -> App {
         ..Settings::default()
     };
     let index = WorkspaceIndex::load(settings.clone()).unwrap();
-    App::new(settings, index, today())
+    App::new(
+        settings,
+        index,
+        today(),
+        crate::tui::program_status::Reporter::disabled(),
+    )
 }
 
 /// Renders the app into a text grid, one string per terminal row.
@@ -104,6 +109,37 @@ fn with_home(body: impl FnOnce(&Path)) {
         ],
         || body(directory.path()),
     );
+}
+
+#[test]
+fn program_status_follows_the_tuis_attention_state() {
+    with_home(|root| {
+        write_tasks(root);
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        assert_eq!(
+            app.current_program_status(),
+            crate::tui::program_status::ProgramStatus::Idle
+        );
+
+        press(&mut app, crossterm::event::KeyCode::Char('?'));
+        assert_eq!(
+            app.current_program_status(),
+            crate::tui::program_status::ProgramStatus::Blocked
+        );
+
+        press(&mut app, crossterm::event::KeyCode::Esc);
+        press(&mut app, crossterm::event::KeyCode::Char('s'));
+        assert_eq!(
+            app.current_program_status(),
+            crate::tui::program_status::ProgramStatus::Blocked
+        );
+        press(&mut app, crossterm::event::KeyCode::Esc);
+        assert_eq!(
+            app.current_program_status(),
+            crate::tui::program_status::ProgramStatus::Idle
+        );
+    });
 }
 
 const TASKS: &str = "#+TODO: TODO NEXT WAIT | DONE\n\

@@ -70,6 +70,10 @@ agd
 | Herdr | a docked panel | Today with Done and Undo |
 
 `u` in the TUI and `agd undo` take back your latest change from any of them.
+
+`agd` reports TUI activity through the terminal-neutral
+[OSC 7501 Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status),
+so supporting terminals such as Rex can show loading and unfinished prompts.
 Agent changes wait on the Agents tab for review.
 
 ## Connect agents

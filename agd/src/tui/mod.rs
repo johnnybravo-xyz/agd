@@ -11,6 +11,7 @@ mod input;
 mod keys;
 mod pane;
 mod peek;
+mod program_status;
 mod review;
 mod rows;
 mod theme;
@@ -47,6 +48,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 
+use program_status::{ProgramStatus, Reporter};
 use theme::Theme;
 
 /// Screens and tabs. Today, Week, Inbox and saved views share the list
@@ -266,6 +268,7 @@ struct App {
     width: u16,
     capture_only: bool,
     overlay: Overlay,
+    program_status: Reporter,
     status: Option<Status>,
     list_area: Rect,
     /// (screen row, row index) of the drawn list, for mouse clicks.
@@ -292,7 +295,12 @@ struct App {
 }
 
 impl App {
-    fn new(settings: Settings, index: WorkspaceIndex, today: NaiveDate) -> Self {
+    fn new(
+        settings: Settings,
+        index: WorkspaceIndex,
+        today: NaiveDate,
+        program_status: Reporter,
+    ) -> Self {
         let theme = Theme::detect(&settings.theme, None).rounded_pills(settings.nerd_font);
         Self {
             settings,
@@ -321,6 +329,7 @@ impl App {
             width: 0,
             capture_only: false,
             overlay: Overlay::None,
+            program_status,
             status: None,
             list_area: Rect::default(),
             click_rows: Vec::new(),
@@ -379,6 +388,14 @@ impl App {
         self.pane_requested = false;
         self.reload_rows()?;
         Ok(true)
+    }
+
+    fn current_program_status(&self) -> ProgramStatus {
+        if self.quit_asked || !matches!(&self.overlay, Overlay::None) {
+            ProgramStatus::Blocked
+        } else {
+            ProgramStatus::Idle
+        }
     }
 
     /// The palette for the background the terminal reported.
@@ -474,6 +491,8 @@ fn run_mode(
     pane: bool,
     capture_only: bool,
 ) -> Result<()> {
+    let mut program_status = Reporter::terminal();
+    program_status.report(&mut io::stdout(), ProgramStatus::Loading)?;
     let settings = load_settings(
         config.as_deref().map(Path::new),
         root.as_deref().map(Path::new),
@@ -481,7 +500,7 @@ fn run_mode(
     let index = WorkspaceIndex::load(settings.clone())?;
     let (events, _watcher) = watch_roots(&index)?;
     let (light, reply, typed) = theme::ask_background(&settings.theme);
-    let mut app = App::new(settings, index, Local::now().date_naive());
+    let mut app = App::new(settings, index, Local::now().date_naive(), program_status);
     if let Some(light) = light {
         app.set_background(light);
     }
@@ -506,8 +525,21 @@ fn run_mode(
 
     let mut terminal = start_terminal()?;
     let result = event_loop(&mut terminal, &mut app, &events, reply, typed);
-    stop_terminal(&mut terminal)?;
-    result
+    let program_status_result = if app.capture_only
+        && app
+            .status
+            .as_ref()
+            .is_some_and(|status| status.tone == Tone::Done)
+    {
+        app.program_status
+            .report(terminal.backend_mut(), ProgramStatus::CaptureDone)
+    } else {
+        app.program_status.clear(terminal.backend_mut())
+    };
+    let stop_result = stop_terminal(&mut terminal);
+    result?;
+    program_status_result?;
+    stop_result
 }
 
 /// `reply` is the terminal's background answer if it is still on its way;
@@ -566,6 +598,9 @@ fn event_loop(
         if app.chord_expired() {
             break;
         }
+        let program_status = app.current_program_status();
+        app.program_status
+            .report(terminal.backend_mut(), program_status)?;
         terminal.draw(|frame| draw(frame, app))?;
         if !event::poll(StdDuration::from_millis(200))? {
             continue;
@@ -676,7 +711,7 @@ fn open_in_editor(
     file: &str,
     line: usize,
 ) -> Result<()> {
-    let status = run_editor(terminal, &app.settings, file, line)?;
+    let status = run_editor(terminal, app, file, line)?;
     if !status.success() {
         app.set_error(&anyhow::anyhow!("editor exited with {status}"));
     }
@@ -690,11 +725,12 @@ fn open_in_editor(
 /// `line` directly (never through a shell), and comes back.
 fn run_editor(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    settings: &Settings,
+    app: &mut App,
     file: &str,
     line: usize,
 ) -> Result<std::process::ExitStatus> {
-    let (program, args) = settings.editor_command(file, line, 1);
+    let (program, args) = app.settings.editor_command(file, line, 1);
+    app.program_status.clear(terminal.backend_mut())?;
     stop_terminal(terminal)?;
     let status = Command::new(&program)
         .args(args)

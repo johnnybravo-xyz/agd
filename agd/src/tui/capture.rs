@@ -516,7 +516,7 @@ fn edit_body(
         .context("cannot create capture draft")?;
     file.write_all(draft.body.as_bytes())?;
     file.flush()?;
-    if run_editor(terminal, &app.settings, &file.path().to_string_lossy(), 1)?.success() {
+    if run_editor(terminal, app, &file.path().to_string_lossy(), 1)?.success() {
         draft.body = fs::read_to_string(file.path()).context("cannot read capture draft")?;
         draft.body = draft.body.trim_end().to_string();
     }

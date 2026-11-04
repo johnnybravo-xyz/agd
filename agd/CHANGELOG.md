@@ -6,6 +6,12 @@ This file records user-visible changes to the `agd` executable. It follows
 
 ## [Unreleased]
 
+### Added
+
+- The TUI reports loading, idle and input-blocked states through the OSC 7501
+  Program Status Protocol, so Rex and other supporting terminals can surface
+  its activity.
+
 ## [0.3.0] - 2026-11-01
 
 ### Added
