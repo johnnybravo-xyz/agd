@@ -6,6 +6,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 
 ## [Unreleased]
 
+### Added
+
+- `EditIntent::checklist_add`: new unchecked boxes, added after the last one
+  in its bullet, or after the entry's text, with statistics cookies updated.
+
 ## [0.3.0] - 2026-11-01
 
 ### Added

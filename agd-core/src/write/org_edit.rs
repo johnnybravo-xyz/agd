@@ -322,6 +322,10 @@ pub(super) fn build_edit_patches(
     if let Some(patch) = description_patch(source, headline, &intent.description) {
         patches.push(patch);
     }
+    // After the description, which a new first box may share an offset with.
+    if let Some(patch) = checklist_add_patch(source, headline, intent)? {
+        patches.push(patch);
+    }
     Ok(patches)
 }
 
@@ -762,16 +766,16 @@ fn leading_indent(source: &str, offset: usize) -> &str {
 
 /// org-toggle-checkbox for each box `intent.checklist` sets, as patches of
 /// the one byte between the brackets. Returns the checked and total boxes
-/// after the edit for org-update-checkbox-count, or None when there is
-/// nothing to count: no checklist change, or COOKIE_DATA says the heading's
-/// cookies count TODO children.
+/// after the edit, new boxes included, for org-update-checkbox-count, or
+/// None when there is nothing to count: no checklist change, or
+/// COOKIE_DATA says the heading's cookies count TODO children.
 fn checklist_patches(
     source: &str,
     headline: &HeadlineSpan,
     intent: &EditIntent,
     patches: &mut Vec<Patch>,
 ) -> Result<Option<(usize, usize)>, AgdError> {
-    if intent.checklist.is_empty() {
+    if intent.checklist.is_empty() && intent.checklist_add.is_empty() {
         return Ok(None);
     }
     let items = checklist(source, headline)?;
@@ -804,7 +808,81 @@ fn checklist_patches(
         .enumerate()
         .filter(|(index, item)| intent.checklist.get(index).copied().unwrap_or(item.checked))
         .count();
-    Ok(Some((done, items.len())))
+    Ok(Some((done, items.len() + intent.checklist_add.len())))
+}
+
+/// The new boxes as one insertion: after the last box and any lines
+/// indented under it, with its indentation and bullet (a numbered list
+/// counts on); with no checklist, `- [ ]` lines after the entry's text,
+/// before the blank lines that end it.
+fn checklist_add_patch(
+    source: &str,
+    headline: &HeadlineSpan,
+    intent: &EditIntent,
+) -> Result<Option<Patch>, AgdError> {
+    let added = &intent.checklist_add;
+    if added.is_empty() {
+        return Ok(None);
+    }
+    let texts: Vec<&str> = added.iter().map(|text| text.trim()).collect();
+    if texts
+        .iter()
+        .any(|text| text.is_empty() || text.contains(['\n', '\r']))
+    {
+        return Err(AgdError::new(
+            ErrorCode::InvalidEdit,
+            "a new checklist item is one line of text",
+        ));
+    }
+    let body = headline.body_span;
+    let items = checklist(source, headline)?;
+    let (at, indent, bullet) = match items.last() {
+        Some(last) => {
+            // `  - ` or `  3. `: the line up to its `[`.
+            let lead = &source[last.line.start..last.mark.start - 1];
+            let indent = &lead[..lead.len() - lead.trim_start().len()];
+            let mut end = last.line.end;
+            for line in source[end..body.end].split_inclusive('\n') {
+                let deeper = line.len() - line.trim_start().len() > indent.len();
+                if line.trim().is_empty() || !deeper {
+                    break;
+                }
+                end += line.len();
+            }
+            (end, indent.to_string(), lead.trim().to_string())
+        }
+        None => {
+            let text = source[body.start..body.end].trim_end_matches(['\n', '\r', ' ', '\t']);
+            let end = body.start + text.len();
+            // Past the newline that ends the last line of text, if any.
+            let end = if text.is_empty() {
+                body.start
+            } else {
+                source[end..body.end]
+                    .find('\n')
+                    .map_or(body.end, |newline| end + newline + 1)
+            };
+            (end, String::new(), "-".to_string())
+        }
+    };
+    let number = bullet.trim_end_matches(['.', ')']).parse::<usize>().ok();
+    // A new description in an empty body starts the line itself.
+    let new_description = matches!(intent.description, Change::Set(_)) && at == body.start;
+    let mut replacement = String::new();
+    if at > 0 && !source[..at].ends_with('\n') && !new_description {
+        replacement.push('\n');
+    }
+    for (offset, text) in texts.iter().enumerate() {
+        let bullet = match number {
+            Some(number) => format!("{}{}", number + 1 + offset, &bullet[bullet.len() - 1..]),
+            None => bullet.clone(),
+        };
+        replacement.push_str(&format!("{indent}{bullet} [ ] {text}\n"));
+    }
+    Ok(Some(Patch {
+        span: ByteSpan { start: at, end: at },
+        replacement,
+    }))
 }
 
 /// A statistics cookie with Org's counts: `[2/5]`, or `[40%]` rounded down.
@@ -844,6 +922,50 @@ mod tests {
         EditIntent {
             description: Change::Set(text.to_string()),
             ..EditIntent::default()
+        }
+    }
+
+    fn add_boxes(texts: &[&str]) -> EditIntent {
+        EditIntent {
+            checklist_add: texts.iter().map(|text| text.to_string()).collect(),
+            ..EditIntent::default()
+        }
+    }
+
+    #[test]
+    fn new_boxes_follow_the_last_one_in_its_bullet_and_the_cookie_counts_them() {
+        let source = "* TODO Plan [1/2]\n  - [X] venue\n  - [ ] invites\n    to everyone\n\nAfter the list.\n";
+        assert_eq!(
+            edited(source, add_boxes(&["catering", " menu "]), false).unwrap(),
+            "* TODO Plan [1/4]\n  - [X] venue\n  - [ ] invites\n    to everyone\n  - [ ] catering\n  - [ ] menu\n\nAfter the list.\n"
+        );
+        let numbered = "* TODO Plan\n1. [ ] venue\n2) [ ] invites\n";
+        assert_eq!(
+            edited(numbered, add_boxes(&["catering", "menu"]), false).unwrap(),
+            "* TODO Plan\n1. [ ] venue\n2) [ ] invites\n3) [ ] catering\n4) [ ] menu\n"
+        );
+    }
+
+    #[test]
+    fn a_first_box_goes_after_the_entrys_text_and_a_new_description() {
+        let source = "* TODO Plan\n:PROPERTIES:\n:ID: a\n:END:\nVenue near the office.\n\n* Next\n";
+        assert_eq!(
+            edited(source, add_boxes(&["book it"]), false).unwrap(),
+            "* TODO Plan\n:PROPERTIES:\n:ID: a\n:END:\nVenue near the office.\n- [ ] book it\n\n* Next\n"
+        );
+        let mut both = add_boxes(&["book it"]);
+        both.description = Change::Set("Venue near the office.".to_string());
+        assert_eq!(
+            edited("* TODO Plan", both, false).unwrap(),
+            "* TODO Plan\nVenue near the office.\n- [ ] book it\n"
+        );
+    }
+
+    #[test]
+    fn a_new_box_is_one_line_of_text() {
+        for text in ["", "  ", "two\nlines"] {
+            let error = edited("* TODO Plan\n", add_boxes(&[text]), false).unwrap_err();
+            assert_eq!(error.code(), ErrorCode::InvalidEdit, "{text:?}");
         }
     }
 

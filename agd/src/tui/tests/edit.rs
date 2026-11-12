@@ -26,7 +26,8 @@ fn x_checks_off_checklist_lines_and_the_cookie_counts_them() {
         let mut app = test_app(root);
         app.reload_rows().unwrap();
         open_edit(&mut app);
-        // Up from the title wraps to the last box.
+        // Up from the title wraps to the new sub-task row, then the boxes.
+        key(&mut app, KeyCode::Up);
         key(&mut app, KeyCode::Up);
         key(&mut app, KeyCode::Up);
         key(&mut app, KeyCode::Char('x'));
@@ -199,9 +200,9 @@ fn typing_into_a_focused_edit_field_replaces_it_and_end_keeps_it() {
         // Beside the date as typed, how agd says it.
         assert!(screen.contains("fri▏  Fri 16 Oct"), "{screen}");
 
-        // Back on Title, past Deadline and Description, End keeps the text
-        // and typing appends.
-        for _ in 0..3 {
+        // Back on Title, past Deadline, Description and the new sub-task
+        // row, End keeps the text and typing appends.
+        for _ in 0..4 {
             key(&mut app, KeyCode::Tab);
         }
         key(&mut app, KeyCode::End);
@@ -292,5 +293,77 @@ SCHEDULED: <2026-10-13 Tue>\n{body}- [ ] book a venue with quiet rooms for every
         assert!(screen.contains("group TAIL"), "{screen}");
         assert!(screen.contains("Org Preview"), "{screen}");
         assert!(!screen.contains("until the END"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn new_sub_tasks_are_typed_after_the_boxes_and_saved_with_the_counts() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let path = root.join("work.org");
+        fs::write(
+            &path,
+            "* TODO Plan the offsite [0/1]\nSCHEDULED: <2026-10-13 Tue>\n- [ ] book venue\n* TODO Water plants\nSCHEDULED: <2026-10-13 Tue>\n",
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        open_edit(&mut app);
+        // Up from the title wraps to the row a new sub-task is typed into.
+        key(&mut app, KeyCode::Up);
+        for character in "send invites".chars() {
+            key(&mut app, KeyCode::Char(character));
+        }
+        key(&mut app, KeyCode::Enter);
+        for character in "order catering".chars() {
+            key(&mut app, KeyCode::Char(character));
+        }
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(
+            screen.contains("+* TODO Plan the offsite [0/3]"),
+            "{screen}"
+        );
+        assert!(screen.contains("+- [ ] send invites"), "{screen}");
+        assert!(screen.contains("+- [ ] order catering"), "{screen}");
+
+        // ⏎ starts a third row; ⏎ on it, empty, saves.
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Enter);
+        assert!(matches!(app.overlay, Overlay::None));
+        assert!(
+            app.status.as_ref().unwrap().text.contains("checklist 0/3"),
+            "{:?}",
+            app.status
+        );
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "* TODO Plan the offsite [0/3]\nSCHEDULED: <2026-10-13 Tue>\n- [ ] book venue\n- [ ] send invites\n- [ ] order catering\n* TODO Water plants\nSCHEDULED: <2026-10-13 Tue>\n"
+        );
+
+        // A task without a checklist starts one on its Checklist row.
+        let row = app
+            .rows
+            .iter()
+            .position(|row| row.item.title == "Water plants")
+            .unwrap();
+        app.selected = row;
+        open_edit(&mut app);
+        key(&mut app, KeyCode::Up);
+        let screen = render(&mut app, 100, 30).join("\n");
+        assert!(
+            screen.contains("Checklist   [ ] ▏type a sub-task"),
+            "{screen}"
+        );
+        for character in "fill the can".chars() {
+            key(&mut app, KeyCode::Char(character));
+        }
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Enter);
+        assert!(
+            fs::read_to_string(&path).unwrap().ends_with(
+                "* TODO Water plants\nSCHEDULED: <2026-10-13 Tue>\n- [ ] fill the can\n"
+            )
+        );
     });
 }

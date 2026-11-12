@@ -52,6 +52,10 @@ pub struct EditIntent {
     /// Checklist boxes to set, by their place in the entry's checklist
     /// (0 first): true checks, false unchecks.
     pub checklist: BTreeMap<usize, bool>,
+    /// New unchecked boxes, one line of text each, added after the last
+    /// box in the checklist's own bullet, or at the end of the entry's
+    /// text when it has none.
+    pub checklist_add: Vec<String>,
 }
 
 impl EditIntent {
@@ -80,7 +84,10 @@ impl EditIntent {
                 JournalOperation::Edit,
             ),
             (!self.properties.is_empty(), JournalOperation::Edit),
-            (!self.checklist.is_empty(), JournalOperation::Checklist),
+            (
+                !self.checklist.is_empty() || !self.checklist_add.is_empty(),
+                JournalOperation::Checklist,
+            ),
         ];
         let mut made = changes.iter().filter(|(changed, _)| *changed);
         match (made.next(), made.next(), self.note.is_some()) {

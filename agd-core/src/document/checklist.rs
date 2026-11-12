@@ -38,6 +38,8 @@ pub struct ChecklistItem {
     pub checked: bool,
     /// The one byte inside the brackets, which checking off replaces.
     pub(crate) mark: ByteSpan,
+    /// The item's line, its newline included.
+    pub(crate) line: ByteSpan,
 }
 
 /// The checklist in `headline`'s body, in order; empty when it has none.
@@ -104,6 +106,10 @@ pub fn checklist(source: &str, headline: &HeadlineSpan) -> Result<Vec<ChecklistI
             mark: ByteSpan {
                 start: mark_start,
                 end: mark_start + 1,
+            },
+            line: ByteSpan {
+                start: line_start,
+                end: start,
             },
         });
     }

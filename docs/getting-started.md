@@ -165,6 +165,39 @@ repeaters and warnings, each counted from today as Org's date prompt does. A
 deadline before the scheduled date is kept, with a hint naming the date you may
 have meant. Put `--` before text that starts with `-`.
 
+In the TUI's capture popup, `S-Enter` on the task line opens a description and
+`Tab` from it starts the sub-tasks, written as `- [ ]` checkboxes. On a
+sub-task, `⏎` adds the next one, `⌫` on an empty one removes it, and `⏎` on an
+empty one saves the task.
+
+### Edit a task
+
+Move to the task (or find it with `F`) and press `⏎` or `e`. The edit popup
+has Title, State, Priority, Tags, Scheduled, Deadline, Description and
+Checklist:
+
+- `Tab` moves between fields; `←` `→` cycle State and Priority.
+- Dates take the same forms as capture, with the day they mean beside them.
+- `x` on a checklist box checks it off. Under the boxes, type a new sub-task
+  on the `+ sub-task` row; `⏎` starts the next one, and `⏎` on an empty row
+  saves.
+- A changed field gets a `•`, and the Org Preview shows the exact change.
+- `⏎` saves, `esc` cancels, and `u` undoes it afterwards.
+
+For a single change, the list keys are quicker: `x` done, `X` cancel, `t` next
+state, `s` schedule, `d` deadline, `z` a timestamped note.
+
+`C-e` (or `C-o` from inside the popup) opens the heading in your editor for
+anything else.
+
+From the command line, find the task's `ref` and pass it to `agd edit`:
+
+```bash
+ref=$(agd query '(text "offsite")' --json | jq -r '.[0].ref')
+agd edit "$ref" --title "Plan the team offsite" --deadline fri --add-tag work --dry-run
+agd edit "$ref" --title "Plan the team offsite" --deadline fri --add-tag work
+```
+
 ### Pane and status line
 
 ```bash

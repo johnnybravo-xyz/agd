@@ -11,6 +11,9 @@ This file records user-visible changes to the `agd` executable. It follows
 - The TUI reports loading, idle and input-blocked states through the OSC 7501
   Program Status Protocol, so Rex and other supporting terminals can surface
   its activity.
+- The edit popup adds sub-tasks: type one on the `+ sub-task` row under the
+  checklist, and `⏎` starts the next. They follow the last box in its own
+  bullet, and the heading's `[1/3]` counts them.
 
 ### Fixed
 

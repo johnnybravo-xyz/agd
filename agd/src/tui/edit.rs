@@ -1,6 +1,6 @@
 //! The edit popup (⏎ on a task): its title, state, priority, tags and
 //! dates as fields, its description, its checklist boxes to check off with
-//! `x`, and the exact diff of its one write, which resolves the item again
+//! `x` and new sub-tasks to add after them, and the exact diff of its one write, which resolves the item again
 //! under lock before changing it; plus the hand-over to $EDITOR.
 
 use std::collections::BTreeSet;
@@ -65,6 +65,9 @@ pub(super) struct EditForm {
     /// checklist is left out, for $EDITOR.
     checklist: Vec<ChecklistItem>,
     checks: Vec<bool>,
+    /// New sub-tasks as typed, after the boxes; the last is always an empty
+    /// row to type the next one into.
+    new_items: Vec<TextInput>,
     field: usize,
     preview: Result<String, String>,
     /// The preview is out of date; it is rebuilt once before the next draw.
@@ -117,6 +120,7 @@ impl EditForm {
             original_description,
             checks: checklist.iter().map(|item| item.checked).collect(),
             checklist,
+            new_items: vec![TextInput::default()],
             field: TITLE,
             preview: Ok(String::new()),
             stale: false,
@@ -133,9 +137,10 @@ impl EditForm {
         }
     }
 
-    /// The text fields, the description lines, then one per checklist box.
+    /// The text fields, the description lines, one per checklist box, then
+    /// the new sub-tasks.
     fn field_count(&self) -> usize {
-        LABELS.len() + self.description.len() + self.checks.len()
+        LABELS.len() + self.description.len() + self.checks.len() + self.new_items.len()
     }
 
     /// The description line `field` is, if it is one.
@@ -152,12 +157,31 @@ impl EditForm {
             .filter(|index| *index < self.checks.len())
     }
 
+    /// The new sub-task `field` is, if it is one.
+    fn new_item(&self, field: usize) -> Option<usize> {
+        field
+            .checked_sub(LABELS.len() + self.description.len() + self.checks.len())
+            .filter(|index| *index < self.new_items.len())
+    }
+
     /// The focused text field, or None on a checklist box.
     fn current(&mut self) -> Option<&mut TextInput> {
-        match self.description_line(self.field) {
-            Some(line) => self.description.get_mut(line),
-            None => self.values.get_mut(self.field),
+        if let Some(line) = self.description_line(self.field) {
+            return self.description.get_mut(line);
         }
+        if let Some(index) = self.new_item(self.field) {
+            return self.new_items.get_mut(index);
+        }
+        self.values.get_mut(self.field)
+    }
+
+    /// The new sub-tasks typed so far.
+    fn added_items(&self) -> Vec<String> {
+        self.new_items
+            .iter()
+            .map(|item| item.text().trim().to_string())
+            .filter(|text| !text.is_empty())
+            .collect()
     }
 
     /// The description as typed, without blank lines at its ends; Some
@@ -220,6 +244,7 @@ impl EditForm {
                 Some(text) => Change::Set(text),
             },
             checklist: self.changed_boxes(),
+            checklist_add: self.added_items(),
             ..EditIntent::default()
         })
     }
@@ -239,14 +264,17 @@ impl EditForm {
         (0..LABELS.len()).all(|field| self.changed(field).is_none())
             && self.changed_description().is_none()
             && self.changed_boxes().is_empty()
+            && self.added_items().is_empty()
     }
 
-    /// Only boxes changed: the done line names the count, `checklist 2/3`.
+    /// Only the checklist changed: the done line names the count,
+    /// `checklist 2/3`, new sub-tasks included.
     fn checklist_only(&self) -> Option<String> {
         let only = (0..LABELS.len()).all(|field| self.changed(field).is_none())
             && self.changed_description().is_none();
         let done = self.checks.iter().filter(|checked| **checked).count();
-        only.then(|| format!("checklist {done}/{}", self.checks.len()))
+        let total = self.checks.len() + self.added_items().len();
+        only.then(|| format!("checklist {done}/{total}"))
     }
 
     /// The exact lines the write would change, from a dry run.
@@ -362,11 +390,36 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<keys::EditorTar
                 return Ok(None);
             }
         }
+        // On a new sub-task ⏎ starts the next one; on an empty one it drops
+        // it, but the last, and saves, as in capture.
+        Some(Action::Save) if form.new_item(form.field).is_some() => {
+            let index = form.new_item(form.field).unwrap_or_default();
+            if !form.new_items[index].text().is_empty() {
+                form.new_items.insert(index + 1, TextInput::default());
+                form.field += 1;
+            } else {
+                if index + 1 < form.new_items.len() {
+                    form.new_items.remove(index);
+                }
+                if !form.unchanged() {
+                    commit(app, form)?;
+                }
+                return Ok(None);
+            }
+        }
         Some(Action::Save) => {
             if !form.unchanged() {
                 commit(app, form)?;
             }
             return Ok(None);
+        }
+        // S-⏎ on a box or a new sub-task starts a new one after it.
+        Some(Action::AddItem)
+            if form.checkbox(form.field).is_some() || form.new_item(form.field).is_some() =>
+        {
+            let index = form.new_item(form.field).map_or(0, |index| index + 1);
+            form.new_items.insert(index, TextInput::default());
+            form.field = LABELS.len() + form.description.len() + form.checks.len() + index;
         }
         // S-⏎ on a description line adds the next one, as in capture.
         Some(Action::AddItem) if form.description_line(form.field).is_some() => {
@@ -397,6 +450,16 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) -> Result<keys::EditorTar
             form.description.remove(line);
             form.field -= 1;
         }
+        // Backspace on an empty new sub-task, but the last row, removes it.
+        _ if key.code == KeyCode::Backspace
+            && form.new_item(form.field).is_some_and(|index| {
+                index + 1 < form.new_items.len() && form.new_items[index].text().is_empty()
+            }) =>
+        {
+            let index = form.new_item(form.field).unwrap_or_default();
+            form.new_items.remove(index);
+            form.field -= 1;
+        }
         _ => {
             if let Some(input) = form.current() {
                 input.handle(key);
@@ -418,6 +481,11 @@ pub(super) fn paste(app: &mut App, text: &str) {
         let added = form.description[line].paste_lines(text);
         form.field += added.len();
         form.description.splice(line + 1..line + 1, added);
+    } else if let Some(index) = form.new_item(form.field) {
+        // Each pasted line is a sub-task of its own.
+        let added = form.new_items[index].paste_lines(text);
+        form.field += added.len();
+        form.new_items.splice(index + 1..index + 1, added);
     } else if let Some(input) = form.current() {
         input.paste_one_line(text);
     }
@@ -628,6 +696,39 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let value = spans.split_off(2);
         entries.push((spans, Line::from(value), focused));
     }
+    // New sub-tasks, then the empty row the next one is typed into.
+    for (index, item) in form.new_items.iter().enumerate() {
+        let focused = form.new_item(form.field) == Some(index);
+        let label = if index == 0 && form.checklist.is_empty() {
+            "Checklist"
+        } else {
+            ""
+        };
+        let mut spans = vec![
+            Span::styled(if focused { "▌ " } else { "  " }, theme.fg(theme.accent)),
+            Span::styled(
+                format!("{label:<12}"),
+                if focused {
+                    theme.strong(theme.text)
+                } else {
+                    theme.muted()
+                },
+            ),
+        ];
+        if item.text().is_empty() && !focused {
+            spans.push(Span::styled("+ sub-task", theme.muted()));
+        } else {
+            spans.push(Span::styled("[ ] ", theme.muted()));
+            spans.extend(item.spans(theme, focused));
+            if item.text().is_empty() {
+                spans.push(Span::styled("type a sub-task", theme.muted()));
+            } else {
+                spans.push(Span::styled("  •", theme.fg(theme.due)));
+            }
+        }
+        let value = spans.split_off(2);
+        entries.push((spans, Line::from(value), focused));
+    }
     // Wide enough for a headline with tags aligned at org-tags-column plus
     // the diff marker, when the terminal allows.
     let width = area
@@ -723,8 +824,10 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 theme.key_hint(key(Action::Back), "cancel"),
             ]
             .concat()
-        } else if form.description_line(form.field).is_some() {
-            // On a description line, ⏎ adds a line and ⏎ on an empty one saves.
+        } else if form.description_line(form.field).is_some() || form.new_item(form.field).is_some()
+        {
+            // On a description line or a new sub-task, ⏎ adds a line and ⏎
+            // on an empty one saves.
             let save = key(Action::Save);
             [
                 theme.key_hint(save, "new line"),
