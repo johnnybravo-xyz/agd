@@ -174,6 +174,108 @@ That's also when to add the asn: and invoice-field checks to the smoke test.";
 
 #[test]
 #[serial]
+fn long_descriptions_and_sub_tasks_wrap_in_the_form_and_preview() {
+    use crate::tui::capture::{apply_key, refresh_stale, type_key};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        app.overlay = Overlay::Capture(crate::tui::capture::Draft::default());
+
+        for character in "tPlan the offsite".chars() {
+            type_key(&mut app, character);
+        }
+        apply_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT)).unwrap();
+        for character in
+            "Keep the venue close to transit so every attendee can reach it without needing a car"
+                .chars()
+        {
+            type_key(&mut app, character);
+        }
+        apply_key(&mut app, KeyEvent::from(KeyCode::Tab)).unwrap();
+        for character in
+            "book a venue with enough quiet rooms for every working group and the closing session"
+                .chars()
+        {
+            type_key(&mut app, character);
+        }
+        refresh_stale(&mut app);
+
+        let lines = render(&mut app, 70, 40);
+        let preview = lines
+            .iter()
+            .position(|line| line.contains("Org Preview"))
+            .unwrap_or_else(|| panic!("{}", lines.join("\n")));
+        let form = lines[..preview].join("\n");
+        let org = lines[preview + 1..].join("\n");
+        for text in ["without needing a car", "and the closing session"] {
+            assert!(form.contains(text), "{form}");
+            assert!(org.contains(text), "{org}");
+        }
+    });
+}
+
+#[test]
+#[serial]
+fn a_long_task_line_wraps_and_keeps_the_cursor_in_view() {
+    use crate::tui::capture::{refresh_stale, type_key};
+
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        app.overlay = Overlay::Capture(crate::tui::capture::Draft::default());
+        for character in
+            "tPlan the offsite with a deliberately long title that goes on until END".chars()
+        {
+            type_key(&mut app, character);
+        }
+        refresh_stale(&mut app);
+        let screen = render(&mut app, 70, 24).join("\n");
+        assert!(screen.contains("until END▏"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
+fn a_description_taller_than_the_screen_scrolls_to_the_line_being_typed() {
+    use crate::tui::capture::{apply_key, refresh_stale, type_key};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    with_home(|root| {
+        fs::write(root.join("inbox.org"), "* Inbox\n").unwrap();
+        let mut app = test_app(root);
+        app.settings.captures[0].file = Some(root.join("inbox.org").to_string_lossy().into_owned());
+        app.overlay = Overlay::Capture(crate::tui::capture::Draft::default());
+        for character in "tPlan".chars() {
+            type_key(&mut app, character);
+        }
+        apply_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT)).unwrap();
+        for paragraph in 0..6 {
+            if paragraph > 0 {
+                apply_key(&mut app, KeyEvent::from(KeyCode::Enter)).unwrap();
+            }
+            for character in
+                format!("Paragraph {paragraph} keeps the venue close to transit for everyone")
+                    .chars()
+            {
+                type_key(&mut app, character);
+            }
+        }
+        refresh_stale(&mut app);
+        let lines = render(&mut app, 80, 24);
+        let screen = lines.join("\n");
+        assert!(screen.contains("everyone▏"), "{screen}");
+        assert!(screen.contains("Org Preview"), "{screen}");
+        assert!(screen.contains("esc cancel"), "{screen}");
+        assert!(!screen.contains("Paragraph 0"), "{screen}");
+    });
+}
+
+#[test]
+#[serial]
 fn capture_opens_on_a_list_of_templates_with_their_destinations() {
     with_home(|root| {
         let mut app = test_app(root);

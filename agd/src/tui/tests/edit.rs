@@ -260,3 +260,37 @@ fn the_description_is_edited_under_the_heading_and_s_return_adds_a_line() {
         );
     });
 }
+
+#[test]
+#[serial]
+fn long_fields_wrap_and_the_focused_one_scrolls_into_view() {
+    use crossterm::event::KeyCode;
+    with_home(|root| {
+        let mut body = String::new();
+        for paragraph in 0..8 {
+            body.push_str(&format!(
+                "Paragraph {paragraph} keeps the venue close to transit for everyone\n"
+            ));
+        }
+        fs::write(
+            root.join("work.org"),
+            format!(
+                "* TODO Plan the offsite with a deliberately long title that goes on until the END\n\
+SCHEDULED: <2026-10-13 Tue>\n{body}- [ ] book a venue with quiet rooms for every working group TAIL\n"
+            ),
+        )
+        .unwrap();
+        let mut app = test_app(root);
+        app.reload_rows().unwrap();
+        open_edit(&mut app);
+        let screen = render(&mut app, 80, 40).join("\n");
+        assert!(screen.contains("until the END▏"), "{screen}");
+
+        // Up from the title wraps to the checklist, below the screen's fold.
+        key(&mut app, KeyCode::Up);
+        let screen = render(&mut app, 80, 24).join("\n");
+        assert!(screen.contains("group TAIL"), "{screen}");
+        assert!(screen.contains("Org Preview"), "{screen}");
+        assert!(!screen.contains("until the END"), "{screen}");
+    });
+}

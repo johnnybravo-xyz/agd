@@ -499,28 +499,8 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .and_then(|(scheduled, deadline)| {
             agd_core::deadline_before_scheduled(&scheduled, &deadline, app.today)
         });
-    let rows = form.field_count() as u16 + u16::from(clash.is_some());
-    // border + top padding, fields, gap, preview inset, gap, footer, border
-    let height = 2 + rows + 1 + preview.len() as u16 + 2 + 1 + 1 + 1;
-    // Wide enough for a headline with tags aligned at org-tags-column plus
-    // the diff marker, when the terminal allows.
-    let popup = centered(area, area.width.saturating_sub(4).clamp(60, 104), height);
-    frame.render_widget(Clear, popup);
-    let block = theme.popup(format!("Edit · {}", form.location));
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
-    let parts = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(rows),
-            Constraint::Length(1),
-            Constraint::Min(3),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .split(inner);
-
-    let mut fields = Vec::new();
+    // Each field: a 14-column label, and a value that wraps under itself.
+    let mut entries: Vec<(Vec<Span<'static>>, Line<'static>, bool)> = Vec::new();
     for (field, label) in LABELS.iter().enumerate() {
         let focused = field == form.field;
         let value = &form.values[field];
@@ -567,18 +547,19 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         if form.changed(field).is_some() {
             spans.push(Span::styled("  •", theme.fg(theme.due)));
         }
-        fields.push(Line::from(spans));
+        let value = spans.split_off(2);
+        entries.push((spans, Line::from(value), focused));
         if field == DEADLINE
             && let Some(clash) = &clash
         {
-            fields.push(Line::from(Span::styled(
-                format!(
-                    "{:14}{}",
-                    "",
-                    crate::words::deadline_before_scheduled(clash, "", app.today)
-                ),
-                theme.muted(),
-            )));
+            entries.push((
+                Vec::new(),
+                Line::from(Span::styled(
+                    crate::words::deadline_before_scheduled(clash, "", app.today),
+                    theme.muted(),
+                )),
+                false,
+            ));
         }
     }
     // The description: one row per line, labelled once.
@@ -612,7 +593,8 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         if changed && index == 0 {
             spans.push(Span::styled("  •", theme.fg(theme.due)));
         }
-        fields.push(Line::from(spans));
+        let value = spans.split_off(2);
+        entries.push((spans, Line::from(value), focused));
     }
     // The checklist: one row per box, labelled once; a checked box reads
     // as a done row does.
@@ -643,15 +625,94 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         if *checked != item.checked {
             spans.push(Span::styled("  •", theme.fg(theme.due)));
         }
-        fields.push(Line::from(spans));
+        let value = spans.split_off(2);
+        entries.push((spans, Line::from(value), focused));
     }
-    frame.render_widget(Paragraph::new(fields), parts[0]);
-    frame.render_widget(
-        Paragraph::new(preview)
-            .wrap(Wrap { trim: false })
-            .block(theme.inset()),
-        parts[2],
-    );
+    // Wide enough for a headline with tags aligned at org-tags-column plus
+    // the diff marker, when the terminal allows.
+    let width = area
+        .width
+        .saturating_sub(4)
+        .clamp(60, 104)
+        .min(area.width.saturating_sub(2));
+    let block = theme.popup(format!("Edit · {}", form.location));
+    let inner_width = block.inner(Rect::new(0, 0, width, 8)).width;
+    let value_width = inner_width.saturating_sub(14);
+    let preview_width = theme.inset().inner(Rect::new(0, 0, inner_width, 8)).width;
+    let wrapped = |line: &Line<'static>, width: u16| {
+        u16::try_from(
+            Paragraph::new(line.clone())
+                .wrap(Wrap { trim: false })
+                .line_count(width),
+        )
+        .unwrap_or(u16::MAX)
+        .max(1)
+    };
+    let mut field_rows = 0u16;
+    let mut focus = 0..0;
+    let mut sized = Vec::with_capacity(entries.len());
+    for (label, value, focused) in entries {
+        let rows = wrapped(&value, value_width);
+        if focused {
+            focus = field_rows..field_rows.saturating_add(rows);
+        }
+        field_rows = field_rows.saturating_add(rows);
+        sized.push((label, value, rows));
+    }
+    let preview = Paragraph::new(preview).wrap(Wrap { trim: false });
+    let preview_rows = u16::try_from(preview.line_count(preview_width)).unwrap_or(u16::MAX);
+    // border + top padding, gap, preview borders, gap, footer, border
+    let fixed_rows = 2 + 1 + 2 + 1 + 1 + 1;
+    // Taller than the screen: the preview gives way first, down to one
+    // line, then the fields scroll to keep the focused one in view.
+    let room = area.height.saturating_sub(2).saturating_sub(fixed_rows);
+    let fields_shown = field_rows.min(room.saturating_sub(1)).max(1);
+    let preview_shown = preview_rows.min(room.saturating_sub(fields_shown)).max(1);
+    let scroll = focus.end.saturating_sub(fields_shown);
+    let popup = centered(area, width, fixed_rows + fields_shown + preview_shown);
+    frame.render_widget(Clear, popup);
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let parts = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(fields_shown),
+            Constraint::Length(1),
+            Constraint::Min(3),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    let fields = parts[0];
+    let mut row = 0u16;
+    for (label, value, rows) in sized {
+        let end = row.saturating_add(rows);
+        if end > scroll && row < scroll.saturating_add(fields.height) {
+            let skip = scroll.saturating_sub(row);
+            let top = fields.y + row.saturating_sub(scroll);
+            let shown = (rows - skip).min(fields.bottom().saturating_sub(top));
+            if skip == 0 {
+                frame.render_widget(
+                    Paragraph::new(Line::from(label)),
+                    Rect::new(fields.x, top, 14.min(fields.width), 1),
+                );
+            }
+            frame.render_widget(
+                Paragraph::new(value)
+                    .wrap(Wrap { trim: false })
+                    .scroll((skip, 0)),
+                Rect::new(
+                    fields.x.saturating_add(14),
+                    top,
+                    fields.width.saturating_sub(14),
+                    shown,
+                ),
+            );
+        }
+        row = end;
+    }
+    frame.render_widget(preview.block(theme.inset()), parts[2]);
     let key = |action| keys::key_label(keys::POPUP_KEYS, action);
     frame.render_widget(
         Paragraph::new(Line::from(if form.checkbox(form.field).is_some() {

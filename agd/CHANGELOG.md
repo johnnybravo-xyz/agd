@@ -12,6 +12,13 @@ This file records user-visible changes to the `agd` executable. It follows
   Program Status Protocol, so Rex and other supporting terminals can surface
   its activity.
 
+### Fixed
+
+- Long text wraps in the capture and edit popups (the task line, the
+  description, sub-tasks, checklist items and the Org preview) instead of
+  being cut off, and a popup taller than the screen scrolls to keep the
+  field being typed in view.
+
 ## [0.3.0] - 2026-11-01
 
 ### Added

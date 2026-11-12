@@ -547,30 +547,151 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .clamp(60, 104)
         .min(area.width.saturating_sub(2));
     // The popup's and the inset's borders and padding take twelve columns.
-    let preview = preview_lines(
+    let preview_width = width.saturating_sub(12);
+    let preview = Paragraph::new(preview_lines(
         theme,
         &keyword_colors(&app.index),
         &draft.preview,
-        usize::from(width).saturating_sub(12),
-    );
+        usize::from(preview_width),
+    ))
+    .wrap(Wrap { trim: false });
+    let preview_rows = u16::try_from(preview.line_count(preview_width)).unwrap_or(u16::MAX);
     let open = draft.open_fields(app);
     let prompts = open.len() as u16;
     let prompt_rows = if prompts > 0 { prompts + 1 } else { 0 };
+    let cursor = |active: bool| {
+        if active {
+            Span::styled("▏", theme.fg(theme.accent))
+        } else {
+            Span::raw("")
+        }
+    };
+    // The task line wraps under its own text, `›` in a column of its own.
+    let mut title_spans = Vec::new();
+    if draft.input.text().is_empty() {
+        title_spans.push(cursor(draft.field == 0));
+        title_spans.push(Span::styled(
+            placeholder(app.settings.notation),
+            theme.muted(),
+        ));
+    } else {
+        title_spans.extend(draft.input.spans(theme, draft.field == 0));
+    }
+    let title = Paragraph::new(Line::from(title_spans)).wrap(Wrap { trim: false });
+    let title_rows = u16::try_from(title.line_count(width.saturating_sub(12)))
+        .unwrap_or(u16::MAX)
+        .max(1);
     // Keep the optional DESCRIPTION box collapsed until it has focus or
     // content. Once sub-tasks exist, it stays visible above them.
     let description_visible = draft.description_focused()
         || draft.description.iter().any(|line| !line.text().is_empty())
         || !draft.items.is_empty();
-    let description_rows = if description_visible {
-        3 + draft.description.len() as u16
+    let descriptions = draft.description.len();
+    let mut description_lines = Vec::with_capacity(descriptions);
+    for (index, line) in draft.description.iter().enumerate() {
+        let focused = draft.field == index + 1;
+        let mut spans = line.spans(theme, focused);
+        if line.text().is_empty() {
+            let hint = if index == 0 {
+                "⏎ for multiline · tab for sub-tasks"
+            } else {
+                "⌫ removes this line"
+            };
+            spans.push(Span::styled(hint, theme.muted()));
+        }
+        description_lines.push(Line::from(spans));
+    }
+    // Description text has the popup, nested-box and input-block insets.
+    let description_width = width.saturating_sub(14);
+    let wrapped_rows = |lines: &[Line<'static>]| {
+        u16::try_from(
+            Paragraph::new(lines.to_vec())
+                .wrap(Wrap { trim: false })
+                .line_count(description_width),
+        )
+        .unwrap_or(u16::MAX)
+    };
+    let description_text_rows = wrapped_rows(&description_lines);
+    // The focused description line's rows, for scrolling it into view.
+    let description_focus = (1..=descriptions)
+        .find(|field| draft.field == *field)
+        .map(|field| {
+            let start = wrapped_rows(&description_lines[..field - 1]);
+            start..start.saturating_add(wrapped_rows(&description_lines[field - 1..field]))
+        });
+    // A sub-task's bullet gets its own column, so continuation rows align
+    // with its text rather than with `- [ ]`.
+    let item_width = width.saturating_sub(16);
+    let items: Vec<_> = draft
+        .items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let focused = draft.field == descriptions + index + 1;
+            let mut spans = item.spans(theme, focused);
+            if item.text().is_empty() && focused {
+                spans.push(Span::styled("⌫ removes this sub-task", theme.muted()));
+            }
+            let paragraph = Paragraph::new(Line::from(spans)).wrap(Wrap { trim: false });
+            let rows = u16::try_from(paragraph.line_count(item_width))
+                .unwrap_or(u16::MAX)
+                .max(1);
+            (paragraph, rows)
+        })
+        .collect();
+    let item_rows = items
+        .iter()
+        .fold(0u16, |rows, (_, item_rows)| rows.saturating_add(*item_rows));
+    // border + top padding, input, gap, prompts, chips, gap, destination,
+    // preview inset, gap, footer, border
+    let fixed_rows = 2u16
+        .saturating_add(title_rows + 2)
+        .saturating_add(u16::from(description_visible))
+        .saturating_add(item_rows)
+        .saturating_add(1)
+        .saturating_add(prompt_rows)
+        .saturating_add(3)
+        .saturating_add(5);
+    // Taller than the screen: the preview gives way first, down to one
+    // line, then the description, which scrolls to keep the focused line
+    // in view.
+    let room = area.height.saturating_sub(2).saturating_sub(fixed_rows);
+    let description_shown = if description_visible {
+        // Its borders and one preview line stay in the room.
+        description_text_rows.min(room.saturating_sub(3)).max(1)
     } else {
         0
     };
-    let input_rows = 3 + description_rows + draft.items.len() as u16;
-    // border + top padding, input, gap, prompts, chips, gap, destination,
-    // preview inset, gap, footer, border
-    let height =
-        2 + input_rows + 1 + prompt_rows + 1 + 1 + 1 + preview.len() as u16 + 2 + 1 + 1 + 1;
+    let description_height = if description_visible {
+        description_shown + 2
+    } else {
+        0
+    };
+    let preview_shown = preview_rows
+        .min(room.saturating_sub(description_height))
+        .max(1);
+    let description_scroll =
+        description_focus.map_or(0, |focus| focus.end.saturating_sub(description_shown));
+    let description_title = if draft.description_focused() {
+        theme.strong(theme.text)
+    } else {
+        theme.muted()
+    };
+    let description = Paragraph::new(description_lines)
+        .wrap(Wrap { trim: false })
+        .scroll((description_scroll, 0))
+        .block(
+            theme
+                .input(draft.description_focused())
+                .title(Span::styled(" Description ", description_title)),
+        );
+    let input_rows = (title_rows + 2)
+        .saturating_add(u16::from(description_visible))
+        .saturating_add(description_height)
+        .saturating_add(item_rows);
+    let height = fixed_rows
+        .saturating_add(description_height)
+        .saturating_add(preview_shown);
     let popup = centered(area, width, height);
     frame.render_widget(Clear, popup);
     let block = theme.popup(format!("Capture · {}", template.desc));
@@ -594,37 +715,13 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .constraints(constraints)
         .split(inner);
 
-    let cursor = |active: bool| {
-        if active {
-            Span::styled("▏", theme.fg(theme.accent))
-        } else {
-            Span::raw("")
-        }
-    };
-    let mut input_spans = vec![Span::styled("› ", theme.strong(theme.accent))];
-    if draft.input.text().is_empty() {
-        input_spans.push(cursor(draft.field == 0));
-        input_spans.push(Span::styled(
-            placeholder(app.settings.notation),
-            theme.muted(),
-        ));
-    } else {
-        input_spans.extend(draft.input.spans(theme, draft.field == 0));
-    }
-
-    let descriptions = draft.description.len();
-    let description_height = if description_visible {
-        descriptions as u16 + 2
-    } else {
-        0
-    };
     let input_parts = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(title_rows + 2),
             Constraint::Length(u16::from(description_visible)),
             Constraint::Length(description_height),
-            Constraint::Length(draft.items.len() as u16),
+            Constraint::Length(item_rows),
         ])
         .split(parts[0]);
     // The description and sub-tasks sit two columns in from each side of
@@ -634,51 +731,53 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         width: area.width.saturating_sub(4),
         ..area
     };
+    let title_block = theme.input(draft.field == 0);
+    let title_area = title_block.inner(input_parts[0]);
+    frame.render_widget(title_block, input_parts[0]);
     frame.render_widget(
-        Paragraph::new(Line::from(input_spans)).block(theme.input(draft.field == 0)),
-        input_parts[0],
+        Paragraph::new(Span::styled("› ", theme.strong(theme.accent))),
+        Rect {
+            width: 2,
+            height: 1,
+            ..title_area
+        },
+    );
+    frame.render_widget(
+        title,
+        Rect {
+            x: title_area.x.saturating_add(2),
+            width: title_area.width.saturating_sub(2),
+            ..title_area
+        },
     );
 
     if description_visible {
-        let mut description_lines = Vec::with_capacity(descriptions);
-        for (index, line) in draft.description.iter().enumerate() {
-            let focused = draft.field == index + 1;
-            let mut spans = line.spans(theme, focused);
-            if line.text().is_empty() {
-                let hint = if index == 0 {
-                    "⏎ for multiline · tab for sub-tasks"
-                } else {
-                    "⌫ removes this line"
-                };
-                spans.push(Span::styled(hint, theme.muted()));
-            }
-            description_lines.push(Line::from(spans));
-        }
-        let description_title = if draft.description_focused() {
-            theme.strong(theme.text)
-        } else {
-            theme.muted()
-        };
-        let description_block = theme
-            .input(draft.description_focused())
-            .title(Span::styled(" Description ", description_title));
-        frame.render_widget(
-            Paragraph::new(description_lines).block(description_block),
-            nested(input_parts[2]),
-        );
+        frame.render_widget(description, nested(input_parts[2]));
     }
 
-    let mut item_lines = Vec::with_capacity(draft.items.len());
-    for (index, item) in draft.items.iter().enumerate() {
-        let focused = draft.field == descriptions + index + 1;
-        let mut spans = vec![Span::styled("- [ ] ", theme.muted())];
-        spans.extend(item.spans(theme, focused));
-        if item.text().is_empty() && focused {
-            spans.push(Span::styled("⌫ removes this sub-task", theme.muted()));
-        }
-        item_lines.push(Line::from(spans));
+    let item_area = nested(input_parts[3]);
+    let mut item_y = item_area.y;
+    for (item, rows) in items {
+        frame.render_widget(
+            Paragraph::new(Span::styled("- [ ] ", theme.muted())),
+            Rect {
+                y: item_y,
+                width: 6,
+                height: 1,
+                ..item_area
+            },
+        );
+        frame.render_widget(
+            item,
+            Rect {
+                x: item_area.x.saturating_add(6),
+                y: item_y,
+                width: item_area.width.saturating_sub(6),
+                height: rows,
+            },
+        );
+        item_y = item_y.saturating_add(rows);
     }
-    frame.render_widget(Paragraph::new(item_lines), nested(input_parts[3]));
     let label_width = draft
         .prompts
         .iter()
@@ -754,12 +853,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .alignment(ratatui::layout::Alignment::Right),
         parts[next + 2],
     );
-    frame.render_widget(
-        Paragraph::new(preview)
-            .wrap(Wrap { trim: false })
-            .block(theme.inset()),
-        parts[next + 3],
-    );
+    frame.render_widget(preview.block(theme.inset()), parts[next + 3]);
     // On a line of several, ⏎ adds a line and ⏎ on an empty one saves.
     let lines = draft.description_focused() || draft.item_focused();
     let save = key(Action::Save);
@@ -904,8 +998,8 @@ fn destination(template: &agd_core::CaptureTemplate) -> String {
     }
 }
 
-/// The preview's Org lines, each cut to `width` with "…" rather than
-/// wrapped, so a heading's aligned tags never land on a line of their own.
+/// The preview's Org lines. Headings are cut to `width` so aligned tags
+/// never land on a line of their own; body lines wrap in the paragraph.
 fn preview_lines(
     theme: &Theme,
     colors: &BTreeMap<String, String>,
@@ -916,7 +1010,13 @@ fn preview_lines(
         Ok(text) if text.is_empty() => vec![Line::default()],
         Ok(text) => text
             .lines()
-            .map(|line| org_line(theme, colors, &truncate(line, width)))
+            .map(|line| {
+                if line.starts_with('*') {
+                    org_line(theme, colors, &truncate(line, width))
+                } else {
+                    org_line(theme, colors, line)
+                }
+            })
             .collect(),
         Err(error) => vec![Line::from(Span::styled(
             error.clone(),
