@@ -21,6 +21,8 @@ This file records user-visible changes to the `agd` executable. It follows
   description, sub-tasks, checklist items and the Org preview) instead of
   being cut off, and a popup taller than the screen scrolls to keep the
   field being typed in view.
+- The MCP adapter uses `rmcp` 3.11, which fixes the SDK's HTTP transport
+  security advisories even though agd itself exposes only local stdio.
 
 ## [0.3.0] - 2026-11-01
 

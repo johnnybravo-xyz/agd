@@ -32,7 +32,7 @@ orgize = { version = "=0.10.0-alpha.10", features = ["tracing"] }
 predicates = "3.1"
 regex = "1.12"
 notify = "8.2"
-rmcp = { version = "3.5.1", features = ["transport-io"] }
+rmcp = { version = "3.11.0", features = ["transport-io"] }
 ratatui = { version = "0.30", default-features = false, features = ["crossterm", "unstable-rendered-line-info"] }
 serde_json = "1.0.149"
 serde = { version = "1.0", features = ["derive"] }

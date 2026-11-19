@@ -2,7 +2,12 @@
 all-features = true
 
 [advisories]
-ignore = []
+ignore = [
+  # futures-util still depends on pin-utils, whose advisory has no fixed release.
+  "RUSTSEC-2026-0441",
+  # chrono has no maintained release; replacing it requires a date/time migration.
+  "RUSTSEC-2026-0543",
+]
 
 [licenses]
 allow = [
